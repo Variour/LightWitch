@@ -93,21 +93,59 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:8080** in a browser. The mock server (`server/index.js`) handles all REST endpoints and WebSocket, with scenes stored in memory for the duration of the process.
+Open **http://localhost:8080** in a browser. The mock server (`server/index.js`) handles all REST endpoints and WebSocket, with scenes stored in memory for the duration of the process. Auth is skipped entirely when no environment variables are configured.
 
 > Requires Node.js.
 
 ---
 
-## Web UI container
+## Online hosting (Azure Container Apps)
 
-Every pull request builds a Docker image and pushes it to the GitHub Container Registry. A comment is posted on the PR with the exact command to run it:
+The web UI runs as a Docker container on Azure Container Apps, with a permanent `latest` deployment and per-PR preview environments.
+
+### Authentication
+
+Access is restricted to specific GitHub accounts via OAuth. The production container handles the OAuth flow; PR preview containers delegate to it, so only one OAuth App registration is needed regardless of how many PR environments exist.
+
+**One-time setup:**
+
+1. **Register a GitHub OAuth App** at github.com/settings/developers
+   - Authorization callback URL: `https://<prod-fqdn>/auth/callback`
+
+2. **Add GitHub Actions secrets** (repo → Settings → Secrets → Actions):
+
+   | Secret | Where used | Value |
+   |---|---|---|
+   | `GITHUB_OAUTH_CLIENT_ID` | Prod container | Client ID from the OAuth App |
+   | `GITHUB_OAUTH_CLIENT_SECRET` | Prod container | Client Secret from the OAuth App |
+   | `ALLOWED_GITHUB_USERS` | All containers | Comma-separated GitHub usernames, e.g. `alice,bob,charlie` |
+   | `AUTH_TOKEN_SECRET` | All containers | Random secret shared across all containers — `openssl rand -base64 32` |
+   | `AUTH_SESSION_SECRET` | All containers | Random secret for session cookies — `openssl rand -base64 32` |
+
+   Existing secrets (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `GHCR_PASSWORD_B64`) are unchanged.
+
+3. **Deploy infrastructure** by running the *Deploy infrastructure* workflow manually (or pushing a change to `infra/`).
+
+### Deployments
+
+| Event | Result |
+|---|---|
+| Push to `main` | Updates the permanent `batterylight-latest` container app |
+| Open / push to a PR | Creates or updates a `batterylight-pr-<N>` container app; URL posted as a PR comment |
+| PR closed / merged | PR container app and its registry image are cleaned up on next push to `main` |
+
+---
+
+## Web UI container (local Docker)
+
+Every push to `main` and every pull request builds a Docker image pushed to the GitHub Container Registry. Run any image locally:
 
 ```sh
-docker run --rm -p 8080:8080 ghcr.io/<owner>/batterylight:pr-<N>
+docker run --rm -p 8080:8080 ghcr.io/<owner>/batterylight:latest      # main branch
+docker run --rm -p 8080:8080 ghcr.io/<owner>/batterylight:pr-<N>      # specific PR
 ```
 
-The `latest` tag tracks the `main` branch. No setup or secrets are required beyond the default `GITHUB_TOKEN`.
+Auth is disabled when running locally (no environment variables set).
 
 ---
 
