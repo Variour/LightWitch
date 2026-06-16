@@ -1,10 +1,12 @@
 {
   "name": "batterylight",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "wrangler pages dev data --port 8788 --kv SCENES"
+    "dev": "node server/index.js"
   },
-  "devDependencies": {
-    "wrangler": "^3"
+  "dependencies": {
+    "express": "^4",
+    "ws": "^8"
   }
 }

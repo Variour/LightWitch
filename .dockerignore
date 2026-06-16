@@ -1,0 +1,13 @@
+.git/
+.pio/
+.vscode/
+.wrangler/
+node_modules/
+functions/
+src/
+scripts/
+data/scenes/
+*.md
+.gitignore
+platformio.ini
+WIRING.md

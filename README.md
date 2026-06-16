@@ -86,55 +86,28 @@ pio run -e batterylight1_ota -t upload && pio run -e batterylight1_ota -t upload
 
 ## Local web UI development
 
-Run the web interface locally without hardware using the Cloudflare Pages dev server:
+Run the web interface locally without hardware:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open **http://localhost:8788** in a browser. The mock API (under `functions/`) handles all REST endpoints and persists scenes to a local KV store (`.wrangler/state/`). WebSocket is skipped on localhost by the UI.
+Open **http://localhost:8080** in a browser. The mock server (`server/index.js`) handles all REST endpoints and WebSocket, with scenes stored in memory for the duration of the process.
 
-> Requires Node.js. Wrangler is installed automatically via `npm install`.
+> Requires Node.js.
 
 ---
 
-## Hosted web UI (Cloudflare Pages)
+## Web UI container
 
-The web UI is hosted on Cloudflare Pages with per-PR preview deployments. Access is restricted via Cloudflare Access — no credentials are stored in the app.
+Every pull request builds a Docker image and pushes it to the GitHub Container Registry. A comment is posted on the PR with the exact command to run it:
 
-### One-time setup
+```sh
+docker run --rm -p 8080:8080 ghcr.io/variour/batterylight:pr-<N>
+```
 
-**1. Create a KV namespace**
-
-In the [Cloudflare dashboard](https://dash.cloudflare.com/) → **Storage & Databases → KV** → Create namespace. Name it anything (e.g. `batterylight-scenes`).
-
-**2. Create the Pages project**
-
-Workers & Pages → Create → Pages → Direct Upload. Upload any placeholder file — the real deployments come from GitHub Actions. Then go to **Settings → Bindings** and add a KV namespace binding:
-
-| Variable name | KV namespace |
-|---|---|
-| `SCENES` | *(the namespace created in step 1)* |
-
-**3. Add GitHub Actions secrets**
-
-In the GitHub repo → Settings → Secrets → Actions, add:
-
-| Secret | Where to get it |
-|---|---|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token → Custom token → add permission **Cloudflare Pages: Edit** |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → right sidebar on any Workers & Pages page |
-
-**4. Enable access controls**
-
-Zero Trust → Access controls → Add an application → Select "Cloudflare Pages" and pick the Pages project.
-
-Add a policy that allows the relevant GitHub users/organisation. Cloudflare handles all authentication — the app has no auth code.
-
-### Per-PR previews
-
-Every pull request is automatically deployed by the `preview.yml` GitHub Actions workflow. The preview URL is posted as a comment on the PR and updated on each push. The URL is protected by the same Cloudflare Access policy.
+The `latest` tag tracks the `main` branch.
 
 ---
 
