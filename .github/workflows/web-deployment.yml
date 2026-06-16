@@ -62,10 +62,12 @@ jobs:
       - name: Update latest Container App
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
+          IMAGE="ghcr.io/${{ github.repository }}:latest"
+          IMAGE="${IMAGE,,}"
           az containerapp update \
             --name batterylight-latest \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --image "ghcr.io/${{ github.repository }}:latest" \
+            --image "$IMAGE" \
             --set-env-vars \
               GITHUB_CLIENT_ID="${{ secrets.GITHUB_OAUTH_CLIENT_ID }}" \
               GITHUB_CLIENT_SECRET="${{ secrets.GITHUB_OAUTH_CLIENT_SECRET }}" \
