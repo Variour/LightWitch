@@ -9,6 +9,7 @@ permissions:
   contents: read
   packages: write
   pull-requests: write
+  id-token: write
 
 jobs:
   build:
@@ -37,22 +38,80 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
 
-      - name: Post container info to PR
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ── main branch: update the permanent latest app ────────────────────────
+      - name: Update latest Container App
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          az containerapp update \
+            --name batterylight-latest \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --image "ghcr.io/${{ github.repository }}:latest"
+
+      # ── PR: create or update a per-PR Container App ─────────────────────────
+      - name: Deploy PR Container App
+        if: github.event_name == 'pull_request'
+        id: pr_app
+        run: |
+          APP="batterylight-pr-${{ github.event.number }}"
+          RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
+          IMAGE="ghcr.io/${{ github.repository }}:pr-${{ github.event.number }}"
+          IMAGE="${IMAGE,,}"  # lowercase
+
+          # Retrieve the shared environment ID from the permanent app
+          ENV_ID=$(az containerapp show \
+            --name batterylight-latest \
+            --resource-group "$RG" \
+            --query "properties.environmentId" -o tsv)
+
+          if az containerapp show --name "$APP" --resource-group "$RG" &>/dev/null; then
+            az containerapp update \
+              --name "$APP" \
+              --resource-group "$RG" \
+              --image "$IMAGE"
+          else
+            az containerapp create \
+              --name "$APP" \
+              --resource-group "$RG" \
+              --environment "$ENV_ID" \
+              --image "$IMAGE" \
+              --registry-server ghcr.io \
+              --registry-username variour \
+              --registry-password "${{ secrets.GHCR_PASSWORD_B64 }}" \
+              --target-port 8080 \
+              --ingress external \
+              --cpu 0.25 \
+              --memory 0.5Gi \
+              --min-replicas 0 \
+              --max-replicas 3
+          fi
+
+          FQDN=$(az containerapp show \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
+
+      - name: Post preview URL to PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v9
         with:
           script: |
             const marker = '<!-- container-preview -->';
-            const image = `ghcr.io/${{ github.repository }}:pr-${{ github.event.number }}`.toLowerCase();
+            const fqdn = '${{ steps.pr_app.outputs.fqdn }}';
             const body = [
               marker,
               '## Preview',
               '',
-              '```sh',
-              `docker run --rm -p 8080:8080 ${image}`,
-              '```',
+              `**URL:** https://${fqdn}`,
               '',
-              'Then open http://localhost:8080',
+              '_Hosted on Azure Container Apps — accessible from the internet._',
             ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
@@ -74,6 +133,7 @@ jobs:
               });
             }
 
+      # ── main branch: clean up containers for closed PRs ────────────────────
       - name: Clean up closed PR containers
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/github-script@v9
@@ -99,6 +159,8 @@ jobs:
               return;
             }
 
+            const closedPrNumbers = [];
+
             for (const version of versions) {
               const prTags = (version.metadata?.container?.tags ?? [])
                 .filter(t => /^pr-\d+$/.test(t));
@@ -118,7 +180,7 @@ jobs:
 
                 if (prState === 'open' || prState === null) continue;
 
-                console.log(`Deleting ${tag} (PR #${prNumber} is ${prState})`);
+                console.log(`Deleting registry package ${tag} (PR #${prNumber} is ${prState})`);
                 try {
                   if (isOrg) {
                     await github.rest.packages.deletePackageVersionForOrg({
@@ -131,8 +193,22 @@ jobs:
                       package_name: packageName, package_version_id: version.id,
                     });
                   }
+                  closedPrNumbers.push(prNumber);
                 } catch (e) {
                   console.log(`Failed to delete ${tag}:`, e.message);
                 }
               }
             }
+            core.exportVariable('CLOSED_PRS', closedPrNumbers.join(' '));
+
+      - name: Delete Azure Container Apps for closed PRs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.CLOSED_PRS != ''
+        run: |
+          RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
+          for PR in $CLOSED_PRS; do
+            APP="batterylight-pr-${PR}"
+            if az containerapp show --name "$APP" --resource-group "$RG" &>/dev/null; then
+              echo "Deleting Container App $APP"
+              az containerapp delete --name "$APP" --resource-group "$RG" --yes
+            fi
+          done
