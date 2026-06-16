@@ -123,7 +123,7 @@ In the GitHub repo → Settings → Secrets → Actions, add:
 
 | Secret | Where to get it |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token (use the "Edit Cloudflare Workers" template) |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token → Custom token → add permission **Cloudflare Pages: Edit** |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → right sidebar on any Workers & Pages page |
 
 **4. Enable access controls**
