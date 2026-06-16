@@ -3,7 +3,21 @@ name: Preview
 on:
   push:
     branches: [main]
+    paths:
+      - 'server/**'
+      - 'data/**'
+      - 'Dockerfile'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/preview.yml'
   pull_request:
+    paths:
+      - 'server/**'
+      - 'data/**'
+      - 'Dockerfile'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/preview.yml'
 
 permissions:
   contents: read
