@@ -65,7 +65,13 @@ jobs:
           az containerapp update \
             --name batterylight-latest \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --image "ghcr.io/${{ github.repository }}:latest"
+            --image "ghcr.io/${{ github.repository }}:latest" \
+            --set-env-vars \
+              GITHUB_CLIENT_ID="${{ secrets.GITHUB_OAUTH_CLIENT_ID }}" \
+              GITHUB_CLIENT_SECRET="${{ secrets.GITHUB_OAUTH_CLIENT_SECRET }}" \
+              ALLOWED_GITHUB_USERS="${{ secrets.ALLOWED_GITHUB_USERS }}" \
+              TOKEN_SECRET="${{ secrets.AUTH_TOKEN_SECRET }}" \
+              SESSION_SECRET="${{ secrets.AUTH_SESSION_SECRET }}"
 
       # ── PR: create or update a per-PR Container App ─────────────────────────
       - name: Deploy PR Container App
@@ -77,17 +83,27 @@ jobs:
           IMAGE="ghcr.io/${{ github.repository }}:pr-${{ github.event.number }}"
           IMAGE="${IMAGE,,}"  # lowercase
 
-          # Retrieve the shared environment ID from the permanent app
+          # Retrieve the shared environment ID and prod FQDN from the permanent app
           ENV_ID=$(az containerapp show \
             --name batterylight-latest \
             --resource-group "$RG" \
             --query "properties.environmentId" -o tsv)
 
+          PROD_FQDN=$(az containerapp show \
+            --name batterylight-latest \
+            --resource-group "$RG" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+
           if az containerapp show --name "$APP" --resource-group "$RG" &>/dev/null; then
             az containerapp update \
               --name "$APP" \
               --resource-group "$RG" \
-              --image "$IMAGE"
+              --image "$IMAGE" \
+              --set-env-vars \
+                AUTH_ORIGIN="https://$PROD_FQDN" \
+                ALLOWED_GITHUB_USERS="${{ secrets.ALLOWED_GITHUB_USERS }}" \
+                TOKEN_SECRET="${{ secrets.AUTH_TOKEN_SECRET }}" \
+                SESSION_SECRET="${{ secrets.AUTH_SESSION_SECRET }}"
           else
             az containerapp create \
               --name "$APP" \
@@ -102,7 +118,12 @@ jobs:
               --cpu 0.25 \
               --memory 0.5Gi \
               --min-replicas 0 \
-              --max-replicas 3
+              --max-replicas 3 \
+              --env-vars \
+                AUTH_ORIGIN="https://$PROD_FQDN" \
+                ALLOWED_GITHUB_USERS="${{ secrets.ALLOWED_GITHUB_USERS }}" \
+                TOKEN_SECRET="${{ secrets.AUTH_TOKEN_SECRET }}" \
+                SESSION_SECRET="${{ secrets.AUTH_SESSION_SECRET }}"
           fi
 
           FQDN=$(az containerapp show \

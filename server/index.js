@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import express from 'express';
 import { WebSocketServer } from 'ws';
+import { authRouter, requireAuth } from './auth.js';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
@@ -29,6 +30,8 @@ const scenes = new Map();
 
 const app = express();
 app.use(express.json());
+app.use('/auth', authRouter);
+app.use(requireAuth);
 app.use(express.static(DATA_DIR));
 
 app.get('/api/config', (_req, res) => res.json(MOCK_CONFIG));
