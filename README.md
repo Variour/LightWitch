@@ -84,6 +84,21 @@ pio run -e batterylight1_ota -t upload && pio run -e batterylight1_ota -t upload
 
 ---
 
+## Local web UI development
+
+Run the web interface locally without hardware using the Cloudflare Pages dev server:
+
+```bash
+npm install
+npm run dev
+```
+
+Open **http://localhost:8788** in a browser. The mock API (under `functions/`) handles all REST endpoints and persists scenes to a local KV store (`.wrangler/state/`). WebSocket is skipped on localhost by the UI.
+
+> Requires Node.js. Wrangler is installed automatically via `npm install`.
+
+---
+
 ## Hardware
 
 See [WIRING.md](WIRING.md) for wiring diagrams for both supported LED types.

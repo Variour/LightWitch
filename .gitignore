@@ -1,3 +1,5 @@
 .pio/
 .vscode/
 data/*.gz
+node_modules/
+.wrangler/

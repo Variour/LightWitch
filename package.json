@@ -1,0 +1,10 @@
+{
+  "name": "batterylight",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler pages dev data --port 8788 --kv SCENES"
+  },
+  "devDependencies": {
+    "wrangler": "^3"
+  }
+}
