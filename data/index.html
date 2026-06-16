@@ -867,7 +867,7 @@ async function _openEditor(id) {
     w,
     h,
     frames: Array.isArray(d.frames)
-      ? d.frames.map(f => _hexToFrame(String(f || ''), size))
+      ? d.frames.map(f => _hexToFrame(f, size))
       : []
   };
 
@@ -883,23 +883,29 @@ async function _openEditor(id) {
   showSceneView('editor');
 }
 
-// ── Frame hex ⟷ cell array ────────────────────────────────────────────────────
-// A frame is stored on the device as a compact hex string: RRGGBB per cell, no separators.
-// In memory we keep it as an array of '#rrggbb' strings for easy DOM use.
-function _hexToFrame(hex, size) {
-  const cells = [];
+// ── Frame format ⟷ cell array ─────────────────────────────────────────────────
+// Frames are stored as an array of per-pixel rrggbb hex strings (no '#' prefix).
+// In memory we keep each frame as an array of '#rrggbb' strings for easy DOM use.
+// Legacy flat-string format is still accepted on read for backward compatibility.
+function _hexToFrame(frame, size) {
   const total = Number.isFinite(size) ? Math.max(0, Math.floor(size)) : 0;
-
+  if (Array.isArray(frame)) {
+    return frame.slice(0, total).map(c =>
+      typeof c === 'string' ? (c.startsWith('#') ? c : '#' + c) : '#000000'
+    );
+  }
+  // Legacy: flat concatenated hex string
+  const cells = [];
+  const hex = String(frame || '');
   for (let i = 0; i < total; i++) {
-    const chunk = String(hex || '').slice(i * 6, i * 6 + 6);
+    const chunk = hex.slice(i * 6, i * 6 + 6);
     cells.push('#' + (chunk || '000000'));
   }
-
   return cells;
 }
 
 function _frameToHex(cells) {
-  return cells.map(c => c.replace('#', '')).join('');
+  return cells.map(c => c.replace('#', ''));
 }
 
 // ── Render editor ─────────────────────────────────────────────────────────────

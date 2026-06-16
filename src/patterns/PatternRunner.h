@@ -109,19 +109,15 @@ private:
         JsonArray frames = doc["frames"].as<JsonArray>();
         if (!frames.size()) return fallback;
 
-        const char* frame = frames[0] | "";
-        size_t len = strlen(frame);
-        if (len < 6) return fallback;
-
-        size_t count = len / 6;
-        if (count == 0) return fallback;
+        JsonArray frame = frames[0].as<JsonArray>();
+        if (!frame || !frame.size()) return fallback;
 
         randomSeed(micros() ^ (uint32_t)millis() ^ esp_random());
-        size_t idx = random(0, count);
+        size_t idx = random(0, frame.size());
 
-        char sample[7] = {};
-        strncpy(sample, frame + (idx * 6), 6);
-        unsigned long value = strtoul(sample, nullptr, 16);
+        const char* hex = frame[idx] | "";
+        if (strlen(hex) < 6) return fallback;
+        unsigned long value = strtoul(hex, nullptr, 16);
         return Color((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF);
     }
 
