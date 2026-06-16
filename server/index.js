@@ -27,8 +27,33 @@ const MOCK_PEERS = [{ name: 'Mock Light 2', mac: '22:33:44:55:66:77', groupId: 0
 
 const scenes = new Map();
 
+const allowedUsers = process.env.ALLOWED_GITHUB_USERS
+  ? new Set(process.env.ALLOWED_GITHUB_USERS.split(',').map(u => u.trim()).filter(Boolean))
+  : null;
+
+function requireAuth(req, res, next) {
+  // Azure Easy Auth injects this header; skip auth check in local dev
+  const principal = req.headers['x-ms-client-principal'];
+  if (!principal) return next();
+
+  let username;
+  try {
+    const decoded = JSON.parse(Buffer.from(principal, 'base64').toString('utf8'));
+    const claim = decoded.claims?.find(c => c.typ === 'urn:github:login');
+    username = claim?.val;
+  } catch {
+    return res.status(401).json({ error: 'Invalid auth token' });
+  }
+
+  if (!username) return res.status(401).json({ error: 'Could not determine GitHub username' });
+  if (allowedUsers && !allowedUsers.has(username)) return res.status(403).json({ error: 'Access denied' });
+
+  next();
+}
+
 const app = express();
 app.use(express.json());
+app.use(requireAuth);
 app.use(express.static(DATA_DIR));
 
 app.get('/api/config', (_req, res) => res.json(MOCK_CONFIG));
