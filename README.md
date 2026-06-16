@@ -126,9 +126,9 @@ In the GitHub repo → Settings → Secrets → Actions, add:
 | `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token (use the "Edit Cloudflare Workers" template) |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → right sidebar on any Workers & Pages page |
 
-**4. Enable Cloudflare Access**
+**4. Enable access controls**
 
-Zero Trust → Access → Applications → Add an application → Select "Cloudflare Pages" and pick the Pages project.
+Zero Trust → Access controls → Add an application → Select "Cloudflare Pages" and pick the Pages project.
 
 Add a policy that allows the relevant GitHub users/organisation. Cloudflare handles all authentication — the app has no auth code.
 
