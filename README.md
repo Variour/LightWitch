@@ -40,7 +40,7 @@ Each device starts as a WiFi access point named after its MAC address (e.g. `lig
 
 After reboot the device joins your WiFi and is reachable at **http://\<devicename\>.local** (e.g. http://batterylight1.local). The AP turns off automatically once connected.
 
-> If WiFi is unreachable the device falls back to AP mode so you can always reach it at http://192.168.4.1 to fix credentials.
+> If WiFi is unreachable the device falls back to AP mode so you can always reach it at http://192.168.4.1.
 
 ---
 
