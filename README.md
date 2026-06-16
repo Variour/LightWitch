@@ -107,7 +107,7 @@ The web UI is hosted on Cloudflare Pages with per-PR preview deployments. Access
 
 **1. Create a KV namespace**
 
-In the [Cloudflare dashboard](https://dash.cloudflare.com/) → Workers & Pages → KV → Create namespace. Name it anything (e.g. `batterylight-scenes`).
+In the [Cloudflare dashboard](https://dash.cloudflare.com/) → **Storage & Databases → KV** → Create namespace. Name it anything (e.g. `batterylight-scenes`).
 
 **2. Create the Pages project**
 
