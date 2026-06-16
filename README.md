@@ -111,7 +111,7 @@ In the [Cloudflare dashboard](https://dash.cloudflare.com/) → **Storage & Data
 
 **2. Create the Pages project**
 
-Workers & Pages → Create → Pages → Upload assets. Upload any placeholder file — the real deployments come from GitHub Actions. Then go to **Settings → Functions → KV namespace bindings** and add:
+Workers & Pages → Create → Pages → Upload assets. Upload any placeholder file — the real deployments come from GitHub Actions. Then go to **Settings → Bindings** (sometimes listed as **Settings → Functions → KV namespace bindings** depending on dashboard version) and add:
 
 | Variable name | KV namespace |
 |---|---|
