@@ -1,4 +1,4 @@
-name: Preview
+name: Web deployment
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       - 'Dockerfile'
       - 'package.json'
       - 'package-lock.json'
-      - '.github/workflows/preview.yml'
+      - '.github/workflows/web-deployment.yml'
   pull_request:
     paths:
       - 'server/**'
@@ -17,7 +17,7 @@ on:
       - 'Dockerfile'
       - 'package.json'
       - 'package-lock.json'
-      - '.github/workflows/preview.yml'
+      - '.github/workflows/web-deployment.yml'
 
 permissions:
   contents: read
