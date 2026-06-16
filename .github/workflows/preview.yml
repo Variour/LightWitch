@@ -73,3 +73,66 @@ jobs:
                 body,
               });
             }
+
+      - name: Clean up closed PR containers
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const packageName = context.repo.repo.toLowerCase();
+
+            const { data: ownerData } = await github.rest.users.getByUsername({ username: owner });
+            const isOrg = ownerData.type === 'Organization';
+
+            let versions;
+            try {
+              versions = isOrg
+                ? (await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+                    org: owner, package_type: 'container', package_name: packageName,
+                  })).data
+                : (await github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
+                    username: owner, package_type: 'container', package_name: packageName,
+                  })).data;
+            } catch (e) {
+              console.log('Could not list package versions:', e.message);
+              return;
+            }
+
+            for (const version of versions) {
+              const prTags = (version.metadata?.container?.tags ?? [])
+                .filter(t => /^pr-\d+$/.test(t));
+              if (!prTags.length) continue;
+
+              for (const tag of prTags) {
+                const prNumber = parseInt(tag.slice(3), 10);
+                let prState;
+                try {
+                  const { data: pr } = await github.rest.pulls.get({
+                    ...context.repo, pull_number: prNumber,
+                  });
+                  prState = pr.state;
+                } catch (e) {
+                  prState = e.status === 404 ? 'not found' : null;
+                }
+
+                if (prState === 'open' || prState === null) continue;
+
+                console.log(`Deleting ${tag} (PR #${prNumber} is ${prState})`);
+                try {
+                  if (isOrg) {
+                    await github.rest.packages.deletePackageVersionForOrg({
+                      org: owner, package_type: 'container',
+                      package_name: packageName, package_version_id: version.id,
+                    });
+                  } else {
+                    await github.rest.packages.deletePackageVersionForUser({
+                      username: owner, package_type: 'container',
+                      package_name: packageName, package_version_id: version.id,
+                    });
+                  }
+                } catch (e) {
+                  console.log(`Failed to delete ${tag}:`, e.message);
+                }
+              }
+            }
