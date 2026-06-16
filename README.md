@@ -109,22 +109,24 @@ The web UI is hosted on Cloudflare Pages with per-PR preview deployments. Access
 
 In the [Cloudflare dashboard](https://dash.cloudflare.com/) → Workers & Pages → KV → Create namespace. Name it anything (e.g. `batterylight-scenes`).
 
-**2. Connect the repo to Cloudflare Pages**
+**2. Create the Pages project**
 
-Workers & Pages → Create → Pages → Connect to Git → select this repo.
-
-| Setting | Value |
-|---|---|
-| Build command | *(leave blank)* |
-| Build output directory | `data` |
-
-After the project is created, go to **Settings → Functions → KV namespace bindings** and add:
+Workers & Pages → Create → Pages → Upload assets. Upload any placeholder file — the real deployments come from GitHub Actions. Then go to **Settings → Functions → KV namespace bindings** and add:
 
 | Variable name | KV namespace |
 |---|---|
 | `SCENES` | *(the namespace created in step 1)* |
 
-**3. Enable Cloudflare Access**
+**3. Add GitHub Actions secrets**
+
+In the GitHub repo → Settings → Secrets → Actions, add:
+
+| Secret | Where to get it |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token (use the "Edit Cloudflare Workers" template) |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → right sidebar on any Workers & Pages page |
+
+**4. Enable Cloudflare Access**
 
 Zero Trust → Access → Applications → Add an application → Select "Cloudflare Pages" and pick the Pages project.
 
@@ -132,7 +134,7 @@ Add a policy that allows the relevant GitHub users/organisation. Cloudflare hand
 
 ### Per-PR previews
 
-Every pull request is automatically deployed to a unique URL (`pr-N.your-project.pages.dev`) and protected by the same Access policy. The preview is live for as long as the PR is open.
+Every pull request is automatically deployed by the `preview.yml` GitHub Actions workflow. The preview URL is posted as a comment on the PR and updated on each push. The URL is protected by the same Cloudflare Access policy.
 
 ---
 
