@@ -1,0 +1,138 @@
+name: Preview
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=pr,prefix=pr-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+      - name: Post container info to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const marker = '<!-- container-preview -->';
+            const image = `ghcr.io/${{ github.repository }}:pr-${{ github.event.number }}`.toLowerCase();
+            const body = [
+              marker,
+              '## Preview',
+              '',
+              '```sh',
+              `docker run --rm -p 8080:8080 ${image}`,
+              '```',
+              '',
+              'Then open http://localhost:8080',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                ...context.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Clean up closed PR containers
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const packageName = context.repo.repo.toLowerCase();
+
+            const { data: ownerData } = await github.rest.users.getByUsername({ username: owner });
+            const isOrg = ownerData.type === 'Organization';
+
+            let versions;
+            try {
+              versions = isOrg
+                ? (await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+                    org: owner, package_type: 'container', package_name: packageName,
+                  })).data
+                : (await github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
+                    username: owner, package_type: 'container', package_name: packageName,
+                  })).data;
+            } catch (e) {
+              console.log('Could not list package versions:', e.message);
+              return;
+            }
+
+            for (const version of versions) {
+              const prTags = (version.metadata?.container?.tags ?? [])
+                .filter(t => /^pr-\d+$/.test(t));
+              if (!prTags.length) continue;
+
+              for (const tag of prTags) {
+                const prNumber = parseInt(tag.slice(3), 10);
+                let prState;
+                try {
+                  const { data: pr } = await github.rest.pulls.get({
+                    ...context.repo, pull_number: prNumber,
+                  });
+                  prState = pr.state;
+                } catch (e) {
+                  prState = e.status === 404 ? 'not found' : null;
+                }
+
+                if (prState === 'open' || prState === null) continue;
+
+                console.log(`Deleting ${tag} (PR #${prNumber} is ${prState})`);
+                try {
+                  if (isOrg) {
+                    await github.rest.packages.deletePackageVersionForOrg({
+                      org: owner, package_type: 'container',
+                      package_name: packageName, package_version_id: version.id,
+                    });
+                  } else {
+                    await github.rest.packages.deletePackageVersionForUser({
+                      username: owner, package_type: 'container',
+                      package_name: packageName, package_version_id: version.id,
+                    });
+                  }
+                } catch (e) {
+                  console.log(`Failed to delete ${tag}:`, e.message);
+                }
+              }
+            }

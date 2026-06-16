@@ -84,6 +84,33 @@ pio run -e batterylight1_ota -t upload && pio run -e batterylight1_ota -t upload
 
 ---
 
+## Local web UI development
+
+Run the web interface locally without hardware:
+
+```bash
+npm install
+npm run dev
+```
+
+Open **http://localhost:8080** in a browser. The mock server (`server/index.js`) handles all REST endpoints and WebSocket, with scenes stored in memory for the duration of the process.
+
+> Requires Node.js.
+
+---
+
+## Web UI container
+
+Every pull request builds a Docker image and pushes it to the GitHub Container Registry. A comment is posted on the PR with the exact command to run it:
+
+```sh
+docker run --rm -p 8080:8080 ghcr.io/<owner>/batterylight:pr-<N>
+```
+
+The `latest` tag tracks the `main` branch. No setup or secrets are required beyond the default `GITHUB_TOKEN`.
+
+---
+
 ## Hardware
 
 See [WIRING.md](WIRING.md) for wiring diagrams for both supported LED types.
