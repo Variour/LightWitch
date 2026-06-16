@@ -69,13 +69,13 @@ private:
         f.close();
         JsonArray frames = doc["frames"].as<JsonArray>();
         if (!frames || !frames.size()) return;
-        const char* frame = frames[0] | "";
-        size_t len = strlen(frame);
-        for (size_t i = 0; i + 5 < len; i += 6) {
-            char buf[7] = {};
-            strncpy(buf, frame + i, 6);
-            unsigned long v = strtoul(buf, nullptr, 16);
-            _palette.push_back({(uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v});
+        JsonArray frame = frames[0].as<JsonArray>();
+        if (!frame || !frame.size()) return;
+        for (JsonVariant v : frame) {
+            const char* hex = v | "";
+            if (strlen(hex) < 6) continue;
+            unsigned long rgb = strtoul(hex, nullptr, 16);
+            _palette.push_back({(uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb});
         }
     }
 
