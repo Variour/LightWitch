@@ -23,10 +23,11 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy Bicep template
+        env:
+          GHCR_PASSWORD_B64: ${{ secrets.GHCR_PASSWORD_B64 }}
         run: |
           az deployment group create \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             --template-file infra/main.bicep \
             --parameters infra/main.bicepparam \
-            --parameters ghcrPasswordB64="${{ secrets.GHCR_PASSWORD_B64 }}" \
             --mode Incremental
