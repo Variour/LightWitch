@@ -99,6 +99,43 @@ Open **http://localhost:8788** in a browser. The mock API (under `functions/`) h
 
 ---
 
+## Hosted web UI (Cloudflare Pages)
+
+The web UI is hosted on Cloudflare Pages with per-PR preview deployments. Access is restricted via Cloudflare Access — no credentials are stored in the app.
+
+### One-time setup
+
+**1. Create a KV namespace**
+
+In the [Cloudflare dashboard](https://dash.cloudflare.com/) → Workers & Pages → KV → Create namespace. Name it anything (e.g. `batterylight-scenes`).
+
+**2. Connect the repo to Cloudflare Pages**
+
+Workers & Pages → Create → Pages → Connect to Git → select this repo.
+
+| Setting | Value |
+|---|---|
+| Build command | *(leave blank)* |
+| Build output directory | `data` |
+
+After the project is created, go to **Settings → Functions → KV namespace bindings** and add:
+
+| Variable name | KV namespace |
+|---|---|
+| `SCENES` | *(the namespace created in step 1)* |
+
+**3. Enable Cloudflare Access**
+
+Zero Trust → Access → Applications → Add an application → Select "Cloudflare Pages" and pick the Pages project.
+
+Add a policy that allows the relevant GitHub users/organisation. Cloudflare handles all authentication — the app has no auth code.
+
+### Per-PR previews
+
+Every pull request is automatically deployed to a unique URL (`pr-N.your-project.pages.dev`) and protected by the same Access policy. The preview is live for as long as the PR is open.
+
+---
+
 ## Hardware
 
 See [WIRING.md](WIRING.md) for wiring diagrams for both supported LED types.
