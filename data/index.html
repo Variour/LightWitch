@@ -18,7 +18,7 @@ label { display: block; font-size: .82rem; color: #888; margin-bottom: .2rem; }
 small { font-size: .75rem; color: #555; }
 input[type=text], input[type=password], input[type=number], select {
   width: 100%; padding: .45rem .65rem; border-radius: 6px; border: 1px solid #2a2a2a;
-  background: #111; color: #eee; font-size: .9rem; margin-bottom: .55rem; }
+  background: #111; color: #eee; font-size: .9rem; margin-bottom: .55rem; box-sizing: border-box; }
 input[type=range]  { width: 100%; accent-color: #4af; margin-bottom: .5rem; }
 input[type=color]  { width: 2.2rem; height: 2.2rem; border: none; border-radius: 5px;
                      background: none; cursor: pointer; flex-shrink: 0; }
@@ -189,7 +189,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .cp-tool-btn.active { background: #1a4a6a; border-color: #4af; color: #4af; }
 .cp-hex-input {
   background: #111; border: 1.5px solid #333; border-radius: 6px; color: #eee;
-  font-family: monospace; font-size: .82rem; padding: .28rem .4rem; width: 7ch;
+  font-family: monospace; font-size: .82rem; padding: .28rem .4rem;
+  width: 7ch !important; margin-bottom: 0 !important; box-sizing: content-box;
   outline: none; transition: border-color .15s;
 }
 .cp-hex-input:focus { border-color: #4af; }
