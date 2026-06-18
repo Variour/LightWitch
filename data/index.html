@@ -400,10 +400,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <h2>Paint color</h2>
         <!-- Main swatch + hex input + eyedropper toggle -->
         <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
-          <div class="color-swatch" id="se-swatch" onclick="document.getElementById('se-color-input').click()" title="Open color picker"></div>
-          <input type="color" id="se-color-input" value="#ff0000"
-                 style="position:absolute;opacity:0;pointer-events:none"
-                 oninput="setPaintColor(this.value,true)" onchange="setPaintColor(this.value)">
+          <div class="color-swatch" id="se-swatch" title="Current paint color"></div>
           <input type="text" id="se-hex-input" class="cp-hex-input" value="#ff0000"
                  maxlength="7" placeholder="#rrggbb"
                  oninput="_onHexInput(this.value)"
@@ -1065,7 +1062,6 @@ function _renderEditor() {
   document.getElementById('se-height').value = _editScene.h;
   // Ensure swatch reflects current paint color
   document.getElementById('se-swatch').style.background = _paintColor;
-  document.getElementById('se-color-input').value = _paintColor;
   document.getElementById('se-hex-input').value = _paintColor;
   document.getElementById('se-brightness').value = _brightness;
   document.getElementById('se-brightness-val').textContent = _brightness;
@@ -1316,8 +1312,6 @@ function setPaintColor(color, skipRecent) {
   _paintColor = color;
   _brightness = 100; // reset brightness when picking a new base color
   document.getElementById('se-swatch').style.background = color;
-  const ci = document.getElementById('se-color-input');
-  if (ci) ci.value = color;
   const hi = document.getElementById('se-hex-input');
   if (hi) hi.value = color;
   const bs = document.getElementById('se-brightness');
@@ -1362,7 +1356,6 @@ function _onHexInput(val) {
     _paintColor = val.toLowerCase();
     _brightness = 100;
     document.getElementById('se-swatch').style.background = _paintColor;
-    document.getElementById('se-color-input').value = _paintColor;
     document.getElementById('se-brightness').value = 100;
     document.getElementById('se-brightness-val').textContent = 100;
   }
@@ -1452,8 +1445,6 @@ function _hsvApply() {
   _paintColor = hex;
   _brightness = 100;
   document.getElementById('se-swatch').style.background = hex;
-  const ci = document.getElementById('se-color-input');
-  if (ci) ci.value = hex;
   const hi = document.getElementById('se-hex-input');
   if (hi) hi.value = hex;
   const bs = document.getElementById('se-brightness');
