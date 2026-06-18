@@ -94,12 +94,7 @@ jobs:
             az containerapp update \
               --name "$APP" \
               --resource-group "$RG" \
-              --image "$IMAGE" \
-              --set-env-vars \
-                AUTH_ORIGIN="https://$PROD_FQDN" \
-                ALLOWED_GITHUB_USERS="${{ secrets.ALLOWED_GITHUB_USERS }}" \
-                TOKEN_SECRET="${{ secrets.AUTH_TOKEN_SECRET }}" \
-                SESSION_SECRET="${{ secrets.AUTH_SESSION_SECRET }}"
+              --image "$IMAGE"
           else
             az containerapp create \
               --name "$APP" \
