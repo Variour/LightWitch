@@ -66,8 +66,7 @@ jobs:
           IMAGE="${IMAGE,,}"
           az containerapp revision copy \
             --name batterylight-latest \
-            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --image "$IMAGE"
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}"
 
       # ── PR: create or update a per-PR Container App ─────────────────────────
       - name: Deploy PR Container App
@@ -93,8 +92,7 @@ jobs:
           if az containerapp show --name "$APP" --resource-group "$RG" &>/dev/null; then
             az containerapp revision copy \
               --name "$APP" \
-              --resource-group "$RG" \
-              --image "$IMAGE"
+              --resource-group "$RG"
           else
             az containerapp create \
               --name "$APP" \
