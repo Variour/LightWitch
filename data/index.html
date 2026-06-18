@@ -399,7 +399,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
       <div class="card" style="flex:2;min-width:220px">
         <h2>Paint color</h2>
         <!-- Swatch + hex + eyedropper + brightness on one line -->
-        <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:nowrap">
+        <div style="display:flex;align-items:center;gap:.5rem;overflow:hidden">
           <div class="color-swatch" id="se-swatch" title="Current paint color" style="flex-shrink:0"></div>
           <input type="text" id="se-hex-input" class="cp-hex-input" value="#ff0000"
                  maxlength="7" placeholder="#rrggbb" style="flex-shrink:0"
@@ -407,11 +407,9 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
                  onblur="_onHexBlur(this.value)">
           <button id="se-eyedropper-btn" class="cp-tool-btn" title="Eyedropper: click a cell to pick its color"
                   onclick="toggleEyedropper()" style="flex-shrink:0">&#x1F489;</button>
-          <div style="display:flex;align-items:center;gap:.35rem;flex:1;min-width:80px">
-            <span class="cp-label" style="margin:0;white-space:nowrap">Brightness <span id="se-brightness-val">100</span>%</span>
-            <input type="range" id="se-brightness" class="cp-brightness" min="0" max="100" value="100"
-                   style="flex:1;margin:0" oninput="_onBrightnessInput(this.value)">
-          </div>
+          <span class="cp-label" style="margin:0;flex-shrink:0;white-space:nowrap"><span id="se-brightness-val">100</span>%</span>
+          <input type="range" id="se-brightness" class="cp-brightness" min="0" max="100" value="100"
+                 style="flex:1;min-width:0;margin:0" oninput="_onBrightnessInput(this.value)">
         </div>
         <!-- Inline HSV picker -->
         <div class="hsv-wrap">
