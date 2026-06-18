@@ -193,7 +193,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   outline: none; transition: border-color .15s;
 }
 .cp-hex-input:focus { border-color: #4af; }
-.cp-brightness { width: 100%; accent-color: #4af; margin-top: .35rem; }
+.cp-brightness { width: 100%; accent-color: #4af; }
 .cp-label { font-size: .7rem; color: #777; margin-bottom: .15rem; display: block; }
 .sg-cell.eyedropper-mode { cursor: crosshair; }
 .sg-cell.eyedropper-mode:hover { outline: 2px solid #fa4; outline-offset: -1px; }
@@ -398,21 +398,20 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     <div class="se-color-row">
       <div class="card" style="flex:2;min-width:220px">
         <h2>Paint color</h2>
-        <!-- Main swatch + hex input + eyedropper toggle -->
-        <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
-          <div class="color-swatch" id="se-swatch" title="Current paint color"></div>
+        <!-- Swatch + hex + eyedropper + brightness on one line -->
+        <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:nowrap">
+          <div class="color-swatch" id="se-swatch" title="Current paint color" style="flex-shrink:0"></div>
           <input type="text" id="se-hex-input" class="cp-hex-input" value="#ff0000"
-                 maxlength="7" placeholder="#rrggbb"
+                 maxlength="7" placeholder="#rrggbb" style="flex-shrink:0"
                  oninput="_onHexInput(this.value)"
                  onblur="_onHexBlur(this.value)">
           <button id="se-eyedropper-btn" class="cp-tool-btn" title="Eyedropper: click a cell to pick its color"
-                  onclick="toggleEyedropper()">&#x1F489;</button>
-        </div>
-        <!-- Brightness slider -->
-        <div style="margin-top:.6rem">
-          <label class="cp-label">Brightness <span id="se-brightness-val">100</span>%</label>
-          <input type="range" id="se-brightness" class="cp-brightness" min="0" max="100" value="100"
-                 oninput="_onBrightnessInput(this.value)">
+                  onclick="toggleEyedropper()" style="flex-shrink:0">&#x1F489;</button>
+          <div style="display:flex;align-items:center;gap:.35rem;flex:1;min-width:80px">
+            <span class="cp-label" style="margin:0;white-space:nowrap">Brightness <span id="se-brightness-val">100</span>%</span>
+            <input type="range" id="se-brightness" class="cp-brightness" min="0" max="100" value="100"
+                   style="flex:1;margin:0" oninput="_onBrightnessInput(this.value)">
+          </div>
         </div>
         <!-- Inline HSV picker -->
         <div class="hsv-wrap">
