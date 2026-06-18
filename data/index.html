@@ -90,6 +90,9 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .scene-item:last-child { border-bottom: none; }
 .scene-meta { font-size: .78rem; color: #555; margin-left: .5rem; }
 
+/* Color tools row above canvas */
+.se-color-row { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: .75rem; align-items: start; }
+
 /* Editor layout: narrow side panel + main grid */
 .se-layout { display: grid; grid-template-columns: 1fr; gap: .75rem; }
 @media (min-width: 700px) {
@@ -390,92 +393,91 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     </div>
 
     <!-- Editor body -->
+
+    <!-- Color tools row: spans full width above the canvas -->
+    <div class="se-color-row">
+      <div class="card" style="flex:2;min-width:220px">
+        <h2>Paint color</h2>
+        <!-- Main swatch + hex input + eyedropper toggle -->
+        <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+          <div class="color-swatch" id="se-swatch" onclick="document.getElementById('se-color-input').click()" title="Open color picker"></div>
+          <input type="color" id="se-color-input" value="#ff0000"
+                 style="position:absolute;opacity:0;pointer-events:none"
+                 oninput="setPaintColor(this.value,true)" onchange="setPaintColor(this.value)">
+          <input type="text" id="se-hex-input" class="cp-hex-input" value="#ff0000"
+                 maxlength="7" placeholder="#rrggbb"
+                 oninput="_onHexInput(this.value)"
+                 onblur="_onHexBlur(this.value)">
+          <button id="se-eyedropper-btn" class="cp-tool-btn" title="Eyedropper: click a cell to pick its color"
+                  onclick="toggleEyedropper()">&#x1F489;</button>
+        </div>
+        <!-- Brightness slider -->
+        <div style="margin-top:.6rem">
+          <label class="cp-label">Brightness <span id="se-brightness-val">100</span>%</label>
+          <input type="range" id="se-brightness" class="cp-brightness" min="0" max="100" value="100"
+                 oninput="_onBrightnessInput(this.value)">
+        </div>
+        <!-- Inline HSV picker -->
+        <div class="hsv-wrap">
+          <span class="cp-label">Color picker</span>
+          <div class="hsv-sv" id="hsv-sv">
+            <canvas id="hsv-canvas"></canvas>
+            <div class="hsv-sv-cursor" id="hsv-cursor"></div>
+          </div>
+          <input type="range" id="hsv-hue" class="hsv-hue" min="0" max="359" value="0"
+                 oninput="_hsvHueChange(this.value)">
+        </div>
+        <!-- Preset palette -->
+        <div>
+          <span class="cp-label" style="margin-top:.55rem">Presets</span>
+          <div class="cp-row" id="se-presets"></div>
+        </div>
+        <!-- Recent colors -->
+        <div>
+          <span class="cp-label" style="margin-top:.55rem">Recent</span>
+          <div class="cp-row" id="se-recents"><span style="font-size:.72rem;color:#555">None yet</span></div>
+        </div>
+      </div>
+
+      <!-- Gradient fill card -->
+      <div class="card" style="flex:1;min-width:180px">
+        <h2>Gradient fill</h2>
+        <div class="grad-swatch-pair">
+          <div class="grad-swatch" id="grad-swatch-a" title="Color A (click to use current paint color)"
+               onclick="_setGradColor('a')" style="background:#ff0000"></div>
+          <span style="font-size:.8rem;color:#aaa;flex:1">→</span>
+          <div class="grad-swatch" id="grad-swatch-b" title="Color B (click to use current paint color)"
+               onclick="_setGradColor('b')" style="background:#0000ff"></div>
+        </div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.3rem">
+          <button class="cp-tool-btn" id="grad-axis-h" onclick="_setGradAxis('h')" style="flex:1">Horizontal</button>
+          <button class="cp-tool-btn" id="grad-axis-v" onclick="_setGradAxis('v')" style="flex:1">Vertical</button>
+        </div>
+        <button class="btn-primary btn-sm" style="width:100%;margin-top:.5rem"
+                onclick="_applyGradientFill()">Apply gradient</button>
+        <small style="display:block;margin-top:.35rem;color:#666">
+          Click a swatch to set it to the current paint color.
+        </small>
+      </div>
+
+      <!-- Options card -->
+      <div class="card" style="flex:1;min-width:160px">
+        <h2>Options</h2>
+        <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;font-size:.85rem">
+          <input type="checkbox" id="se-sync-frames" onchange="_syncToggle(this.checked)"
+                 style="width:1rem;height:1rem;accent-color:#4af">
+          Lock color across frames
+        </label>
+        <small style="display:block;margin-top:.3rem;color:#666">
+          When on, painting a cell also updates the same cell in all other frames.
+        </small>
+      </div>
+    </div>
+
     <div class="se-layout">
 
-      <!-- Side panel: color + frames -->
+      <!-- Side panel: canvas size + frames -->
       <div>
-        <div class="card">
-          <h2>Paint color</h2>
-          <!-- Main swatch + hex input + eyedropper toggle -->
-          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
-            <div class="color-swatch" id="se-swatch" onclick="document.getElementById('se-color-input').click()" title="Open color picker"></div>
-            <input type="color" id="se-color-input" value="#ff0000"
-                   style="position:absolute;opacity:0;pointer-events:none"
-                   oninput="setPaintColor(this.value,true)" onchange="setPaintColor(this.value)">
-            <input type="text" id="se-hex-input" class="cp-hex-input" value="#ff0000"
-                   maxlength="7" placeholder="#rrggbb"
-                   oninput="_onHexInput(this.value)"
-                   onblur="_onHexBlur(this.value)">
-            <button id="se-eyedropper-btn" class="cp-tool-btn" title="Eyedropper: click a cell to pick its color"
-                    onclick="toggleEyedropper()">&#x1F489;</button>
-          </div>
-          <!-- Brightness slider -->
-          <div style="margin-top:.6rem">
-            <label class="cp-label">Brightness <span id="se-brightness-val">100</span>%</label>
-            <input type="range" id="se-brightness" class="cp-brightness" min="0" max="100" value="100"
-                   oninput="_onBrightnessInput(this.value)">
-          </div>
-          <!-- Preset palette -->
-          <div>
-            <span class="cp-label" style="margin-top:.55rem">Presets</span>
-            <div class="cp-row" id="se-presets"></div>
-          </div>
-          <!-- Inline HSV picker -->
-          <div class="hsv-wrap">
-            <span class="cp-label">Color picker</span>
-            <div class="hsv-sv" id="hsv-sv">
-              <canvas id="hsv-canvas"></canvas>
-              <div class="hsv-sv-cursor" id="hsv-cursor"></div>
-            </div>
-            <input type="range" id="hsv-hue" class="hsv-hue" min="0" max="359" value="0"
-                   oninput="_hsvHueChange(this.value)">
-          </div>
-          <!-- Preset palette -->
-          <div>
-            <span class="cp-label" style="margin-top:.55rem">Presets</span>
-            <div class="cp-row" id="se-presets"></div>
-          </div>
-          <!-- Recent colors -->
-          <div>
-            <span class="cp-label" style="margin-top:.55rem">Recent</span>
-            <div class="cp-row" id="se-recents"><span style="font-size:.72rem;color:#555">None yet</span></div>
-          </div>
-        </div>
-
-        <!-- Gradient fill card -->
-        <div class="card">
-          <h2>Gradient fill</h2>
-          <div class="grad-swatch-pair">
-            <div class="grad-swatch" id="grad-swatch-a" title="Color A (click to use current paint color)"
-                 onclick="_setGradColor('a')" style="background:#ff0000"></div>
-            <span style="font-size:.8rem;color:#aaa;flex:1">→</span>
-            <div class="grad-swatch" id="grad-swatch-b" title="Color B (click to use current paint color)"
-                 onclick="_setGradColor('b')" style="background:#0000ff"></div>
-          </div>
-          <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.3rem">
-            <button class="cp-tool-btn" id="grad-axis-h" onclick="_setGradAxis('h')" style="flex:1">Horizontal</button>
-            <button class="cp-tool-btn" id="grad-axis-v" onclick="_setGradAxis('v')" style="flex:1">Vertical</button>
-          </div>
-          <button class="btn-primary btn-sm" style="width:100%;margin-top:.5rem"
-                  onclick="_applyGradientFill()">Apply gradient</button>
-          <small style="display:block;margin-top:.35rem;color:#666">
-            Click a color swatch above to set it to the current paint color.
-          </small>
-        </div>
-
-        <!-- Color sync card -->
-        <div class="card">
-          <h2>Options</h2>
-          <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;font-size:.85rem">
-            <input type="checkbox" id="se-sync-frames" onchange="_syncToggle(this.checked)"
-                   style="width:1rem;height:1rem;accent-color:#4af">
-            Lock color across frames
-          </label>
-          <small style="display:block;margin-top:.3rem;color:#666">
-            When on, painting a cell also updates the same cell in all other frames.
-          </small>
-        </div>
-
         <div class="card">
           <h2>Canvas size</h2>
           <div style="display:flex;gap:.5rem;margin-bottom:.5rem">
