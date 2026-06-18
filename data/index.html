@@ -167,6 +167,33 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .color-swatch { width: 2.6rem; height: 2.6rem; border-radius: 8px; cursor: pointer;
                 border: 2px solid #333; flex-shrink: 0; transition: border-color .15s; }
 .color-swatch:hover { border-color: #555; }
+
+/* Color picker panel */
+.cp-mini-swatch {
+  width: 1.55rem; height: 1.55rem; border-radius: 5px; cursor: pointer;
+  border: 2px solid #333; flex-shrink: 0; transition: border-color .15s, transform .1s;
+  box-sizing: border-box;
+}
+.cp-mini-swatch:hover { border-color: #aaa; transform: scale(1.15); }
+.cp-mini-swatch.active { border-color: #4af; }
+.cp-row { display: flex; gap: .35rem; flex-wrap: wrap; margin-top: .4rem; }
+.cp-tool-btn {
+  background: #2a2a2a; border: 1.5px solid #333; border-radius: 6px;
+  color: #aaa; cursor: pointer; font-size: .8rem; padding: .28rem .55rem;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.cp-tool-btn:hover { background: #333; color: #fff; }
+.cp-tool-btn.active { background: #1a4a6a; border-color: #4af; color: #4af; }
+.cp-hex-input {
+  background: #111; border: 1.5px solid #333; border-radius: 6px; color: #eee;
+  font-family: monospace; font-size: .82rem; padding: .28rem .5rem; width: 7rem;
+  outline: none; transition: border-color .15s;
+}
+.cp-hex-input:focus { border-color: #4af; }
+.cp-brightness { width: 100%; accent-color: #4af; margin-top: .35rem; }
+.cp-label { font-size: .7rem; color: #777; margin-bottom: .15rem; display: block; }
+.sg-cell.eyedropper-mode { cursor: crosshair; }
+.sg-cell.eyedropper-mode:hover { outline: 2px solid #fa4; outline-offset: -1px; }
 </style>
 </head>
 <body>
@@ -333,12 +360,34 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
       <div>
         <div class="card">
           <h2>Paint color</h2>
-          <div style="display:flex;align-items:center;gap:.6rem">
-            <div class="color-swatch" id="se-swatch" onclick="document.getElementById('se-color-input').click()"></div>
+          <!-- Main swatch + hex input + eyedropper toggle -->
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <div class="color-swatch" id="se-swatch" onclick="document.getElementById('se-color-input').click()" title="Open color picker"></div>
             <input type="color" id="se-color-input" value="#ff0000"
                    style="position:absolute;opacity:0;pointer-events:none"
-                   oninput="setPaintColor(this.value)">
-            <span style="font-size:.8rem;color:#666">Click to change</span>
+                   oninput="setPaintColor(this.value,true)" onchange="setPaintColor(this.value)">
+            <input type="text" id="se-hex-input" class="cp-hex-input" value="#ff0000"
+                   maxlength="7" placeholder="#rrggbb"
+                   oninput="_onHexInput(this.value)"
+                   onblur="_onHexBlur(this.value)">
+            <button id="se-eyedropper-btn" class="cp-tool-btn" title="Eyedropper: click a cell to pick its color"
+                    onclick="toggleEyedropper()">&#x1F489;</button>
+          </div>
+          <!-- Brightness slider -->
+          <div style="margin-top:.6rem">
+            <label class="cp-label">Brightness <span id="se-brightness-val">100</span>%</label>
+            <input type="range" id="se-brightness" class="cp-brightness" min="0" max="100" value="100"
+                   oninput="_onBrightnessInput(this.value)">
+          </div>
+          <!-- Preset palette -->
+          <div>
+            <span class="cp-label" style="margin-top:.55rem">Presets</span>
+            <div class="cp-row" id="se-presets"></div>
+          </div>
+          <!-- Recent colors -->
+          <div>
+            <span class="cp-label" style="margin-top:.55rem">Recent</span>
+            <div class="cp-row" id="se-recents"><span style="font-size:.72rem;color:#555">None yet</span></div>
           </div>
         </div>
 
@@ -755,6 +804,15 @@ let _editScene   = null;     // {id, name, w, h, frames: [Array<string>]}
 let _paintColor  = '#ff0000';
 let _modified    = false;
 let _painting    = false;
+let _eyedropper  = false;
+let _brightness  = 100;      // 0-100 multiplier applied on top of base color
+let _recentColors = [];
+const _PRESETS = [
+  '#ff0000','#00ff00','#0000ff','#ffffff',
+  '#00ffff','#ff00ff','#ffff00','#ff8000',
+  '#ff8080','#80ff80','#8080ff','#ffa500',
+  '#ff69b4','#40e0d0','#7b68ee','#ffd700'
+];
 
 // Global mouseup to end drag-paint
 document.addEventListener('mouseup', () => { _painting = false; });
@@ -916,6 +974,11 @@ function _renderEditor() {
   // Ensure swatch reflects current paint color
   document.getElementById('se-swatch').style.background = _paintColor;
   document.getElementById('se-color-input').value = _paintColor;
+  document.getElementById('se-hex-input').value = _paintColor;
+  document.getElementById('se-brightness').value = _brightness;
+  document.getElementById('se-brightness-val').textContent = _brightness;
+  _renderPresets();
+  _renderRecents();
   _renderFrameList();
   _renderGrid();
 }
@@ -1103,18 +1166,21 @@ function _renderGrid() {
 }
 
 function _paintFrameCell(frameIndex, idx) {
+  if (_eyedropper) { _pickColorFromCell(frameIndex, idx); return; }
   const cells = _editScene.frames[frameIndex];
-  if (!cells || cells[idx] === _paintColor) return;
-  cells[idx] = _paintColor;
+  const color = _getEffectivePaintColor();
+  if (!cells || cells[idx] === color) return;
+  cells[idx] = color;
   _modified = true;
   const el = document.querySelector(`.sg-cell[data-frame="${frameIndex}"][data-idx="${idx}"]`);
-  if (el) el.style.background = _paintColor;
+  if (el) el.style.background = color;
 }
 
 function fillFrameFor(frameIndex) {
   const cells = _editScene.frames[frameIndex];
   if (!cells) return;
-  cells.fill(_paintColor);
+  const color = _getEffectivePaintColor();
+  cells.fill(color);
   _modified = true;
   _renderGrid();
 }
@@ -1123,7 +1189,8 @@ function fillRowFor(frameIndex, r) {
   const { w, frames } = _editScene;
   const cells = frames[frameIndex];
   if (!cells) return;
-  for (let c = 0; c < w; c++) cells[r * w + c] = _paintColor;
+  const color = _getEffectivePaintColor();
+  for (let c = 0; c < w; c++) cells[r * w + c] = color;
   _modified = true;
   _renderGrid();
 }
@@ -1132,7 +1199,8 @@ function fillColumnFor(frameIndex, c) {
   const { w, h, frames } = _editScene;
   const cells = frames[frameIndex];
   if (!cells) return;
-  for (let r = 0; r < h; r++) cells[r * w + c] = _paintColor;
+  const color = _getEffectivePaintColor();
+  for (let r = 0; r < h; r++) cells[r * w + c] = color;
   _modified = true;
   _renderGrid();
 }
@@ -1140,9 +1208,104 @@ function fillColumnFor(frameIndex, c) {
 // ── Quick fill actions (use current paint color) ──────────────────────────────
 
 // ── Color picker ──────────────────────────────────────────────────────────────
-function setPaintColor(color) {
+
+function setPaintColor(color, skipRecent) {
   _paintColor = color;
+  _brightness = 100; // reset brightness when picking a new base color
   document.getElementById('se-swatch').style.background = color;
+  const ci = document.getElementById('se-color-input');
+  if (ci) ci.value = color;
+  const hi = document.getElementById('se-hex-input');
+  if (hi) hi.value = color;
+  const bs = document.getElementById('se-brightness');
+  if (bs) bs.value = 100;
+  const bv = document.getElementById('se-brightness-val');
+  if (bv) bv.textContent = 100;
+  if (!skipRecent) _pushRecentColor(color);
+}
+
+function _pushRecentColor(color) {
+  _recentColors = _recentColors.filter(c => c !== color);
+  _recentColors.unshift(color);
+  if (_recentColors.length > 10) _recentColors.length = 10;
+  _renderRecents();
+}
+
+function _renderPresets() {
+  const el = document.getElementById('se-presets');
+  if (!el) return;
+  el.innerHTML = _PRESETS.map(c =>
+    `<div class="cp-mini-swatch" style="background:${c}" title="${c}"
+          onclick="setPaintColor('${c}')"></div>`
+  ).join('');
+}
+
+function _renderRecents() {
+  const el = document.getElementById('se-recents');
+  if (!el) return;
+  if (!_recentColors.length) {
+    el.innerHTML = '<span style="font-size:.72rem;color:#555">None yet</span>';
+    return;
+  }
+  el.innerHTML = _recentColors.map(c =>
+    `<div class="cp-mini-swatch" style="background:${c}" title="${c}"
+          onclick="setPaintColor('${c}')"></div>`
+  ).join('');
+}
+
+function _onHexInput(val) {
+  if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+    _paintColor = val.toLowerCase();
+    _brightness = 100;
+    document.getElementById('se-swatch').style.background = _paintColor;
+    document.getElementById('se-color-input').value = _paintColor;
+    document.getElementById('se-brightness').value = 100;
+    document.getElementById('se-brightness-val').textContent = 100;
+  }
+}
+
+function _onHexBlur(val) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(val)) {
+    document.getElementById('se-hex-input').value = _paintColor;
+    return;
+  }
+  _pushRecentColor(_paintColor);
+}
+
+function _onBrightnessInput(val) {
+  _brightness = parseInt(val, 10);
+  document.getElementById('se-brightness-val').textContent = _brightness;
+  const [r, g, b] = hexToRgb(_paintColor);
+  const f = _brightness / 100;
+  const dimmed = toHex(Math.round(r * f), Math.round(g * f), Math.round(b * f));
+  document.getElementById('se-swatch').style.background = dimmed;
+}
+
+function _getEffectivePaintColor() {
+  if (_brightness === 100) return _paintColor;
+  const [r, g, b] = hexToRgb(_paintColor);
+  const f = _brightness / 100;
+  return toHex(Math.round(r * f), Math.round(g * f), Math.round(b * f));
+}
+
+function toggleEyedropper() {
+  _eyedropper = !_eyedropper;
+  const btn = document.getElementById('se-eyedropper-btn');
+  if (btn) btn.classList.toggle('active', _eyedropper);
+  document.querySelectorAll('.sg-cell').forEach(el => {
+    el.classList.toggle('eyedropper-mode', _eyedropper);
+  });
+}
+
+function _pickColorFromCell(frameIndex, idx) {
+  const cells = _editScene.frames[frameIndex];
+  if (!cells) return;
+  const color = cells[idx] || '#000000';
+  _eyedropper = false;
+  const btn = document.getElementById('se-eyedropper-btn');
+  if (btn) btn.classList.remove('active');
+  document.querySelectorAll('.sg-cell').forEach(el => el.classList.remove('eyedropper-mode'));
+  setPaintColor(color);
 }
 
 function _scenePayloadFromEditor() {
