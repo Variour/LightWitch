@@ -70,13 +70,17 @@ public:
         doc["name"] = name;
         doc["w"]    = w;
         doc["h"]    = h;
-        doc["fc"]   = 0;
-        doc["frames"].to<JsonArray>();
+        doc["fc"]   = 1;
+        JsonArray frames = doc["frames"].to<JsonArray>();
+        JsonArray defaultFrame = frames.add<JsonArray>();
+        for (uint32_t i = 0; i < (uint32_t)w * h; i++) {
+            defaultFrame.add("000000");
+        }
         File f = LittleFS.open(_path(id.c_str()), "w");
         if (!f) return "";
         serializeJson(doc, f);
         f.close();
-        Logger::i("[scene] created %s \"%s\" %ux%u", id.c_str(), name, w, h);
+        Logger::i("[scene] created %s \"%s\" %ux%u with default frame", id.c_str(), name, w, h);
         return id;
     }
 

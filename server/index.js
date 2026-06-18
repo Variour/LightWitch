@@ -56,7 +56,8 @@ app.post('/api/scenes/create', (req, res) => {
   const w = Math.max(1, Math.min(200, parseInt(req.body.w) || 20));
   const h = Math.max(1, Math.min(200, parseInt(req.body.h) || 10));
   const id = `mock-${Date.now().toString(36)}`;
-  scenes.set(id, { id, name, w, h, fc: 0, frames: [] });
+  const defaultFrame = Array.from({ length: w * h }, () => '000000');
+  scenes.set(id, { id, name, w, h, fc: 1, frames: [defaultFrame] });
   res.json({ ok: true, id });
 });
 
