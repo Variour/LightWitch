@@ -64,10 +64,9 @@ jobs:
         run: |
           IMAGE="ghcr.io/${{ github.repository }}:latest"
           IMAGE="${IMAGE,,}"
-          az containerapp update \
+          az containerapp revision copy \
             --name batterylight-latest \
-            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --image "$IMAGE"
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}"
 
       # ── PR: create or update a per-PR Container App ─────────────────────────
       - name: Deploy PR Container App
@@ -91,10 +90,9 @@ jobs:
             --query "properties.configuration.ingress.fqdn" -o tsv)
 
           if az containerapp show --name "$APP" --resource-group "$RG" &>/dev/null; then
-            az containerapp update \
+            az containerapp revision copy \
               --name "$APP" \
-              --resource-group "$RG" \
-              --image "$IMAGE"
+              --resource-group "$RG"
           else
             az containerapp create \
               --name "$APP" \
