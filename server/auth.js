@@ -3,16 +3,28 @@ import express from 'express';
 
 const CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
-const TOKEN_SECRET = process.env.TOKEN_SECRET || SESSION_SECRET;
+const SESSION_SECRET = process.env.SESSION_SECRET;
+const TOKEN_SECRET = process.env.TOKEN_SECRET;
 const AUTH_ORIGIN = process.env.AUTH_ORIGIN?.replace(/\/$/, '');
 const ALLOWED_USERS = process.env.ALLOWED_GITHUB_USERS
   ? new Set(process.env.ALLOWED_GITHUB_USERS.split(',').map(u => u.trim()).filter(Boolean))
   : null;
 
-// This container handles OAuth if it has credentials; otherwise it delegates to AUTH_ORIGIN.
-// Local dev (neither set) skips auth entirely.
+// Auth server: has GitHub credentials and no AUTH_ORIGIN.
+// Auth client: has AUTH_ORIGIN and no GitHub credentials.
+// Both modes require TOKEN_SECRET, SESSION_SECRET, and ALLOWED_GITHUB_USERS.
 const IS_AUTH_SERVER = !!CLIENT_ID;
+
+const missing = [];
+if (!CLIENT_ID && !AUTH_ORIGIN)         missing.push('GITHUB_CLIENT_ID (or AUTH_ORIGIN for PR containers)');
+if (IS_AUTH_SERVER && !CLIENT_SECRET)   missing.push('GITHUB_CLIENT_SECRET');
+if (!SESSION_SECRET)                    missing.push('SESSION_SECRET');
+if (!TOKEN_SECRET)                      missing.push('TOKEN_SECRET');
+if (!ALLOWED_USERS)                     missing.push('ALLOWED_GITHUB_USERS');
+if (missing.length) {
+  console.error('Missing required environment variables:\n' + missing.map(v => `  - ${v}`).join('\n'));
+  process.exit(1);
+}
 
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
 const TOKEN_TTL_MS = 5 * 60 * 1000;       // 5 minutes (cross-container token)
@@ -189,9 +201,6 @@ export { router as authRouter };
 // --- Middleware ---
 
 export function requireAuth(req, res, next) {
-  // Skip entirely in local dev (no auth configured)
-  if (!IS_AUTH_SERVER && !AUTH_ORIGIN) return next();
-
   // Always allow auth routes through
   if (req.path.startsWith('/auth/')) return next();
 
