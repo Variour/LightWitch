@@ -67,13 +67,7 @@ jobs:
           az containerapp update \
             --name batterylight-latest \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --image "$IMAGE" \
-            --set-env-vars \
-              GITHUB_CLIENT_ID="${{ secrets.GITHUB_OAUTH_CLIENT_ID }}" \
-              GITHUB_CLIENT_SECRET="${{ secrets.GITHUB_OAUTH_CLIENT_SECRET }}" \
-              ALLOWED_GITHUB_USERS="${{ secrets.ALLOWED_GITHUB_USERS }}" \
-              TOKEN_SECRET="${{ secrets.AUTH_TOKEN_SECRET }}" \
-              SESSION_SECRET="${{ secrets.AUTH_SESSION_SECRET }}"
+            --image "$IMAGE"
 
       # ── PR: create or update a per-PR Container App ─────────────────────────
       - name: Deploy PR Container App
