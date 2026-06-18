@@ -11,6 +11,24 @@ param latestImage string = 'ghcr.io/variour/batterylight:latest'
 @secure()
 param ghcrPasswordB64 string
 
+@description('GitHub OAuth App client ID')
+param githubOauthClientId string
+
+@description('GitHub OAuth App client secret')
+@secure()
+param githubOauthClientSecret string
+
+@description('Comma-separated list of allowed GitHub usernames')
+param allowedGithubUsers string
+
+@description('Shared HMAC secret for cross-container tokens')
+@secure()
+param authTokenSecret string
+
+@description('HMAC secret for session cookies')
+@secure()
+param authSessionSecret string
+
 // Container App Environment (no Log Analytics, no VNet)
 resource env 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: '${appName}-env'
@@ -39,10 +57,10 @@ resource latestApp 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       secrets: [
-        {
-          name: 'ghcr-password'
-          value: ghcrPasswordB64
-        }
+        { name: 'ghcr-password',              value: ghcrPasswordB64 }
+        { name: 'github-oauth-client-secret', value: githubOauthClientSecret }
+        { name: 'auth-token-secret',          value: authTokenSecret }
+        { name: 'auth-session-secret',        value: authSessionSecret }
       ]
     }
     template: {
@@ -54,6 +72,13 @@ resource latestApp 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json('0.25')
             memory: '0.5Gi'
           }
+          env: [
+            { name: 'GITHUB_CLIENT_ID',      value: githubOauthClientId }
+            { name: 'GITHUB_CLIENT_SECRET',  secretRef: 'github-oauth-client-secret' }
+            { name: 'ALLOWED_GITHUB_USERS',  value: allowedGithubUsers }
+            { name: 'TOKEN_SECRET',          secretRef: 'auth-token-secret' }
+            { name: 'SESSION_SECRET',        secretRef: 'auth-session-secret' }
+          ]
         }
       ]
       scale: {

@@ -24,7 +24,12 @@ jobs:
 
       - name: Deploy Bicep template
         env:
-          GHCR_PASSWORD_B64: ${{ secrets.GHCR_PASSWORD_B64 }}
+          GHCR_PASSWORD_B64:             ${{ secrets.GHCR_PASSWORD_B64 }}
+          GITHUB_OAUTH_CLIENT_ID:        ${{ secrets.GITHUB_OAUTH_CLIENT_ID }}
+          GITHUB_OAUTH_CLIENT_SECRET:    ${{ secrets.GITHUB_OAUTH_CLIENT_SECRET }}
+          ALLOWED_GITHUB_USERS:          ${{ secrets.ALLOWED_GITHUB_USERS }}
+          AUTH_TOKEN_SECRET:             ${{ secrets.AUTH_TOKEN_SECRET }}
+          AUTH_SESSION_SECRET:           ${{ secrets.AUTH_SESSION_SECRET }}
         run: |
           az deployment group create \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
