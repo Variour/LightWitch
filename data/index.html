@@ -475,6 +475,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         </small>
         <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;font-size:.85rem;margin-top:.7rem">
           <input type="checkbox" id="se-auto-save" checked
+                 onchange="if(!this.checked) clearTimeout(_autoSaveTimer)"
                  style="width:1rem;height:1rem;accent-color:#4af">
           Auto save
         </label>
