@@ -66,6 +66,8 @@ struct DeviceConfig {
     uint16_t    mqttPort         = 1883;
     char        mqttUser[32]     = "";
     char        mqttPassword[64] = "";
+    char        githubToken[64]  = "";
+    char        githubRepo[64]   = "variour/batterylight";
     GroupConfig groups[MAX_GROUPS];
 };
 

@@ -63,6 +63,8 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().mqttPort  = doc["mqttPort"]  | (uint16_t)1883;
     strlcpy(Config::get().mqttUser,     doc["mqttUser"]     | "",    sizeof(Config::get().mqttUser));
     strlcpy(Config::get().mqttPassword, doc["mqttPassword"] | "",    sizeof(Config::get().mqttPassword));
+    strlcpy(Config::get().githubToken,  doc["githubToken"]  | "",    sizeof(Config::get().githubToken));
+    strlcpy(Config::get().githubRepo,   doc["githubRepo"]   | "variour/batterylight", sizeof(Config::get().githubRepo));
 
     if (doc["groups"].is<JsonArray>()) {
         for (JsonVariant v : doc["groups"].as<JsonArray>()) {
@@ -135,6 +137,8 @@ bool Config::save() {
     doc["mqttPort"]     = _cfg.mqttPort;
     doc["mqttUser"]     = _cfg.mqttUser;
     doc["mqttPassword"] = _cfg.mqttPassword;
+    doc["githubToken"]  = _cfg.githubToken;
+    doc["githubRepo"]   = _cfg.githubRepo;
 
     JsonArray arr = doc["groups"].to<JsonArray>();
     for (uint8_t i = 0; i < MAX_GROUPS; i++)
