@@ -983,7 +983,7 @@ function showSceneView(view, sceneId = null, pushHistory = true) {
   if (pushHistory) {
     if (view === 'list') history.pushState(null, '', '/scenes');
     else if (view === 'create') history.pushState(null, '', '/scenes/create');
-    else if (view === 'editor' && sceneId) history.pushState(null, '', `/scenes/editor/${encodeURIComponent(sceneId)}`);
+    else if (view === 'editor' && sceneId) history.pushState(null, '', `/scenes/${encodeURIComponent(sceneId)}`);
   }
 }
 
@@ -1857,8 +1857,8 @@ function _routeFromPath(path) {
     document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-btn-scenes').classList.add('active');
     showSceneView('create', null, false);
-  } else if (path.startsWith('/scenes/editor/')) {
-    const id = decodeURIComponent(path.slice('/scenes/editor/'.length));
+  } else if (path.startsWith('/scenes/') && path !== '/scenes/create') {
+    const id = decodeURIComponent(path.slice('/scenes/'.length));
     if (id) {
       document.getElementById('tab-dashboard').style.display = 'none';
       document.getElementById('tab-scenes').style.display    = '';
