@@ -385,12 +385,14 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   <div id="scene-view-editor" style="display:none">
 
     <!-- Editor header -->
-    <div class="card" style="margin-bottom:.5rem">
-      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+    <div style="display:flex;gap:.5rem;align-items:stretch;margin-bottom:.5rem">
+      <div class="card" style="margin-bottom:0;display:flex;align-items:center">
         <button class="btn-ghost btn-sm" onclick="backToSceneList()">← Scenes</button>
-        <input type="text" id="se-name" style="flex:1;margin-bottom:0;min-width:180px" placeholder="Scene name">
       </div>
-      <div style="display:flex;gap:.5rem;align-items:center;justify-content:flex-end;margin-top:.5rem;padding-top:.5rem;border-top:1px solid #2a2a2a">
+      <div class="card" style="margin-bottom:0;flex:1;display:flex;align-items:center">
+        <input type="text" id="se-name" style="flex:1;margin-bottom:0" placeholder="Scene name">
+      </div>
+      <div class="card" style="margin-bottom:0;display:flex;align-items:center;gap:.5rem">
         <button id="se-undo-btn" class="btn-ghost btn-sm" onclick="undoScene()" disabled title="Undo (Ctrl+Z)">↩ Undo <span id="se-undo-count" style="opacity:.5"></span></button>
         <button class="btn-primary btn-sm" onclick="saveScene()">Save</button>
       </div>
