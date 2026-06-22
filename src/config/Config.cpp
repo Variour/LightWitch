@@ -55,6 +55,7 @@ static void applyDoc(JsonDocument& doc) {
     strlcpy(Config::get().wifiPassword, doc["wifiPassword"] | "",             sizeof(Config::get().wifiPassword));
     strlcpy(Config::get().apPassword,   doc["apPassword"]   | "bl-9f4a2c81", sizeof(Config::get().apPassword));
     Config::get().otaPort   = doc["otaPort"]   | 3232;
+    Config::get().otaEnabled = doc["otaEnabled"] | true;
     Config::get().groupId   = doc["groupId"]   | (uint8_t)0;
     Config::get().ledType   = (LedType)(uint8_t)(doc["ledType"]  | 0);
     Config::get().logLevel  = doc["logLevel"]  | (uint8_t)1;
@@ -126,6 +127,7 @@ bool Config::save() {
     doc["wifiPassword"] = _cfg.wifiPassword;
     doc["apPassword"]   = _cfg.apPassword;
     doc["otaPort"]      = _cfg.otaPort;
+    doc["otaEnabled"]   = _cfg.otaEnabled;
     doc["groupId"]      = _cfg.groupId;
     doc["ledType"]      = (uint8_t)_cfg.ledType;
     doc["logLevel"]     = _cfg.logLevel;

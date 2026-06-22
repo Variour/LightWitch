@@ -306,6 +306,10 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     <input type="password" id="apPassword" placeholder="(unchanged if empty)">
     <label>OTA port</label>
     <input type="number" id="otaPort" value="3232" min="1" max="65535">
+    <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+      <input type="checkbox" id="otaEnabled" checked>
+      Enable OTA updates
+    </label>
 
     <hr class="section-divider">
     <h3>MQTT <small>(leave broker blank to disable)</small></h3>
@@ -807,6 +811,7 @@ async function saveSettings() {
     deviceName: document.getElementById('deviceName').value,
     wifiSsid:   document.getElementById('wifiSsid').value,
     otaPort:    parseInt(document.getElementById('otaPort').value),
+    otaEnabled: document.getElementById('otaEnabled').checked,
     ledType:    parseInt(document.getElementById('ledType').value),
     logLevel:   parseInt(document.getElementById('logLevel').value),
     mqttHost:   document.getElementById('mqttHost').value,
@@ -840,6 +845,7 @@ async function loadConfig() {
   document.getElementById('deviceName').value = d.deviceName || '';
   document.getElementById('wifiSsid').value   = d.wifiSsid   || '';
   document.getElementById('otaPort').value    = d.otaPort    || 3232;
+  document.getElementById('otaEnabled').checked = d.otaEnabled !== false;
   if (d.ledType  !== undefined) document.getElementById('ledType').value  = d.ledType;
   if (d.dataPin  !== undefined) {
     const sel = document.getElementById('ledType');
