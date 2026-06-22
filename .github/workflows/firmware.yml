@@ -1,0 +1,126 @@
+name: Firmware build and release
+
+on:
+  workflow_dispatch:
+    inputs:
+      environments:
+        description: 'PlatformIO environments to build (comma-separated)'
+        default: 'esp32dev,esp32c3'
+        required: true
+
+concurrency:
+  group: firmware-build
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - id: matrix
+        run: |
+          JSON=$(echo "${{ github.event.inputs.environments }}" \
+            | tr ',' '\n' | sed 's/[[:space:]]//g' | jq -R . | jq -sc .)
+          echo "value={\"env\":${JSON}}" >> "$GITHUB_OUTPUT"
+
+      - id: version
+        run: |
+          DATE=$(date -u +%Y.%m.%d)
+          VERSION="${DATE}.${{ github.run_number }}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inject version into version.h
+        run: |
+          sed -i 's/#define FW_VERSION ".*"/#define FW_VERSION "${{ needs.setup.outputs.version }}"/' src/version.h
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio/libdeps
+          key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ matrix.env }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware (${{ matrix.env }})
+        run: pio run -e ${{ matrix.env }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.env }}
+          path: .pio/build/${{ matrix.env }}/firmware.bin
+
+  build-fs:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio/libdeps
+          key: pio-esp32dev-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-esp32dev-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build filesystem image
+        run: pio run -e esp32dev -t buildfs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: littlefs
+          path: .pio/build/esp32dev/littlefs.bin
+
+  release:
+    needs: [setup, build, build-fs]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release files
+        run: |
+          for f in artifacts/firmware-*/firmware.bin; do
+            env=$(echo "$f" | sed 's|artifacts/firmware-\(.*\)/firmware.bin|\1|')
+            cp "$f" "firmware-${env}.bin"
+          done
+          cp artifacts/littlefs/littlefs.bin littlefs.bin
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.setup.outputs.tag }}
+          name: Firmware ${{ needs.setup.outputs.version }}
+          files: |
+            firmware-*.bin
+            littlefs.bin
+          generate_release_notes: false
