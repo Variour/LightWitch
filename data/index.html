@@ -455,20 +455,13 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
           <button class="cp-tool-btn" id="grad-axis-h" onclick="_setGradAxis('h')" style="flex:1">Horizontal</button>
           <button class="cp-tool-btn" id="grad-axis-v" onclick="_setGradAxis('v')" style="flex:1">Vertical</button>
         </div>
-        <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.3rem">
-          <button class="cp-tool-btn" id="grad-scope-frame" onclick="_setGradScope('frame')" style="flex:1">Frame</button>
-          <button class="cp-tool-btn" id="grad-scope-row"   onclick="_setGradScope('row')"   style="flex:1">Row</button>
-          <button class="cp-tool-btn" id="grad-scope-col"   onclick="_setGradScope('col')"   style="flex:1">Column</button>
-        </div>
-        <div id="grad-index-wrap" style="display:none;margin-top:.3rem">
-          <label id="grad-index-label" style="font-size:.8rem;color:#aaa">Row index</label>
-          <input type="number" id="grad-index" min="0" value="0" style="margin-bottom:0"
-                 oninput="_gradIndex = Math.max(0, parseInt(this.value) || 0)">
-        </div>
+        <button class="cp-tool-btn" id="grad-rowcol-btn" onclick="_toggleGradRowColMode()"
+                style="width:100%;margin-top:.3rem">Row/col mode</button>
         <button class="btn-primary btn-sm" style="width:100%;margin-top:.5rem"
-                onclick="_applyGradientFill()">Apply gradient</button>
+                onclick="_applyGradientFill()">Apply to frame</button>
         <small style="display:block;margin-top:.35rem;color:#666">
-          Click a swatch to set it to the current paint color.
+          Click a swatch to set it to the current paint color. Enable row/col mode to click
+          the → and ↓ buttons on the canvas to gradient-fill individual rows and columns.
         </small>
       </div>
 
@@ -916,11 +909,10 @@ let _eyedropper  = false;
 let _brightness  = 100;      // 0-100 multiplier applied on top of base color
 let _recentColors = [];
 let _syncFrames  = false;
-let _gradColorA  = '#ff0000';
-let _gradColorB  = '#0000ff';
-let _gradAxis    = 'h';      // 'h' | 'v'
-let _gradScope   = 'frame';  // 'frame' | 'row' | 'col'
-let _gradIndex   = 0;        // row or column index when scope != 'frame'
+let _gradColorA     = '#ff0000';
+let _gradColorB     = '#0000ff';
+let _gradAxis       = 'h';    // 'h' | 'v'
+let _gradRowColMode = false;  // when true, row/col header buttons apply gradient
 let _hsvH = 0, _hsvS = 1, _hsvV = 1; // current HSV state
 const _HISTORY_BUDGET = 50 * 1024 * 1024; // 50 MB target for entire undo stack
 const _HISTORY_MIN    = 5;
@@ -1280,12 +1272,12 @@ function _renderGrid() {
     html += '<tr>';
     html += `<th class="sg-qa" title="Fill frame" onclick="fillFrameFor(${i})">▦</th>`;
     for (let c = 0; c < w; c++) {
-      html += `<th class="sg-qa" title="Fill column ${c}" onclick="fillColumnFor(${i}, ${c})">↓</th>`;
+      html += `<th class="sg-qa" data-fill="col" title="Fill column ${c}" onclick="fillColumnFor(${i}, ${c})">↓</th>`;
     }
     html += '</tr>';
     for (let r = 0; r < h; r++) {
       html += '<tr>';
-      html += `<th class="sg-qa" title="Fill row ${r}" onclick="fillRowFor(${i}, ${r})">→</th>`;
+      html += `<th class="sg-qa" data-fill="row" title="Fill row ${r}" onclick="fillRowFor(${i}, ${r})">→</th>`;
       for (let c = 0; c < w; c++) {
         const idx = r * w + c;
         html += `<td class="sg-cell" data-frame="${i}" data-idx="${idx}" style="background:${frame[idx] || '#000000'}"></td>`;
@@ -1342,6 +1334,8 @@ function _renderGrid() {
     }, { passive: false });
   });
   document.addEventListener('touchend', () => { _painting = false; }, { once: false });
+
+  _renderGradUI();
 }
 
 function _paintFrameCell(frameIndex, idx) {
@@ -1377,8 +1371,13 @@ function fillRowFor(frameIndex, r) {
   const cells = frames[frameIndex];
   if (!cells) return;
   _pushHistory();
-  const color = _getEffectivePaintColor();
-  for (let c = 0; c < w; c++) cells[r * w + c] = color;
+  if (_gradRowColMode) {
+    for (let c = 0; c < w; c++)
+      cells[r * w + c] = _lerpHex(_gradColorA, _gradColorB, w > 1 ? c / (w - 1) : 0);
+  } else {
+    const color = _getEffectivePaintColor();
+    for (let c = 0; c < w; c++) cells[r * w + c] = color;
+  }
   _markModified();
   _renderGrid();
 }
@@ -1388,8 +1387,13 @@ function fillColumnFor(frameIndex, c) {
   const cells = frames[frameIndex];
   if (!cells) return;
   _pushHistory();
-  const color = _getEffectivePaintColor();
-  for (let r = 0; r < h; r++) cells[r * w + c] = color;
+  if (_gradRowColMode) {
+    for (let r = 0; r < h; r++)
+      cells[r * w + c] = _lerpHex(_gradColorA, _gradColorB, h > 1 ? r / (h - 1) : 0);
+  } else {
+    const color = _getEffectivePaintColor();
+    for (let r = 0; r < h; r++) cells[r * w + c] = color;
+  }
   _markModified();
   _renderGrid();
 }
@@ -1593,14 +1597,20 @@ function _renderGradUI() {
     const btn = document.getElementById('grad-axis-' + ax);
     if (btn) btn.classList.toggle('active', _gradAxis === ax);
   });
-  ['frame','row','col'].forEach(sc => {
-    const btn = document.getElementById('grad-scope-' + sc);
-    if (btn) btn.classList.toggle('active', _gradScope === sc);
+  const modeBtn = document.getElementById('grad-rowcol-btn');
+  if (modeBtn) modeBtn.classList.toggle('active', _gradRowColMode);
+
+  // Style row/col header buttons to preview the gradient when mode is on.
+  document.querySelectorAll('.sg-qa[data-fill="row"]').forEach(el => {
+    el.style.background = _gradRowColMode
+      ? `linear-gradient(to right, ${_gradColorA}, ${_gradColorB})`
+      : '';
   });
-  const wrap  = document.getElementById('grad-index-wrap');
-  const label = document.getElementById('grad-index-label');
-  if (wrap) wrap.style.display = (_gradScope === 'frame') ? 'none' : 'block';
-  if (label) label.textContent = _gradScope === 'row' ? 'Row index (0-based)' : 'Column index (0-based)';
+  document.querySelectorAll('.sg-qa[data-fill="col"]').forEach(el => {
+    el.style.background = _gradRowColMode
+      ? `linear-gradient(to bottom, ${_gradColorA}, ${_gradColorB})`
+      : '';
+  });
 }
 
 function _setGradColor(which) {
@@ -1613,8 +1623,8 @@ function _setGradAxis(ax) {
   _renderGradUI();
 }
 
-function _setGradScope(sc) {
-  _gradScope = sc;
+function _toggleGradRowColMode() {
+  _gradRowColMode = !_gradRowColMode;
   _renderGradUI();
 }
 
@@ -1634,17 +1644,7 @@ function _applyGradientFill() {
   const { w, h, frames } = _editScene;
   for (const cells of frames) {
     if (!cells) continue;
-    if (_gradScope === 'row') {
-      const r = Math.min(_gradIndex, h - 1);
-      for (let col = 0; col < w; col++) {
-        cells[r * w + col] = _lerpHex(_gradColorA, _gradColorB, w > 1 ? col / (w - 1) : 0);
-      }
-    } else if (_gradScope === 'col') {
-      const c = Math.min(_gradIndex, w - 1);
-      for (let row = 0; row < h; row++) {
-        cells[row * w + c] = _lerpHex(_gradColorA, _gradColorB, h > 1 ? row / (h - 1) : 0);
-      }
-    } else if (_gradAxis === 'h') {
+    if (_gradAxis === 'h') {
       for (let row = 0; row < h; row++) {
         for (let col = 0; col < w; col++) {
           cells[row * w + col] = _lerpHex(_gradColorA, _gradColorB, w > 1 ? col / (w - 1) : 0);
