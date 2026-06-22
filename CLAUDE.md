@@ -4,6 +4,7 @@ never regenerate the index.html.gz
 - Never make assumptions, ask to clarify
 - Challenge requests if necessary, be critical
 - Before starting with the implementation think through the request, identify any issues
+- Never assume default states
 
 ## Working on Issues
 
