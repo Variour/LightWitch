@@ -1064,16 +1064,19 @@ async function _openEditor(id, pushHistory = true) {
     d = text ? JSON.parse(text) : null;
   } catch (err) {
     alert('This scene file is invalid on the device. Re-save or re-import it before editing.');
+    showSceneView('list');
     return;
   }
 
   if (!d || typeof d !== 'object') {
     alert('This scene file could not be loaded from the device.');
+    showSceneView('list');
     return;
   }
 
   if (d.error || !d.id) {
     alert('Scene load failed: ' + (d.error || 'response missing id') + '\n\nResponse: ' + JSON.stringify(d));
+    showSceneView('list');
     return;
   }
 
@@ -1869,6 +1872,7 @@ function _routeFromPath(path) {
       _routeFromPath('/scenes');
     }
   } else {
+    history.replaceState(null, '', '/');
     _routeFromPath('/');
   }
 }
