@@ -473,6 +473,14 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <small style="display:block;margin-top:.3rem;color:#666">
           When on, painting a cell also updates the same cell in all other frames.
         </small>
+        <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;font-size:.85rem;margin-top:.7rem">
+          <input type="checkbox" id="se-auto-save"
+                 style="width:1rem;height:1rem;accent-color:#4af">
+          Auto save
+        </label>
+        <small style="display:block;margin-top:.3rem;color:#666">
+          Automatically saves 3 seconds after the last edit.
+        </small>
       </div>
     </div>
 
@@ -958,7 +966,7 @@ function undoScene() {
   _editScene.w = snapshot.w;
   _editScene.h = snapshot.h;
   _editScene.frames = snapshot.frames;
-  _modified = true;
+  _markModified();
   _renderEditor();
   _updateUndoBtn();
 }
@@ -1147,7 +1155,7 @@ function resizeCanvas() {
 
   _pushHistory();
   _resizeSceneTo(w, h);
-  _modified = true;
+  _markModified();
   _renderEditor();
 }
 
@@ -1221,7 +1229,7 @@ function deleteFrame(index) {
   if (_editScene.frames.length === 1 && !confirm('Delete the only frame?')) return;
   _pushHistory();
   _editScene.frames.splice(index, 1);
-  _modified = true;
+  _markModified();
   _renderFrameList();
   _renderGrid();
 }
@@ -1232,7 +1240,7 @@ function moveFrame(index, dir) {
   if (newIndex < 0 || newIndex >= frames.length) return;
   _pushHistory();
   [frames[index], frames[newIndex]] = [frames[newIndex], frames[index]];
-  _modified = true;
+  _markModified();
   _renderFrameList();
   _renderGrid();
 }
@@ -1337,7 +1345,7 @@ function _paintFrameCell(frameIndex, idx) {
     const el = document.querySelector(`.sg-cell[data-frame="${fi}"][data-idx="${idx}"]`);
     if (el) el.style.background = color;
   }
-  if (changed) _modified = true;
+  if (changed) _markModified();
 }
 
 function fillFrameFor(frameIndex) {
@@ -1346,7 +1354,7 @@ function fillFrameFor(frameIndex) {
   _pushHistory();
   const color = _getEffectivePaintColor();
   cells.fill(color);
-  _modified = true;
+  _markModified();
   _renderGrid();
 }
 
@@ -1357,7 +1365,7 @@ function fillRowFor(frameIndex, r) {
   _pushHistory();
   const color = _getEffectivePaintColor();
   for (let c = 0; c < w; c++) cells[r * w + c] = color;
-  _modified = true;
+  _markModified();
   _renderGrid();
 }
 
@@ -1368,7 +1376,7 @@ function fillColumnFor(frameIndex, c) {
   _pushHistory();
   const color = _getEffectivePaintColor();
   for (let r = 0; r < h; r++) cells[r * w + c] = color;
-  _modified = true;
+  _markModified();
   _renderGrid();
 }
 
@@ -1614,7 +1622,7 @@ function _applyGradientFill() {
       }
     }
   }
-  _modified = true;
+  _markModified();
   _renderGrid();
 }
 
@@ -1763,6 +1771,19 @@ function _normalizeImportedScene(data) {
   };
 }
 
+let _autoSaveTimer = null;
+
+function _scheduleAutoSave() {
+  if (!document.getElementById('se-auto-save')?.checked) return;
+  clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(() => { if (_modified) saveScene(); }, 3000);
+}
+
+function _markModified() {
+  _modified = true;
+  _scheduleAutoSave();
+}
+
 async function saveScene() {
   if (!_editScene?.id) {
     alert('Cannot save: scene has no id. Close the editor and reopen the scene.');
@@ -1784,6 +1805,7 @@ async function saveScene() {
   const d = await res.json();
   if (d.ok) {
     _modified = false;
+    clearTimeout(_autoSaveTimer);
   } else {
     alert('Save failed: ' + (d.error || '?'));
   }
@@ -1791,6 +1813,7 @@ async function saveScene() {
 
 function backToSceneList() {
   if (_modified && !confirm('Unsaved changes will be lost. Go back?')) return;
+  clearTimeout(_autoSaveTimer);
   _modified = false;
   _history  = [];
   showSceneView('list');
