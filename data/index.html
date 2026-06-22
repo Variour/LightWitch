@@ -1263,14 +1263,14 @@ function _renderGrid() {
     html += '</div>';
     html += '<div class="frame-stack-grid">';
     html += '<table class="sg">';
-    // New top row: empty corner (rowspan=2) + gV button spanning all columns
+    // Top row: ↕ (spans all rows, leftmost) | ▦ (spans 2 rows) | ↔ (spans all data cols)
     html += '<tr>';
+    html += `<th class="sg-qa sg-qa-grad" data-fill="frame-v" rowspan="${h + 2}" title="Gradient fill frame vertically" onclick="gradFillFrameFor(${i}, 'v')">↕</th>`;
     html += `<th class="sg-qa" rowspan="2" title="Fill frame (flat)" onclick="fillFrameFor(${i})">▦</th>`;
-    html += `<th class="sg-qa sg-qa-grad" data-fill="frame-h" colspan="${w + 1}" title="Gradient fill frame horizontally" onclick="gradFillFrameFor(${i}, 'h')">↔</th>`;
+    html += `<th class="sg-qa sg-qa-grad" data-fill="frame-h" colspan="${w}" title="Gradient fill frame horizontally" onclick="gradFillFrameFor(${i}, 'h')">↔</th>`;
     html += '</tr>';
-    // Header row: gV button spanning all ↓ columns (corner cell continues from rowspan)
+    // Second row: (↕ and ▦ continue) | ↓ buttons
     html += '<tr>';
-    html += `<th class="sg-qa sg-qa-grad" data-fill="frame-v" rowspan="${h + 1}" title="Gradient fill frame vertically" onclick="gradFillFrameFor(${i}, 'v')">↕</th>`;
     for (let c = 0; c < w; c++) {
       html += `<th class="sg-qa" data-fill="col" title="Fill column ${c}" onclick="fillColumnFor(${i}, ${c})">↓</th>`;
     }
