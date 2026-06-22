@@ -269,6 +269,7 @@ private:
         doc["deviceName"] = c.deviceName;
         doc["wifiSsid"]   = c.wifiSsid;
         doc["otaPort"]    = c.otaPort;
+        doc["otaEnabled"] = c.otaEnabled;
         doc["groupId"]    = c.groupId;
         doc["mac"]        = WiFi.macAddress();
         doc["version"]    = FW_VERSION;
@@ -300,7 +301,8 @@ private:
         if (!doc["wifiSsid"].isNull())     strlcpy(c.wifiSsid,     doc["wifiSsid"],     sizeof(c.wifiSsid));
         if (!doc["wifiPassword"].isNull()) strlcpy(c.wifiPassword, doc["wifiPassword"], sizeof(c.wifiPassword));
         if (!doc["apPassword"].isNull())   strlcpy(c.apPassword,   doc["apPassword"],   sizeof(c.apPassword));
-        if (!doc["otaPort"].isNull())      c.otaPort  = doc["otaPort"];
+        if (!doc["otaPort"].isNull())      c.otaPort    = doc["otaPort"];
+        if (!doc["otaEnabled"].isNull())   c.otaEnabled = (bool)doc["otaEnabled"];
         if (!doc["ledType"].isNull())      c.ledType  = (LedType)(uint8_t)doc["ledType"];
         if (!doc["logLevel"].isNull()) {
             c.logLevel = (uint8_t)doc["logLevel"];

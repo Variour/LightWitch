@@ -128,7 +128,7 @@ void setup() {
     if (MDNS.begin(Config::get().deviceName))
         Logger::i("[mdns] http://%s.local", Config::get().deviceName);
 
-    setupOta();
+    if (Config::get().otaEnabled) setupOta();
     mesh.begin();
     runner.setPeerRegistry(&mesh.peers);
 
@@ -230,7 +230,7 @@ void setup() {
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 void loop() {
-    ArduinoOTA.handle();
+    if (Config::get().otaEnabled) ArduinoOTA.handle();
     webServer.loop();
     if (!_otaActive) {
         mesh.tick();

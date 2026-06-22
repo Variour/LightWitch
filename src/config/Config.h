@@ -58,6 +58,7 @@ struct DeviceConfig {
     char        wifiPassword[64] = "";
     char        apPassword[64]   = "bl-9f4a2c81";
     uint16_t    otaPort          = 3232;
+    bool        otaEnabled       = true;
     uint8_t     groupId          = 0;
     LedType     ledType          = LedType::WS2812B;
     uint8_t     logLevel         = 1;  // LogLevel::INFO
