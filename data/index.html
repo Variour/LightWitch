@@ -543,12 +543,13 @@ const PATTERNS = [
 ];
 
 // ── Tab navigation ────────────────────────────────────────────────────────────
-function switchTab(tab) {
+function switchTab(tab, pushHistory = true) {
   document.getElementById('tab-dashboard').style.display = tab === 'dashboard' ? '' : 'none';
   document.getElementById('tab-scenes').style.display    = tab === 'scenes'    ? '' : 'none';
   document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-btn-' + tab).classList.add('active');
-  if (tab === 'scenes' && _sceneView === 'list') _loadScenes();
+  if (tab === 'dashboard' && pushHistory) history.pushState(null, '', '/');
+  if (tab === 'scenes') showSceneView('list', null, pushHistory);
 }
 
 // ── Groups UI ─────────────────────────────────────────────────────────────────
@@ -973,11 +974,17 @@ function undoScene() {
 }
 
 // ── Tab helpers ───────────────────────────────────────────────────────────────
-function showSceneView(view) {
+function showSceneView(view, sceneId = null, pushHistory = true) {
   ['list','create','editor'].forEach(v => {
     document.getElementById('scene-view-' + v).style.display = v === view ? '' : 'none';
   });
   _sceneView = view;
+  if (view === 'list') _loadScenes();
+  if (pushHistory) {
+    if (view === 'list') history.pushState(null, '', '/scenes');
+    else if (view === 'create') history.pushState(null, '', '/scenes/create');
+    else if (view === 'editor' && sceneId) history.pushState(null, '', `/scenes/editor/${encodeURIComponent(sceneId)}`);
+  }
 }
 
 // ── Scene list ────────────────────────────────────────────────────────────────
@@ -1048,7 +1055,7 @@ async function openEditor(id) {
   await _openEditor(id);
 }
 
-async function _openEditor(id) {
+async function _openEditor(id, pushHistory = true) {
   const res = await fetch('/api/scenes/get?id=' + encodeURIComponent(id));
   const text = await res.text();
 
@@ -1096,7 +1103,7 @@ async function _openEditor(id) {
   _renderEditor();
   _updateUndoBtn();
   _setSaveBtnState(false);
-  showSceneView('editor');
+  showSceneView('editor', _editScene.id, pushHistory);
 }
 
 // ── Frame format ⟷ cell array ─────────────────────────────────────────────────
@@ -1828,13 +1835,51 @@ function backToSceneList() {
   _modified = false;
   _history  = [];
   showSceneView('list');
-  _loadScenes();
 }
+
+// ── Routing ───────────────────────────────────────────────────────────────────
+function _routeFromPath(path) {
+  if (path === '/' || path === '') {
+    // show dashboard without pushing a new history entry
+    document.getElementById('tab-dashboard').style.display = '';
+    document.getElementById('tab-scenes').style.display    = 'none';
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-btn-dashboard').classList.add('active');
+  } else if (path === '/scenes') {
+    document.getElementById('tab-dashboard').style.display = 'none';
+    document.getElementById('tab-scenes').style.display    = '';
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-btn-scenes').classList.add('active');
+    showSceneView('list', null, false);
+  } else if (path === '/scenes/create') {
+    document.getElementById('tab-dashboard').style.display = 'none';
+    document.getElementById('tab-scenes').style.display    = '';
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-btn-scenes').classList.add('active');
+    showSceneView('create', null, false);
+  } else if (path.startsWith('/scenes/editor/')) {
+    const id = decodeURIComponent(path.slice('/scenes/editor/'.length));
+    if (id) {
+      document.getElementById('tab-dashboard').style.display = 'none';
+      document.getElementById('tab-scenes').style.display    = '';
+      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+      document.getElementById('tab-btn-scenes').classList.add('active');
+      _openEditor(id, false);
+    } else {
+      _routeFromPath('/scenes');
+    }
+  } else {
+    _routeFromPath('/');
+  }
+}
+
+window.addEventListener('popstate', () => _routeFromPath(location.pathname));
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 loadConfig();
 const isLocalDev = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
 if (!isLocalDev) connectWs();
+_routeFromPath(location.pathname);
 </script>
 </body>
 </html>
