@@ -396,7 +396,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <button id="se-undo-btn" class="btn-ghost btn-sm" onclick="undoScene()" disabled title="Undo (Ctrl+Z)">↩ Undo <span id="se-undo-count" style="opacity:.5"></span></button>
       </div>
       <div class="card" style="margin-bottom:0;display:flex;align-items:center">
-        <button class="btn-primary btn-sm" onclick="saveScene()">Save</button>
+        <button id="se-save-btn" class="btn-ghost btn-sm" onclick="saveScene()" disabled>Save</button>
       </div>
     </div>
 
@@ -1094,6 +1094,7 @@ async function _openEditor(id) {
   _history     = [];
   _renderEditor();
   _updateUndoBtn();
+  _setSaveBtnState(false);
   showSceneView('editor');
 }
 
@@ -1779,8 +1780,16 @@ function _scheduleAutoSave() {
   _autoSaveTimer = setTimeout(() => { if (_modified) saveScene(); }, 3000);
 }
 
+function _setSaveBtnState(dirty) {
+  const btn = document.getElementById('se-save-btn');
+  if (!btn) return;
+  btn.disabled = !dirty;
+  btn.className = dirty ? 'btn-primary btn-sm' : 'btn-ghost btn-sm';
+}
+
 function _markModified() {
   _modified = true;
+  _setSaveBtnState(true);
   _scheduleAutoSave();
 }
 
@@ -1806,6 +1815,7 @@ async function saveScene() {
   if (d.ok) {
     _modified = false;
     clearTimeout(_autoSaveTimer);
+    _setSaveBtnState(false);
   } else {
     alert('Save failed: ' + (d.error || '?'));
   }
