@@ -389,6 +389,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
       <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
         <button class="btn-ghost btn-sm" onclick="backToSceneList()">← Scenes</button>
         <input type="text" id="se-name" style="flex:1;margin-bottom:0;min-width:180px" placeholder="Scene name">
+        <button id="se-undo-btn" class="btn-ghost btn-sm" onclick="undoScene()" disabled title="Undo (Ctrl+Z)">↩ Undo</button>
         <button class="btn-primary btn-sm" onclick="saveScene()">Save</button>
       </div>
     </div>
@@ -894,6 +895,8 @@ let _gradColorA  = '#ff0000';
 let _gradColorB  = '#0000ff';
 let _gradAxis    = 'h';      // 'h' | 'v'
 let _hsvH = 0, _hsvS = 1, _hsvV = 1; // current HSV state
+const _HISTORY_MAX = 50;
+let _history = [];           // stack of deep-copied frame snapshots
 const _PRESETS = [
   '#ff0000','#00ff00','#0000ff','#ffffff',
   '#00ffff','#ff00ff','#ffff00','#ff8000',
@@ -903,6 +906,43 @@ const _PRESETS = [
 
 // Global mouseup to end drag-paint
 document.addEventListener('mouseup', () => { _painting = false; });
+
+// Ctrl+Z / Cmd+Z keyboard shortcut for undo
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z' && _sceneView === 'editor') {
+    e.preventDefault();
+    undoScene();
+  }
+});
+
+// ── Undo history ──────────────────────────────────────────────────────────────
+function _pushHistory() {
+  if (!_editScene) return;
+  const snapshot = {
+    w: _editScene.w,
+    h: _editScene.h,
+    frames: _editScene.frames.map(f => f.slice())
+  };
+  _history.push(snapshot);
+  if (_history.length > _HISTORY_MAX) _history.shift();
+  _updateUndoBtn();
+}
+
+function _updateUndoBtn() {
+  const btn = document.getElementById('se-undo-btn');
+  if (btn) btn.disabled = _history.length === 0;
+}
+
+function undoScene() {
+  if (!_history.length) return;
+  const snapshot = _history.pop();
+  _editScene.w = snapshot.w;
+  _editScene.h = snapshot.h;
+  _editScene.frames = snapshot.frames;
+  _modified = true;
+  _renderEditor();
+  _updateUndoBtn();
+}
 
 // ── Tab helpers ───────────────────────────────────────────────────────────────
 function showSceneView(view) {
@@ -1024,7 +1064,9 @@ async function _openEditor(id) {
   }
 
   _modified    = false;
+  _history     = [];
   _renderEditor();
+  _updateUndoBtn();
   showSceneView('editor');
 }
 
@@ -1084,6 +1126,7 @@ function resizeCanvas() {
 
   if (w === _editScene.w && h === _editScene.h) return;
 
+  _pushHistory();
   _resizeSceneTo(w, h);
   _modified = true;
   _renderEditor();
@@ -1148,6 +1191,7 @@ function addFrame() {
     return;
   }
 
+  _pushHistory();
   _editScene.frames.push(Array.from({ length: size }, () => '#000000'));
   _modified    = true;
   _renderFrameList();
@@ -1156,6 +1200,7 @@ function addFrame() {
 
 function deleteFrame(index) {
   if (_editScene.frames.length === 1 && !confirm('Delete the only frame?')) return;
+  _pushHistory();
   _editScene.frames.splice(index, 1);
   _modified = true;
   _renderFrameList();
@@ -1166,6 +1211,7 @@ function moveFrame(index, dir) {
   const frames   = _editScene.frames;
   const newIndex = index + dir;
   if (newIndex < 0 || newIndex >= frames.length) return;
+  _pushHistory();
   [frames[index], frames[newIndex]] = [frames[newIndex], frames[index]];
   _modified = true;
   _renderFrameList();
@@ -1219,6 +1265,7 @@ function _renderGrid() {
     table.addEventListener('mousedown', e => {
       if (e.target.classList.contains('sg-cell')) {
         _painting = true;
+        if (!_eyedropper) _pushHistory();
         const frameIndex = parseInt(e.target.dataset.frame, 10);
         const idx = parseInt(e.target.dataset.idx, 10);
         _paintFrameCell(frameIndex, idx);
@@ -1235,6 +1282,7 @@ function _renderGrid() {
       const el = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
       if (el && el.classList.contains('sg-cell')) {
         _painting = true;
+        if (!_eyedropper) _pushHistory();
         const frameIndex = parseInt(el.dataset.frame, 10);
         const idx = parseInt(el.dataset.idx, 10);
         _paintFrameCell(frameIndex, idx);
@@ -1276,6 +1324,7 @@ function _paintFrameCell(frameIndex, idx) {
 function fillFrameFor(frameIndex) {
   const cells = _editScene.frames[frameIndex];
   if (!cells) return;
+  _pushHistory();
   const color = _getEffectivePaintColor();
   cells.fill(color);
   _modified = true;
@@ -1286,6 +1335,7 @@ function fillRowFor(frameIndex, r) {
   const { w, frames } = _editScene;
   const cells = frames[frameIndex];
   if (!cells) return;
+  _pushHistory();
   const color = _getEffectivePaintColor();
   for (let c = 0; c < w; c++) cells[r * w + c] = color;
   _modified = true;
@@ -1296,6 +1346,7 @@ function fillColumnFor(frameIndex, c) {
   const { w, h, frames } = _editScene;
   const cells = frames[frameIndex];
   if (!cells) return;
+  _pushHistory();
   const color = _getEffectivePaintColor();
   for (let r = 0; r < h; r++) cells[r * w + c] = color;
   _modified = true;
@@ -1525,6 +1576,7 @@ function _lerpHex(hexA, hexB, t) {
 
 function _applyGradientFill() {
   if (!_editScene) return;
+  _pushHistory();
   const { w, h, frames } = _editScene;
   for (const cells of frames) {
     if (!cells) continue;
@@ -1721,6 +1773,7 @@ async function saveScene() {
 function backToSceneList() {
   if (_modified && !confirm('Unsaved changes will be lost. Go back?')) return;
   _modified = false;
+  _history  = [];
   showSceneView('list');
   _loadScenes();
 }
