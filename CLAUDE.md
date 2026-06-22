@@ -8,7 +8,8 @@ never regenerate the index.html.gz
 
 ## Working on Issues
 
-- When working on an issue, always create a feature branch and open a pull request
+- When working on an issue, always create a feature branch
+- Once done implementing the changes open a pull request into main
 - Never merge pull requests unless specifically asked
 - Add test checklists to PRs
 - when updating a branch with an open pr, review the test checklist and update it if necessary
