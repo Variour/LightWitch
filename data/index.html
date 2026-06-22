@@ -18,7 +18,7 @@ label { display: block; font-size: .82rem; color: #888; margin-bottom: .2rem; }
 small { font-size: .75rem; color: #555; }
 input[type=text], input[type=password], input[type=number], select {
   width: 100%; padding: .45rem .65rem; border-radius: 6px; border: 1px solid #2a2a2a;
-  background: #111; color: #eee; font-size: .9rem; margin-bottom: .55rem; }
+  background: #111; color: #eee; font-size: .9rem; margin-bottom: .55rem; box-sizing: border-box; }
 input[type=range]  { width: 100%; accent-color: #4af; margin-bottom: .5rem; }
 input[type=color]  { width: 2.2rem; height: 2.2rem; border: none; border-radius: 5px;
                      background: none; cursor: pointer; flex-shrink: 0; }
@@ -89,6 +89,9 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
               padding: .5rem 0; border-bottom: 1px solid #1a1a1a; }
 .scene-item:last-child { border-bottom: none; }
 .scene-meta { font-size: .78rem; color: #555; margin-left: .5rem; }
+
+/* Color tools row above canvas */
+.se-color-row { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: .75rem; align-items: start; }
 
 /* Editor layout: narrow side panel + main grid */
 .se-layout { display: grid; grid-template-columns: 1fr; gap: .75rem; }
@@ -167,6 +170,70 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .color-swatch { width: 2.6rem; height: 2.6rem; border-radius: 8px; cursor: pointer;
                 border: 2px solid #333; flex-shrink: 0; transition: border-color .15s; }
 .color-swatch:hover { border-color: #555; }
+
+/* Color picker panel */
+.cp-mini-swatch {
+  width: 1.55rem; height: 1.55rem; border-radius: 5px; cursor: pointer;
+  border: 2px solid #333; flex-shrink: 0; transition: border-color .15s, transform .1s;
+  box-sizing: border-box;
+}
+.cp-mini-swatch:hover { border-color: #aaa; transform: scale(1.15); }
+.cp-mini-swatch.active { border-color: #4af; }
+.cp-row { display: flex; gap: .35rem; flex-wrap: wrap; margin-top: .4rem; }
+.cp-tool-btn {
+  background: #2a2a2a; border: 1.5px solid #333; border-radius: 6px;
+  color: #aaa; cursor: pointer; font-size: .8rem; padding: .28rem .55rem;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.cp-tool-btn:hover { background: #333; color: #fff; }
+.cp-tool-btn.active { background: #1a4a6a; border-color: #4af; color: #4af; }
+.cp-hex-input {
+  background: #111; border: 1.5px solid #333; border-radius: 6px; color: #eee;
+  font-family: monospace; font-size: .82rem; padding: .28rem .4rem;
+  width: 7.5ch !important; margin-bottom: 0 !important; box-sizing: content-box !important;
+  outline: none; transition: border-color .15s;
+}
+.cp-hex-input:focus { border-color: #4af; }
+.cp-brightness { width: 100%; accent-color: #4af; }
+.cp-label { font-size: .7rem; color: #777; margin-bottom: .15rem; display: block; }
+.sg-cell.eyedropper-mode { cursor: crosshair; }
+.sg-cell.eyedropper-mode:hover { outline: 2px solid #fa4; outline-offset: -1px; }
+
+/* Inline HSV picker */
+.hsv-wrap { margin-top: .6rem; user-select: none; }
+.hsv-sv {
+  width: 100%; height: 120px; border-radius: 6px; position: relative;
+  cursor: crosshair; border: 1.5px solid #333; overflow: hidden;
+}
+.hsv-sv canvas { display: block; width: 100%; height: 100%; }
+.hsv-sv-cursor {
+  position: absolute; width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid #fff; box-shadow: 0 0 0 1px #000; pointer-events: none;
+  transform: translate(-50%,-50%);
+}
+.hsv-hue {
+  width: 100%; height: 12px; border-radius: 6px; margin-top: .4rem;
+  cursor: pointer; border: 1.5px solid #333; outline: none;
+  background: linear-gradient(to right,
+    #f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);
+  accent-color: transparent; -webkit-appearance: none; appearance: none;
+}
+.hsv-hue::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; border: 2px solid #000; cursor: pointer;
+}
+.hsv-hue::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; border: 2px solid #000; cursor: pointer;
+}
+
+/* Gradient fill card */
+.grad-swatch-pair { display: flex; gap: .5rem; align-items: center; margin-bottom: .45rem; }
+.grad-swatch {
+  width: 2rem; height: 2rem; border-radius: 6px; border: 2px solid #333;
+  cursor: pointer; flex-shrink: 0; transition: border-color .15s;
+}
+.grad-swatch:hover { border-color: #555; }
 </style>
 </head>
 <body>
@@ -327,21 +394,85 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     </div>
 
     <!-- Editor body -->
+
+    <!-- Color tools row: spans full width above the canvas -->
+    <div class="se-color-row">
+      <div class="card" style="flex:2;min-width:220px">
+        <h2>Paint color</h2>
+        <!-- Swatch + hex + eyedropper + brightness on one line -->
+        <div style="display:flex;align-items:center;gap:.5rem;overflow:hidden">
+          <div class="color-swatch" id="se-swatch" title="Current paint color" style="flex-shrink:0"></div>
+          <input type="text" id="se-hex-input" class="cp-hex-input" value="#ff0000"
+                 maxlength="7" placeholder="#rrggbb" style="flex-shrink:0"
+                 oninput="_onHexInput(this.value)"
+                 onblur="_onHexBlur(this.value)">
+          <button id="se-eyedropper-btn" class="cp-tool-btn" title="Eyedropper: click a cell to pick its color"
+                  onclick="toggleEyedropper()" style="flex-shrink:0">&#x1F489;</button>
+          <span class="cp-label" style="margin:0;flex-shrink:0;white-space:nowrap"><span id="se-brightness-val">100</span>%</span>
+          <input type="range" id="se-brightness" class="cp-brightness" min="0" max="100" value="100"
+                 style="flex:1;min-width:0;margin:0" oninput="_onBrightnessInput(this.value)">
+        </div>
+        <!-- Inline HSV picker -->
+        <div class="hsv-wrap">
+          <span class="cp-label">Color picker</span>
+          <div class="hsv-sv" id="hsv-sv">
+            <canvas id="hsv-canvas"></canvas>
+            <div class="hsv-sv-cursor" id="hsv-cursor"></div>
+          </div>
+          <input type="range" id="hsv-hue" class="hsv-hue" min="0" max="359" value="0"
+                 oninput="_hsvHueChange(this.value)">
+        </div>
+        <!-- Preset palette -->
+        <div>
+          <span class="cp-label" style="margin-top:.55rem">Presets</span>
+          <div class="cp-row" id="se-presets"></div>
+        </div>
+        <!-- Recent colors -->
+        <div>
+          <span class="cp-label" style="margin-top:.55rem">Recent</span>
+          <div class="cp-row" id="se-recents"><span style="font-size:.72rem;color:#555">None yet</span></div>
+        </div>
+      </div>
+
+      <!-- Gradient fill card -->
+      <div class="card" style="flex:1;min-width:180px">
+        <h2>Gradient fill</h2>
+        <div class="grad-swatch-pair">
+          <div class="grad-swatch" id="grad-swatch-a" title="Color A (click to use current paint color)"
+               onclick="_setGradColor('a')" style="background:#ff0000"></div>
+          <span style="font-size:.8rem;color:#aaa;flex:1">→</span>
+          <div class="grad-swatch" id="grad-swatch-b" title="Color B (click to use current paint color)"
+               onclick="_setGradColor('b')" style="background:#0000ff"></div>
+        </div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.3rem">
+          <button class="cp-tool-btn" id="grad-axis-h" onclick="_setGradAxis('h')" style="flex:1">Horizontal</button>
+          <button class="cp-tool-btn" id="grad-axis-v" onclick="_setGradAxis('v')" style="flex:1">Vertical</button>
+        </div>
+        <button class="btn-primary btn-sm" style="width:100%;margin-top:.5rem"
+                onclick="_applyGradientFill()">Apply gradient</button>
+        <small style="display:block;margin-top:.35rem;color:#666">
+          Click a swatch to set it to the current paint color.
+        </small>
+      </div>
+
+      <!-- Options card -->
+      <div class="card" style="flex:1;min-width:160px">
+        <h2>Options</h2>
+        <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;font-size:.85rem">
+          <input type="checkbox" id="se-sync-frames" onchange="_syncToggle(this.checked)"
+                 style="width:1rem;height:1rem;accent-color:#4af">
+          Lock color across frames
+        </label>
+        <small style="display:block;margin-top:.3rem;color:#666">
+          When on, painting a cell also updates the same cell in all other frames.
+        </small>
+      </div>
+    </div>
+
     <div class="se-layout">
 
-      <!-- Side panel: color + frames -->
+      <!-- Side panel: canvas size + frames -->
       <div>
-        <div class="card">
-          <h2>Paint color</h2>
-          <div style="display:flex;align-items:center;gap:.6rem">
-            <div class="color-swatch" id="se-swatch" onclick="document.getElementById('se-color-input').click()"></div>
-            <input type="color" id="se-color-input" value="#ff0000"
-                   style="position:absolute;opacity:0;pointer-events:none"
-                   oninput="setPaintColor(this.value)">
-            <span style="font-size:.8rem;color:#666">Click to change</span>
-          </div>
-        </div>
-
         <div class="card">
           <h2>Canvas size</h2>
           <div style="display:flex;gap:.5rem;margin-bottom:.5rem">
@@ -755,6 +886,20 @@ let _editScene   = null;     // {id, name, w, h, frames: [Array<string>]}
 let _paintColor  = '#ff0000';
 let _modified    = false;
 let _painting    = false;
+let _eyedropper  = false;
+let _brightness  = 100;      // 0-100 multiplier applied on top of base color
+let _recentColors = [];
+let _syncFrames  = false;
+let _gradColorA  = '#ff0000';
+let _gradColorB  = '#0000ff';
+let _gradAxis    = 'h';      // 'h' | 'v'
+let _hsvH = 0, _hsvS = 1, _hsvV = 1; // current HSV state
+const _PRESETS = [
+  '#ff0000','#00ff00','#0000ff','#ffffff',
+  '#00ffff','#ff00ff','#ffff00','#ff8000',
+  '#ff8080','#80ff80','#8080ff','#ffa500',
+  '#ff69b4','#40e0d0','#7b68ee','#ffd700'
+];
 
 // Global mouseup to end drag-paint
 document.addEventListener('mouseup', () => { _painting = false; });
@@ -915,7 +1060,15 @@ function _renderEditor() {
   document.getElementById('se-height').value = _editScene.h;
   // Ensure swatch reflects current paint color
   document.getElementById('se-swatch').style.background = _paintColor;
-  document.getElementById('se-color-input').value = _paintColor;
+  document.getElementById('se-hex-input').value = _paintColor;
+  document.getElementById('se-brightness').value = _brightness;
+  document.getElementById('se-brightness-val').textContent = _brightness;
+  _renderPresets();
+  _renderRecents();
+  _hsvInitCanvas();
+  _hsvSync();
+  _renderGradUI();
+  document.getElementById('se-sync-frames').checked = _syncFrames;
   _renderFrameList();
   _renderGrid();
 }
@@ -1031,7 +1184,7 @@ function _renderGrid() {
 
   let html = '<div class="frame-stack">';
   frames.forEach((frame, i) => {
-    html += '<div class="frame-stack-card">';
+    html += `<div class="frame-stack-card" data-frame="${i}">`;
     html += '<div class="frame-stack-header">';
     html += `<span class="frame-stack-title">Frame ${i + 1}</span>`;
     html += '</div>';
@@ -1103,18 +1256,28 @@ function _renderGrid() {
 }
 
 function _paintFrameCell(frameIndex, idx) {
-  const cells = _editScene.frames[frameIndex];
-  if (!cells || cells[idx] === _paintColor) return;
-  cells[idx] = _paintColor;
-  _modified = true;
-  const el = document.querySelector(`.sg-cell[data-frame="${frameIndex}"][data-idx="${idx}"]`);
-  if (el) el.style.background = _paintColor;
+  if (_eyedropper) { _pickColorFromCell(frameIndex, idx); return; }
+  const color = _getEffectivePaintColor();
+  const framesToPaint = _syncFrames
+    ? _editScene.frames.map((_, i) => i)
+    : [frameIndex];
+  let changed = false;
+  for (const fi of framesToPaint) {
+    const cells = _editScene.frames[fi];
+    if (!cells || cells[idx] === color) continue;
+    cells[idx] = color;
+    changed = true;
+    const el = document.querySelector(`.sg-cell[data-frame="${fi}"][data-idx="${idx}"]`);
+    if (el) el.style.background = color;
+  }
+  if (changed) _modified = true;
 }
 
 function fillFrameFor(frameIndex) {
   const cells = _editScene.frames[frameIndex];
   if (!cells) return;
-  cells.fill(_paintColor);
+  const color = _getEffectivePaintColor();
+  cells.fill(color);
   _modified = true;
   _renderGrid();
 }
@@ -1123,7 +1286,8 @@ function fillRowFor(frameIndex, r) {
   const { w, frames } = _editScene;
   const cells = frames[frameIndex];
   if (!cells) return;
-  for (let c = 0; c < w; c++) cells[r * w + c] = _paintColor;
+  const color = _getEffectivePaintColor();
+  for (let c = 0; c < w; c++) cells[r * w + c] = color;
   _modified = true;
   _renderGrid();
 }
@@ -1132,7 +1296,8 @@ function fillColumnFor(frameIndex, c) {
   const { w, h, frames } = _editScene;
   const cells = frames[frameIndex];
   if (!cells) return;
-  for (let r = 0; r < h; r++) cells[r * w + c] = _paintColor;
+  const color = _getEffectivePaintColor();
+  for (let r = 0; r < h; r++) cells[r * w + c] = color;
   _modified = true;
   _renderGrid();
 }
@@ -1140,9 +1305,272 @@ function fillColumnFor(frameIndex, c) {
 // ── Quick fill actions (use current paint color) ──────────────────────────────
 
 // ── Color picker ──────────────────────────────────────────────────────────────
-function setPaintColor(color) {
+
+function setPaintColor(color, skipRecent) {
   _paintColor = color;
+  _brightness = 100; // reset brightness when picking a new base color
   document.getElementById('se-swatch').style.background = color;
+  const hi = document.getElementById('se-hex-input');
+  if (hi) hi.value = color;
+  const bs = document.getElementById('se-brightness');
+  if (bs) bs.value = 100;
+  const bv = document.getElementById('se-brightness-val');
+  if (bv) bv.textContent = 100;
+  if (!skipRecent) _pushRecentColor(color);
+  _hsvSync();
+}
+
+function _pushRecentColor(color) {
+  _recentColors = _recentColors.filter(c => c !== color);
+  _recentColors.unshift(color);
+  if (_recentColors.length > 10) _recentColors.length = 10;
+  _renderRecents();
+}
+
+function _renderPresets() {
+  const el = document.getElementById('se-presets');
+  if (!el) return;
+  el.innerHTML = _PRESETS.map(c =>
+    `<div class="cp-mini-swatch" style="background:${c}" title="${c}"
+          onclick="setPaintColor('${c}')"></div>`
+  ).join('');
+}
+
+function _renderRecents() {
+  const el = document.getElementById('se-recents');
+  if (!el) return;
+  if (!_recentColors.length) {
+    el.innerHTML = '<span style="font-size:.72rem;color:#555">None yet</span>';
+    return;
+  }
+  el.innerHTML = _recentColors.map(c =>
+    `<div class="cp-mini-swatch" style="background:${c}" title="${c}"
+          onclick="setPaintColor('${c}')"></div>`
+  ).join('');
+}
+
+function _onHexInput(val) {
+  if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+    _paintColor = val.toLowerCase();
+    _brightness = 100;
+    document.getElementById('se-swatch').style.background = _paintColor;
+    document.getElementById('se-brightness').value = 100;
+    document.getElementById('se-brightness-val').textContent = 100;
+  }
+}
+
+function _onHexBlur(val) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(val)) {
+    document.getElementById('se-hex-input').value = _paintColor;
+    return;
+  }
+  _pushRecentColor(_paintColor);
+}
+
+function _onBrightnessInput(val) {
+  _brightness = parseInt(val, 10);
+  document.getElementById('se-brightness-val').textContent = _brightness;
+  const [r, g, b] = hexToRgb(_paintColor);
+  const f = _brightness / 100;
+  const dimmed = toHex(Math.round(r * f), Math.round(g * f), Math.round(b * f));
+  document.getElementById('se-swatch').style.background = dimmed;
+}
+
+function _getEffectivePaintColor() {
+  if (_brightness === 100) return _paintColor;
+  const [r, g, b] = hexToRgb(_paintColor);
+  const f = _brightness / 100;
+  return toHex(Math.round(r * f), Math.round(g * f), Math.round(b * f));
+}
+
+// ── Inline HSV picker ─────────────────────────────────────────────────────────
+
+function _hsvToRgb(h, s, v) {
+  const i = Math.floor(h / 60) % 6;
+  const f = h / 60 - Math.floor(h / 60);
+  const p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+  const m = [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]][i];
+  return m.map(x => Math.round(x * 255));
+}
+
+function _rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d) {
+    if (max === r) h = ((g - b) / d + 6) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  return [h, max ? d / max : 0, max];
+}
+
+function _hsvInitCanvas() {
+  const wrap = document.getElementById('hsv-sv');
+  const canvas = document.getElementById('hsv-canvas');
+  if (!wrap || !canvas) return;
+  canvas.width  = wrap.clientWidth  || 200;
+  canvas.height = wrap.clientHeight || 120;
+  _hsvDrawSV();
+
+  let dragging = false;
+  wrap.addEventListener('mousedown', e => { dragging = true; _hsvPointer(e, wrap); });
+  document.addEventListener('mousemove', e => { if (dragging) _hsvPointer(e, wrap); });
+  document.addEventListener('mouseup',   () => { if (dragging) { dragging = false; _pushRecentColor(_paintColor); } });
+  wrap.addEventListener('touchstart', e => { e.preventDefault(); _hsvPointer(e.touches[0], wrap); }, { passive: false });
+  wrap.addEventListener('touchmove',  e => { e.preventDefault(); _hsvPointer(e.touches[0], wrap); }, { passive: false });
+  wrap.addEventListener('touchend',   () => _pushRecentColor(_paintColor));
+}
+
+function _hsvPointer(e, wrap) {
+  const rect = wrap.getBoundingClientRect();
+  const x = Math.max(0, Math.min(1, (e.clientX - rect.left)  / rect.width));
+  const y = Math.max(0, Math.min(1, (e.clientY - rect.top)   / rect.height));
+  _hsvS = x;
+  _hsvV = 1 - y;
+  _hsvApply();
+}
+
+function _hsvHueChange(val) {
+  _hsvH = parseFloat(val);
+  _hsvApply();
+}
+
+function _hsvApply() {
+  const [r, g, b] = _hsvToRgb(_hsvH, _hsvS, _hsvV);
+  const hex = toHex(r, g, b);
+  _paintColor = hex;
+  _brightness = 100;
+  document.getElementById('se-swatch').style.background = hex;
+  const hi = document.getElementById('se-hex-input');
+  if (hi) hi.value = hex;
+  const bs = document.getElementById('se-brightness');
+  if (bs) bs.value = 100;
+  const bv = document.getElementById('se-brightness-val');
+  if (bv) bv.textContent = 100;
+  _hsvDrawSV();
+  _hsvMoveCursor();
+}
+
+function _hsvDrawSV() {
+  const canvas = document.getElementById('hsv-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const [pr, pg, pb] = _hsvToRgb(_hsvH, 1, 1);
+  const hueColor = `rgb(${pr},${pg},${pb})`;
+  const gradH = ctx.createLinearGradient(0, 0, w, 0);
+  gradH.addColorStop(0, '#fff');
+  gradH.addColorStop(1, hueColor);
+  ctx.fillStyle = gradH;
+  ctx.fillRect(0, 0, w, h);
+  const gradV = ctx.createLinearGradient(0, 0, 0, h);
+  gradV.addColorStop(0, 'rgba(0,0,0,0)');
+  gradV.addColorStop(1, '#000');
+  ctx.fillStyle = gradV;
+  ctx.fillRect(0, 0, w, h);
+}
+
+function _hsvMoveCursor() {
+  const cursor = document.getElementById('hsv-cursor');
+  const wrap   = document.getElementById('hsv-sv');
+  if (!cursor || !wrap) return;
+  cursor.style.left = (_hsvS * 100) + '%';
+  cursor.style.top  = ((1 - _hsvV) * 100) + '%';
+}
+
+function _hsvSync() {
+  // Sync HSV state from current _paintColor
+  const [r, g, b] = hexToRgb(_paintColor);
+  [_hsvH, _hsvS, _hsvV] = _rgbToHsv(r, g, b);
+  const hueEl = document.getElementById('hsv-hue');
+  if (hueEl) hueEl.value = Math.round(_hsvH);
+  _hsvDrawSV();
+  _hsvMoveCursor();
+}
+
+// ── Gradient fill ──────────────────────────────────────────────────────────────
+
+function _renderGradUI() {
+  const a = document.getElementById('grad-swatch-a');
+  const b = document.getElementById('grad-swatch-b');
+  if (a) a.style.background = _gradColorA;
+  if (b) b.style.background = _gradColorB;
+  ['h','v'].forEach(ax => {
+    const btn = document.getElementById('grad-axis-' + ax);
+    if (btn) btn.classList.toggle('active', _gradAxis === ax);
+  });
+}
+
+function _setGradColor(which) {
+  if (which === 'a') { _gradColorA = _paintColor; document.getElementById('grad-swatch-a').style.background = _gradColorA; }
+  else               { _gradColorB = _paintColor; document.getElementById('grad-swatch-b').style.background = _gradColorB; }
+}
+
+function _setGradAxis(ax) {
+  _gradAxis = ax;
+  _renderGradUI();
+}
+
+function _lerpHex(hexA, hexB, t) {
+  const [ar, ag, ab] = hexToRgb(hexA);
+  const [br, bg, bb] = hexToRgb(hexB);
+  return toHex(
+    Math.round(ar + (br - ar) * t),
+    Math.round(ag + (bg - ag) * t),
+    Math.round(ab + (bb - ab) * t)
+  );
+}
+
+function _applyGradientFill() {
+  if (!_editScene) return;
+  const { w, h, frames } = _editScene;
+  for (const cells of frames) {
+    if (!cells) continue;
+    if (_gradAxis === 'h') {
+      for (let row = 0; row < h; row++) {
+        for (let col = 0; col < w; col++) {
+          cells[row * w + col] = _lerpHex(_gradColorA, _gradColorB, w > 1 ? col / (w - 1) : 0);
+        }
+      }
+    } else {
+      for (let row = 0; row < h; row++) {
+        const color = _lerpHex(_gradColorA, _gradColorB, h > 1 ? row / (h - 1) : 0);
+        for (let col = 0; col < w; col++) {
+          cells[row * w + col] = color;
+        }
+      }
+    }
+  }
+  _modified = true;
+  _renderGrid();
+}
+
+// ── Color sync across frames ───────────────────────────────────────────────────
+
+function _syncToggle(checked) {
+  _syncFrames = checked;
+}
+
+function toggleEyedropper() {
+  _eyedropper = !_eyedropper;
+  const btn = document.getElementById('se-eyedropper-btn');
+  if (btn) btn.classList.toggle('active', _eyedropper);
+  document.querySelectorAll('.sg-cell').forEach(el => {
+    el.classList.toggle('eyedropper-mode', _eyedropper);
+  });
+}
+
+function _pickColorFromCell(frameIndex, idx) {
+  const cells = _editScene.frames[frameIndex];
+  if (!cells) return;
+  const color = cells[idx] || '#000000';
+  _eyedropper = false;
+  const btn = document.getElementById('se-eyedropper-btn');
+  if (btn) btn.classList.remove('active');
+  document.querySelectorAll('.sg-cell').forEach(el => el.classList.remove('eyedropper-mode'));
+  setPaintColor(color);
 }
 
 function _scenePayloadFromEditor() {
