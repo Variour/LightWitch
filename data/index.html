@@ -451,9 +451,14 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
           <div class="grad-swatch" id="grad-swatch-b" title="Color B (click to use current paint color)"
                onclick="_setGradColor('b')" style="background:#0000ff"></div>
         </div>
+        <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;font-size:.85rem;margin-top:.4rem">
+          <input type="checkbox" id="grad-btns-visible" checked onchange="_setGradBtnsVisible(this.checked)"
+                 style="width:1rem;height:1rem;accent-color:#4af">
+          Show gradient buttons
+        </label>
         <small style="display:block;margin-top:.35rem;color:#666">
-          Click a swatch to set it to the current paint color. Use ↔ and ↕ on the canvas
-          to gradient-fill the whole frame. Use → and ↓ to flat-fill individual rows and columns.
+          Click a swatch to set it to the current paint color. Use the gradient buttons on
+          the canvas to fill rows, columns, or the whole frame.
         </small>
       </div>
 
@@ -903,6 +908,7 @@ let _recentColors = [];
 let _syncFrames  = false;
 let _gradColorA     = '#ff0000';
 let _gradColorB     = '#0000ff';
+let _gradBtnsVisible = true;
 let _hsvH = 0, _hsvS = 1, _hsvV = 1; // current HSV state
 const _HISTORY_BUDGET = 50 * 1024 * 1024; // 50 MB target for entire undo stack
 const _HISTORY_MIN    = 5;
@@ -1596,14 +1602,29 @@ function _renderGradUI() {
 
   const gradH = `linear-gradient(to right, ${_gradColorA}, ${_gradColorB})`;
   const gradV = `linear-gradient(to bottom, ${_gradColorA}, ${_gradColorB})`;
+  const gradEls = [
+    ...document.querySelectorAll('.sg-qa[data-fill="frame-h"]'),
+    ...document.querySelectorAll('.sg-qa[data-fill="frame-v"]'),
+    ...document.querySelectorAll('.sg-qa[data-fill="grad-col"]'),
+    ...document.querySelectorAll('.sg-qa[data-fill="grad-row"]'),
+  ];
   document.querySelectorAll('.sg-qa[data-fill="frame-h"]').forEach(el => { el.style.background = gradH; });
   document.querySelectorAll('.sg-qa[data-fill="frame-v"]').forEach(el => { el.style.background = gradV; });
   document.querySelectorAll('.sg-qa[data-fill="grad-col"]').forEach(el => { el.style.background = gradV; });
   document.querySelectorAll('.sg-qa[data-fill="grad-row"]').forEach(el => { el.style.background = gradH; });
+  gradEls.forEach(el => {
+    el.style.opacity = _gradBtnsVisible ? '1' : '0';
+    el.style.pointerEvents = _gradBtnsVisible ? '' : 'none';
+  });
   const flat = _getEffectivePaintColor ? _getEffectivePaintColor() : _paintColor;
   document.querySelectorAll('.sg-qa[data-fill="frame-flat"]').forEach(el => { el.style.background = flat; });
   document.querySelectorAll('.sg-qa[data-fill="row"]').forEach(el => { el.style.background = flat; });
   document.querySelectorAll('.sg-qa[data-fill="col"]').forEach(el => { el.style.background = flat; });
+}
+
+function _setGradBtnsVisible(visible) {
+  _gradBtnsVisible = visible;
+  _renderGradUI();
 }
 
 function _setGradColor(which) {
