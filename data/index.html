@@ -1462,6 +1462,7 @@ function _onHexInput(val) {
     document.getElementById('se-swatch').style.background = _paintColor;
     document.getElementById('se-brightness').value = 100;
     document.getElementById('se-brightness-val').textContent = 100;
+    _renderGradUI();
   }
 }
 
@@ -1480,6 +1481,7 @@ function _onBrightnessInput(val) {
   const f = _brightness / 100;
   const dimmed = toHex(Math.round(r * f), Math.round(g * f), Math.round(b * f));
   document.getElementById('se-swatch').style.background = dimmed;
+  _renderGradUI();
 }
 
 function _getEffectivePaintColor() {
@@ -1557,6 +1559,7 @@ function _hsvApply() {
   if (bv) bv.textContent = 100;
   _hsvDrawSV();
   _hsvMoveCursor();
+  _renderGradUI();
 }
 
 function _hsvDrawSV() {
