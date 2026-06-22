@@ -1265,21 +1265,21 @@ function _renderGrid() {
     html += '</div>';
     html += '<div class="frame-stack-grid">';
     html += '<table class="sg">';
-    // Row 0: 3 empty corner cells | ↔ spans only data columns
-    html += '<tr>';
-    html += `<th colspan="3"></th>`;
+    // Row 0 (gradient): 3 empty corner cells | ↔ spans only data columns
+    html += '<tr class="sg-grad-tr">';
+    html += '<th class="sg-grad-empty"></th><th class="sg-grad-empty"></th><th class="sg-grad-empty"></th>';
     html += `<th class="sg-qa sg-qa-grad" data-fill="frame-h" colspan="${w}" title="Gradient fill frame horizontally" onclick="gradFillFrameFor(${i}, 'h')">↔</th>`;
     html += '</tr>';
-    // Row 1: 3 empty corner cells | ≡↓ gradient fill per column
-    html += '<tr>';
-    html += `<th colspan="3"></th>`;
+    // Row 1 (gradient): 3 empty corner cells | ≡↓ gradient fill per column
+    html += '<tr class="sg-grad-tr">';
+    html += '<th class="sg-grad-empty"></th><th class="sg-grad-empty"></th><th class="sg-grad-empty"></th>';
     for (let c = 0; c < w; c++) {
       html += `<th class="sg-qa sg-qa-grad" data-fill="grad-col" title="Gradient fill column ${c}" onclick="gradFillColFor(${i}, ${c})">≡↓</th>`;
     }
     html += '</tr>';
-    // Row 2: 2 empty cells | ↘ flat fill frame | ↓ flat fill per column
+    // Row 2: 2 hideable empty cells | ↘ flat fill frame | ↓ flat fill per column
     html += '<tr>';
-    html += `<th colspan="2"></th>`;
+    html += '<th class="sg-grad-empty"></th><th class="sg-grad-empty"></th>';
     html += `<th class="sg-qa" data-fill="frame-flat" title="Fill frame with current color" onclick="fillFrameFor(${i})">↘</th>`;
     for (let c = 0; c < w; c++) {
       html += `<th class="sg-qa" data-fill="col" title="Fill column ${c}" onclick="fillColumnFor(${i}, ${c})">↓</th>`;
@@ -1289,9 +1289,9 @@ function _renderGrid() {
     for (let r = 0; r < h; r++) {
       html += '<tr>';
       if (r === 0) {
-        html += `<th class="sg-qa sg-qa-grad" data-fill="frame-v" rowspan="${h}" title="Gradient fill frame vertically" onclick="gradFillFrameFor(${i}, 'v')">↕</th>`;
+        html += `<th class="sg-qa sg-qa-grad sg-grad-cell" data-fill="frame-v" rowspan="${h}" title="Gradient fill frame vertically" onclick="gradFillFrameFor(${i}, 'v')">↕</th>`;
       }
-      html += `<th class="sg-qa sg-qa-grad" data-fill="grad-row" title="Gradient fill row ${r}" onclick="gradFillRowFor(${i}, ${r})">≡→</th>`;
+      html += `<th class="sg-qa sg-qa-grad sg-grad-cell" data-fill="grad-row" title="Gradient fill row ${r}" onclick="gradFillRowFor(${i}, ${r})">≡→</th>`;
       html += `<th class="sg-qa" data-fill="row" title="Fill row ${r}" onclick="fillRowFor(${i}, ${r})">→</th>`;
       for (let c = 0; c < w; c++) {
         const idx = r * w + c;
@@ -1602,20 +1602,16 @@ function _renderGradUI() {
 
   const gradH = `linear-gradient(to right, ${_gradColorA}, ${_gradColorB})`;
   const gradV = `linear-gradient(to bottom, ${_gradColorA}, ${_gradColorB})`;
-  const gradEls = [
-    ...document.querySelectorAll('.sg-qa[data-fill="frame-h"]'),
-    ...document.querySelectorAll('.sg-qa[data-fill="frame-v"]'),
-    ...document.querySelectorAll('.sg-qa[data-fill="grad-col"]'),
-    ...document.querySelectorAll('.sg-qa[data-fill="grad-row"]'),
-  ];
   document.querySelectorAll('.sg-qa[data-fill="frame-h"]').forEach(el => { el.style.background = gradH; });
   document.querySelectorAll('.sg-qa[data-fill="frame-v"]').forEach(el => { el.style.background = gradV; });
   document.querySelectorAll('.sg-qa[data-fill="grad-col"]').forEach(el => { el.style.background = gradV; });
   document.querySelectorAll('.sg-qa[data-fill="grad-row"]').forEach(el => { el.style.background = gradH; });
-  gradEls.forEach(el => {
-    el.style.opacity = _gradBtnsVisible ? '1' : '0';
-    el.style.pointerEvents = _gradBtnsVisible ? '' : 'none';
-  });
+  const d = _gradBtnsVisible ? '' : 'none';
+  document.querySelectorAll('.sg-grad-tr').forEach(el => { el.style.display = d; });
+  document.querySelectorAll('.sg-grad-empty').forEach(el => { el.style.display = d; });
+  document.querySelectorAll('.sg-grad-cell').forEach(el => { el.style.display = d; });
+  const cb = document.getElementById('grad-btns-visible');
+  if (cb) cb.checked = _gradBtnsVisible;
   const flat = _getEffectivePaintColor ? _getEffectivePaintColor() : _paintColor;
   document.querySelectorAll('.sg-qa[data-fill="frame-flat"]').forEach(el => { el.style.background = flat; });
   document.querySelectorAll('.sg-qa[data-fill="row"]').forEach(el => { el.style.background = flat; });
