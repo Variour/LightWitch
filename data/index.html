@@ -96,6 +96,15 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   .se-layout { grid-template-columns: 220px 1fr; align-items: start; }
 }
 
+/* Gradient fill toggle buttons */
+.grad-toggle-btn { background: #2a2a2a; color: #aaa; border: 1px solid #333; flex: 1;
+                   padding: .3rem .5rem; font-size: .78rem; font-weight: 600;
+                   border-radius: 6px; cursor: pointer; transition: all .15s; }
+.grad-toggle-btn.active { background: #2a6; color: #fff; border-color: #2a6; }
+.grad-swatch { width: 2rem; height: 2rem; border-radius: 6px; border: 2px solid #333;
+               cursor: pointer; flex-shrink: 0; transition: border-color .15s; }
+.grad-swatch:hover { border-color: #4af; }
+
 /* Frame list */
 .frame-item { display: flex; justify-content: space-between; align-items: center;
               padding: .4rem .5rem; border-radius: 6px; margin-bottom: .3rem;
@@ -362,6 +371,30 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
           <h2>Frames</h2>
           <div id="se-frames"></div>
           <button class="btn-primary btn-sm" style="width:100%;margin-top:.5rem" onclick="addFrame()">+ Add Frame</button>
+        </div>
+
+        <div class="card">
+          <h2>Gradient fill</h2>
+          <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.45rem">
+            <div class="grad-swatch" id="grad-swatch-a" title="Color A — click to set from paint color"
+                 onclick="_setGradColor('a')" style="background:#ff0000"></div>
+            <span style="font-size:.8rem;color:#555;flex:1;text-align:center">→</span>
+            <div class="grad-swatch" id="grad-swatch-b" title="Color B — click to set from paint color"
+                 onclick="_setGradColor('b')" style="background:#0000ff"></div>
+          </div>
+          <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
+            <button class="grad-toggle-btn" id="grad-axis-h" onclick="_setGradAxis('h')">Horizontal</button>
+            <button class="grad-toggle-btn" id="grad-axis-v" onclick="_setGradAxis('v')">Vertical</button>
+          </div>
+          <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
+            <button class="grad-toggle-btn" id="grad-frames-all" onclick="_setGradFrameMode('all')">All frames</button>
+            <button class="grad-toggle-btn" id="grad-frames-sel" onclick="_setGradFrameMode('select')">Select frames</button>
+          </div>
+          <div id="grad-frame-checkboxes" style="display:none;max-height:90px;overflow-y:auto;
+               border:1px solid #2a2a2a;border-radius:6px;padding:.3rem .5rem;margin-bottom:.4rem"></div>
+          <button class="btn-primary btn-sm" style="width:100%"
+                  onclick="_applyGradientFill()">Apply gradient</button>
+          <small style="display:block;margin-top:.35rem">Click a swatch to set it from the current paint color.</small>
         </div>
       </div>
 
@@ -755,6 +788,11 @@ let _editScene   = null;     // {id, name, w, h, frames: [Array<string>]}
 let _paintColor  = '#ff0000';
 let _modified    = false;
 let _painting    = false;
+let _gradColorA  = '#ff0000';
+let _gradColorB  = '#0000ff';
+let _gradAxis    = 'h';       // 'h' | 'v'
+let _gradFrameMode = 'all';   // 'all' | 'select'
+let _gradSelectedFrames = new Set();
 
 // Global mouseup to end drag-paint
 document.addEventListener('mouseup', () => { _painting = false; });
@@ -912,6 +950,7 @@ function _renderEditor() {
   document.getElementById('se-color-input').value = _paintColor;
   _renderFrameList();
   _renderGrid();
+  _renderGradUI();
 }
 
 function resizeCanvas() {
@@ -977,6 +1016,7 @@ function _renderFrameList() {
       </div>
     </div>`;
   }).join('');
+  _renderGradFrameCheckboxes();
 }
 
 function addFrame() {
@@ -1103,6 +1143,105 @@ function _paintFrameCell(frameIndex, idx) {
   _modified = true;
   const el = document.querySelector(`.sg-cell[data-frame="${frameIndex}"][data-idx="${idx}"]`);
   if (el) el.style.background = _paintColor;
+}
+
+// ── Gradient fill ──────────────────────────────────────────────────────────────
+
+function _lerpHex(hexA, hexB, t) {
+  const [ar, ag, ab] = hexToRgb(hexA);
+  const [br, bg, bb] = hexToRgb(hexB);
+  return toHex(
+    Math.round(ar + (br - ar) * t),
+    Math.round(ag + (bg - ag) * t),
+    Math.round(ab + (bb - ab) * t)
+  );
+}
+
+function _setGradColor(which) {
+  if (which === 'a') {
+    _gradColorA = _paintColor;
+    const el = document.getElementById('grad-swatch-a');
+    if (el) el.style.background = _gradColorA;
+  } else {
+    _gradColorB = _paintColor;
+    const el = document.getElementById('grad-swatch-b');
+    if (el) el.style.background = _gradColorB;
+  }
+}
+
+function _setGradAxis(ax) {
+  _gradAxis = ax;
+  _renderGradUI();
+}
+
+function _setGradFrameMode(mode) {
+  _gradFrameMode = mode;
+  _renderGradUI();
+}
+
+function _toggleGradFrame(index, checked) {
+  if (checked) _gradSelectedFrames.add(index);
+  else _gradSelectedFrames.delete(index);
+}
+
+function _renderGradUI() {
+  ['h', 'v'].forEach(ax => {
+    const btn = document.getElementById('grad-axis-' + ax);
+    if (btn) btn.classList.toggle('active', _gradAxis === ax);
+  });
+  const btnAll = document.getElementById('grad-frames-all');
+  const btnSel = document.getElementById('grad-frames-sel');
+  if (btnAll) btnAll.classList.toggle('active', _gradFrameMode === 'all');
+  if (btnSel) btnSel.classList.toggle('active', _gradFrameMode === 'select');
+  _renderGradFrameCheckboxes();
+}
+
+function _renderGradFrameCheckboxes() {
+  const box = document.getElementById('grad-frame-checkboxes');
+  if (!box) return;
+  if (_gradFrameMode !== 'select' || !_editScene) {
+    box.style.display = 'none';
+    return;
+  }
+  const frames = _editScene.frames;
+  // Remove stale indices
+  _gradSelectedFrames = new Set([..._gradSelectedFrames].filter(i => i < frames.length));
+  box.style.display = 'block';
+  box.innerHTML = frames.map((_, i) =>
+    `<label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer;padding:.1rem 0">
+      <input type="checkbox" style="width:auto;margin:0;accent-color:#2a6;cursor:pointer"
+             ${_gradSelectedFrames.has(i) ? 'checked' : ''}
+             onchange="_toggleGradFrame(${i},this.checked)">
+      Frame ${i + 1}
+    </label>`
+  ).join('');
+}
+
+function _applyGradientFill() {
+  if (!_editScene) return;
+  const { w, h, frames } = _editScene;
+  const indices = _gradFrameMode === 'select'
+    ? [..._gradSelectedFrames].filter(i => i < frames.length)
+    : frames.map((_, i) => i);
+  if (!indices.length) { alert('No frames selected.'); return; }
+  const prevFrames = frames.map(f => f ? f.slice() : null);
+  for (const fi of indices) {
+    const cells = frames[fi];
+    if (!cells) continue;
+    if (_gradAxis === 'h') {
+      for (let row = 0; row < h; row++)
+        for (let col = 0; col < w; col++)
+          cells[row * w + col] = _lerpHex(_gradColorA, _gradColorB, w > 1 ? col / (w - 1) : 0);
+    } else {
+      for (let row = 0; row < h; row++) {
+        const color = _lerpHex(_gradColorA, _gradColorB, h > 1 ? row / (h - 1) : 0);
+        for (let col = 0; col < w; col++)
+          cells[row * w + col] = color;
+      }
+    }
+  }
+  _modified = true;
+  _renderGrid();
 }
 
 function fillFrameFor(frameIndex) {
