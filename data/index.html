@@ -412,6 +412,32 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         </small>
       </div>
 
+      <!-- Wrap blend card -->
+      <div class="card" style="flex:1;min-width:180px">
+        <h2>Wrap blend</h2>
+        <div style="display:flex;gap:.5rem;align-items:center;font-size:.85rem">
+          <label style="display:flex;align-items:center;gap:.35rem">
+            Cols
+            <input type="number" id="wrap-cols" min="0" max="999" value="0"
+                   style="width:3.5rem;padding:.2rem .3rem;background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px"
+                   oninput="_wrapCols=Math.max(0,parseInt(this.value)||0)">
+          </label>
+          <label style="display:flex;align-items:center;gap:.35rem">
+            Rows
+            <input type="number" id="wrap-rows" min="0" max="999" value="0"
+                   style="width:3.5rem;padding:.2rem .3rem;background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px"
+                   oninput="_wrapRows=Math.max(0,parseInt(this.value)||0)">
+          </label>
+        </div>
+        <button onclick="applyWrapBlend()"
+                style="margin-top:.55rem;padding:.3rem .7rem;font-size:.82rem;background:#333;color:#eee;border:1px solid #555;border-radius:4px;cursor:pointer">
+          Apply
+        </button>
+        <small style="display:block;margin-top:.35rem;color:#666">
+          Replaces the last N columns/rows with a gradient that blends into the colors at the opposite edge.
+        </small>
+      </div>
+
       <!-- Options card -->
       <div class="card" style="flex:1;min-width:160px">
         <h2>Options</h2>
@@ -1038,6 +1064,8 @@ let _syncFrames  = false;
 let _gradColorA     = '#ff0000';
 let _gradColorB     = '#0000ff';
 let _gradBtnsVisible = true;
+let _wrapCols = 0;
+let _wrapRows = 0;
 let _zoomCellPx = 27;  // default 50% larger than original 18px; changed via +/- buttons
 const _zoomStep = 4;
 let _hsvH = 0, _hsvS = 1, _hsvV = 1; // current HSV state
@@ -1847,6 +1875,39 @@ function gradFillColFor(frameIndex, c) {
   if (!cells) return;
   for (let row = 0; row < h; row++)
     cells[row * w + c] = _lerpHex(_gradColorA, _gradColorB, h > 1 ? row / (h - 1) : 0);
+  _markModified();
+  _renderGrid();
+}
+
+function applyWrapBlend() {
+  if (!_editScene) return;
+  const { w, h, frames } = _editScene;
+  const cols = Math.min(_wrapCols, w - 1);
+  const rows = Math.min(_wrapRows, h - 1);
+  if (cols <= 0 && rows <= 0) return;
+  _pushHistory();
+  for (const cells of frames) {
+    if (cols > 0) {
+      for (let row = 0; row < h; row++) {
+        const srcColor = cells[row * w + (w - cols - 1)];
+        const dstColor = cells[row * w + 0];
+        for (let i = 0; i < cols; i++) {
+          const t = (i + 1) / (cols + 1);
+          cells[row * w + (w - cols + i)] = _lerpHex(srcColor, dstColor, t);
+        }
+      }
+    }
+    if (rows > 0) {
+      for (let col = 0; col < w; col++) {
+        const srcColor = cells[(h - rows - 1) * w + col];
+        const dstColor = cells[0 * w + col];
+        for (let i = 0; i < rows; i++) {
+          const t = (i + 1) / (rows + 1);
+          cells[(h - rows + i) * w + col] = _lerpHex(srcColor, dstColor, t);
+        }
+      }
+    }
+  }
   _markModified();
   _renderGrid();
 }
