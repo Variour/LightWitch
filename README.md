@@ -136,7 +136,35 @@ Access is restricted to specific GitHub accounts via OAuth. The production conta
 
 ---
 
-## Web UI container (local Docker)
+## Firmware updates from GitHub releases (device web UI)
+
+Devices can check for and install new firmware directly from GitHub releases without a computer attached.
+
+### Setup
+
+1. Go to **Settings → Firmware updates** in the device web UI.
+2. Set **Repository** to `variour/batterylight` (the default).
+3. Create a GitHub **fine-grained personal access token** with the following permissions:
+   - **Repository access:** this repository only (`variour/batterylight`)
+   - **Repository permissions:**
+     - `Contents` — **Read-only** (required to download release assets)
+     - `Metadata` — **Read-only** (automatically included, required to access repository metadata)
+
+   No other permissions are needed. Classic tokens work too with the `repo` scope, but a fine-grained token with read-only access is safer.
+
+4. Paste the token into **Personal access token** and click **Save & Reboot**.
+
+### Usage
+
+- Click **Check** to query the latest GitHub release and compare it to the device's current firmware version.
+- If a newer version is available, an **Install update** button appears. Click it to flash both firmware and filesystem over WiFi. The device reboots automatically when done.
+- Settings (WiFi, groups, etc.) are preserved — the device restores them from NVS after the filesystem is reflashed.
+
+> **Note:** The token is stored in NVS on the device. It is write-only from the web UI — it is never returned by the API. Use a token with minimal permissions scoped to this repository only.
+
+---
+
+
 
 Every push to `main` and every pull request builds a Docker image pushed to the GitHub Container Registry. Run any image locally:
 
