@@ -123,4 +123,4 @@ jobs:
           files: |
             firmware-*.bin
             littlefs.bin
-          generate_release_notes: false
+          generate_release_notes: true
