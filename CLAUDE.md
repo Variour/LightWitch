@@ -6,6 +6,17 @@ never regenerate the index.html.gz
 - Before starting with the implementation think through the request, identify any issues
 - Never assume default states
 
+## Release Notes
+
+Firmware releases use GitHub's auto-generated release notes, driven by PR labels. Every PR should have exactly one of these labels:
+
+- `enhancement` or `feature` — new functionality
+- `bug` or `fix` — bug fixes
+- `dependencies` — dependency updates (Dependabot applies this automatically)
+- `skip-changelog` — changes that should not appear in release notes (e.g. CI tweaks, docs)
+
+PRs without a label will appear under "Other Changes". Label before merging, not after.
+
 ## Working on Issues
 
 - When working on an issue, always create a feature branch
