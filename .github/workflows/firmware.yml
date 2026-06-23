@@ -92,6 +92,12 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio
 
+      - name: Gzip web assets
+        run: |
+          for f in data/*.html data/*.css data/*.js data/*.svg data/*.txt; do
+            [ -f "$f" ] && gzip -9 -c "$f" > "${f}.gz" && rm "$f" && echo "Compressed: $f"
+          done
+
       - name: Build filesystem image
         run: pio run -e esp32dev -t buildfs
 

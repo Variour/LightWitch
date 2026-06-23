@@ -97,7 +97,13 @@ void setup() {
     Serial.begin(115200);
     Logger::addSink(serialSink);
 
-    if (!LittleFS.begin(true)) Logger::e("[fs] mount failed");
+    if (!LittleFS.begin(true)) {
+        Logger::e("[fs] mount failed");
+    } else {
+        File root = LittleFS.open("/");
+        File f = root.openNextFile();
+        while (f) { Logger::i("[fs] %s (%u bytes)", f.name(), f.size()); f = root.openNextFile(); }
+    }
     Config::load();
     Logger::setLevel((LogLevel)Config::get().logLevel);
     Logger::i("[sys] firmware %s  device: %s  group: %u",

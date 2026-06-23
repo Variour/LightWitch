@@ -21,6 +21,15 @@ using SetRemoteGroupCb = std::function<void(const uint8_t* mac, uint8_t groupId)
 
 class BatteryWebServer {
 private:
+    // Logs every incoming request; always returns false so real handlers proceed.
+    // Must be added before any routes.
+    struct RequestLogger : public AsyncWebHandler {
+        bool canHandle(AsyncWebServerRequest* r) const override {
+            Logger::d("[web] %s %s", r->methodToString(), r->url().c_str());
+            return false;
+        }
+    };
+
     struct SceneSaveState {
         String  buffer;
         String  id;
@@ -39,6 +48,9 @@ public:
         _onGroupSync    = onGroupSync;
         _onSetRemote    = onSetRemote;
         _peers          = peers;
+
+        Logger::i("[web] starting on port 80");
+        _server.addHandler(&_reqLogger);
 
         _ws = new AsyncWebSocket("/ws");
         _ws->onEvent([this](AsyncWebSocket*, AsyncWebSocketClient* c, AwsEventType t,
@@ -230,6 +242,23 @@ public:
         // Static files last — catches everything not matched above
         _server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
 
+        _server.onNotFound([](AsyncWebServerRequest* r) {
+            // SPA fallback: serve the app shell for GET requests to unknown paths
+            // so client-side routes work on direct load / page refresh.
+            if (r->method() == HTTP_GET) {
+                if (LittleFS.exists("/index.html.gz")) {
+                    r->send(LittleFS, "/index.html.gz", "text/html");
+                    return;
+                }
+                if (LittleFS.exists("/index.html")) {
+                    r->send(LittleFS, "/index.html", "text/html");
+                    return;
+                }
+            }
+            Logger::w("[web] 404 %s %s", r->methodToString(), r->url().c_str());
+            r->send(404);
+        });
+
         Logger::addSink([this](LogLevel lv, const char* msg){ _pushLog(lv, msg); });
 
         _server.begin();
@@ -245,6 +274,7 @@ public:
 private:
     AsyncWebServer   _server{80};
     AsyncWebSocket*  _ws = nullptr;
+    RequestLogger    _reqLogger;
     PeerRegistry*    _peers = nullptr;
 
     GroupChangeCb    _onGroupChange;

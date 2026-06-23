@@ -77,7 +77,8 @@ private:
         int code = http.GET();
         if (code != 200) {
             Logger::e("[upd] releases API returned %d", code);
-            _status.error = "GitHub API error";
+            snprintf(_errorBuf, sizeof(_errorBuf), "GitHub API error (HTTP %d)", code);
+            _status.error = _errorBuf;
             http.end();
             return false;
         }
@@ -235,8 +236,10 @@ private:
 
     static uint32_t _firmwareAssetId;
     static uint32_t _fsAssetId;
+    static char     _errorBuf[48];
 };
 
 inline Updater::Status Updater::_status;
 inline uint32_t        Updater::_firmwareAssetId = 0;
 inline uint32_t        Updater::_fsAssetId       = 0;
+inline char            Updater::_errorBuf[48]    = {};

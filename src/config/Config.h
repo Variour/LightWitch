@@ -61,12 +61,12 @@ struct DeviceConfig {
     bool        otaEnabled       = true;
     uint8_t     groupId          = 0;
     LedType     ledType          = LedType::WS2812B;
-    uint8_t     logLevel         = 1;  // LogLevel::INFO
+    uint8_t     logLevel         = 0;  // LogLevel::DEBUG
     char        mqttHost[64]     = "";
     uint16_t    mqttPort         = 1883;
     char        mqttUser[32]     = "";
     char        mqttPassword[64] = "";
-    char        githubToken[64]  = "";
+    char        githubToken[128] = "";
     char        githubRepo[64]   = "variour/batterylight";
     GroupConfig groups[MAX_GROUPS];
 };

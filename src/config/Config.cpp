@@ -58,7 +58,7 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().otaEnabled = doc["otaEnabled"] | true;
     Config::get().groupId   = doc["groupId"]   | (uint8_t)0;
     Config::get().ledType   = (LedType)(uint8_t)(doc["ledType"]  | 0);
-    Config::get().logLevel  = doc["logLevel"]  | (uint8_t)1;
+    Config::get().logLevel  = doc["logLevel"]  | (uint8_t)0;
     strlcpy(Config::get().mqttHost,     doc["mqttHost"]     | "",    sizeof(Config::get().mqttHost));
     Config::get().mqttPort  = doc["mqttPort"]  | (uint16_t)1883;
     strlcpy(Config::get().mqttUser,     doc["mqttUser"]     | "",    sizeof(Config::get().mqttUser));
@@ -164,13 +164,10 @@ bool Config::save() {
 }
 
 void Config::reset() {
-    _cfg = DeviceConfig{};
-    _ensureDefaultGroup();
+    LittleFS.remove(_path);
 
     Preferences prefs;
     if (prefs.begin(NVS_NS, false)) { prefs.clear(); prefs.end(); }
-
-    save();
 }
 
 uint8_t Config::createGroup(const char* name) {
