@@ -10,15 +10,16 @@ Use this to flash a fresh device using pre-built firmware from the GitHub releas
 
 **1. Download the firmware**
 
-Go to the [latest release](https://github.com/Variour/batteryLight/releases/latest) and download:
+Go to the [latest release](https://github.com/Variour/batteryLight/releases/latest) and download the files for your board type:
 
 | File | What it is |
 |------|-----------|
+| `bootloader-esp32c3.bin` | Bootloader for ESP32-C3 devices |
+| `bootloader-esp32dev.bin` | Bootloader for ESP32-WROOM-32 devices |
+| `partitions.bin` | Partition table (same for both board types) |
 | `firmware-esp32c3.bin` | Firmware for ESP32-C3 devices |
 | `firmware-esp32dev.bin` | Firmware for ESP32-WROOM-32 devices |
 | `littlefs.bin` | Web UI filesystem (same for both board types) |
-
-Download the firmware file that matches your board, plus `littlefs.bin`.
 
 **2. Open the web flasher**
 
@@ -30,11 +31,24 @@ Plug in the ESP32 via USB, then click **Connect** and select the device's serial
 
 **4. Add the files**
 
-Add two entries with these addresses:
+Add entries for your board type with these addresses:
+
+**ESP32-C3:**
 
 | Address | File |
 |---------|------|
-| `0x10000` | `firmware-esp32c3.bin` or `firmware-esp32dev.bin` |
+| `0x0` | `bootloader-esp32c3.bin` |
+| `0x8000` | `partitions.bin` |
+| `0x10000` | `firmware-esp32c3.bin` |
+| `0x290000` | `littlefs.bin` |
+
+**ESP32-WROOM-32:**
+
+| Address | File |
+|---------|------|
+| `0x1000` | `bootloader-esp32dev.bin` |
+| `0x8000` | `partitions.bin` |
+| `0x10000` | `firmware-esp32dev.bin` |
 | `0x290000` | `littlefs.bin` |
 
 **5. Flash**

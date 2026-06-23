@@ -69,7 +69,10 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: firmware-${{ matrix.env }}
-          path: .pio/build/${{ matrix.env }}/firmware.bin
+          path: |
+            .pio/build/${{ matrix.env }}/firmware.bin
+            .pio/build/${{ matrix.env }}/bootloader.bin
+            .pio/build/${{ matrix.env }}/partitions.bin
 
   build-fs:
     needs: setup
@@ -120,7 +123,9 @@ jobs:
           for f in artifacts/firmware-*/firmware.bin; do
             env=$(echo "$f" | sed 's|artifacts/firmware-\(.*\)/firmware.bin|\1|')
             cp "$f" "firmware-${env}.bin"
+            cp "artifacts/firmware-${env}/bootloader.bin" "bootloader-${env}.bin"
           done
+          cp artifacts/firmware-esp32dev/partitions.bin partitions.bin
           cp artifacts/littlefs/littlefs.bin littlefs.bin
 
       - uses: softprops/action-gh-release@v3
@@ -129,5 +134,7 @@ jobs:
           name: Firmware ${{ needs.setup.outputs.version }}
           files: |
             firmware-*.bin
+            bootloader-*.bin
+            partitions.bin
             littlefs.bin
           generate_release_notes: false
