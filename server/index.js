@@ -29,6 +29,7 @@ const MOCK_PEERS = [{ name: 'Mock Light 2', mac: '22:33:44:55:66:77', groupId: 0
 const scenes = new Map();
 
 const app = express();
+app.set('trust proxy', true);
 app.use(express.json());
 app.use('/auth', authRouter);
 app.use(requireAuth);
