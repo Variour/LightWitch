@@ -48,7 +48,7 @@ jobs:
         run: |
           sed -i 's/#define FW_VERSION ".*"/#define FW_VERSION "${{ needs.setup.outputs.version }}"/' src/version.h
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
@@ -77,7 +77,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
