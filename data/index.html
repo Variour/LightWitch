@@ -1311,12 +1311,12 @@ function _renderGrid() {
     if (_gradBtnsVisible) {
       // Row 0 (gradient): 3 empty corner cells | ↔ spans only data columns
       html += '<tr>';
-      html += '<th></th><th></th><th></th>';
+      html += '<th class="sg-qa"></th><th></th><th></th>';
       html += `<th class="sg-qa sg-qa-grad" data-fill="frame-h" colspan="${w}" title="Gradient fill frame horizontally" onclick="gradFillFrameFor(${i}, 'h')">↔</th>`;
       html += '</tr>';
       // Row 1 (gradient): 3 empty corner cells | ≡↓ gradient fill per column
       html += '<tr>';
-      html += '<th></th><th></th><th></th>';
+      html += '<th class="sg-qa"></th><th></th><th></th>';
       for (let c = 0; c < w; c++) {
         html += `<th class="sg-qa sg-qa-grad" data-fill="grad-col" title="Gradient fill column ${c}" onclick="gradFillColFor(${i}, ${c})">≡↓</th>`;
       }
@@ -1324,7 +1324,7 @@ function _renderGrid() {
     }
     // Row 2: (2 empty if grad visible) | ↘ flat fill frame | ↓ flat fill per column
     html += '<tr>';
-    if (_gradBtnsVisible) html += '<th></th><th></th>';
+    if (_gradBtnsVisible) html += '<th class="sg-qa"></th><th></th>';
     html += `<th class="sg-qa" data-fill="frame-flat" title="Fill frame with current color" onclick="fillFrameFor(${i})">↘</th>`;
     for (let c = 0; c < w; c++) {
       html += `<th class="sg-qa" data-fill="col" title="Fill column ${c}" onclick="fillColumnFor(${i}, ${c})">↓</th>`;
