@@ -4,6 +4,47 @@ ESP32-based addressable RGB light with web interface, OTA updates, and mesh sync
 
 ---
 
+## First install from a GitHub release (no tools required)
+
+Use this to flash a fresh device using pre-built firmware from the GitHub releases page. All you need is a Chrome or Edge browser with WebSerial support.
+
+**1. Download the firmware**
+
+Go to the [latest release](https://github.com/Variour/batteryLight/releases/latest) and download:
+
+| File | What it is |
+|------|-----------|
+| `firmware-esp32c3.bin` | Firmware for ESP32-C3 devices |
+| `firmware-esp32dev.bin` | Firmware for ESP32-WROOM-32 devices |
+| `littlefs.bin` | Web UI filesystem (same for both board types) |
+
+Download the firmware file that matches your board, plus `littlefs.bin`.
+
+**2. Open the web flasher**
+
+Go to **https://esp.huhn.me** in Chrome or Edge.
+
+**3. Connect your device**
+
+Plug in the ESP32 via USB, then click **Connect** and select the device's serial port.
+
+**4. Add the files**
+
+Add two entries with these addresses:
+
+| Address | File |
+|---------|------|
+| `0x10000` | `firmware-esp32c3.bin` or `firmware-esp32dev.bin` |
+| `0x290000` | `littlefs.bin` |
+
+**5. Flash**
+
+Click **Program** and wait for it to finish. The device will reboot automatically.
+
+Continue with [First boot](#first-boot) below.
+
+---
+
 ## Initial installation (USB)
 
 Do this once per device, with a USB cable connected.
