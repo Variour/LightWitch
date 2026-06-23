@@ -94,8 +94,9 @@ jobs:
 
       - name: Gzip web assets
         run: |
+          shopt -s nullglob
           for f in data/*.html data/*.css data/*.js data/*.svg data/*.txt; do
-            [ -f "$f" ] && gzip -9 -c "$f" > "${f}.gz" && rm "$f" && echo "Compressed: $f"
+            gzip -9 -c "$f" > "${f}.gz" && rm "$f" && echo "Compressed: $f"
           done
 
       - name: Build filesystem image
