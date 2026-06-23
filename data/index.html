@@ -156,6 +156,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .frame-stack-grid .sg {
   width: fit-content;
 }
+.frame-stack-grid col { width: var(--cell-size, 27px); }
 .frame-stack-grid .sg-cell {
   width: var(--cell-size, 27px);
   height: var(--cell-size, 27px);
@@ -1174,11 +1175,8 @@ function _renderEditor() {
 }
 
 function _applyZoom() {
-  const px = _zoomCellPx + 'px';
   const wrap = document.getElementById('se-grid');
-  if (!wrap) return;
-  wrap.style.setProperty('--cell-size', px);
-  wrap.querySelectorAll('col').forEach(col => { col.style.width = px; });
+  if (wrap) wrap.style.setProperty('--cell-size', _zoomCellPx + 'px');
 }
 
 function zoomIn() {
@@ -1314,11 +1312,10 @@ function _renderGrid() {
     html += '<div class="frame-stack-grid">';
     html += '<table class="sg">';
     {
-      const px = _zoomCellPx + 'px';
       html += '<colgroup>';
-      if (_gradBtnsVisible) html += `<col style="width:${px}"><col style="width:${px}">`;
-      html += `<col style="width:${px}">`;
-      for (let c = 0; c < w; c++) html += `<col style="width:${px}">`;
+      if (_gradBtnsVisible) html += '<col><col>';
+      html += '<col>';
+      for (let c = 0; c < w; c++) html += '<col>';
       html += '</colgroup>';
     }
     if (_gradBtnsVisible) {
