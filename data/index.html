@@ -1181,7 +1181,7 @@ function zoomIn() {
 }
 
 function zoomOut() {
-  _zoomCellPx = Math.max(_zoomStep, _zoomCellPx - _zoomStep);
+  _zoomCellPx = Math.max(1, _zoomCellPx - _zoomStep);
   const wrap = document.getElementById('se-grid');
   if (wrap) wrap.style.setProperty('--cell-size', _zoomCellPx + 'px');
 }
