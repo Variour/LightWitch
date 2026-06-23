@@ -13,7 +13,7 @@ Firmware releases use GitHub's auto-generated release notes, driven by PR labels
 - `enhancement` or `feature` — new functionality
 - `bug` or `fix` — bug fixes
 - `dependencies` — dependency updates (Dependabot applies this automatically)
-- `skip-changelog` — changes that should not appear in release notes (e.g. CI tweaks, docs)
+- `skip-changelog` — changes that should not appear in release notes (e.g. CI tweaks, docs, dev tooling fixes)
 
 PRs without a label will appear under "Other Changes". Label before merging, not after.
 
