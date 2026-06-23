@@ -55,6 +55,9 @@ static void setupWifi() {
     }
 
     Logger::i("[wifi] Connecting to %s ...", c.wifiSsid);
+    // Disconnect first to clear any stale PMK/connection state from previous boots.
+    WiFi.disconnect(false);
+    delay(100);
     WiFi.begin(c.wifiSsid, c.wifiPassword);
 
     uint32_t start = millis();
@@ -67,6 +70,7 @@ static void setupWifi() {
         Logger::i("[wifi] Connected, IP: %s  (AP off)", WiFi.localIP().toString().c_str());
     } else {
         Logger::w("[wifi] Failed to connect, falling back to AP");
+        WiFi.setAutoReconnect(false);
         WiFi.softAP(c.deviceName, c.apPassword);
         Logger::i("[wifi] AP: %s  IP: %s", c.deviceName, WiFi.softAPIP().toString().c_str());
     }
