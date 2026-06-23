@@ -110,7 +110,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
 /* Scene grid */
 .sg-wrap { overflow: auto; max-width: 100%; cursor: crosshair; user-select: none; }
-.sg { border-collapse: collapse; table-layout: fixed; }
+.sg { border-collapse: collapse; }
 .sg-qa { width: 22px; height: 22px; padding: 0; background: #181818;
          border: 1px solid #2a2a2a; cursor: pointer; font-size: .65rem; color: #555; }
 .sg-qa:hover { background: #2a6; color: #fff; border-color: #2a6; }
@@ -156,7 +156,6 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .frame-stack-grid .sg {
   width: fit-content;
 }
-.frame-stack-grid col { width: var(--cell-size, 27px); }
 .frame-stack-grid .sg-cell {
   width: var(--cell-size, 27px);
   height: var(--cell-size, 27px);
@@ -1175,8 +1174,7 @@ function _renderEditor() {
 }
 
 function _applyZoom() {
-  const wrap = document.getElementById('se-grid');
-  if (wrap) wrap.style.setProperty('--cell-size', _zoomCellPx + 'px');
+  if (_editScene) _renderGrid();
 }
 
 function zoomIn() {
@@ -1312,10 +1310,11 @@ function _renderGrid() {
     html += '<div class="frame-stack-grid">';
     html += '<table class="sg">';
     {
+      const px = _zoomCellPx + 'px';
       html += '<colgroup>';
-      if (_gradBtnsVisible) html += '<col><col>';
-      html += '<col>';
-      for (let c = 0; c < w; c++) html += '<col>';
+      if (_gradBtnsVisible) html += `<col style="width:${px}"><col style="width:${px}">`;
+      html += `<col style="width:${px}">`;
+      for (let c = 0; c < w; c++) html += `<col style="width:${px}">`;
       html += '</colgroup>';
     }
     if (_gradBtnsVisible) {
