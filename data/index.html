@@ -274,7 +274,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
 </div><!-- /left column -->
 
-<!-- RIGHT COLUMN: Settings + Log + Danger -->
+<!-- RIGHT COLUMN: Log -->
 <div>
 
   <!-- LOG -->
@@ -283,12 +283,6 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     <div id="log"></div>
     <div id="ws-status">WebSocket: connecting…</div>
     <button class="btn-danger btn-sm" style="margin-top:.4rem;width:100%" onclick="document.getElementById('log').innerHTML=''">Clear log</button>
-  </div>
-
-  <!-- DANGER -->
-  <div class="card">
-    <h2>Danger zone</h2>
-    <button class="btn-danger" style="width:100%" onclick="factoryReset()">Factory reset</button>
   </div>
 
 </div><!-- /right column -->
@@ -530,6 +524,12 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     <input type="password" id="mqttPassword" placeholder="(unchanged if empty)">
 
     <button class="btn-primary" style="width:100%;margin-top:.5rem" onclick="saveSettings()">Save &amp; Reboot</button>
+  </div>
+
+  <!-- DANGER -->
+  <div class="card">
+    <h2>Danger zone</h2>
+    <button class="btn-danger" style="width:100%" onclick="factoryReset()">Factory reset</button>
   </div>
 </div><!-- /tab-settings -->
 
