@@ -80,7 +80,7 @@ app.post('/api/groups/update',  (_req, res) => res.json({ ok: true }));
 app.post('/api/groups/delete',  (_req, res) => res.json({ ok: true }));
 app.post('/api/reset',          (_req, res) => res.json({ ok: true }));
 
-app.get('*', (_req, res) => res.sendFile(join(DATA_DIR, 'index.html')));
+app.get('/*path', (_req, res) => res.sendFile(join(DATA_DIR, 'index.html')));
 
 const server = http.createServer(app);
 
