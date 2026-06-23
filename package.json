@@ -6,7 +6,7 @@
     "dev": "node server/index.js"
   },
   "dependencies": {
-    "express": "^4",
+    "express": "^5",
     "ws": "^8"
   }
 }
