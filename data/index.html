@@ -523,7 +523,33 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     <label>Password</label>
     <input type="password" id="mqttPassword" placeholder="(unchanged if empty)">
 
+    <hr class="section-divider">
+    <h3>Firmware updates <small>(GitHub releases)</small></h3>
+    <label>Repository <small>(owner/repo)</small></label>
+    <input type="text" id="githubRepo" placeholder="variour/batterylight">
+    <label>Personal access token <small>(fine-grained, Contents: read-only)</small></label>
+    <input type="password" id="githubToken" placeholder="(unchanged if empty)">
+
     <button class="btn-primary" style="width:100%;margin-top:.5rem" onclick="saveSettings()">Save &amp; Reboot</button>
+  </div>
+
+  <!-- FIRMWARE UPDATE -->
+  <div class="card" id="fw-update-card">
+    <h2>Firmware update</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.5rem;flex-wrap:wrap">
+      <div>
+        <div style="font-size:.82rem;color:#888">Current: <span id="upd-current" style="color:#eee">—</span></div>
+        <div style="font-size:.82rem;color:#888">Latest: <span id="upd-latest" style="color:#eee">—</span></div>
+      </div>
+      <button class="btn-ghost btn-sm" onclick="checkUpdate()" id="upd-check-btn">Check</button>
+    </div>
+    <div id="upd-status" style="font-size:.8rem;color:#555;margin-bottom:.4rem"></div>
+    <div id="upd-progress-wrap" style="display:none;margin-bottom:.5rem">
+      <div style="background:#222;border-radius:4px;height:6px;overflow:hidden">
+        <div id="upd-progress-bar" style="background:#4af;height:100%;width:0%;transition:width .3s"></div>
+      </div>
+    </div>
+    <button class="btn-primary" style="width:100%;display:none" id="upd-apply-btn" onclick="applyUpdate()">Install update</button>
   </div>
 
   <!-- DANGER -->
@@ -826,9 +852,12 @@ async function saveSettings() {
   const pw     = document.getElementById('wifiPassword').value;
   const apPw   = document.getElementById('apPassword').value;
   const mqttPw = document.getElementById('mqttPassword').value;
+  const ghTok  = document.getElementById('githubToken').value;
   if (pw)     body.wifiPassword  = pw;
   if (apPw)   body.apPassword    = apPw;
   if (mqttPw) body.mqttPassword  = mqttPw;
+  body.githubRepo = document.getElementById('githubRepo').value;
+  if (ghTok)  body.githubToken   = ghTok;
   await fetch('/api/config', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   alert('Saved. Device will reboot.');
 }
@@ -837,6 +866,84 @@ async function factoryReset() {
   if (!confirm('Factory reset? All settings will be lost.')) return;
   await fetch('/api/reset', {method:'POST'});
   alert('Reset. Device rebooting.');
+}
+
+// ── Firmware update ───────────────────────────────────────────────────────────
+let _updPollTimer = null;
+
+function _updSetStatus(text, color) {
+  const el = document.getElementById('upd-status');
+  el.textContent = text;
+  el.style.color = color || '#555';
+}
+
+async function checkUpdate() {
+  document.getElementById('upd-check-btn').disabled = true;
+  _updSetStatus('Checking…', '#aaa');
+  await fetch('/api/update/check', {method:'POST'});
+  _updPollStatus();
+}
+
+async function applyUpdate() {
+  if (!confirm('Install firmware update? The device will reboot after flashing.')) return;
+  document.getElementById('upd-apply-btn').style.display = 'none';
+  document.getElementById('upd-progress-wrap').style.display = 'block';
+  await fetch('/api/update/apply', {method:'POST'});
+  _updPollStatus();
+}
+
+function _updPollStatus() {
+  if (_updPollTimer) clearTimeout(_updPollTimer);
+  _updPollTimer = setTimeout(async () => {
+    try {
+      const res  = await fetch('/api/update/status');
+      const data = await res.json();
+      _updApplyStatus(data);
+      if (data.state === 'checking' || data.state === 'downloading') {
+        _updPollStatus();
+      }
+    } catch {
+      _updPollStatus();
+    }
+  }, 1000);
+}
+
+function _updApplyStatus(data) {
+  if (data.latestVersion) document.getElementById('upd-latest').textContent = data.latestVersion;
+  const applyBtn   = document.getElementById('upd-apply-btn');
+  const progressWrap = document.getElementById('upd-progress-wrap');
+  const checkBtn   = document.getElementById('upd-check-btn');
+  const bar        = document.getElementById('upd-progress-bar');
+
+  checkBtn.disabled = (data.state === 'checking' || data.state === 'downloading');
+
+  if (data.state === 'checking') {
+    _updSetStatus('Checking for updates…', '#aaa');
+    applyBtn.style.display    = 'none';
+    progressWrap.style.display = 'none';
+  } else if (data.state === 'downloading') {
+    _updSetStatus(`Flashing… ${data.progress}%`, '#4af');
+    progressWrap.style.display = 'block';
+    bar.style.width = data.progress + '%';
+    applyBtn.style.display = 'none';
+  } else if (data.state === 'done') {
+    _updSetStatus('Update complete. Rebooting…', '#4f4');
+    progressWrap.style.display = 'none';
+    applyBtn.style.display     = 'none';
+  } else if (data.state === 'error') {
+    _updSetStatus('Error: ' + (data.error || 'unknown'), '#f66');
+    progressWrap.style.display = 'none';
+    applyBtn.style.display     = 'none';
+  } else if (data.state === 'idle') {
+    if (data.hasUpdate) {
+      _updSetStatus(`v${data.latestVersion} available`, '#4af');
+      applyBtn.style.display = 'block';
+    } else if (data.latestVersion) {
+      _updSetStatus('Up to date', '#4f4');
+      applyBtn.style.display = 'none';
+    }
+    progressWrap.style.display = 'none';
+  }
 }
 
 // ── Load config ───────────────────────────────────────────────────────────────
@@ -858,10 +965,14 @@ async function loadConfig() {
     sel.options[1].text = `WS2801 — two wire (data: GPIO ${d.dataPin}, clock: GPIO ${d.clockPin})`;
   }
   if (d.logLevel !== undefined) document.getElementById('logLevel').value = d.logLevel;
-  if (d.mqttHost !== undefined) document.getElementById('mqttHost').value = d.mqttHost;
-  if (d.mqttPort !== undefined) document.getElementById('mqttPort').value = d.mqttPort;
-  if (d.mqttUser !== undefined) document.getElementById('mqttUser').value = d.mqttUser;
-  if (d.version) document.getElementById('fw-version').textContent = 'v' + d.version;
+  if (d.mqttHost   !== undefined) document.getElementById('mqttHost').value   = d.mqttHost;
+  if (d.mqttPort   !== undefined) document.getElementById('mqttPort').value   = d.mqttPort;
+  if (d.mqttUser   !== undefined) document.getElementById('mqttUser').value   = d.mqttUser;
+  if (d.githubRepo !== undefined) document.getElementById('githubRepo').value = d.githubRepo;
+  if (d.version) {
+    document.getElementById('fw-version').textContent = 'v' + d.version;
+    document.getElementById('upd-current').textContent = d.version;
+  }
   if (d.groups) renderGroups(d.groups);
   const pr = await fetch('/api/peers');
   const pd = await pr.json();

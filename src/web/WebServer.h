@@ -8,6 +8,7 @@
 #include "../logging/Logger.h"
 #include "../version.h"
 #include "../scenes/SceneManager.h"
+#include "../update/Updater.h"
 
 // Called when this device's own group changes
 using GroupChangeCb  = std::function<void()>;
@@ -183,6 +184,39 @@ public:
         _server.on("/api/scenes", HTTP_GET,
             [this](AsyncWebServerRequest* r){ _getScenes(r); });
 
+        _server.on("/api/update/status", HTTP_GET, [](AsyncWebServerRequest* r) {
+            auto& s = Updater::status();
+            JsonDocument doc;
+            doc["currentVersion"] = s.currentVersion;
+            doc["latestVersion"]  = s.latestVersion;
+            doc["hasUpdate"]      = s.hasUpdate;
+            doc["progress"]       = s.progress;
+            const char* stateStr =
+                s.state == Updater::State::Checking    ? "checking"    :
+                s.state == Updater::State::Downloading ? "downloading" :
+                s.state == Updater::State::Error       ? "error"       :
+                s.state == Updater::State::Done        ? "done"        : "idle";
+            doc["state"] = stateStr;
+            if (s.error) doc["error"] = s.error;
+            String out; serializeJson(doc, out);
+            r->send(200, "application/json", out);
+        });
+
+        _server.on("/api/update/check", HTTP_POST, [](AsyncWebServerRequest* r) {
+            Updater::checkAsync();
+            r->send(200, "application/json", "{\"ok\":true}");
+        });
+
+        _server.on("/api/update/apply", HTTP_POST, [](AsyncWebServerRequest* r) {
+            auto& s = Updater::status();
+            if (!s.hasUpdate) {
+                r->send(400, "application/json", "{\"error\":\"no update available\"}");
+                return;
+            }
+            Updater::applyAsync();
+            r->send(200, "application/json", "{\"ok\":true}");
+        });
+
         _server.on("/api/reset", HTTP_POST, [](AsyncWebServerRequest* r){
             Config::reset();
             r->send(200, "application/json", "{\"ok\":true}");
@@ -281,6 +315,8 @@ private:
         doc["mqttPort"]   = c.mqttPort;
         doc["mqttUser"]   = c.mqttUser;
         // mqttPassword intentionally omitted — write-only from UI
+        doc["githubRepo"] = c.githubRepo;
+        // githubToken intentionally omitted — write-only from UI
 
         JsonArray arr = doc["groups"].to<JsonArray>();
         for (uint8_t i = 0; i < MAX_GROUPS; i++) {
@@ -313,6 +349,9 @@ private:
         if (!doc["mqttUser"].isNull())     strlcpy(c.mqttUser, doc["mqttUser"], sizeof(c.mqttUser));
         if (!doc["mqttPassword"].isNull() && strlen(doc["mqttPassword"]) > 0)
             strlcpy(c.mqttPassword, doc["mqttPassword"], sizeof(c.mqttPassword));
+        if (!doc["githubRepo"].isNull())  strlcpy(c.githubRepo, doc["githubRepo"], sizeof(c.githubRepo));
+        if (!doc["githubToken"].isNull() && strlen(doc["githubToken"]) > 0)
+            strlcpy(c.githubToken, doc["githubToken"], sizeof(c.githubToken));
 
         if (!doc["groupId"].isNull()) {
             uint8_t newGroup = doc["groupId"];
