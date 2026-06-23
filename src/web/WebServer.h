@@ -242,23 +242,6 @@ public:
         // Static files last — catches everything not matched above
         _server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
 
-        _server.onNotFound([](AsyncWebServerRequest* r) {
-            // SPA fallback: serve the app shell for GET requests to unknown paths
-            // so client-side routes work on direct load / page refresh.
-            if (r->method() == HTTP_GET) {
-                if (LittleFS.exists("/index.html.gz")) {
-                    r->send(LittleFS, "/index.html.gz", "text/html");
-                    return;
-                }
-                if (LittleFS.exists("/index.html")) {
-                    r->send(LittleFS, "/index.html", "text/html");
-                    return;
-                }
-            }
-            Logger::w("[web] 404 %s %s", r->methodToString(), r->url().c_str());
-            r->send(404);
-        });
-
         Logger::addSink([this](LogLevel lv, const char* msg){ _pushLog(lv, msg); });
 
         _server.begin();
