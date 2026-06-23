@@ -243,6 +243,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 <div class="tab-bar">
   <button class="tab active" id="tab-btn-dashboard" onclick="switchTab('dashboard')">Dashboard</button>
   <button class="tab"        id="tab-btn-scenes"    onclick="switchTab('scenes')">Scenes</button>
+  <button class="tab"        id="tab-btn-settings"  onclick="switchTab('settings')">Settings</button>
 </div>
 
 <!-- ══════════════ DASHBOARD ══════════════ -->
@@ -275,55 +276,6 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
 <!-- RIGHT COLUMN: Settings + Log + Danger -->
 <div>
-
-  <!-- SETTINGS -->
-  <div class="card">
-    <h2>Settings</h2>
-
-    <h3>Device</h3>
-    <label>Device name (mDNS hostname)</label>
-    <input type="text" id="deviceName" placeholder="batterylight">
-    <label>LED type</label>
-    <select id="ledType">
-      <option value="0">WS2812B — single wire</option>
-      <option value="1">WS2801 — two wire</option>
-    </select>
-    <label>Log level</label>
-    <select id="logLevel">
-      <option value="0">Debug</option>
-      <option value="1">Info</option>
-      <option value="2">Warn</option>
-      <option value="3">Error</option>
-    </select>
-
-    <hr class="section-divider">
-    <h3>WiFi</h3>
-    <label>SSID</label>
-    <input type="text" id="wifiSsid" placeholder="(leave blank for AP only)">
-    <label>Password</label>
-    <input type="password" id="wifiPassword" placeholder="(unchanged if empty)">
-    <label>AP Password <small>(min 8 chars)</small></label>
-    <input type="password" id="apPassword" placeholder="(unchanged if empty)">
-    <label>OTA port</label>
-    <input type="number" id="otaPort" value="3232" min="1" max="65535">
-    <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-      <input type="checkbox" id="otaEnabled" checked>
-      Enable OTA updates
-    </label>
-
-    <hr class="section-divider">
-    <h3>MQTT <small>(leave broker blank to disable)</small></h3>
-    <label>Broker host</label>
-    <input type="text" id="mqttHost" placeholder="192.168.1.100">
-    <label>Port</label>
-    <input type="number" id="mqttPort" value="1883" min="1" max="65535">
-    <label>Username <small>(optional)</small></label>
-    <input type="text" id="mqttUser" placeholder="">
-    <label>Password</label>
-    <input type="password" id="mqttPassword" placeholder="(unchanged if empty)">
-
-    <button class="btn-primary" style="width:100%;margin-top:.5rem" onclick="saveSettings()">Save &amp; Reboot</button>
-  </div>
 
   <!-- LOG -->
   <div class="card">
@@ -529,6 +481,58 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
 </div><!-- /tab-scenes -->
 
+
+<!-- ══════════════ SETTINGS ══════════════ -->
+<div id="tab-settings" style="display:none">
+  <div class="card">
+    <h2>Settings</h2>
+
+    <h3>Device</h3>
+    <label>Device name (mDNS hostname)</label>
+    <input type="text" id="deviceName" placeholder="batterylight">
+    <label>LED type</label>
+    <select id="ledType">
+      <option value="0">WS2812B — single wire</option>
+      <option value="1">WS2801 — two wire</option>
+    </select>
+    <label>Log level</label>
+    <select id="logLevel">
+      <option value="0">Debug</option>
+      <option value="1">Info</option>
+      <option value="2">Warn</option>
+      <option value="3">Error</option>
+    </select>
+
+    <hr class="section-divider">
+    <h3>WiFi</h3>
+    <label>SSID</label>
+    <input type="text" id="wifiSsid" placeholder="(leave blank for AP only)">
+    <label>Password</label>
+    <input type="password" id="wifiPassword" placeholder="(unchanged if empty)">
+    <label>AP Password <small>(min 8 chars)</small></label>
+    <input type="password" id="apPassword" placeholder="(unchanged if empty)">
+    <label>OTA port</label>
+    <input type="number" id="otaPort" value="3232" min="1" max="65535">
+    <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+      <input type="checkbox" id="otaEnabled" checked>
+      Enable OTA updates
+    </label>
+
+    <hr class="section-divider">
+    <h3>MQTT <small>(leave broker blank to disable)</small></h3>
+    <label>Broker host</label>
+    <input type="text" id="mqttHost" placeholder="192.168.1.100">
+    <label>Port</label>
+    <input type="number" id="mqttPort" value="1883" min="1" max="65535">
+    <label>Username <small>(optional)</small></label>
+    <input type="text" id="mqttUser" placeholder="">
+    <label>Password</label>
+    <input type="password" id="mqttPassword" placeholder="(unchanged if empty)">
+
+    <button class="btn-primary" style="width:100%;margin-top:.5rem" onclick="saveSettings()">Save &amp; Reboot</button>
+  </div>
+</div><!-- /tab-settings -->
+
 <script>
 // ── Dashboard state ───────────────────────────────────────────────────────────
 let _groups  = [];
@@ -550,6 +554,7 @@ const PATTERNS = [
 function switchTab(tab, pushHistory = true) {
   document.getElementById('tab-dashboard').style.display = tab === 'dashboard' ? '' : 'none';
   document.getElementById('tab-scenes').style.display    = tab === 'scenes'    ? '' : 'none';
+  document.getElementById('tab-settings').style.display  = tab === 'settings'  ? '' : 'none';
   document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-btn-' + tab).classList.add('active');
   if (tab === 'dashboard' && pushHistory) history.pushState(null, '', '/');
