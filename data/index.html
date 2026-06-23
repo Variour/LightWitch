@@ -234,6 +234,17 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   cursor: pointer; flex-shrink: 0; transition: border-color .15s;
 }
 .grad-swatch:hover { border-color: #555; }
+
+/* Image import modal */
+.img-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.75);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.img-modal {
+  background: #1c1c1c; border-radius: 10px; padding: 1.25rem;
+  width: min(320px, 90vw); display: flex; flex-direction: column; gap: .75rem;
+}
+.img-modal-radio { display: flex; align-items: center; gap: .5rem; cursor: pointer; font-size: .9rem; }
 </style>
 </head>
 <body>
@@ -1417,6 +1428,7 @@ function _renderGrid() {
     html += `<div class="frame-stack-card" data-frame="${i}">`;
     html += '<div class="frame-stack-header">';
     html += `<span class="frame-stack-title">Frame ${i + 1}</span>`;
+    html += `<button class="btn-ghost btn-sm" title="Import image" onclick="importImageForFrame(${i})">⬆ Import image</button>`;
     html += '</div>';
     html += '<div class="frame-stack-grid">';
     html += '<table class="sg">';
@@ -2092,11 +2104,170 @@ function _routeFromPath(path) {
 
 window.addEventListener('popstate', () => _routeFromPath(location.pathname));
 
+// ── Image import ──────────────────────────────────────────────────────────────
+let _imgImportFrameIndex = -1;
+let _imgImportFile = null;
+
+function importImageForFrame(frameIndex) {
+  _imgImportFrameIndex = frameIndex;
+  const inp = document.getElementById('img-import-input');
+  inp.value = '';
+  inp.onchange = _onImgFileSelected;
+  inp.click();
+}
+
+function _onImgFileSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) {
+    alert('Image file is too large (max 10 MB).');
+    return;
+  }
+  _imgImportFile = file;
+  const modal = document.getElementById('img-import-modal');
+  modal.querySelectorAll('input[name="img-mode"]').forEach(r => {
+    r.onchange = () => {
+      document.getElementById('img-color-count-row').style.display =
+        document.querySelector('input[name="img-mode"]:checked').value === 'colors' ? '' : 'none';
+    };
+  });
+  modal.querySelector('input[value="map"]').checked = true;
+  document.getElementById('img-color-count-row').style.display = 'none';
+  modal.style.display = 'flex';
+}
+
+function _imgModalCancel() {
+  document.getElementById('img-import-modal').style.display = 'none';
+  _imgImportFile = null;
+}
+
+function _imgModalApply() {
+  const mode = document.querySelector('input[name="img-mode"]:checked').value;
+  const colorCount = Math.min(200, Math.max(1, parseInt(document.getElementById('img-color-count').value, 10) || 6));
+  document.getElementById('img-import-modal').style.display = 'none';
+  const file = _imgImportFile;
+  _imgImportFile = null;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      _pushHistory();
+      if (mode === 'map') {
+        _applyImageMapToFrame(_imgImportFrameIndex, img);
+      } else {
+        _applyImageColorsToScene(img, colorCount);
+      }
+      _markModified();
+      _renderGrid();
+      _renderFrameList();
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function _applyImageMapToFrame(frameIndex, img) {
+  const { w, h } = _editScene;
+  const offscreen = document.createElement('canvas');
+  offscreen.width = w;
+  offscreen.height = h;
+  const ctx = offscreen.getContext('2d');
+  // Cover: scale so image fills canvas, crop center
+  const scale = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+  const drawW = img.naturalWidth * scale;
+  const drawH = img.naturalHeight * scale;
+  ctx.drawImage(img, (w - drawW) / 2, (h - drawH) / 2, drawW, drawH);
+  const data = ctx.getImageData(0, 0, w, h).data;
+  const frame = _editScene.frames[frameIndex];
+  for (let i = 0; i < w * h; i++) {
+    frame[i] = '#' +
+      data[i * 4    ].toString(16).padStart(2, '0') +
+      data[i * 4 + 1].toString(16).padStart(2, '0') +
+      data[i * 4 + 2].toString(16).padStart(2, '0');
+  }
+}
+
+function _applyImageColorsToScene(img, count) {
+  // Sample image at reduced resolution for color extraction
+  const sampleSize = 100;
+  const offscreen = document.createElement('canvas');
+  offscreen.width = sampleSize;
+  offscreen.height = sampleSize;
+  const ctx = offscreen.getContext('2d');
+  ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
+  const data = ctx.getImageData(0, 0, sampleSize, sampleSize).data;
+  const pixels = [];
+  for (let i = 0; i < sampleSize * sampleSize; i++) {
+    pixels.push([data[i * 4], data[i * 4 + 1], data[i * 4 + 2]]);
+  }
+  const colors = _medianCut(pixels, count);
+  const newW = colors.length;
+  _resizeSceneTo(newW, 1);
+  document.getElementById('se-width').value  = newW;
+  document.getElementById('se-height').value = 1;
+  const row = colors.map(c =>
+    '#' + c[0].toString(16).padStart(2, '0') +
+          c[1].toString(16).padStart(2, '0') +
+          c[2].toString(16).padStart(2, '0')
+  );
+  _editScene.frames.forEach(frame => {
+    for (let i = 0; i < newW; i++) frame[i] = row[i];
+  });
+}
+
+function _medianCut(pixels, targetCount) {
+  function avgColor(bucket) {
+    return [0, 1, 2].map(ch => Math.round(bucket.reduce((s, p) => s + p[ch], 0) / bucket.length));
+  }
+  function splitBucket(bucket) {
+    const ranges = [0, 1, 2].map(ch => {
+      const vals = bucket.map(p => p[ch]);
+      return Math.max(...vals) - Math.min(...vals);
+    });
+    const ch = ranges.indexOf(Math.max(...ranges));
+    const sorted = bucket.slice().sort((a, b) => a[ch] - b[ch]);
+    const mid = Math.floor(sorted.length / 2);
+    return [sorted.slice(0, mid), sorted.slice(mid)];
+  }
+
+  let buckets = [pixels];
+  while (buckets.length < targetCount) {
+    let maxIdx = 0;
+    buckets.forEach((b, i) => { if (b.length > buckets[maxIdx].length) maxIdx = i; });
+    if (buckets[maxIdx].length < 2) break;
+    const [a, b] = splitBucket(buckets[maxIdx]);
+    buckets.splice(maxIdx, 1, a, b);
+  }
+  return buckets.map(avgColor);
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 loadConfig();
 const isLocalDev = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
 if (!isLocalDev) connectWs();
 _routeFromPath(location.pathname);
 </script>
+
+<!-- Image import modal -->
+<div id="img-import-modal" class="img-modal-overlay" style="display:none" onclick="if(event.target===this)_imgModalCancel()">
+  <div class="img-modal">
+    <h2 style="margin:0">Import Image</h2>
+    <label class="img-modal-radio">
+      <input type="radio" name="img-mode" value="map" checked> Map to canvas
+    </label>
+    <label class="img-modal-radio">
+      <input type="radio" name="img-mode" value="colors"> Extract main colors
+    </label>
+    <div id="img-color-count-row" style="display:none">
+      <label>Number of colors</label>
+      <input type="number" id="img-color-count" value="6" min="1" max="200">
+    </div>
+    <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.25rem">
+      <button class="btn-ghost btn-sm" onclick="_imgModalCancel()">Cancel</button>
+      <button class="btn-primary btn-sm" onclick="_imgModalApply()">Apply</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="img-import-input" accept="image/*" style="display:none">
 </body>
 </html>
