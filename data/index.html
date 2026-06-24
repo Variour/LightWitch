@@ -109,13 +109,36 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .frame-btns { display: flex; gap: .25rem; }
 
 /* Scene grid */
-.sg-wrap { overflow: auto; max-width: 100%; cursor: crosshair; user-select: none; }
+.sg-wrap { overflow: auto; max-width: 100%; user-select: none; }
 .sg { border-collapse: collapse; }
-.sg-qa { width: 22px; height: 22px; padding: 0; background: #181818;
-         border: 1px solid #2a2a2a; cursor: pointer; font-size: .65rem; color: #555; }
-.sg-qa:hover { background: #2a6; color: #fff; border-color: #2a6; }
-.sg-cell { width: 22px; height: 22px; border: 1px solid #222; }
+.sg-cell { width: 22px; height: 22px; border: 1px solid #222; cursor: crosshair; }
 .sg-cell:hover { outline: 2px solid rgba(255,255,255,.35); outline-offset: -1px; }
+
+/* Row/col header cells — hidden by default, shown in fill modes */
+.sg-hdr {
+  padding: 0; border: 1px solid transparent; cursor: pointer;
+  font-size: .55rem; color: transparent; background: transparent;
+  transition: background .1s, color .1s, border-color .1s;
+  width: var(--cell-size, 27px); height: var(--cell-size, 27px);
+}
+.sg-wrap.fill-active .sg-hdr {
+  background: #1e2e1e; border-color: #2a3a2a; color: #4a8;
+}
+.sg-wrap.fill-active .sg-hdr:hover {
+  background: #2a6; color: #fff; border-color: #2a6;
+}
+/* Frame-fill corner button */
+.sg-corner {
+  padding: 0; border: 1px solid #2a2a2a; cursor: pointer;
+  font-size: .6rem; color: #555; background: #181818;
+  width: var(--cell-size, 27px); height: var(--cell-size, 27px);
+  transition: background .12s, color .12s;
+}
+.sg-corner:hover { background: #2a6; color: #fff; border-color: #2a6; }
+
+/* Eyedropper canvas cursor */
+.sg-wrap.mode-eyedropper .sg-cell { cursor: crosshair; }
+.sg-wrap.mode-eyedropper .sg-cell:hover { outline: 2px solid #fa4; outline-offset: -1px; }
 
 .frame-stack {
   display: flex;
@@ -160,10 +183,10 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   width: var(--cell-size, 27px);
   height: var(--cell-size, 27px);
 }
-.frame-stack-grid .sg-qa {
+.frame-stack-grid .sg-hdr,
+.frame-stack-grid .sg-corner {
   width: var(--cell-size, 27px);
   height: var(--cell-size, 27px);
-  font-size: .55rem;
 }
 
 /* Color swatch */
@@ -196,8 +219,6 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .cp-hex-input:focus { border-color: #4af; }
 .cp-brightness { width: 100%; accent-color: #4af; }
 .cp-label { font-size: .7rem; color: #777; margin-bottom: .15rem; display: block; }
-.sg-cell.eyedropper-mode { cursor: crosshair; }
-.sg-cell.eyedropper-mode:hover { outline: 2px solid #fa4; outline-offset: -1px; }
 
 /* Inline HSV picker */
 .hsv-wrap { margin-top: .6rem; user-select: none; }
@@ -227,7 +248,27 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   background: #fff; border: 2px solid #000; cursor: pointer;
 }
 
-/* Gradient fill card */
+/* Fill panel */
+.fill-mode-bar { display: flex; gap: .35rem; margin-bottom: .55rem; align-items: center; }
+.fill-tab-bar  { display: flex; gap: .25rem; margin-bottom: .5rem; }
+.fill-tab {
+  flex: 1; padding: .3rem .5rem; border-radius: 6px; border: 1px solid #2a2a2a;
+  background: #181818; color: #666; font-size: .78rem; font-weight: 600;
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.fill-tab.active { background: #1a4a6a; color: #4af; border-color: #4af; }
+.fill-tab-content { display: none; }
+.fill-tab-content.active { display: block; }
+.fill-btn-group { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .4rem; }
+.fill-btn {
+  padding: .3rem .6rem; border-radius: 6px; border: 1.5px solid #333;
+  background: #222; color: #aaa; font-size: .78rem; cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s; white-space: nowrap;
+}
+.fill-btn:hover { background: #2a6; border-color: #2a6; color: #fff; }
+.fill-btn.active { background: #1a5a2a; border-color: #2a6; color: #4f4; }
+
+/* Gradient swatches inside fill panel */
 .grad-swatch-pair { display: flex; gap: .5rem; align-items: center; margin-bottom: .45rem; }
 .grad-swatch {
   width: 2rem; height: 2rem; border-radius: 6px; border: 2px solid #333;
@@ -356,15 +397,13 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     <div class="se-color-row">
       <div class="card" style="flex:2;min-width:220px">
         <h2>Paint color</h2>
-        <!-- Swatch + hex + eyedropper + brightness on one line -->
+        <!-- Swatch + hex + brightness on one line -->
         <div style="display:flex;align-items:center;gap:.5rem;overflow:hidden">
           <div class="color-swatch" id="se-swatch" title="Current paint color" style="flex-shrink:0"></div>
           <input type="text" id="se-hex-input" class="cp-hex-input" value="#ff0000"
                  maxlength="7" placeholder="#rrggbb" style="flex-shrink:0"
                  oninput="_onHexInput(this.value)"
                  onblur="_onHexBlur(this.value)">
-          <button id="se-eyedropper-btn" class="cp-tool-btn" title="Eyedropper: click a cell to pick its color"
-                  onclick="toggleEyedropper()" style="flex-shrink:0">&#x1F489;</button>
           <span class="cp-label" style="margin:0;flex-shrink:0;white-space:nowrap"><span id="se-brightness-val">100</span>%</span>
           <input type="range" id="se-brightness" class="cp-brightness" min="0" max="100" value="100"
                  style="flex:1;min-width:0;margin:0" oninput="_onBrightnessInput(this.value)">
@@ -391,25 +430,49 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         </div>
       </div>
 
-      <!-- Gradient fill card -->
-      <div class="card" style="flex:1;min-width:180px">
-        <h2>Gradient fill</h2>
-        <div class="grad-swatch-pair">
-          <div class="grad-swatch" id="grad-swatch-a" title="Color A (click to use current paint color)"
-               onclick="_setGradColor('a')" style="background:#ff0000"></div>
-          <span style="font-size:.8rem;color:#aaa;flex:1">→</span>
-          <div class="grad-swatch" id="grad-swatch-b" title="Color B (click to use current paint color)"
-               onclick="_setGradColor('b')" style="background:#0000ff"></div>
+      <!-- Fill panel -->
+      <div class="card" style="flex:1;min-width:200px">
+        <h2>Fill</h2>
+        <!-- Mode bar: Paint + Eyedropper -->
+        <div class="fill-mode-bar">
+          <button id="fill-mode-paint" class="cp-tool-btn active" title="Paint mode"
+                  onclick="setMode('paint')">✏ Paint</button>
+          <button id="fill-mode-eyedropper" class="cp-tool-btn" title="Eyedropper: click a cell to pick its color"
+                  onclick="setMode('eyedropper')">&#x1F489; Pick</button>
         </div>
-        <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;font-size:.85rem;margin-top:.4rem">
-          <input type="checkbox" id="grad-btns-visible" checked onchange="_setGradBtnsVisible(this.checked)"
-                 style="width:1rem;height:1rem;accent-color:#4af">
-          Show gradient buttons
-        </label>
-        <small style="display:block;margin-top:.35rem;color:#666">
-          Click a swatch to set it to the current paint color. Use the gradient buttons on
-          the canvas to fill rows, columns, or the whole frame.
-        </small>
+        <!-- Fill tabs -->
+        <div class="fill-tab-bar">
+          <button class="fill-tab" id="fill-tab-flat"     onclick="setFillTab('flat')">Flat</button>
+          <button class="fill-tab" id="fill-tab-gradient" onclick="setFillTab('gradient')">Gradient</button>
+          <button class="fill-tab" id="fill-tab-wrap"     onclick="setFillTab('wrap')">Wrap blend</button>
+        </div>
+        <!-- Flat tab -->
+        <div class="fill-tab-content" id="fill-content-flat">
+          <div class="fill-btn-group">
+            <button class="fill-btn" id="fill-btn-row" onclick="setMode('fill-row')" title="Click rows on canvas to fill with current color">→ Row</button>
+            <button class="fill-btn" id="fill-btn-col" onclick="setMode('fill-col')" title="Click columns on canvas to fill with current color">↓ Col</button>
+          </div>
+          <small style="color:#666">Activate a mode, then click row or column headers on the canvas to fill.</small>
+        </div>
+        <!-- Gradient tab -->
+        <div class="fill-tab-content" id="fill-content-gradient">
+          <div class="grad-swatch-pair">
+            <div class="grad-swatch" id="grad-swatch-a" title="Color A — click to set to current paint color"
+                 onclick="_setGradColor('a')" style="background:#ff0000"></div>
+            <span style="font-size:.75rem;color:#777;flex:1;text-align:center">A → B</span>
+            <div class="grad-swatch" id="grad-swatch-b" title="Color B — click to set to current paint color"
+                 onclick="_setGradColor('b')" style="background:#0000ff"></div>
+          </div>
+          <div class="fill-btn-group">
+            <button class="fill-btn" id="fill-btn-grad-row" onclick="setMode('grad-row')" title="Click rows on canvas to fill with gradient">≡→ Row</button>
+            <button class="fill-btn" id="fill-btn-grad-col" onclick="setMode('grad-col')" title="Click columns on canvas to fill with gradient">≡↓ Col</button>
+          </div>
+          <small style="color:#666">Click a swatch to capture the current paint color. Activate a mode, then click row or column headers on the canvas. Use the ↔ ↕ buttons on each frame to fill the whole frame.</small>
+        </div>
+        <!-- Wrap blend tab (placeholder — see issue #66) -->
+        <div class="fill-tab-content" id="fill-content-wrap">
+          <p style="font-size:.78rem;color:#555;margin:.2rem 0 .5rem">Coming soon.</p>
+        </div>
       </div>
 
       <!-- Options card -->
@@ -1031,13 +1094,15 @@ let _editScene   = null;     // {id, name, w, h, frames: [Array<string>]}
 let _paintColor  = '#ff0000';
 let _modified    = false;
 let _painting    = false;
-let _eyedropper  = false;
+// _mode: 'paint' | 'eyedropper' | 'fill-row' | 'fill-col' | 'grad-row' | 'grad-col'
+let _mode        = 'paint';
+let _prevMode    = 'paint';  // mode to restore after eyedropper
 let _brightness  = 100;      // 0-100 multiplier applied on top of base color
 let _recentColors = [];
 let _syncFrames  = false;
 let _gradColorA     = '#ff0000';
 let _gradColorB     = '#0000ff';
-let _gradBtnsVisible = true;
+let _activeFillTab  = null;  // 'flat' | 'gradient' | 'wrap'
 let _zoomCellPx = 27;  // default 50% larger than original 18px; changed via +/- buttons
 const _zoomStep = 4;
 let _hsvH = 0, _hsvS = 1, _hsvV = 1; // current HSV state
@@ -1055,11 +1120,14 @@ const _PRESETS = [
 // Global mouseup to end drag-paint
 document.addEventListener('mouseup', () => { _painting = false; });
 
-// Ctrl+Z / Cmd+Z keyboard shortcut for undo
+// Keyboard shortcuts
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z' && _sceneView === 'editor') {
     e.preventDefault();
     undoScene();
+  }
+  if (e.key === 'Escape' && _mode === 'eyedropper') {
+    setMode(_prevMode);
   }
 });
 
@@ -1280,6 +1348,12 @@ function _renderEditor() {
   _hsvSync();
   _renderGradUI();
   document.getElementById('se-sync-frames').checked = _syncFrames;
+  // Reset to paint mode and open flat fill tab by default
+  _mode = 'paint';
+  _prevMode = 'paint';
+  if (!_activeFillTab) _activeFillTab = 'flat';
+  _updateModeUI();
+  _updateFillTabUI();
   _renderFrameList();
   _renderGrid();
 }
@@ -1412,54 +1486,35 @@ function _renderGrid() {
     return;
   }
 
+  const fillActive = _mode !== 'paint' && _mode !== 'eyedropper';
+  const wrapClass  = fillActive ? ' fill-active' : '';
+  const eyeClass   = _mode === 'eyedropper' ? ' mode-eyedropper' : '';
+
   let html = '<div class="frame-stack">';
   frames.forEach((frame, i) => {
     html += `<div class="frame-stack-card" data-frame="${i}">`;
+    // Frame header with flat-fill and gradient-fill frame buttons
     html += '<div class="frame-stack-header">';
     html += `<span class="frame-stack-title">Frame ${i + 1}</span>`;
+    html += '<div style="display:flex;gap:.3rem">';
+    html += `<button class="fill-btn btn-sm" style="padding:.2rem .45rem;font-size:.7rem" title="Fill frame with current color" onclick="fillFrameFor(${i})">↘ Fill</button>`;
+    html += `<button class="fill-btn btn-sm" style="padding:.2rem .45rem;font-size:.7rem" title="Gradient fill frame horizontally" onclick="gradFillFrameFor(${i},'h')">↔ Grad</button>`;
+    html += `<button class="fill-btn btn-sm" style="padding:.2rem .45rem;font-size:.7rem" title="Gradient fill frame vertically" onclick="gradFillFrameFor(${i},'v')">↕ Grad</button>`;
     html += '</div>';
-    html += '<div class="frame-stack-grid">';
+    html += '</div>';
+    html += `<div class="frame-stack-grid"><div class="sg-wrap${wrapClass}${eyeClass}">`;
     html += '<table class="sg">';
-    {
-      const px = _zoomCellPx + 'px';
-      html += '<colgroup>';
-      if (_gradBtnsVisible) html += `<col style="width:${px}"><col style="width:${px}">`;
-      html += `<col style="width:${px}">`;
-      for (let c = 0; c < w; c++) html += `<col style="width:${px}">`;
-      html += '</colgroup>';
-    }
-    if (_gradBtnsVisible) {
-      // Row 0 (gradient): 3 empty corner cells | ↔ spans only data columns
-      html += '<tr>';
-      html += '<th></th><th></th><th></th>';
-      html += `<th class="sg-qa sg-qa-grad" data-fill="frame-h" colspan="${w}" title="Gradient fill frame horizontally" onclick="gradFillFrameFor(${i}, 'h')">↔</th>`;
-      html += '</tr>';
-      // Row 1 (gradient): 3 empty corner cells | ≡↓ gradient fill per column
-      html += '<tr>';
-      html += '<th></th><th></th><th></th>';
-      for (let c = 0; c < w; c++) {
-        html += `<th class="sg-qa sg-qa-grad" data-fill="grad-col" title="Gradient fill column ${c}" onclick="gradFillColFor(${i}, ${c})">≡↓</th>`;
-      }
-      html += '</tr>';
-    }
-    // Row 2: (2 empty if grad visible) | ↘ flat fill frame | ↓ flat fill per column
+    // Column header row (col fill targets)
     html += '<tr>';
-    if (_gradBtnsVisible) html += '<th></th><th></th>';
-    html += `<th class="sg-qa" data-fill="frame-flat" title="Fill frame with current color" onclick="fillFrameFor(${i})">↘</th>`;
+    html += `<th class="sg-corner" title="Fill frame" onclick="fillFrameFor(${i})">↘</th>`;
     for (let c = 0; c < w; c++) {
-      html += `<th class="sg-qa" data-fill="col" title="Fill column ${c}" onclick="fillColumnFor(${i}, ${c})">↓</th>`;
+      html += `<th class="sg-hdr" data-frame="${i}" data-col="${c}" title="Fill column ${c}">↓</th>`;
     }
     html += '</tr>';
-    // Data rows: (↕ and ≡→ only if grad visible) | → flat fill row | cells
+    // Data rows with row header
     for (let r = 0; r < h; r++) {
       html += '<tr>';
-      if (_gradBtnsVisible) {
-        if (r === 0) {
-          html += `<th class="sg-qa sg-qa-grad" data-fill="frame-v" rowspan="${h}" title="Gradient fill frame vertically" onclick="gradFillFrameFor(${i}, 'v')">↕</th>`;
-        }
-        html += `<th class="sg-qa sg-qa-grad" data-fill="grad-row" title="Gradient fill row ${r}" onclick="gradFillRowFor(${i}, ${r})">≡→</th>`;
-      }
-      html += `<th class="sg-qa" data-fill="row" title="Fill row ${r}" onclick="fillRowFor(${i}, ${r})">→</th>`;
+      html += `<th class="sg-hdr" data-frame="${i}" data-row="${r}" title="Fill row ${r}">→</th>`;
       for (let c = 0; c < w; c++) {
         const idx = r * w + c;
         html += `<td class="sg-cell" data-frame="${i}" data-idx="${idx}" style="background:${frame[idx] || '#000000'}"></td>`;
@@ -1467,23 +1522,26 @@ function _renderGrid() {
       html += '</tr>';
     }
     html += '</table>';
-    html += '</div>';
+    html += '</div></div>';
     html += '</div>';
   });
   html += '</div>';
 
   wrap.innerHTML = html;
 
-  // Attach paint listeners to every stacked frame grid.
+  // Attach paint + header listeners to every stacked frame grid.
   const tables = wrap.querySelectorAll('.sg');
   tables.forEach(table => {
     table.addEventListener('mousedown', e => {
       if (e.target.classList.contains('sg-cell')) {
         _painting = true;
-        if (!_eyedropper) _pushHistory();
+        if (_mode === 'paint') _pushHistory();
         const frameIndex = parseInt(e.target.dataset.frame, 10);
         const idx = parseInt(e.target.dataset.idx, 10);
         _paintFrameCell(frameIndex, idx);
+        e.preventDefault();
+      } else if (e.target.classList.contains('sg-hdr')) {
+        _applyHeaderFill(e.target);
         e.preventDefault();
       }
     });
@@ -1497,10 +1555,12 @@ function _renderGrid() {
       const el = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
       if (el && el.classList.contains('sg-cell')) {
         _painting = true;
-        if (!_eyedropper) _pushHistory();
+        if (_mode === 'paint') _pushHistory();
         const frameIndex = parseInt(el.dataset.frame, 10);
         const idx = parseInt(el.dataset.idx, 10);
         _paintFrameCell(frameIndex, idx);
+      } else if (el && el.classList.contains('sg-hdr')) {
+        _applyHeaderFill(el);
       }
       e.preventDefault();
     }, { passive: false });
@@ -1521,7 +1581,8 @@ function _renderGrid() {
 }
 
 function _paintFrameCell(frameIndex, idx) {
-  if (_eyedropper) { _pickColorFromCell(frameIndex, idx); return; }
+  if (_mode === 'eyedropper') { _pickColorFromCell(frameIndex, idx); return; }
+  if (_mode !== 'paint') return;
   const color = _getEffectivePaintColor();
   const framesToPaint = _syncFrames
     ? _editScene.frames.map((_, i) => i)
@@ -1770,23 +1831,11 @@ function _renderGradUI() {
   if (a) a.style.background = _gradColorA;
   if (b) b.style.background = _gradColorB;
 
+  // Update frame-level gradient fill button previews
   const gradH = `linear-gradient(to right, ${_gradColorA}, ${_gradColorB})`;
   const gradV = `linear-gradient(to bottom, ${_gradColorA}, ${_gradColorB})`;
-  document.querySelectorAll('.sg-qa[data-fill="frame-h"]').forEach(el => { el.style.background = gradH; });
-  document.querySelectorAll('.sg-qa[data-fill="frame-v"]').forEach(el => { el.style.background = gradV; });
-  document.querySelectorAll('.sg-qa[data-fill="grad-col"]').forEach(el => { el.style.background = gradV; });
-  document.querySelectorAll('.sg-qa[data-fill="grad-row"]').forEach(el => { el.style.background = gradH; });
-  const cb = document.getElementById('grad-btns-visible');
-  if (cb) cb.checked = _gradBtnsVisible;
-  const flat = _getEffectivePaintColor ? _getEffectivePaintColor() : _paintColor;
-  document.querySelectorAll('.sg-qa[data-fill="frame-flat"]').forEach(el => { el.style.background = flat; });
-  document.querySelectorAll('.sg-qa[data-fill="row"]').forEach(el => { el.style.background = flat; });
-  document.querySelectorAll('.sg-qa[data-fill="col"]').forEach(el => { el.style.background = flat; });
-}
-
-function _setGradBtnsVisible(visible) {
-  _gradBtnsVisible = visible;
-  _renderGrid();
+  document.querySelectorAll('.fill-btn[onclick*="gradFillFrameFor"][onclick*="\'h\'"]').forEach(el => { el.style.background = gradH; el.style.color = '#fff'; });
+  document.querySelectorAll('.fill-btn[onclick*="gradFillFrameFor"][onclick*="\'v\'"]').forEach(el => { el.style.background = gradV; el.style.color = '#fff'; });
 }
 
 function _setGradColor(which) {
@@ -1857,24 +1906,75 @@ function _syncToggle(checked) {
   _syncFrames = checked;
 }
 
-function toggleEyedropper() {
-  _eyedropper = !_eyedropper;
-  const btn = document.getElementById('se-eyedropper-btn');
-  if (btn) btn.classList.toggle('active', _eyedropper);
-  document.querySelectorAll('.sg-cell').forEach(el => {
-    el.classList.toggle('eyedropper-mode', _eyedropper);
+function setMode(mode) {
+  if (mode === 'eyedropper') {
+    if (_mode === 'eyedropper') {
+      // Toggle off: return to previous mode
+      setMode(_prevMode);
+      return;
+    }
+    _prevMode = _mode;
+  }
+  _mode = mode;
+  _updateModeUI();
+  _renderGrid();
+}
+
+function setFillTab(tab) {
+  _activeFillTab = tab;
+  // Map tab to a default mode
+  const tabMode = { flat: 'fill-row', gradient: 'grad-row', wrap: 'paint' };
+  setMode(tabMode[tab] || 'paint');
+  _updateFillTabUI();
+}
+
+function _updateModeUI() {
+  // Mode bar buttons
+  document.getElementById('fill-mode-paint')?.classList.toggle('active', _mode === 'paint');
+  document.getElementById('fill-mode-eyedropper')?.classList.toggle('active', _mode === 'eyedropper');
+  // Fill mode buttons
+  document.getElementById('fill-btn-row')?.classList.toggle('active', _mode === 'fill-row');
+  document.getElementById('fill-btn-col')?.classList.toggle('active', _mode === 'fill-col');
+  document.getElementById('fill-btn-grad-row')?.classList.toggle('active', _mode === 'grad-row');
+  document.getElementById('fill-btn-grad-col')?.classList.toggle('active', _mode === 'grad-col');
+  // Open the right fill tab when entering a fill mode
+  if (_mode === 'fill-row' || _mode === 'fill-col') {
+    if (_activeFillTab !== 'flat') { _activeFillTab = 'flat'; _updateFillTabUI(); }
+  } else if (_mode === 'grad-row' || _mode === 'grad-col') {
+    if (_activeFillTab !== 'gradient') { _activeFillTab = 'gradient'; _updateFillTabUI(); }
+  }
+}
+
+function _updateFillTabUI() {
+  ['flat','gradient','wrap'].forEach(t => {
+    document.getElementById(`fill-tab-${t}`)?.classList.toggle('active', _activeFillTab === t);
+    const content = document.getElementById(`fill-content-${t}`);
+    if (content) content.classList.toggle('active', _activeFillTab === t);
   });
+}
+
+function _applyHeaderFill(el) {
+  const frameIndex = parseInt(el.dataset.frame, 10);
+  if ('row' in el.dataset) {
+    const r = parseInt(el.dataset.row, 10);
+    if (_mode === 'fill-row') fillRowFor(frameIndex, r);
+    else if (_mode === 'grad-row') gradFillRowFor(frameIndex, r);
+  } else if ('col' in el.dataset) {
+    const c = parseInt(el.dataset.col, 10);
+    if (_mode === 'fill-col') fillColumnFor(frameIndex, c);
+    else if (_mode === 'grad-col') gradFillColFor(frameIndex, c);
+  }
 }
 
 function _pickColorFromCell(frameIndex, idx) {
   const cells = _editScene.frames[frameIndex];
   if (!cells) return;
   const color = cells[idx] || '#000000';
-  _eyedropper = false;
-  const btn = document.getElementById('se-eyedropper-btn');
-  if (btn) btn.classList.remove('active');
-  document.querySelectorAll('.sg-cell').forEach(el => el.classList.remove('eyedropper-mode'));
+  const returnTo = _prevMode;
+  _mode = returnTo;
+  _updateModeUI();
   setPaintColor(color);
+  _renderGrid();
 }
 
 function _scenePayloadFromEditor() {
