@@ -261,11 +261,11 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .fill-tab-content.active { display: block; }
 .fill-btn-group { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .4rem; }
 .fill-btn {
-  padding: .3rem .6rem; border-radius: 6px; border: 1.5px solid #333;
-  background: #222; color: #aaa; font-size: .78rem; cursor: pointer;
+  padding: .3rem .6rem; border-radius: 6px; border: 1.5px solid #444;
+  background: #2e2e2e; color: #ccc; font-size: .78rem; cursor: pointer;
   transition: background .12s, border-color .12s, color .12s; white-space: nowrap;
 }
-.fill-btn:hover { background: #2a6; border-color: #2a6; color: #fff; }
+.fill-btn:hover { background: #3a3a3a; border-color: #666; color: #fff; }
 .fill-btn.active { background: #1a5a2a; border-color: #2a6; color: #4f4; }
 
 /* Gradient swatches inside fill panel */
@@ -1497,16 +1497,16 @@ function _renderGrid() {
     html += '<div class="frame-stack-header">';
     html += `<span class="frame-stack-title">Frame ${i + 1}</span>`;
     html += '<div style="display:flex;gap:.3rem">';
-    html += `<button class="fill-btn btn-sm" style="padding:.2rem .45rem;font-size:.7rem" title="Fill frame with current color" onclick="fillFrameFor(${i})">↘ Fill</button>`;
-    html += `<button class="fill-btn btn-sm" style="padding:.2rem .45rem;font-size:.7rem" title="Gradient fill frame horizontally" onclick="gradFillFrameFor(${i},'h')">↔ Grad</button>`;
-    html += `<button class="fill-btn btn-sm" style="padding:.2rem .45rem;font-size:.7rem" title="Gradient fill frame vertically" onclick="gradFillFrameFor(${i},'v')">↕ Grad</button>`;
+    html += `<button class="btn-ghost btn-sm" title="Fill frame with current color" onclick="fillFrameFor(${i})">↘ Fill</button>`;
+    html += `<button class="btn-ghost btn-sm" title="Gradient fill frame horizontally" onclick="gradFillFrameFor(${i},'h')">↔ Grad H</button>`;
+    html += `<button class="btn-ghost btn-sm" title="Gradient fill frame vertically" onclick="gradFillFrameFor(${i},'v')">↕ Grad V</button>`;
     html += '</div>';
     html += '</div>';
     html += `<div class="frame-stack-grid"><div class="sg-wrap${wrapClass}${eyeClass}">`;
     html += '<table class="sg">';
-    // Column header row (col fill targets)
+    // Column header row: empty corner + col fill targets
     html += '<tr>';
-    html += `<th class="sg-corner" title="Fill frame" onclick="fillFrameFor(${i})">↘</th>`;
+    html += '<th style="width:var(--cell-size,27px);height:var(--cell-size,27px)"></th>';
     for (let c = 0; c < w; c++) {
       html += `<th class="sg-hdr" data-frame="${i}" data-col="${c}" title="Fill column ${c}">↓</th>`;
     }
@@ -1916,6 +1916,11 @@ function setMode(mode) {
     _prevMode = _mode;
   }
   _mode = mode;
+  // Deactivate fill tabs when returning to paint/eyedropper
+  if (mode === 'paint' || mode === 'eyedropper') {
+    _activeFillTab = null;
+    _updateFillTabUI();
+  }
   _updateModeUI();
   _renderGrid();
 }
