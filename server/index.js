@@ -23,8 +23,8 @@ const MOCK_CONFIG = {
   ],
 };
 
-const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', groupId: 0, online: true };
-const MOCK_PEERS = [{ name: 'Mock Light 2', mac: '22:33:44:55:66:77', groupId: 0, online: true, rssi: -65 }];
+const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', groupId: 0, online: true,  sceneSyncEnabled: true };
+const MOCK_PEERS = [{ name: 'Mock Light 2', mac: '22:33:44:55:66:77', groupId: 0, online: true, rssi: -65, sceneSyncEnabled: true }];
 
 const scenes = new Map();
 
@@ -39,7 +39,8 @@ app.get('/api/config', (_req, res) => res.json(MOCK_CONFIG));
 app.post('/api/config', (_req, res) => res.json({ ok: true }));
 
 app.get('/api/peers', (_req, res) => res.json({ self: MOCK_SELF, peers: MOCK_PEERS }));
-app.post('/api/peers/setgroup', (_req, res) => res.json({ ok: true }));
+app.post('/api/peers/setgroup',     (_req, res) => res.json({ ok: true }));
+app.post('/api/peers/setscenesync', (_req, res) => res.json({ ok: true }));
 
 app.get('/api/scenes', (_req, res) => {
   const list = [...scenes.values()].map(({ id, name, w, h, fc }) => ({ id, name, w, h, fc }));
@@ -74,6 +75,9 @@ app.post('/api/scenes/delete', (req, res) => {
   if (req.body.id) scenes.delete(req.body.id);
   res.json({ ok: true });
 });
+
+app.get('/api/scenes/sync/conflicts', (_req, res) => res.json({ conflicts: [], peerScenes: [] }));
+app.post('/api/scenes/sync/resolve',  (_req, res) => res.json({ ok: true }));
 
 app.post('/api/groups/create',  (_req, res) => res.json({ ok: true }));
 app.post('/api/groups/update',  (_req, res) => res.json({ ok: true }));
