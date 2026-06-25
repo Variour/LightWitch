@@ -56,7 +56,10 @@ public:
         if (!Config::get().sceneSyncEnabled) return;
         uint32_t localHash = SceneManager::crc32(id);
         if (localHash == hash) return;  // already have it
-        // Request the chunks (sender is already broadcasting them)
+        if (hash == 0) {
+            SceneManager::remove(id);
+            return;
+        }
         _enqueueRequest(id);
         Logger::i("[sync] force-set for %s, requesting chunks", id);
     }
