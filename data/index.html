@@ -1473,7 +1473,7 @@ function _renderGrid() {
 
     // Row 1: spacer for ↕ col + corner + col fill targets
     html += '<tr>';
-    html += `<th class="sg-hdr sg-hdr-frame sg-hdr-frame-v" style="visibility:hidden"></th>`;  // preserves ↕ column width
+    html += `<th class="sg-hdr sg-hdr-frame sg-hdr-frame-v" style="visibility:hidden;border-style:hidden"></th>`;  // preserves ↕ column width
     const cornerTitle = isGradient ? 'Diagonal gradient fill frame' : 'Fill frame with current color';
     const cornerClick = isGradient ? `gradFillFrameDiagonal(${i})` : `fillFrameFor(${i})`;
     const cornerClass = isGradient ? 'sg-corner sg-hdr-frame' : 'sg-corner';
