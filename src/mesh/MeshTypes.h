@@ -61,11 +61,11 @@ struct ProximityPingMsg {
 // One entry in a SceneManifest: scene ID + CRC32 of file content.
 // hash == 0 is the deletion sentinel (tombstone).
 struct SceneManifestEntry {
-    char     id[32];
+    char     id[33];
     uint32_t hash;
 };
 
-// Fits 6 entries per 250-byte ESP-NOW packet (4 header + 6×36 = 220 bytes).
+// Fits 6 entries per 250-byte ESP-NOW packet (4 header + 6×37 = 226 bytes).
 static constexpr uint8_t  MANIFEST_ENTRIES_PER_MSG = 6;
 
 struct SceneManifestMsg {
@@ -75,16 +75,16 @@ struct SceneManifestMsg {
     uint8_t            count;       // entries in this packet (≤ MANIFEST_ENTRIES_PER_MSG)
     SceneManifestEntry entries[MANIFEST_ENTRIES_PER_MSG];
 };
-// 4 + 6*36 = 220 bytes ✓
+// 4 + 6*37 = 226 bytes ✓
 
 struct SceneRequestMsg {
     MsgType type = MsgType::SceneRequest;
-    char    id[32];
+    char    id[33];
 };
-// 33 bytes ✓
+// 34 bytes ✓
 
 // Reordered to avoid compiler padding: numeric fields before char array.
-// 1(type) + 1(pad) + 2 + 2 + 2 + 32(id) + 208(data) = 248 bytes.
+// 1(type) + 1(pad) + 2 + 2 + 2 + 33(id) + 208(data) = 249 bytes.
 static constexpr uint16_t CHUNK_DATA_SIZE = 208;
 
 struct SceneChunkMsg {
@@ -93,19 +93,19 @@ struct SceneChunkMsg {
     uint16_t chunkIndex;
     uint16_t totalChunks;
     uint16_t dataLen;
-    char     id[32];
+    char     id[33];
     uint8_t  data[CHUNK_DATA_SIZE];
 };
-// 248 bytes, no implicit padding ✓
+// 249 bytes, no implicit padding ✓
 
 // Resolves a conflict: all devices must adopt this scene unconditionally.
 // The sender immediately begins broadcasting SceneChunk packets.
 struct SceneForceSetMsg {
     MsgType  type = MsgType::SceneForceSet;
-    char     id[32];
+    char     id[33];
     uint32_t hash;  // expected hash of the canonical content
 };
-// 37 bytes ✓
+// 38 bytes ✓
 
 // Remotely toggle sceneSyncEnabled on a specific device (targeted by MAC).
 struct SetSceneSyncMsg {

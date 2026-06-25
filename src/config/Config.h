@@ -31,7 +31,7 @@ struct Color {
 
 struct LightConfig {
     GroupMode mode               = GroupMode::Pattern;
-    char      sceneId[32]       = {};
+    char      sceneId[33]       = {};
     PatternId pattern           = PatternId::Static;
     Color     color             = Color{255, 255, 255};
     uint8_t   brightness        = 255;

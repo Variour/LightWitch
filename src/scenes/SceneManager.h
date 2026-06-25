@@ -3,6 +3,7 @@
 #include <LittleFS.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
+#include <esp_random.h>
 #include "../logging/Logger.h"
 
 class SceneManager {
@@ -219,7 +220,7 @@ public:
 
     // Fill entries array with {id, hash} for all local scenes + tombstones.
     // Returns total count of entries written.
-    struct ManifestEntry { char id[32]; uint32_t hash; };
+    struct ManifestEntry { char id[33]; uint32_t hash; };
 
     static uint8_t buildManifestEntries(ManifestEntry* entries, uint8_t maxEntries) {
         uint8_t count = 0;
@@ -236,7 +237,7 @@ public:
                         DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
                         if (!err && !doc["id"].isNull()) {
                             const char* id = doc["id"];
-                            strlcpy(entries[count].id, id, 32);
+                            strlcpy(entries[count].id, id, 33);
                             entries[count].hash = crc32(id);
                             count++;
                         }
@@ -255,7 +256,7 @@ public:
                     String line = tf.readStringUntil('\n');
                     line.trim();
                     if (line.length() > 0) {
-                        strlcpy(entries[count].id, line.c_str(), 32);
+                        strlcpy(entries[count].id, line.c_str(), 33);
                         entries[count].hash = 0;
                         count++;
                     }
@@ -311,13 +312,15 @@ private:
     static const char* _tombstonePath() { return "/scenes/.tombstones"; }
 
     static String _makeId() {
-        static uint8_t ctr = 0;
-        uint8_t mac[6];
-        WiFi.macAddress(mac);
-        char buf[14];
-        // Embed last 2 MAC bytes to make IDs globally unique across devices
-        snprintf(buf, sizeof(buf), "%02x%02x%07lx%02x",
-                 mac[4], mac[5], millis() & 0x0FFFFFFF, ctr++);
-        return String(buf);  // 13 chars
+        uint8_t b[16];
+        for (int i = 0; i < 4; i++) {
+            uint32_t r = esp_random();
+            memcpy(b + i * 4, &r, 4);
+        }
+        b[6] = (b[6] & 0x0F) | 0x40;  // version 4
+        b[8] = (b[8] & 0x3F) | 0x80;  // variant bits
+        char buf[33];
+        for (int i = 0; i < 16; i++) snprintf(buf + i * 2, 3, "%02x", b[i]);
+        return String(buf);  // 32 hex chars, no hyphens
     }
 };

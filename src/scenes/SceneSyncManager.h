@@ -41,7 +41,7 @@ public:
     // Called when a SceneChunk arrives
     void onChunk(const SceneChunkMsg* msg) {
         if (!Config::get().sceneSyncEnabled) return;
-        if (!_recv.active || strncmp(_recv.id, msg->id, 32) != 0) {
+        if (!_recv.active || strncmp(_recv.id, msg->id, 33) != 0) {
             // Not assembling this scene; start if we need it
             if (!_isNeeded(msg->id)) return;
             if (_recv.active) return;  // busy assembling something else
@@ -93,7 +93,7 @@ public:
     // Mark a scene as "accept unconditionally on next receive" — used when the user
     // picks a remote device's copy as the winner during conflict resolution.
     void setForcedAccept(const char* id) {
-        strlcpy(_forcedAcceptId, id, 32);
+        strlcpy(_forcedAcceptId, id, 33);
     }
 
     // Trigger a conflict-resolution force-push for scene `id` using this device's local copy.
@@ -208,7 +208,7 @@ public:
 private:
     // ── Per-peer manifest cache ───────────────────────────────────────────────
 
-    struct PeerManifestEntry { char id[32]; uint32_t hash; };
+    struct PeerManifestEntry { char id[33]; uint32_t hash; };
 
     struct PeerManifest {
         uint8_t           mac[6];
@@ -245,14 +245,14 @@ private:
             // Update or append
             bool found = false;
             for (uint8_t j = 0; j < pm->count; j++) {
-                if (strncmp(pm->entries[j].id, e.id, 32) == 0) {
+                if (strncmp(pm->entries[j].id, e.id, 33) == 0) {
                     pm->entries[j].hash = e.hash;
                     found = true;
                     break;
                 }
             }
             if (!found) {
-                strlcpy(pm->entries[pm->count].id, e.id, 32);
+                strlcpy(pm->entries[pm->count].id, e.id, 33);
                 pm->entries[pm->count].hash = e.hash;
                 pm->count++;
             }
@@ -264,7 +264,7 @@ private:
     struct PeerHash { uint8_t mac[6]; uint32_t hash; bool active; };
 
     struct Conflict {
-        char     id[32];
+        char     id[33];
         uint32_t localHash;
         PeerHash peerHashes[PeerRegistry::MAX_PEERS];
     };
@@ -276,7 +276,7 @@ private:
     void _registerConflict(const char* id, uint32_t localHash, const uint8_t* peerMac, uint32_t peerHash) {
         Conflict* c = nullptr;
         for (uint8_t i = 0; i < _conflictCount; i++) {
-            if (strncmp(_conflicts[i].id, id, 32) == 0) { c = &_conflicts[i]; break; }
+            if (strncmp(_conflicts[i].id, id, 33) == 0) { c = &_conflicts[i]; break; }
         }
         if (!c) {
             if (_conflictCount >= MAX_CONFLICTS) {
@@ -284,7 +284,7 @@ private:
                 return;
             }
             c = &_conflicts[_conflictCount++];
-            strlcpy(c->id, id, 32);
+            strlcpy(c->id, id, 33);
             memset(c->peerHashes, 0, sizeof(c->peerHashes));
             c->localHash = localHash;
         }
@@ -301,7 +301,7 @@ private:
 
     void _clearConflict(const char* id) {
         for (uint8_t i = 0; i < _conflictCount; i++) {
-            if (strncmp(_conflicts[i].id, id, 32) == 0) {
+            if (strncmp(_conflicts[i].id, id, 33) == 0) {
                 _conflicts[i] = _conflicts[--_conflictCount];
                 return;
             }
@@ -345,7 +345,7 @@ private:
     bool _isNeeded(const char* id) {
         // A scene is "needed" if it's in the fetch queue
         for (uint8_t i = 0; i < _fetchQueueCount; i++)
-            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 32) == 0)
+            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 33) == 0)
                 return true;
         return false;
     }
@@ -353,7 +353,7 @@ private:
     // ── Fetch queue ───────────────────────────────────────────────────────────
 
     struct FetchEntry {
-        char     id[32];
+        char     id[33];
         bool     active;
         uint8_t  retries;
         uint32_t lastRequestMs;
@@ -365,13 +365,13 @@ private:
     void _enqueueRequest(const char* id) {
         // Avoid duplicates
         for (uint8_t i = 0; i < _fetchQueueCount; i++)
-            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 32) == 0) return;
+            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 33) == 0) return;
         if (_fetchQueueCount >= SYNC_MAX_FETCH_QUEUE) {
             Logger::w("[sync] fetch queue full, dropping request for %s", id);
             return;
         }
         FetchEntry& e = _fetchQueue[_fetchQueueCount++];
-        strlcpy(e.id, id, 32);
+        strlcpy(e.id, id, 33);
         e.active        = true;
         e.retries       = 0;
         e.lastRequestMs = 0;  // request immediately on next tick
@@ -386,14 +386,14 @@ private:
 
     void _removeFetchEntry(const char* id) {
         for (uint8_t i = 0; i < _fetchQueueCount; i++)
-            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 32) == 0)
+            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 33) == 0)
                 _fetchQueue[i].active = false;
     }
 
     // ── Chunk send ────────────────────────────────────────────────────────────
 
     struct ChunkSendState {
-        char     id[32];
+        char     id[33];
         File     file;
         uint16_t totalChunks;
         uint16_t nextChunk;
@@ -406,7 +406,7 @@ private:
     void _startChunkSend(const char* id) {
         if (_send.active) {
             // Already sending; if same ID just let it continue; otherwise restart
-            if (strncmp(_send.id, id, 32) == 0) return;
+            if (strncmp(_send.id, id, 33) == 0) return;
             _send.file.close();
         }
         String p = SceneManager::path(id);
@@ -414,7 +414,7 @@ private:
         if (!f) { Logger::e("[sync] chunk send: file not found %s", id); return; }
         uint32_t size = f.size();
         if (size == 0) { f.close(); return; }
-        strlcpy(_send.id, id, 32);
+        strlcpy(_send.id, id, 33);
         _send.file        = f;
         _send.totalChunks = (uint16_t)((size + CHUNK_DATA_SIZE - 1) / CHUNK_DATA_SIZE);
         _send.nextChunk   = 0;
@@ -427,7 +427,7 @@ private:
         if (!_send.active) return;
         SceneChunkMsg msg;
         msg.type        = MsgType::SceneChunk;
-        strlcpy(msg.id, _send.id, 32);
+        strlcpy(msg.id, _send.id, 33);
         msg.chunkIndex  = _send.nextChunk;
         msg.totalChunks = _send.totalChunks;
         msg.dataLen     = (uint16_t)_send.file.read(msg.data, CHUNK_DATA_SIZE);
@@ -451,7 +451,7 @@ private:
     // ── Chunk receive ─────────────────────────────────────────────────────────
 
     struct ChunkRecvState {
-        char      id[32];
+        char      id[33];
         uint8_t*  buffer;      // heap-allocated
         bool*     received;    // heap-allocated bitmask
         uint16_t  totalChunks;
@@ -478,7 +478,7 @@ private:
             _recv.buffer = nullptr; _recv.received = nullptr;
             return;
         }
-        strlcpy(_recv.id, msg->id, 32);
+        strlcpy(_recv.id, msg->id, 33);
         _recv.totalChunks = msg->totalChunks;
         _recv.gotChunks   = 0;
         _recv.bufferSize  = estimatedSize;
@@ -504,13 +504,13 @@ private:
 
     void _finaliseReceive(const SceneChunkMsg* lastMsg) {
         // Save id locally before any reset
-        char id[32];
-        strlcpy(id, _recv.id, 32);
+        char id[33];
+        strlcpy(id, _recv.id, 33);
 
         uint32_t totalSize = (uint32_t)(_recv.totalChunks - 1) * CHUNK_DATA_SIZE + lastMsg->dataLen;
         uint32_t incomingHash = SceneManager::crc32OfData(_recv.buffer, totalSize);
         uint32_t localHash    = SceneManager::crc32(id);
-        bool forced = strncmp(id, _forcedAcceptId, 32) == 0 && _forcedAcceptId[0] != 0;
+        bool forced = strncmp(id, _forcedAcceptId, 33) == 0 && _forcedAcceptId[0] != 0;
 
         if (localHash == incomingHash) {
             Logger::i("[sync] received scene %s already matches local, discarding", id);
@@ -569,7 +569,7 @@ private:
             msg.totalPages = totalPages;
             msg.count      = 0;
             while (msg.count < MANIFEST_ENTRIES_PER_MSG && idx < total) {
-                strlcpy(msg.entries[msg.count].id, allEntries[idx].id, 32);
+                strlcpy(msg.entries[msg.count].id, allEntries[idx].id, 33);
                 msg.entries[msg.count].hash = allEntries[idx].hash;
                 msg.count++;
                 idx++;
@@ -583,7 +583,7 @@ private:
 
     uint32_t _lastManifestBroadcast  = 0;
     bool     _broadcastManifestNow   = false;
-    char     _forcedAcceptId[32]     = {};
+    char     _forcedAcceptId[33]     = {};
 
     BroadcastFn                        _broadcastForceSet;
     RequestFn                          _broadcastRequest;
