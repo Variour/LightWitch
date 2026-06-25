@@ -132,7 +132,8 @@ public:
 
     void broadcastSceneManifest(const SceneManifestMsg& msg) {
         if (!_ready) return;
-        _send(&msg, sizeof(msg));
+        size_t msgSize = offsetof(SceneManifestMsg, entries) + msg.count * sizeof(SceneManifestEntry);
+        _send(&msg, msgSize);
     }
 
     void broadcastSceneRequest(const char* id) {
