@@ -89,6 +89,16 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
               padding: .5rem 0; border-bottom: 1px solid #1a1a1a; }
 .scene-item:last-child { border-bottom: none; }
 .scene-meta { font-size: .78rem; color: #555; margin-left: .5rem; }
+.conflict-badge { display:inline-block; background:#933; color:#fff;
+                  font-size:.65rem; font-weight:700; padding:.1rem .35rem;
+                  border-radius:4px; vertical-align:middle; margin-left:.4rem; }
+.conflict-versions { display:flex; gap:.75rem; flex-wrap:wrap; margin-top:.5rem; }
+.conflict-version { flex:1; min-width:140px; background:#161616; border:1px solid #2a2a2a;
+                    border-radius:8px; padding:.6rem; }
+.conflict-version canvas { display:block; width:100%; border-radius:4px;
+                           border:1px solid #222; margin-bottom:.4rem; image-rendering:pixelated; }
+.conflict-version-name { font-size:.78rem; color:#aaa; margin-bottom:.25rem; }
+.conflict-version-meta { font-size:.72rem; color:#555; margin-bottom:.5rem; }
 
 /* Color tools row above canvas */
 .se-color-row { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: .75rem; align-items: start; }
@@ -287,8 +297,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   <div class="card">
     <h2>Connected Lights</h2>
     <table class="lights-table">
-      <thead><tr><th>Name</th><th>Group</th><th>Signal</th></tr></thead>
-      <tbody id="lights-body"><tr><td colspan="3" style="color:#444">Loading…</td></tr></tbody>
+      <thead><tr><th>Name</th><th>Group</th><th>Signal</th><th>Sync</th></tr></thead>
+      <tbody id="lights-body"><tr><td colspan="4" style="color:#444">Loading…</td></tr></tbody>
     </table>
   </div>
 
@@ -387,6 +397,18 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
       </div>
 
       <button class="btn-primary" style="width:100%;margin-top:.3rem" onclick="doCreateSceneFromImage()">Create Scene</button>
+    </div>
+  </div>
+
+  <!-- Conflict resolve view -->
+  <div id="scene-view-conflicts" style="display:none">
+    <div class="card">
+      <button class="btn-ghost btn-sm" onclick="showSceneView('list')" style="margin-bottom:.7rem">← Back</button>
+      <h2 style="margin-top:0">Resolve Conflict</h2>
+      <p style="font-size:.82rem;color:#777;margin-bottom:.75rem">
+        Pick which version to keep. The chosen version will be pushed to all devices.
+      </p>
+      <div id="conflict-resolve-content"></div>
     </div>
   </div>
 
@@ -664,6 +686,8 @@ let _self    = null;
 let _selfMac = '';
 let _sceneOptions = [];
 let _debounce = {};
+let _syncConflicts  = [];
+let _syncPeerScenes = [];
 
 const PATTERNS = [
   { name:'Static Color',  desc:'Steady color. Adjust color and brightness.',                 hasColor: true,  syncable: false },
@@ -914,6 +938,8 @@ function renderLights(self, peers) {
     const selfTag = p.isSelf ? `<span class="self-tag">(this)</span>` : '';
     const mac = p.mac || '';
     const rssiText = (!p.isSelf && online && p.rssi != null) ? `${p.rssi} dBm` : '–';
+    const syncEnabled = p.sceneSyncEnabled !== false;
+    const syncCell = `<input type="checkbox" title="Scene sync" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)" style="accent-color:#4af;cursor:pointer">`;
     return `<tr>
       <td>${dot}${esc(p.name)}${selfTag}</td>
       <td>
@@ -922,6 +948,7 @@ function renderLights(self, peers) {
         </select>
       </td>
       <td style="text-align:right;font-size:.78rem;color:#666;white-space:nowrap">${rssiText}</td>
+      <td style="text-align:center">${syncCell}</td>
     </tr>`;
   }).join('');
 }
@@ -930,6 +957,13 @@ function assignGroup(mac, groupId) {
   fetch('/api/peers/setgroup', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({mac, groupId})
+  });
+}
+
+function setSceneSync(mac, enabled) {
+  fetch('/api/peers/setscenesync', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({mac, enabled})
   });
 }
 
@@ -1200,7 +1234,7 @@ function undoScene() {
 
 // ── Tab helpers ───────────────────────────────────────────────────────────────
 function showSceneView(view, sceneId = null, pushHistory = true) {
-  ['list','image','editor'].forEach(v => {
+  ['list','image','editor','conflicts'].forEach(v => {
     document.getElementById('scene-view-' + v).style.display = v === view ? '' : 'none';
   });
   _sceneView = view;
@@ -1213,8 +1247,14 @@ function showSceneView(view, sceneId = null, pushHistory = true) {
 
 // ── Scene list ────────────────────────────────────────────────────────────────
 async function _loadScenes() {
-  const res = await fetch('/api/scenes');
-  const d   = await res.json();
+  const [scenesRes, conflictsRes] = await Promise.all([
+    fetch('/api/scenes'),
+    fetch('/api/scenes/sync/conflicts'),
+  ]);
+  const d  = await scenesRes.json();
+  const cd = await conflictsRes.json();
+  _syncConflicts  = cd.conflicts  || [];
+  _syncPeerScenes = cd.peerScenes || [];
   _renderSceneList(d.scenes || []);
 }
 
@@ -1224,19 +1264,26 @@ function _renderSceneList(scenes) {
     el.innerHTML = '<p style="color:#555;font-size:.85rem;padding:.3rem 0">No scenes yet.</p>';
     return;
   }
-  el.innerHTML = scenes.map(s => `
+  el.innerHTML = scenes.map(s => {
+    const conflict = _syncConflicts.find(c => c.id === s.id);
+    const badge = conflict ? `<span class="conflict-badge">conflict</span>` : '';
+    const resolveBtn = conflict
+      ? `<button class="btn-danger btn-sm" onclick="showConflictResolve('${s.id}')">Resolve</button>`
+      : '';
+    return `
     <div class="scene-item">
       <div>
-        <strong>${esc(s.name)}</strong>
+        <strong>${esc(s.name)}</strong>${badge}
         <span class="scene-meta">ID: ${esc(s.id)} · ${s.w}×${s.h} · ${s.fc} frame${s.fc!==1?'s':''}</span>
       </div>
       <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+        ${resolveBtn}
         <button class="btn-ghost btn-sm" onclick="downloadSceneFromList('${s.id}')">⬇ JSON</button>
         <button class="btn-ghost btn-sm" onclick="openEditor('${s.id}')">Edit</button>
         <button class="btn-danger btn-sm" onclick="deleteScene('${s.id}')">✕</button>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 // ── Create scene ──────────────────────────────────────────────────────────────
@@ -1263,6 +1310,99 @@ async function deleteScene(id) {
     body: JSON.stringify({id})
   });
   await _loadScenes();
+}
+
+// ── Conflict resolution ───────────────────────────────────────────────────────
+async function showConflictResolve(sceneId) {
+  const conflict = _syncConflicts.find(c => c.id === sceneId);
+  if (!conflict) { showSceneView('list'); return; }
+
+  showSceneView('conflicts');
+
+  const el = document.getElementById('conflict-resolve-content');
+  el.innerHTML = `<p style="font-size:.8rem;color:#555">Loading scene…</p>`;
+
+  // Fetch local scene data to render frame 1 preview
+  let localScene = null;
+  try {
+    const r = await fetch('/api/scenes/get?id=' + encodeURIComponent(sceneId));
+    localScene = await r.json();
+  } catch {}
+
+  const localMac = _selfMac || '';
+
+  // Build version cards
+  const versions = [
+    { mac: localMac, label: 'This device', hash: conflict.localHash, scene: localScene },
+    ...conflict.peers.map(p => ({
+      mac: p.mac, label: _peerName(p.mac), hash: p.hash, scene: null
+    }))
+  ];
+
+  el.innerHTML = `
+    <p style="font-size:.8rem;color:#888;margin-bottom:.5rem">
+      Scene: <strong>${esc(sceneId)}</strong>
+    </p>
+    <div class="conflict-versions">
+      ${versions.map(v => _conflictVersionCard(v, sceneId)).join('')}
+    </div>`;
+
+  // Draw previews on canvases
+  versions.forEach(v => {
+    if (!v.scene) return;
+    const canvas = document.getElementById('cv-' + v.mac.replace(/:/g,''));
+    if (!canvas) return;
+    _drawScenePreview(canvas, v.scene);
+  });
+}
+
+function _peerName(mac) {
+  const p = _peers.find(p => p.mac && p.mac.toLowerCase() === mac.toLowerCase());
+  return p ? esc(p.name) : mac;
+}
+
+function _conflictVersionCard(v, sceneId) {
+  const canvasId = 'cv-' + v.mac.replace(/:/g,'');
+  const preview = v.scene
+    ? `<canvas id="${canvasId}" width="80" height="40"></canvas>`
+    : `<div style="width:100%;height:40px;background:#111;border-radius:4px;border:1px solid #222;margin-bottom:.4rem;display:flex;align-items:center;justify-content:center"><span style="font-size:.7rem;color:#444">no preview</span></div>`;
+  const frameCount = v.scene ? `${v.scene.fc} frame${v.scene.fc!==1?'s':''}` : '';
+  const metaText = [frameCount, `hash ${(v.hash>>>0).toString(16)}`].filter(Boolean).join(' · ');
+  return `
+    <div class="conflict-version">
+      ${preview}
+      <div class="conflict-version-name">${v.label}</div>
+      <div class="conflict-version-meta">${metaText}</div>
+      <button class="btn-primary btn-sm" style="width:100%"
+              onclick="resolveConflict('${esc(sceneId)}','${esc(v.mac)}')">
+        Use this version
+      </button>
+    </div>`;
+}
+
+function _drawScenePreview(canvas, scene) {
+  if (!scene || !scene.frames || !scene.frames[0]) return;
+  const frame = scene.frames[0];
+  const w = scene.w || 20, h = scene.h || 10;
+  canvas.width  = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  for (let i = 0; i < frame.length; i++) {
+    const hex = frame[i] || '000000';
+    ctx.fillStyle = '#' + hex;
+    ctx.fillRect(i % w, Math.floor(i / w), 1, 1);
+  }
+}
+
+async function resolveConflict(sceneId, sourceMac) {
+  const body = { id: sceneId };
+  // omit sourceMac when using local copy (server interprets missing/self as "use local")
+  if (sourceMac && sourceMac.toLowerCase() !== _selfMac.toLowerCase()) body.sourceMac = sourceMac;
+  await fetch('/api/scenes/sync/resolve', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  showSceneView('list');
 }
 
 // ── Open editor ───────────────────────────────────────────────────────────────
