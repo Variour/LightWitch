@@ -448,8 +448,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
             </select>
           </div>
           <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem">
-            <span style="color:#888;width:3rem;flex-shrink:0">Cols</span>
-            <input type="number" id="wrap-cols" min="0" max="999" value="0"
+            <button onclick="applyWrapBlend('cols')" class="cp-tool-btn" style="font-size:.82rem;width:3rem;flex-shrink:0">Cols</button>
+            <input type="number" id="wrap-cols" min="0" max="999" value="3"
                    style="width:3.5rem;padding:.2rem .3rem;background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;font-size:.82rem">
             <select id="wrap-col-side" style="background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;padding:.2rem .3rem;font-size:.82rem">
               <option value="right">Right</option>
@@ -457,16 +457,15 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
             </select>
           </div>
           <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.4rem">
-            <span style="color:#888;width:3rem;flex-shrink:0">Rows</span>
-            <input type="number" id="wrap-rows" min="0" max="999" value="0"
+            <button onclick="applyWrapBlend('rows')" class="cp-tool-btn" style="font-size:.82rem;width:3rem;flex-shrink:0">Rows</button>
+            <input type="number" id="wrap-rows" min="0" max="999" value="3"
                    style="width:3.5rem;padding:.2rem .3rem;background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;font-size:.82rem">
             <select id="wrap-row-side" style="background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;padding:.2rem .3rem;font-size:.82rem">
               <option value="bottom">Bottom</option>
               <option value="top">Top</option>
             </select>
           </div>
-          <button onclick="applyWrapBlend()" class="cp-tool-btn" style="font-size:.82rem">Apply</button>
-          <small style="display:block;margin-top:.35rem;color:#666">Replaces the last N columns/rows with a gradient that blends into the colors at the opposite edge.</small>
+          <small style="display:block;color:#666">Replaces the last N columns/rows with a gradient that blends into the colors at the opposite edge.</small>
         </div>
       </div>
 
@@ -1917,11 +1916,11 @@ function gradFillColFor(frameIndex, c) {
   _renderGrid();
 }
 
-function applyWrapBlend() {
+function applyWrapBlend(axis) {
   if (!_editScene) return;
   const { w, h, frames } = _editScene;
-  const cols    = Math.min(Math.max(0, parseInt(document.getElementById('wrap-cols')?.value, 10) || 0), w - 1);
-  const rows    = Math.min(Math.max(0, parseInt(document.getElementById('wrap-rows')?.value, 10) || 0), h - 1);
+  const cols    = axis === 'cols' ? Math.min(Math.max(0, parseInt(document.getElementById('wrap-cols')?.value, 10) || 0), w - 1) : 0;
+  const rows    = axis === 'rows' ? Math.min(Math.max(0, parseInt(document.getElementById('wrap-rows')?.value, 10) || 0), h - 1) : 0;
   if (cols <= 0 && rows <= 0) return;
   const framesSel = document.getElementById('wrap-frames')?.value ?? 'all';
   const colSide   = document.getElementById('wrap-col-side')?.value ?? 'right';
