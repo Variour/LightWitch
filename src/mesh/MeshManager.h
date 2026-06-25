@@ -13,21 +13,30 @@ class MeshManager {
 public:
     PeerRegistry peers;
 
-    using LightConfigCb = std::function<void(uint8_t groupId, const LightConfig&)>;
-    using PresenceCb    = std::function<void(const uint8_t* mac, const char* name, uint8_t groupId, bool isNew)>;
-    using SetGroupCb    = std::function<void(const uint8_t* targetMac, uint8_t groupId)>;
-    using GroupSyncCb   = std::function<void(const GroupConfig&)>;
-    // Called when a remote phase sync arrives; apply if group matches and sync is on.
-    using PhaseSyncCb   = std::function<void(uint8_t groupId, float phase)>;
-    // Called when we need to broadcast our current phase; returns the phase value.
-    using GetPhaseCb    = std::function<float()>;
+    using LightConfigCb    = std::function<void(uint8_t groupId, const LightConfig&)>;
+    using PresenceCb       = std::function<void(const uint8_t* mac, const char* name, uint8_t groupId, bool isNew)>;
+    using SetGroupCb       = std::function<void(const uint8_t* targetMac, uint8_t groupId)>;
+    using GroupSyncCb      = std::function<void(const GroupConfig&)>;
+    using PhaseSyncCb      = std::function<void(uint8_t groupId, float phase)>;
+    using GetPhaseCb       = std::function<float()>;
+    // Scene sync callbacks
+    using SceneManifestCb  = std::function<void(const uint8_t* mac, const SceneManifestMsg*)>;
+    using SceneRequestCb   = std::function<void(const uint8_t* mac, const char* id)>;
+    using SceneChunkCb     = std::function<void(const SceneChunkMsg*)>;
+    using SceneForceSetCb  = std::function<void(const char* id, uint32_t hash)>;
+    using SetSceneSyncCb   = std::function<void(bool enabled)>;
 
-    void setOnLightConfig(LightConfigCb cb) { _onLightConfig = cb; }
-    void setOnPresence(PresenceCb cb)       { _onPresence    = cb; }
-    void setOnSetGroup(SetGroupCb cb)       { _onSetGroup    = cb; }
-    void setOnGroupSync(GroupSyncCb cb)     { _onGroupSync   = cb; }
-    void setOnPhaseSync(PhaseSyncCb cb)     { _onPhaseSync   = cb; }
-    void setGetPhase(GetPhaseCb cb)         { _getPhase      = cb; }
+    void setOnLightConfig(LightConfigCb cb)     { _onLightConfig    = cb; }
+    void setOnPresence(PresenceCb cb)            { _onPresence       = cb; }
+    void setOnSetGroup(SetGroupCb cb)            { _onSetGroup       = cb; }
+    void setOnGroupSync(GroupSyncCb cb)          { _onGroupSync      = cb; }
+    void setOnPhaseSync(PhaseSyncCb cb)          { _onPhaseSync      = cb; }
+    void setGetPhase(GetPhaseCb cb)              { _getPhase         = cb; }
+    void setOnSceneManifest(SceneManifestCb cb)  { _onSceneManifest  = cb; }
+    void setOnSceneRequest(SceneRequestCb cb)    { _onSceneRequest   = cb; }
+    void setOnSceneChunk(SceneChunkCb cb)        { _onSceneChunk     = cb; }
+    void setOnSceneForceSet(SceneForceSetCb cb)  { _onSceneForceSet  = cb; }
+    void setOnSetSceneSync(SetSceneSyncCb cb)    { _onSetSceneSync   = cb; }
 
     void begin() {
         _instance = this;
@@ -121,6 +130,42 @@ public:
         _send(&msg, sizeof(msg));
     }
 
+    void broadcastSceneManifest(const SceneManifestMsg& msg) {
+        if (!_ready) return;
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastSceneRequest(const char* id) {
+        if (!_ready) return;
+        SceneRequestMsg msg;
+        msg.type = MsgType::SceneRequest;
+        strlcpy(msg.id, id, 32);
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastSceneChunk(const SceneChunkMsg& msg) {
+        if (!_ready) return;
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastSceneForceSet(const char* id, uint32_t hash) {
+        if (!_ready) return;
+        SceneForceSetMsg msg;
+        msg.type = MsgType::SceneForceSet;
+        strlcpy(msg.id, id, 32);
+        msg.hash = hash;
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastSetSceneSync(const uint8_t* targetMac, bool enabled) {
+        if (!_ready) return;
+        SetSceneSyncMsg msg;
+        msg.type    = MsgType::SetSceneSync;
+        msg.enabled = enabled ? 1 : 0;
+        memcpy(msg.targetMac, targetMac, 6);
+        _send(&msg, sizeof(msg));
+    }
+
     // Re-broadcast all known groups (called when a new peer is seen)
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
@@ -139,12 +184,17 @@ private:
     uint32_t _lastSentSeq        = UINT32_MAX;
     bool     _wasSyncMaster      = false;
 
-    LightConfigCb _onLightConfig;
-    PresenceCb    _onPresence;
-    SetGroupCb    _onSetGroup;
-    GroupSyncCb   _onGroupSync;
-    PhaseSyncCb   _onPhaseSync;
-    GetPhaseCb    _getPhase;
+    LightConfigCb   _onLightConfig;
+    PresenceCb      _onPresence;
+    SetGroupCb      _onSetGroup;
+    GroupSyncCb     _onGroupSync;
+    PhaseSyncCb     _onPhaseSync;
+    GetPhaseCb      _getPhase;
+    SceneManifestCb _onSceneManifest;
+    SceneRequestCb  _onSceneRequest;
+    SceneChunkCb    _onSceneChunk;
+    SceneForceSetCb _onSceneForceSet;
+    SetSceneSyncCb  _onSetSceneSync;
 
     static MeshManager* _instance;
 
@@ -163,8 +213,9 @@ private:
 
     void _sendPresence() {
         PresenceMsg msg;
-        msg.type    = MsgType::Presence;
-        msg.groupId = Config::get().groupId;
+        msg.type              = MsgType::Presence;
+        msg.groupId           = Config::get().groupId;
+        msg.sceneSyncEnabled  = Config::get().sceneSyncEnabled ? 1 : 0;
         strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
         _send(&msg, sizeof(msg));
     }
@@ -200,7 +251,8 @@ private:
             case MsgType::Presence: {
                 if (len < (int)sizeof(PresenceMsg)) return;
                 auto* m = (PresenceMsg*)data;
-                bool isNew = _instance->peers.update(mac, m->name, m->groupId);
+                bool sceneSyncEnabled = m->sceneSyncEnabled != 0;
+                bool isNew = _instance->peers.update(mac, m->name, m->groupId, sceneSyncEnabled);
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, m->groupId, isNew);
                 if (isNew) _instance->broadcastAllGroups();
                 break;
@@ -242,6 +294,40 @@ private:
             case MsgType::ProximityPing:
                 // RSSI already captured by the promiscuous sniffer; nothing else to do.
                 break;
+            case MsgType::SceneManifest: {
+                if (len < (int)(sizeof(SceneManifestMsg) - sizeof(SceneManifestEntry) * MANIFEST_ENTRIES_PER_MSG)) return;
+                auto* m = (SceneManifestMsg*)data;
+                if (_instance->_onSceneManifest) _instance->_onSceneManifest(mac, m);
+                break;
+            }
+            case MsgType::SceneRequest: {
+                if (len < (int)sizeof(SceneRequestMsg)) return;
+                auto* m = (SceneRequestMsg*)data;
+                if (_instance->_onSceneRequest) _instance->_onSceneRequest(mac, m->id);
+                break;
+            }
+            case MsgType::SceneChunk: {
+                if (len < (int)(sizeof(SceneChunkMsg) - CHUNK_DATA_SIZE)) return;
+                auto* m = (SceneChunkMsg*)data;
+                if (_instance->_onSceneChunk) _instance->_onSceneChunk(m);
+                break;
+            }
+            case MsgType::SceneForceSet: {
+                if (len < (int)sizeof(SceneForceSetMsg)) return;
+                auto* m = (SceneForceSetMsg*)data;
+                if (_instance->_onSceneForceSet) _instance->_onSceneForceSet(m->id, m->hash);
+                break;
+            }
+            case MsgType::SetSceneSync: {
+                if (len < (int)sizeof(SetSceneSyncMsg)) return;
+                auto* m = (SetSceneSyncMsg*)data;
+                uint8_t own[6];
+                WiFi.macAddress(own);
+                if (memcmp(m->targetMac, own, 6) == 0) {
+                    if (_instance->_onSetSceneSync) _instance->_onSetSceneSync(m->enabled != 0);
+                }
+                break;
+            }
             default:
                 Logger::w("[mesh] unknown msg type %u len %d", (uint8_t)type, len);
                 break;

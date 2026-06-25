@@ -13,14 +13,16 @@
 #include "mesh/MeshManager.h"
 #include "web/WebServer.h"
 #include "mqtt/MqttManager.h"
+#include "scenes/SceneSyncManager.h"
 
 static Ws2812bDriver    _ws2812b;
 static Ws2801Driver     _ws2801;
-static LedDriver*       led     = nullptr;
+static LedDriver*       led       = nullptr;
 static PatternRunner    runner;
 static MeshManager      mesh;
 static BatteryWebServer webServer;
 static MqttManager      mqtt;
+static SceneSyncManager sceneSync;
 static bool             _otaActive = false;
 
 static void serialSink(LogLevel level, const char* msg) {
@@ -142,6 +144,14 @@ void setup() {
     mesh.begin();
     runner.setPeerRegistry(&mesh.peers);
 
+    // Wire SceneSyncManager → MeshManager
+    sceneSync.setBroadcastFns(
+        [](const char* id, uint32_t hash) { mesh.broadcastSceneForceSet(id, hash); },
+        [](const char* id)                { mesh.broadcastSceneRequest(id); },
+        [](const SceneChunkMsg& msg)      { mesh.broadcastSceneChunk(msg); },
+        [](const SceneManifestMsg& msg)   { mesh.broadcastSceneManifest(msg); }
+    );
+
     // ── Mesh callbacks ────────────────────────────────────────────────────────
 
     // Received light config for a group
@@ -159,7 +169,24 @@ void setup() {
     // Peer came online
     mesh.setOnPresence([](const uint8_t*, const char*, uint8_t, bool isNew) {
         webServer.pushPeers();
-        (void)isNew;
+        if (isNew) sceneSync.onNewPeer();
+    });
+
+    // Scene sync mesh callbacks
+    mesh.setOnSceneManifest([](const uint8_t* mac, const SceneManifestMsg* msg) {
+        sceneSync.onManifest(mac, msg);
+    });
+    mesh.setOnSceneRequest([](const uint8_t* mac, const char* id) {
+        sceneSync.onRequest(mac, id);
+    });
+    mesh.setOnSceneChunk([](const SceneChunkMsg* msg) {
+        sceneSync.onChunk(msg);
+    });
+    mesh.setOnSceneForceSet([](const char* id, uint32_t hash) {
+        sceneSync.onForceSet(id, hash);
+    });
+    mesh.setOnSetSceneSync([](bool enabled) {
+        sceneSync.onSetSceneSync(enabled);
     });
 
     // Another device told this device (or a peer) to change group
@@ -222,7 +249,6 @@ void setup() {
                 mqtt.publishState(cfg);
             }
             mesh.broadcastLightConfig(groupId, cfg);
-            // Also push the full group (for name etc.) via GroupSync so all devices stay in sync
             if (auto* g = Config::group(groupId)) mesh.broadcastGroupSync(*g);
         },
 
@@ -232,7 +258,26 @@ void setup() {
         // onSetRemote: move a remote peer's group via web UI
         [](const uint8_t* mac, uint8_t groupId) { mesh.broadcastSetGroup(mac, groupId); },
 
-        &mesh.peers
+        &mesh.peers,
+        &sceneSync,
+
+        // onSetRemoteSync: toggle sceneSyncEnabled on a remote device
+        [](const uint8_t* mac, bool enabled) { mesh.broadcastSetSceneSync(mac, enabled); },
+
+        // onResolveConflict: user picked a winner for a conflicted scene
+        [](const char* id, const uint8_t* sourceMac) {
+            if (sourceMac == nullptr) {
+                // Local copy wins — force-set and broadcast chunks
+                sceneSync.resolveWithLocal(id, [](const char* rid, uint32_t hash) {
+                    mesh.broadcastSceneForceSet(rid, hash);
+                });
+            } else {
+                // Remote copy wins — mark as forced accept, request chunks from the mesh.
+                // On receive, SceneSyncManager will save unconditionally and re-broadcast.
+                sceneSync.setForcedAccept(id);
+                mesh.broadcastSceneRequest(id);
+            }
+        }
     );
 
     Logger::i("[sys] ready");
@@ -246,5 +291,6 @@ void loop() {
         mesh.tick();
         mqtt.loop();
         runner.tick();
+        sceneSync.tick();
     }
 }

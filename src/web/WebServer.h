@@ -8,6 +8,7 @@
 #include "../logging/Logger.h"
 #include "../version.h"
 #include "../scenes/SceneManager.h"
+#include "../scenes/SceneSyncManager.h"
 #include "../update/Updater.h"
 
 // Called when this device's own group changes
@@ -17,7 +18,11 @@ using GroupLightCb   = std::function<void(uint8_t, const LightConfig&)>;
 // Called when a group is created/updated/deleted (the full GroupConfig)
 using GroupSyncCb    = std::function<void(const GroupConfig&)>;
 // Called when we want to move a remote peer to a group
-using SetRemoteGroupCb = std::function<void(const uint8_t* mac, uint8_t groupId)>;
+using SetRemoteGroupCb    = std::function<void(const uint8_t* mac, uint8_t groupId)>;
+// Called when we want to toggle sceneSyncEnabled on a remote peer
+using SetRemoteSyncCb     = std::function<void(const uint8_t* mac, bool enabled)>;
+// Called when a conflict is resolved (id, sourceMac — null means local copy wins)
+using ResolveConflictCb   = std::function<void(const char* id, const uint8_t* sourceMac)>;
 
 class BatteryWebServer {
 private:
@@ -42,12 +47,18 @@ private:
 public:
     void begin(GroupChangeCb onGroupChange, GroupLightCb onGroupLight,
                GroupSyncCb onGroupSync, SetRemoteGroupCb onSetRemote,
-               PeerRegistry* peers) {
-        _onGroupChange  = onGroupChange;
-        _onGroupLight   = onGroupLight;
-        _onGroupSync    = onGroupSync;
-        _onSetRemote    = onSetRemote;
-        _peers          = peers;
+               PeerRegistry* peers,
+               SceneSyncManager* sceneSync = nullptr,
+               SetRemoteSyncCb onSetRemoteSync = nullptr,
+               ResolveConflictCb onResolveConflict = nullptr) {
+        _onGroupChange      = onGroupChange;
+        _onGroupLight       = onGroupLight;
+        _onGroupSync        = onGroupSync;
+        _onSetRemote        = onSetRemote;
+        _peers              = peers;
+        _sceneSync          = sceneSync;
+        _onSetRemoteSync    = onSetRemoteSync;
+        _onResolveConflict  = onResolveConflict;
 
         Logger::i("[web] starting on port 80");
         _server.addHandler(&_reqLogger);
@@ -113,6 +124,7 @@ public:
 
                 if (ok) {
                     Logger::i("[scene] save ok: %s", st->id.c_str());
+                    if (_sceneSync) _sceneSync->onSceneChanged();
                 } else {
                     Logger::e("[scene] save failed: %s (failed=%d written=%d)",
                               st->error ? st->error : "?", st->failed, st->written);
@@ -196,6 +208,16 @@ public:
         _server.on("/api/scenes", HTTP_GET,
             [this](AsyncWebServerRequest* r){ _getScenes(r); });
 
+        // ── Scene sync API ────────────────────────────────────────────────────
+        _server.on("/api/scenes/sync/conflicts", HTTP_GET,
+            [this](AsyncWebServerRequest* r){ _getSyncConflicts(r); });
+
+        _server.on("/api/scenes/sync/resolve", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _resolveSyncConflict(r,d,l); });
+
+        _server.on("/api/peers/setscenesync", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _setRemoteSceneSync(r,d,l); });
+
         _server.on("/api/update/status", HTTP_GET, [](AsyncWebServerRequest* r) {
             auto& s = Updater::status();
             JsonDocument doc;
@@ -260,10 +282,13 @@ private:
     RequestLogger    _reqLogger;
     PeerRegistry*    _peers = nullptr;
 
-    GroupChangeCb    _onGroupChange;
-    GroupLightCb     _onGroupLight;
-    GroupSyncCb      _onGroupSync;
-    SetRemoteGroupCb _onSetRemote;
+    GroupChangeCb     _onGroupChange;
+    GroupLightCb      _onGroupLight;
+    GroupSyncCb       _onGroupSync;
+    SetRemoteGroupCb  _onSetRemote;
+    SetRemoteSyncCb   _onSetRemoteSync;
+    ResolveConflictCb _onResolveConflict;
+    SceneSyncManager* _sceneSync = nullptr;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -323,7 +348,8 @@ private:
         doc["ledType"]    = (uint8_t)c.ledType;
         doc["dataPin"]    = LED_DATA_PIN;
         doc["clockPin"]   = LED_CLOCK_PIN;
-        doc["logLevel"]   = c.logLevel;
+        doc["logLevel"]         = c.logLevel;
+        doc["sceneSyncEnabled"] = c.sceneSyncEnabled;
         doc["mqttHost"]   = c.mqttHost;
         doc["mqttPort"]   = c.mqttPort;
         doc["mqttUser"]   = c.mqttUser;
@@ -356,6 +382,9 @@ private:
         if (!doc["logLevel"].isNull()) {
             c.logLevel = (uint8_t)doc["logLevel"];
             Logger::setLevel((LogLevel)c.logLevel);
+        }
+        if (!doc["sceneSyncEnabled"].isNull()) {
+            c.sceneSyncEnabled = (bool)doc["sceneSyncEnabled"];
         }
         if (!doc["mqttHost"].isNull())     strlcpy(c.mqttHost, doc["mqttHost"], sizeof(c.mqttHost));
         if (!doc["mqttPort"].isNull())     c.mqttPort = (uint16_t)doc["mqttPort"];
@@ -398,11 +427,12 @@ private:
             for (auto& p : *_peers) {
                 if (!p.active) continue;
                 auto o = arr.add<JsonObject>();
-                o["mac"]     = p.macStr();
-                o["name"]    = p.name;
-                o["groupId"] = p.groupId;
-                o["online"]  = p.online();
-                o["rssi"]    = p.rssi;
+                o["mac"]              = p.macStr();
+                o["name"]             = p.name;
+                o["groupId"]          = p.groupId;
+                o["online"]           = p.online();
+                o["rssi"]             = p.rssi;
+                o["sceneSyncEnabled"] = p.sceneSyncEnabled;
             }
         }
     }
@@ -622,6 +652,7 @@ private:
             auto e = _makeErr("create failed"); _sendJson(r, 500, e); return;
         }
         Logger::i("[scene] create: ok id=%s", id.c_str());
+        if (_sceneSync) _sceneSync->onSceneChanged();
         JsonDocument resp;
         resp["ok"] = true;
         resp["id"] = id;
@@ -640,11 +671,77 @@ private:
             auto e = _makeErr("missing id"); _sendJson(r, 400, e); return;
         }
         Logger::i("[scene] delete: id=%s", id);
-        bool ok = SceneManager::remove(id);
+        bool ok = _sceneSync ? _sceneSync->deleteScene(id) : SceneManager::remove(id);
         Logger::i("[scene] delete: %s", ok ? "ok" : "not found");
         JsonDocument resp;
         if (ok) resp["ok"] = true; else resp["error"] = "not found";
         _sendJson(r, ok ? 200 : 404, resp);
+    }
+
+    // ── Scene sync handlers ──────────────────────────────────────────────────
+
+    void _getSyncConflicts(AsyncWebServerRequest* r) {
+        JsonDocument doc;
+        if (_sceneSync) {
+            _sceneSync->buildConflictsJson(doc);
+            _sceneSync->buildPeerScenesJson(doc);
+        } else {
+            doc["conflicts"].to<JsonArray>();
+            doc["peerScenes"].to<JsonArray>();
+        }
+        _sendJson(r, 200, doc);
+    }
+
+    // Body: {id, sourceMac}  — sourceMac is the device whose copy wins.
+    // Use sourceMac == own MAC or omit to use local copy.
+    void _resolveSyncConflict(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len)) {
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
+        }
+        const char* id      = doc["id"] | "";
+        const char* macStr  = doc["sourceMac"] | "";
+        if (!id[0]) { auto e = _makeErr("missing id"); _sendJson(r, 400, e); return; }
+
+        // Determine if sourceMac is this device or a remote one
+        bool isLocal = !macStr[0] || WiFi.macAddress().equalsIgnoreCase(macStr);
+
+        if (isLocal) {
+            if (_onResolveConflict) _onResolveConflict(id, nullptr);
+        } else {
+            uint8_t mac[6];
+            if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                       &mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]) != 6) {
+                auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
+            }
+            if (_onResolveConflict) _onResolveConflict(id, mac);
+        }
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+    }
+
+    // Body: {mac, enabled}
+    void _setRemoteSceneSync(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len)) {
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
+        }
+        const char* macStr = doc["mac"] | "";
+        bool enabled       = doc["enabled"] | true;
+
+        if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
+            Config::get().sceneSyncEnabled = enabled;
+            Config::save();
+            auto ok = _makeOk(); _sendJson(r, 200, ok);
+            return;
+        }
+
+        uint8_t mac[6];
+        if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                   &mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]) != 6) {
+            auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
+        }
+        if (_onSetRemoteSync) _onSetRemoteSync(mac, enabled);
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
     }
 
     static String _jsonStr(const char* s) {
