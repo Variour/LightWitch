@@ -505,6 +505,23 @@ private:
         }
     }
 
+    // Returns true if incomingHash matches at least one peer's advertised hash for id,
+    // or if no peer has advertised a hash for id (can't validate, give benefit of doubt).
+    bool _validateAgainstPeerManifest(const char* id, uint32_t incomingHash) {
+        bool anyPeerHasScene = false;
+        for (auto& pm : _peerManifests) {
+            if (!pm.active) continue;
+            for (uint8_t j = 0; j < pm.count; j++) {
+                if (strncmp(pm.entries[j].id, id, 33) == 0) {
+                    anyPeerHasScene = true;
+                    if (pm.entries[j].hash == incomingHash) return true;
+                }
+            }
+        }
+        // If no peer advertised this scene at all, we can't cross-check — accept.
+        return !anyPeerHasScene;
+    }
+
     void _finaliseReceive(const SceneChunkMsg* lastMsg) {
         // Save id locally before any reset
         char id[33];
@@ -514,6 +531,14 @@ private:
         uint32_t incomingHash = SceneManager::crc32OfData(_recv.buffer, totalSize);
         uint32_t localHash    = SceneManager::crc32(id);
         bool forced = strncmp(id, _forcedAcceptId, 33) == 0 && _forcedAcceptId[0] != 0;
+
+        // Validate assembled content against the hash the peer advertised in SceneManifest.
+        if (!forced && !_validateAgainstPeerManifest(id, incomingHash)) {
+            Logger::w("[sync] scene %s hash mismatch vs peer manifest (got %08x), retrying", id, incomingHash);
+            _resetReceive();
+            _enqueueRequest(id);
+            return;
+        }
 
         if (localHash == incomingHash) {
             Logger::i("[sync] received scene %s already matches local, discarding", id);
