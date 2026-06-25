@@ -341,26 +341,6 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     </div>
   </div>
 
-  <!-- Create scene view -->
-  <div id="scene-view-create" style="display:none">
-    <div class="card">
-      <button class="btn-ghost btn-sm" onclick="showSceneView('list')" style="margin-bottom:.7rem">← Back</button>
-      <h2 style="margin-top:0">New Scene</h2>
-      <label>Name</label>
-      <input type="text" id="sc-name" placeholder="My Scene">
-      <div style="display:flex;gap:.5rem">
-        <div style="flex:1">
-          <label>Width</label>
-          <input type="number" id="sc-width" value="20" min="1" max="200">
-        </div>
-        <div style="flex:1">
-          <label>Height</label>
-          <input type="number" id="sc-height" value="10" min="1" max="200">
-        </div>
-      </div>
-      <button class="btn-primary" style="width:100%;margin-top:.1rem" onclick="doCreateScene()">Create Scene</button>
-    </div>
-  </div>
 
   <!-- Create from image view -->
   <div id="scene-view-image" style="display:none">
@@ -1261,27 +1241,19 @@ function _renderSceneList(scenes) {
 }
 
 // ── Create scene ──────────────────────────────────────────────────────────────
-function showCreateScene() {
-  document.getElementById('sc-name').value   = '';
-  document.getElementById('sc-width').value  = 20;
-  document.getElementById('sc-height').value = 10;
-  showSceneView('create');
-}
-
-async function doCreateScene() {
-  const name = document.getElementById('sc-name').value.trim() || 'Unnamed';
-  const w    = parseInt(document.getElementById('sc-width').value)  || 20;
-  const h    = parseInt(document.getElementById('sc-height').value) || 10;
-  const res  = await fetch('/api/scenes/create', {
+async function showCreateScene() {
+  const res = await fetch('/api/scenes/create', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({name, w, h})
+    body: JSON.stringify({name: '_tmp', w: 20, h: 10})
   });
   const d = await res.json();
-  if (d.ok) {
-    await _openEditor(d.id);
-  } else {
-    alert('Failed to create scene: ' + (d.error || '?'));
-  }
+  if (!d.ok) { alert('Failed to create scene: ' + (d.error || '?')); return; }
+  await fetch('/api/scenes/save', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id: d.id, name: d.id, w: 20, h: 10, fc: 1,
+      frames: [Array.from({length: 200}, () => '000000')]})
+  });
+  await _openEditor(d.id);
 }
 
 // ── Delete scene ──────────────────────────────────────────────────────────────
