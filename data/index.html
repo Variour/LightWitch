@@ -457,8 +457,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
             <label style="display:flex;align-items:center;gap:.3rem">
               Col side
               <select id="wrap-col-side" style="background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;padding:.2rem .3rem;font-size:.82rem">
-                <option value="right">Right → Left</option>
-                <option value="left">Left → Right</option>
+                <option value="right">Right side</option>
+                <option value="left">Left side</option>
               </select>
             </label>
             <label style="display:flex;align-items:center;gap:.3rem">
@@ -470,8 +470,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
             <label style="display:flex;align-items:center;gap:.3rem">
               Row side
               <select id="wrap-row-side" style="background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;padding:.2rem .3rem;font-size:.82rem">
-                <option value="bottom">Bottom → Top</option>
-                <option value="top">Top → Bottom</option>
+                <option value="bottom">Bottom side</option>
+                <option value="top">Top side</option>
               </select>
             </label>
           </div>
@@ -1439,6 +1439,7 @@ function _renderFrameList() {
       </div>
     </div>`;
   }).join('');
+  _refreshWrapFrameSelect();
 }
 
 function addFrame() {
@@ -2010,16 +2011,18 @@ function _updateModeUI() {
   const wc = document.getElementById('fill-context-wrap');
   if (gc) gc.style.display = _mode === 'gradient' ? '' : 'none';
   if (wc) wc.style.display = _mode === 'wrap'     ? '' : 'none';
-  if (_mode === 'wrap' && wc && _editScene) {
-    const sel = document.getElementById('wrap-frames');
-    if (sel) {
-      const prev = sel.value;
-      const count = _editScene.frames.length;
-      sel.innerHTML = '<option value="all">All frames</option>' +
-        Array.from({length: count}, (_, i) => `<option value="${i}">Frame ${i + 1}</option>`).join('');
-      sel.value = prev !== 'all' && parseInt(prev, 10) < count ? prev : 'all';
-    }
-  }
+  _refreshWrapFrameSelect();
+}
+
+function _refreshWrapFrameSelect() {
+  if (!_editScene) return;
+  const sel = document.getElementById('wrap-frames');
+  if (!sel) return;
+  const prev  = sel.value;
+  const count = _editScene.frames.length;
+  sel.innerHTML = '<option value="all">All frames</option>' +
+    Array.from({length: count}, (_, i) => `<option value="${i}">Frame ${i + 1}</option>`).join('');
+  sel.value = prev !== 'all' && parseInt(prev, 10) < count ? prev : 'all';
 }
 
 function _applyHeaderFill(el) {
