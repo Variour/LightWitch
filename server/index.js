@@ -50,12 +50,20 @@ try {
 
 const mockUpdate = {
   currentVersion: 'mock',
-  latestVersion: 'mock',
+  latestVersion: '',
   hasUpdate: false,
   progress: 0,
-  state: 'idle',
+  state: 'checking',  // simulate boot-time check in progress
   error: null,
 };
+
+// Resolve the simulated boot check after 3 s — exercises the poll-while-checking
+// path and causes the update badge to appear without any user action.
+setTimeout(() => {
+  mockUpdate.state = 'idle';
+  mockUpdate.latestVersion = '9999.99.99.0';
+  mockUpdate.hasUpdate = true;
+}, 3000);
 
 const app = express();
 app.set('trust proxy', true);
