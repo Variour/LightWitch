@@ -100,14 +100,14 @@ public:
     }
 
     // Trigger a conflict-resolution force-push for scene `id` using this device's local copy.
-    void resolveWithLocal(const char* id, BroadcastFn broadcastFn) {
+    void resolveWithLocal(const char* id) {
         uint32_t hash = SceneManager::crc32(id);
         if (hash == 0) {
             Logger::w("[sync] resolveWithLocal: scene %s not found", id);
             return;
         }
         Logger::i("[sync] resolving conflict for %s with local copy (hash=%08x)", id, hash);
-        broadcastFn(id, hash);
+        if (_broadcastForceSet) _broadcastForceSet(id, hash);
         // Start broadcasting chunks immediately so peers can collect them
         _startChunkSend(id);
     }

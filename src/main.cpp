@@ -268,9 +268,7 @@ void setup() {
         [](const char* id, const uint8_t* sourceMac) {
             if (sourceMac == nullptr) {
                 // Local copy wins — force-set and broadcast chunks
-                sceneSync.resolveWithLocal(id, [](const char* rid, uint32_t hash) {
-                    mesh.broadcastSceneForceSet(rid, hash);
-                });
+                sceneSync.resolveWithLocal(id);
             } else {
                 // Remote copy wins — mark as forced accept, request chunks from the mesh.
                 // On receive, SceneSyncManager will save unconditionally and re-broadcast.
