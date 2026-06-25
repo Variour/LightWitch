@@ -1483,7 +1483,7 @@ function _renderFrameList() {
   _refreshWrapFrameSelect();
 }
 
-function addFrame() {
+async function addFrame() {
   const w = parseInt(_editScene?.w, 10);
   const h = parseInt(_editScene?.h, 10);
   const size = Number.isFinite(w) && Number.isFinite(h) ? w * h : 0;
@@ -1495,9 +1495,10 @@ function addFrame() {
 
   _pushHistory();
   _editScene.frames.push(Array.from({ length: size }, () => '#000000'));
-  _modified    = true;
+  _modified = true;
   _renderFrameList();
   _renderGrid();
+  await saveScene();
 }
 
 function deleteFrame(index) {
@@ -2442,13 +2443,14 @@ async function doCreateSceneFromImage() {
   const d = await res.json();
   if (!d.ok) { alert('Failed to create scene: ' + (d.error || '?')); return; }
 
-  // Open the editor, then replace the default frame with image pixels and mark modified
+  // Open the editor, replace the default frame with image pixels, then auto-save
   await _openEditor(d.id);
   if (_editScene && _editScene.frames.length > 0) {
     _editScene.frames[0] = firstFrame;
-    _markModified();
+    _modified = true;
     _renderFrameList();
     _renderGrid();
+    await saveScene();
   }
 }
 
@@ -2473,6 +2475,7 @@ async function importImageAsFrame(ev) {
   _modified = true;
   _renderFrameList();
   _renderGrid();
+  await saveScene();
 }
 
 window.addEventListener('popstate', () => _routeFromPath(location.pathname));
