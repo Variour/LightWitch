@@ -1,4 +1,5 @@
 import http from 'http';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import express from 'express';
@@ -11,22 +12,50 @@ const MOCK_CONFIG = {
   deviceName: 'Mock Device',
   wifiSsid: '',
   otaPort: 3232,
+  otaEnabled: true,
+  groupId: 0,
   ledType: 0,
+  dataPin: 13,
+  clockPin: 14,
   logLevel: 1,
+  sceneSyncEnabled: true,
   mqttHost: '',
   mqttPort: 1883,
   mqttUser: '',
   version: 'mock',
   mac: '11:22:33:44:55:66',
+  githubRepo: 'Variour/batterylight',
   groups: [
-    { id: 0, name: 'Default', mode: 0, pattern: 0, r: 255, g: 200, b: 80, brightness: 200, speed: 1, syncEnabled: true },
+    { id: 0, name: 'Default',     exists: true, mode: 0, sceneId: '',          pattern: 0, r: 255, g: 200, b: 80,  brightness: 200, speed: 1, syncEnabled: true,  transitionEnabled: false, transitionTime: 1.0, proximityScale: 1.0 },
+    { id: 1, name: 'Scene Group', exists: true, mode: 1, sceneId: 'local-0001', pattern: 0, r: 255, g: 100, b: 50, brightness: 180, speed: 1, syncEnabled: false, transitionEnabled: true,  transitionTime: 0.5, proximityScale: 1.0 },
   ],
 };
 
 const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', groupId: 0, online: true,  sceneSyncEnabled: true };
-const MOCK_PEERS = [{ name: 'Mock Light 2', mac: '22:33:44:55:66:77', groupId: 0, online: true, rssi: -65, sceneSyncEnabled: true }];
+const MOCK_PEERS = [
+  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', groupId: 0, online: true,  rssi: -65, sceneSyncEnabled: true  },
+  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', groupId: 1, online: false, rssi: -80, sceneSyncEnabled: false },
+];
 
 const scenes = new Map();
+
+// Pre-populate scenes from all static JSON files in data/scenes/
+try {
+  const scenesDir = join(DATA_DIR, 'scenes');
+  for (const f of fs.readdirSync(scenesDir).filter(f => f.endsWith('.json'))) {
+    const raw = JSON.parse(fs.readFileSync(join(scenesDir, f), 'utf8'));
+    scenes.set(raw.id, raw);
+  }
+} catch (_) {}
+
+const mockUpdate = {
+  currentVersion: 'mock',
+  latestVersion: 'mock',
+  hasUpdate: false,
+  progress: 0,
+  state: 'idle',
+  error: null,
+};
 
 const app = express();
 app.set('trust proxy', true);
@@ -83,6 +112,47 @@ app.post('/api/groups/create',  (_req, res) => res.json({ ok: true }));
 app.post('/api/groups/update',  (_req, res) => res.json({ ok: true }));
 app.post('/api/groups/delete',  (_req, res) => res.json({ ok: true }));
 app.post('/api/reset',          (_req, res) => res.json({ ok: true }));
+
+app.get('/api/update/status', (_req, res) => {
+  const out = {
+    currentVersion: mockUpdate.currentVersion,
+    latestVersion:  mockUpdate.latestVersion,
+    hasUpdate:      mockUpdate.hasUpdate,
+    progress:       mockUpdate.progress,
+    state:          mockUpdate.state,
+  };
+  if (mockUpdate.error) out.error = mockUpdate.error;
+  res.json(out);
+});
+
+app.post('/api/update/check', (_req, res) => {
+  mockUpdate.state = 'checking';
+  mockUpdate.error = null;
+  res.json({ ok: true });
+  setTimeout(() => {
+    mockUpdate.state = 'idle';
+    mockUpdate.latestVersion = '1.2.0';
+    mockUpdate.hasUpdate = true;
+  }, 2000);
+});
+
+app.post('/api/update/apply', (_req, res) => {
+  if (!mockUpdate.hasUpdate) {
+    return res.status(400).json({ error: 'no update available' });
+  }
+  mockUpdate.state = 'downloading';
+  mockUpdate.progress = 0;
+  res.json({ ok: true });
+  let p = 0;
+  const iv = setInterval(() => {
+    p += 10;
+    mockUpdate.progress = p;
+    if (p >= 100) {
+      clearInterval(iv);
+      mockUpdate.state = 'done';
+    }
+  }, 500);
+});
 
 app.get('/*path', (_req, res) => res.sendFile(join(DATA_DIR, 'index.html')));
 
