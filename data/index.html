@@ -439,9 +439,44 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
           </div>
           <small style="color:#666">Click a swatch to capture the current paint color. Row/col headers on the canvas fill with gradient. Use ↔ ↕ ↙ buttons on each frame for full-frame fills.</small>
         </div>
-        <!-- Wrap blend context (placeholder — see issue #66) -->
+        <!-- Wrap blend context -->
         <div id="fill-context-wrap" style="display:none;margin-top:.3rem">
-          <p style="font-size:.78rem;color:#555">Coming soon.</p>
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;font-size:.82rem;margin-bottom:.4rem">
+            <label style="display:flex;align-items:center;gap:.3rem">
+              Frames
+              <select id="wrap-frames" style="background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;padding:.2rem .3rem;font-size:.82rem">
+                <option value="all">All frames</option>
+              </select>
+            </label>
+            <label style="display:flex;align-items:center;gap:.3rem">
+              Cols
+              <input type="number" id="wrap-cols" min="0" max="999" value="0"
+                     style="width:3.5rem;padding:.2rem .3rem;background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;font-size:.82rem"
+                     oninput="_wrapCols=Math.max(0,parseInt(this.value)||0)">
+            </label>
+            <label style="display:flex;align-items:center;gap:.3rem">
+              Col side
+              <select id="wrap-col-side" style="background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;padding:.2rem .3rem;font-size:.82rem">
+                <option value="right">Right → Left</option>
+                <option value="left">Left → Right</option>
+              </select>
+            </label>
+            <label style="display:flex;align-items:center;gap:.3rem">
+              Rows
+              <input type="number" id="wrap-rows" min="0" max="999" value="0"
+                     style="width:3.5rem;padding:.2rem .3rem;background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;font-size:.82rem"
+                     oninput="_wrapRows=Math.max(0,parseInt(this.value)||0)">
+            </label>
+            <label style="display:flex;align-items:center;gap:.3rem">
+              Row side
+              <select id="wrap-row-side" style="background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;padding:.2rem .3rem;font-size:.82rem">
+                <option value="bottom">Bottom → Top</option>
+                <option value="top">Top → Bottom</option>
+              </select>
+            </label>
+          </div>
+          <button onclick="applyWrapBlend()" class="cp-tool-btn" style="font-size:.82rem">Apply</button>
+          <small style="display:block;margin-top:.35rem;color:#666">Replaces the last N columns/rows with a gradient that blends into the colors at the opposite edge.</small>
         </div>
       </div>
 
@@ -1072,6 +1107,8 @@ let _recentColors = [];
 let _syncFrames  = false;
 let _gradColorA  = '#ff0000';
 let _gradColorB  = '#0000ff';
+let _wrapCols    = 0;
+let _wrapRows    = 0;
 let _zoomCellPx  = 27;  // default 50% larger than original 18px; changed via +/- buttons
 const _zoomStep = 4;
 let _hsvH = 0, _hsvS = 1, _hsvV = 1; // current HSV state
@@ -1891,6 +1928,64 @@ function gradFillColFor(frameIndex, c) {
   _renderGrid();
 }
 
+function applyWrapBlend() {
+  if (!_editScene) return;
+  const { w, h, frames } = _editScene;
+  const cols    = Math.min(_wrapCols, w - 1);
+  const rows    = Math.min(_wrapRows, h - 1);
+  if (cols <= 0 && rows <= 0) return;
+  const framesSel = document.getElementById('wrap-frames')?.value ?? 'all';
+  const colSide   = document.getElementById('wrap-col-side')?.value ?? 'right';
+  const rowSide   = document.getElementById('wrap-row-side')?.value ?? 'bottom';
+  const targetFrames = framesSel === 'all'
+    ? frames
+    : [frames[parseInt(framesSel, 10)]].filter(Boolean);
+  _pushHistory();
+  for (const cells of targetFrames) {
+    if (!cells) continue;
+    if (cols > 0) {
+      for (let row = 0; row < h; row++) {
+        if (colSide === 'right') {
+          const srcColor = cells[row * w + (w - cols - 1)];
+          const dstColor = cells[row * w + 0];
+          for (let i = 0; i < cols; i++) {
+            const t = (i + 1) / (cols + 1);
+            cells[row * w + (w - cols + i)] = _lerpHex(srcColor, dstColor, t);
+          }
+        } else {
+          const srcColor = cells[row * w + cols];
+          const dstColor = cells[row * w + (w - 1)];
+          for (let i = 0; i < cols; i++) {
+            const t = (i + 1) / (cols + 1);
+            cells[row * w + (cols - 1 - i)] = _lerpHex(srcColor, dstColor, t);
+          }
+        }
+      }
+    }
+    if (rows > 0) {
+      for (let col = 0; col < w; col++) {
+        if (rowSide === 'bottom') {
+          const srcColor = cells[(h - rows - 1) * w + col];
+          const dstColor = cells[0 * w + col];
+          for (let i = 0; i < rows; i++) {
+            const t = (i + 1) / (rows + 1);
+            cells[(h - rows + i) * w + col] = _lerpHex(srcColor, dstColor, t);
+          }
+        } else {
+          const srcColor = cells[rows * w + col];
+          const dstColor = cells[(h - 1) * w + col];
+          for (let i = 0; i < rows; i++) {
+            const t = (i + 1) / (rows + 1);
+            cells[(rows - 1 - i) * w + col] = _lerpHex(srcColor, dstColor, t);
+          }
+        }
+      }
+    }
+  }
+  _markModified();
+  _renderGrid();
+}
+
 // ── Color sync across frames ───────────────────────────────────────────────────
 
 function _syncToggle(checked) {
@@ -1915,6 +2010,16 @@ function _updateModeUI() {
   const wc = document.getElementById('fill-context-wrap');
   if (gc) gc.style.display = _mode === 'gradient' ? '' : 'none';
   if (wc) wc.style.display = _mode === 'wrap'     ? '' : 'none';
+  if (_mode === 'wrap' && wc && _editScene) {
+    const sel = document.getElementById('wrap-frames');
+    if (sel) {
+      const prev = sel.value;
+      const count = _editScene.frames.length;
+      sel.innerHTML = '<option value="all">All frames</option>' +
+        Array.from({length: count}, (_, i) => `<option value="${i}">Frame ${i + 1}</option>`).join('');
+      sel.value = prev !== 'all' && parseInt(prev, 10) < count ? prev : 'all';
+    }
+  }
 }
 
 function _applyHeaderFill(el) {
