@@ -60,6 +60,9 @@ public:
             SceneManager::remove(id);
             return;
         }
+        // Mark as forced so _finaliseReceive saves unconditionally even if we have
+        // a conflicting local copy — this is an explicit network-wide resolution push.
+        setForcedAccept(id);
         _enqueueRequest(id);
         Logger::i("[sync] force-set for %s, requesting chunks", id);
     }
