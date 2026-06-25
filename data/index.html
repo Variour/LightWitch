@@ -399,7 +399,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <button class="btn-ghost btn-sm" onclick="backToSceneList()">← Scenes</button>
       </div>
       <div class="card" style="margin-bottom:0;flex:1;display:flex;align-items:center">
-        <input type="text" id="se-name" style="flex:1;margin-bottom:0" placeholder="Scene name">
+        <input type="text" id="se-name" style="flex:1;margin-bottom:0" placeholder="Scene name" oninput="_markModified()">
       </div>
       <div class="card" style="margin-bottom:0;display:flex;align-items:center">
         <button id="se-undo-btn" class="btn-ghost btn-sm" onclick="undoScene()" disabled title="Undo (Ctrl+Z)">↩ Undo <span id="se-undo-count" style="opacity:.5"></span></button>
