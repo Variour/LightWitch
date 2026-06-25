@@ -4,12 +4,13 @@
 #include "../logging/Logger.h"
 
 struct PeerInfo {
-    uint8_t  mac[6]   = {};
-    char     name[32] = {};
-    uint8_t  groupId  = 0;
-    uint32_t lastSeen = 0;
-    bool     active   = false;
-    int8_t   rssi     = -90;
+    uint8_t  mac[6]            = {};
+    char     name[32]          = {};
+    uint8_t  groupId           = 0;
+    uint32_t lastSeen          = 0;
+    bool     active            = false;
+    int8_t   rssi              = -90;
+    bool     sceneSyncEnabled  = true;
 
     bool online() const { return active && (millis() - lastSeen < 15000); }
 
@@ -29,7 +30,7 @@ public:
     void setOnChange(ChangeCb cb) { _onChange = cb; }
 
     // Returns true if the peer was newly seen (not previously active)
-    bool update(const uint8_t* mac, const char* name, uint8_t groupId) {
+    bool update(const uint8_t* mac, const char* name, uint8_t groupId, bool sceneSyncEnabled = true) {
         PeerInfo* p = _find(mac);
         bool isNew = (p == nullptr || !p->active);
         if (!p) p = _slot();
@@ -38,9 +39,10 @@ public:
         bool groupChanged = !isNew && p->groupId != groupId;
         memcpy(p->mac, mac, 6);
         strlcpy(p->name, name, sizeof(p->name));
-        p->groupId  = groupId;
-        p->lastSeen = millis();
-        p->active   = true;
+        p->groupId          = groupId;
+        p->sceneSyncEnabled = sceneSyncEnabled;
+        p->lastSeen         = millis();
+        p->active           = true;
         if (isNew)
             Logger::i("[mesh] peer online: %s (group %u)", name, groupId);
         else if (nameChanged)

@@ -31,7 +31,7 @@ struct Color {
 
 struct LightConfig {
     GroupMode mode               = GroupMode::Pattern;
-    char      sceneId[32]       = {};
+    char      sceneId[33]       = {};
     PatternId pattern           = PatternId::Static;
     Color     color             = Color{255, 255, 255};
     uint8_t   brightness        = 255;
@@ -68,6 +68,7 @@ struct DeviceConfig {
     char        mqttPassword[64] = "";
     char        githubToken[128] = "";
     char        githubRepo[64]   = "variour/batterylight";
+    bool        sceneSyncEnabled = true;
     GroupConfig groups[MAX_GROUPS];
 };
 

@@ -1,7 +1,9 @@
 #pragma once
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <WiFi.h>
 #include <ArduinoJson.h>
+#include <esp_random.h>
 #include "../logging/Logger.h"
 
 class SceneManager {
@@ -80,6 +82,8 @@ public:
         if (!f) return "";
         serializeJson(doc, f);
         f.close();
+        // Remove from tombstones if it was previously deleted
+        removeTombstone(id.c_str());
         Logger::i("[scene] created %s \"%s\" %ux%u with default frame", id.c_str(), name, w, h);
         return id;
     }
@@ -108,15 +112,160 @@ public:
             return false;
         }
 
+        // Remove from tombstones if it was previously deleted
+        removeTombstone(id.c_str());
         Logger::d("[scene] saved %s (%u bytes)", id, (unsigned)len);
         return true;
     }
 
+    // Save raw bytes received over the mesh for a known scene ID.
+    static bool saveRaw(const char* id, const uint8_t* data, size_t len) {
+        init();
+        File f = LittleFS.open(_path(id), "w");
+        if (!f) {
+            Logger::e("[scene] saveRaw: unable to open %s for write", id);
+            return false;
+        }
+        size_t written = f.write(data, len);
+        f.close();
+        if (written != len) {
+            Logger::e("[scene] saveRaw: write incomplete for %s (%u/%u bytes)", id, (unsigned)written, (unsigned)len);
+            return false;
+        }
+        removeTombstone(id);
+        Logger::d("[scene] saveRaw %s (%u bytes)", id, (unsigned)len);
+        return true;
+    }
+
     static bool remove(const char* id) {
-        return LittleFS.remove(_path(id));
+        bool ok = LittleFS.remove(_path(id));
+        if (ok) addTombstone(id);
+        return ok;
     }
 
     static String path(const char* id) { return _path(id); }
+
+    // ── CRC32 ────────────────────────────────────────────────────────────────
+
+    // Compute CRC32 of a scene file. Returns 0 if file not found.
+    static uint32_t crc32(const char* id) {
+        File f = LittleFS.open(_path(id), "r");
+        if (!f) return 0;
+        uint32_t crc = 0xFFFFFFFF;
+        uint8_t  buf[256];
+        while (f.available()) {
+            size_t n = f.read(buf, sizeof(buf));
+            for (size_t i = 0; i < n; i++) {
+                crc ^= buf[i];
+                for (int b = 0; b < 8; b++)
+                    crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
+            }
+        }
+        f.close();
+        uint32_t result = ~crc;
+        // Map 0 to 1 so 0 remains exclusively the deletion sentinel
+        return result == 0 ? 1 : result;
+    }
+
+    static uint32_t crc32OfData(const uint8_t* data, size_t len) {
+        uint32_t crc = 0xFFFFFFFF;
+        for (size_t i = 0; i < len; i++) {
+            crc ^= data[i];
+            for (int b = 0; b < 8; b++)
+                crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
+        }
+        uint32_t result = ~crc;
+        return result == 0 ? 1 : result;
+    }
+
+    // ── Tombstones ───────────────────────────────────────────────────────────
+
+    static void addTombstone(const char* id) {
+        if (isTombstone(id)) return;
+        File f = LittleFS.open(_tombstonePath(), "a");
+        if (!f) return;
+        f.printf("%s\n", id);
+        f.close();
+        Logger::d("[scene] tombstone added: %s", id);
+    }
+
+    static void removeTombstone(const char* id) {
+        if (!LittleFS.exists(_tombstonePath())) return;
+        File f = LittleFS.open(_tombstonePath(), "r");
+        if (!f) return;
+        String out;
+        while (f.available()) {
+            String line = f.readStringUntil('\n');
+            line.trim();
+            if (line.length() > 0 && line != id)
+                out += line + "\n";
+        }
+        f.close();
+        File w = LittleFS.open(_tombstonePath(), "w");
+        if (w) { w.print(out); w.close(); }
+    }
+
+    static bool isTombstone(const char* id) {
+        if (!LittleFS.exists(_tombstonePath())) return false;
+        File f = LittleFS.open(_tombstonePath(), "r");
+        if (!f) return false;
+        while (f.available()) {
+            String line = f.readStringUntil('\n');
+            line.trim();
+            if (line == id) { f.close(); return true; }
+        }
+        f.close();
+        return false;
+    }
+
+    // Fill entries array with {id, hash} for all local scenes + tombstones.
+    // Returns total count of entries written.
+    struct ManifestEntry { char id[33]; uint32_t hash; };
+
+    static uint8_t buildManifestEntries(ManifestEntry* entries, uint8_t maxEntries) {
+        uint8_t count = 0;
+        File dir = LittleFS.open("/scenes");
+        if (dir && dir.isDirectory()) {
+            File f = dir.openNextFile();
+            while (f && count < maxEntries) {
+                if (!f.isDirectory()) {
+                    String fname = String(f.name());
+                    if (!fname.startsWith(".") && fname.endsWith(".json")) {
+                        // Read id field from the file (authoritative source)
+                        JsonDocument filter; filter["id"] = true;
+                        JsonDocument doc;
+                        DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
+                        if (!err && !doc["id"].isNull()) {
+                            const char* id = doc["id"];
+                            strlcpy(entries[count].id, id, 33);
+                            entries[count].hash = crc32(id);
+                            count++;
+                        }
+                    }
+                }
+                f.close();
+                f = dir.openNextFile();
+            }
+            dir.close();
+        }
+        // Tombstones
+        if (LittleFS.exists(_tombstonePath())) {
+            File tf = LittleFS.open(_tombstonePath(), "r");
+            if (tf) {
+                while (tf.available() && count < maxEntries) {
+                    String line = tf.readStringUntil('\n');
+                    line.trim();
+                    if (line.length() > 0) {
+                        strlcpy(entries[count].id, line.c_str(), 33);
+                        entries[count].hash = 0;
+                        count++;
+                    }
+                }
+                tf.close();
+            }
+        }
+        return count;
+    }
 
 private:
     static bool _extractId(const char* json, size_t len, String& out) {
@@ -160,10 +309,18 @@ private:
         return String("/scenes/") + id + ".json";
     }
 
+    static const char* _tombstonePath() { return "/scenes/.tombstones"; }
+
     static String _makeId() {
-        static uint8_t ctr = 0;
-        char buf[10];
-        snprintf(buf, sizeof(buf), "%07lx%02x", millis() & 0x0FFFFFFF, ctr++);
-        return String(buf);
+        uint8_t b[16];
+        for (int i = 0; i < 4; i++) {
+            uint32_t r = esp_random();
+            memcpy(b + i * 4, &r, 4);
+        }
+        b[6] = (b[6] & 0x0F) | 0x40;  // version 4
+        b[8] = (b[8] & 0x3F) | 0x80;  // variant bits
+        char buf[33];
+        for (int i = 0; i < 16; i++) snprintf(buf + i * 2, 3, "%02x", b[i]);
+        return String(buf);  // 32 hex chars, no hyphens
     }
 };
