@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <ArduinoJson.h>
 #include <esp_random.h>
+#include <set>
 #include "../logging/Logger.h"
 
 class SceneManager {
@@ -178,44 +179,19 @@ public:
         return result == 0 ? 1 : result;
     }
 
-    // ── Tombstones ───────────────────────────────────────────────────────────
+    // ── Tombstones (in-memory only, cleared on reboot) ───────────────────────
 
     static void addTombstone(const char* id) {
-        if (isTombstone(id)) return;
-        File f = LittleFS.open(_tombstonePath(), "a");
-        if (!f) return;
-        f.printf("%s\n", id);
-        f.close();
+        _tombstones().insert(String(id));
         Logger::d("[scene] tombstone added: %s", id);
     }
 
     static void removeTombstone(const char* id) {
-        if (!LittleFS.exists(_tombstonePath())) return;
-        File f = LittleFS.open(_tombstonePath(), "r");
-        if (!f) return;
-        String out;
-        while (f.available()) {
-            String line = f.readStringUntil('\n');
-            line.trim();
-            if (line.length() > 0 && line != id)
-                out += line + "\n";
-        }
-        f.close();
-        File w = LittleFS.open(_tombstonePath(), "w");
-        if (w) { w.print(out); w.close(); }
+        _tombstones().erase(String(id));
     }
 
     static bool isTombstone(const char* id) {
-        if (!LittleFS.exists(_tombstonePath())) return false;
-        File f = LittleFS.open(_tombstonePath(), "r");
-        if (!f) return false;
-        while (f.available()) {
-            String line = f.readStringUntil('\n');
-            line.trim();
-            if (line == id) { f.close(); return true; }
-        }
-        f.close();
-        return false;
+        return _tombstones().count(String(id)) > 0;
     }
 
     // Fill entries array with {id, hash} for all local scenes + tombstones.
@@ -248,21 +224,12 @@ public:
             }
             dir.close();
         }
-        // Tombstones
-        if (LittleFS.exists(_tombstonePath())) {
-            File tf = LittleFS.open(_tombstonePath(), "r");
-            if (tf) {
-                while (tf.available() && count < maxEntries) {
-                    String line = tf.readStringUntil('\n');
-                    line.trim();
-                    if (line.length() > 0) {
-                        strlcpy(entries[count].id, line.c_str(), 33);
-                        entries[count].hash = 0;
-                        count++;
-                    }
-                }
-                tf.close();
-            }
+        // Tombstones (in-memory)
+        for (const String& tid : _tombstones()) {
+            if (count >= maxEntries) break;
+            strlcpy(entries[count].id, tid.c_str(), 33);
+            entries[count].hash = 0;
+            count++;
         }
         return count;
     }
@@ -309,7 +276,10 @@ private:
         return String("/scenes/") + id + ".json";
     }
 
-    static const char* _tombstonePath() { return "/scenes/.tombstones"; }
+    static std::set<String>& _tombstones() {
+        static std::set<String> s;
+        return s;
+    }
 
     static String _makeId() {
         uint8_t b[16];
