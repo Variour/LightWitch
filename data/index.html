@@ -1466,26 +1466,29 @@ function _renderGrid() {
 
     // Row 0: frame-H gradient button (hidden in non-gradient via CSS)
     html += `<tr class="sg-row-frame-h">`;
-    html += `<th class="sg-corner" style="border-color:transparent;background:transparent"></th>`;  // spacer for ↕ col
+    html += `<th style="border-color:transparent;background:transparent"></th>`;  // spacer for ↕ col
     html += `<th class="sg-corner" style="border-color:transparent;background:transparent"></th>`;  // spacer for corner col
     html += `<th class="sg-hdr sg-hdr-frame" data-frame="${i}" data-frameh="1" colspan="${w}" title="Gradient fill frame horizontally">↔</th>`;
     html += `</tr>`;
 
-    // Row 1: col headers (↕ spans all data rows, corner, col fill targets)
+    // Row 1: spacer for ↕ col + corner + col fill targets
     html += '<tr>';
-    html += `<th class="sg-hdr sg-hdr-frame sg-hdr-frame-v" data-frame="${i}" data-framev="1" rowspan="${h}" title="Gradient fill frame vertically">↕</th>`;
-    const cornerLabel = isGradient ? '↙' : '↘';
+    html += `<th class="sg-hdr sg-hdr-frame sg-hdr-frame-v" style="visibility:hidden"></th>`;  // preserves ↕ column width
     const cornerTitle = isGradient ? 'Diagonal gradient fill frame' : 'Fill frame with current color';
     const cornerClick = isGradient ? `gradFillFrameDiagonal(${i})` : `fillFrameFor(${i})`;
-    html += `<th class="sg-corner" onclick="${cornerClick}" title="${cornerTitle}">${cornerLabel}</th>`;
+    const cornerClass = isGradient ? 'sg-corner sg-hdr-frame' : 'sg-corner';
+    html += `<th class="${cornerClass}" onclick="${cornerClick}" title="${cornerTitle}">↘</th>`;
     for (let c = 0; c < w; c++) {
       html += `<th class="sg-hdr" data-frame="${i}" data-col="${c}" title="Fill column ${c}">↓</th>`;
     }
     html += '</tr>';
 
-    // Data rows
+    // Data rows — ↕ is in first data row with rowspan=h
     for (let r = 0; r < h; r++) {
       html += '<tr>';
+      if (r === 0) {
+        html += `<th class="sg-hdr sg-hdr-frame sg-hdr-frame-v" data-frame="${i}" data-framev="1" rowspan="${h}" title="Gradient fill frame vertically">↕</th>`;
+      }
       html += `<th class="sg-hdr" data-frame="${i}" data-row="${r}" title="Fill row ${r}">→</th>`;
       for (let c = 0; c < w; c++) {
         const idx = r * w + c;
