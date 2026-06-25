@@ -39,10 +39,13 @@ const MOCK_PEERS = [
 
 const scenes = new Map();
 
-// Pre-populate scenes from static file so the list is non-empty on first load
+// Pre-populate scenes from all static JSON files in data/scenes/
 try {
-  const raw = JSON.parse(fs.readFileSync(join(DATA_DIR, 'scenes', 'local-0001.json'), 'utf8'));
-  scenes.set(raw.id, raw);
+  const scenesDir = join(DATA_DIR, 'scenes');
+  for (const f of fs.readdirSync(scenesDir).filter(f => f.endsWith('.json'))) {
+    const raw = JSON.parse(fs.readFileSync(join(scenesDir, f), 'utf8'));
+    scenes.set(raw.id, raw);
+  }
 } catch (_) {}
 
 const mockUpdate = {
