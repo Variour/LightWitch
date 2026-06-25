@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/user/batteryLight/.claude/inject-claude-md.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
