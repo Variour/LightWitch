@@ -1200,14 +1200,13 @@ function undoScene() {
 
 // ── Tab helpers ───────────────────────────────────────────────────────────────
 function showSceneView(view, sceneId = null, pushHistory = true) {
-  ['list','create','image','editor'].forEach(v => {
+  ['list','image','editor'].forEach(v => {
     document.getElementById('scene-view-' + v).style.display = v === view ? '' : 'none';
   });
   _sceneView = view;
   if (view === 'list') _loadScenes();
   if (pushHistory) {
     if (view === 'list') history.pushState(null, '', '/scenes');
-    else if (view === 'create') history.pushState(null, '', '/scenes/create');
     else if (view === 'editor' && sceneId) history.pushState(null, '', `/scenes/${encodeURIComponent(sceneId)}`);
   }
 }
