@@ -1466,7 +1466,7 @@ function _renderGrid() {
 
     // Row 0: frame-H gradient button (hidden in non-gradient via CSS)
     html += `<tr class="sg-row-frame-h">`;
-    html += `<th style="border:none;background:transparent;padding:0"></th>`;  // spacer for ↕ col
+    html += `<th style="border-style:hidden;background:transparent;padding:0"></th>`;  // spacer for ↕ col
     html += `<th class="sg-corner" style="border-color:transparent;background:transparent"></th>`;  // spacer for corner col
     html += `<th class="sg-hdr sg-hdr-frame" data-frame="${i}" data-frameh="1" colspan="${w}" title="Gradient fill frame horizontally">↔</th>`;
     html += `</tr>`;
