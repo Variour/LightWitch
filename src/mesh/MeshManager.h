@@ -139,7 +139,7 @@ public:
         if (!_ready) return;
         SceneRequestMsg msg;
         msg.type = MsgType::SceneRequest;
-        strlcpy(msg.id, id, 32);
+        strlcpy(msg.id, id, 33);
         _send(&msg, sizeof(msg));
     }
 
@@ -152,7 +152,7 @@ public:
         if (!_ready) return;
         SceneForceSetMsg msg;
         msg.type = MsgType::SceneForceSet;
-        strlcpy(msg.id, id, 32);
+        strlcpy(msg.id, id, 33);
         msg.hash = hash;
         _send(&msg, sizeof(msg));
     }
