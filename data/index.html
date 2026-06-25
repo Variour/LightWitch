@@ -437,6 +437,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <h2>Paint color</h2>
         <!-- Swatch + hex + brightness on one line -->
         <div style="display:flex;align-items:center;gap:.5rem;overflow:hidden">
+          <button id="fill-mode-eyedropper" class="cp-tool-btn" onclick="setMode('eyedropper')" title="Pick color from canvas" style="width:2.6rem;height:2.6rem;padding:0;flex-shrink:0;font-size:1.1rem">&#x1F489;</button>
           <div class="color-swatch" id="se-swatch" title="Current paint color" style="flex-shrink:0"></div>
           <input type="text" id="se-hex-input" class="cp-hex-input" value="#ff0000"
                  maxlength="7" placeholder="#rrggbb" style="flex-shrink:0"
@@ -473,7 +474,6 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <h2>Mode</h2>
         <div class="fill-mode-bar">
           <button id="fill-mode-paint"      class="cp-tool-btn active" onclick="setMode('paint')">✏ Paint</button>
-          <button id="fill-mode-eyedropper" class="cp-tool-btn"        onclick="setMode('eyedropper')">&#x1F489; Pick</button>
           <button id="fill-mode-gradient"   class="cp-tool-btn"        onclick="setMode('gradient')">⋯ Gradient</button>
           <button id="fill-mode-wrap"       class="cp-tool-btn"        onclick="setMode('wrap')">↺ Wrap blend</button>
         </div>
