@@ -556,6 +556,17 @@ private:
         }
 
         // Save: either we don't have it locally, or it's a forced conflict resolution.
+        // Check available storage first; skip non-referenced scenes when space is low.
+        if (!forced) {
+            size_t freeBytes = LittleFS.totalBytes() - LittleFS.usedBytes();
+            if (freeBytes < 20480 && !_isReferencedByGroup(id)) {
+                Logger::w("[sync] low storage (%u B free), skipping non-referenced scene %s", freeBytes, id);
+                _resetReceive();
+                _removeFetchEntry(id);
+                return;
+            }
+        }
+
         bool ok = SceneManager::saveRaw(id, _recv.buffer, totalSize);
         Logger::i("[sync] scene %s saved (%u bytes, hash=%08x) ok=%d", id, totalSize, incomingHash, ok);
 
@@ -573,6 +584,15 @@ private:
 
         _resetReceive();
         _removeFetchEntry(id);
+    }
+
+    bool _isReferencedByGroup(const char* id) {
+        for (uint8_t i = 0; i < MAX_GROUPS; i++) {
+            GroupConfig* g = Config::group(i);
+            if (g && strncmp(g->light.sceneId, id, 33) == 0)
+                return true;
+        }
+        return false;
     }
 
     void _resetReceive() {
