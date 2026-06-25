@@ -8,14 +8,14 @@ never regenerate the index.html.gz
 
 ## Release Notes
 
-Firmware releases use GitHub's auto-generated release notes, driven by PR labels. Every PR should have exactly one of these labels:
+Firmware releases use GitHub's auto-generated release notes, driven by PR labels. Every PR must have exactly one of these labels:
 
 - `enhancement` or `feature` — new functionality
 - `bug` or `fix` — bug fixes
 - `dependencies` — dependency updates (Dependabot applies this automatically)
 - `skip-changelog` — changes that should not appear in release notes (e.g. CI tweaks, docs, dev tooling fixes)
 
-PRs without a label will appear under "Other Changes". Label before merging, not after.
+Use the tool `github: issue write` to add the label
 
 ## Working on Issues
 
