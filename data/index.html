@@ -331,6 +331,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
           <button class="btn-ghost btn-sm" onclick="document.getElementById('scene-json-upload').click()">⬆ Upload scene JSON</button>
           <input type="file" id="scene-json-upload" accept="application/json,.json" style="display:none" onchange="uploadSceneJsonFromList(event)">
+          <button class="btn-ghost btn-sm" onclick="showCreateSceneFromImage()">🖼 From Image</button>
           <button class="btn-primary btn-sm" onclick="showCreateScene()">+ New Scene</button>
         </div>
       </div>
@@ -358,6 +359,54 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         </div>
       </div>
       <button class="btn-primary" style="width:100%;margin-top:.1rem" onclick="doCreateScene()">Create Scene</button>
+    </div>
+  </div>
+
+  <!-- Create from image view -->
+  <div id="scene-view-image" style="display:none">
+    <div class="card">
+      <button class="btn-ghost btn-sm" onclick="showSceneView('list')" style="margin-bottom:.7rem">← Back</button>
+      <h2 style="margin-top:0">Create Scene from Image</h2>
+
+      <label>Image file <small>(JPEG, PNG, GIF, WebP — max 10 MB)</small></label>
+      <input type="file" id="sci-file" accept="image/jpeg,image/png,image/gif,image/webp"
+             style="width:100%;margin-bottom:.75rem;background:#111;color:#eee;border:1px solid #2a2a2a;border-radius:6px;padding:.4rem .6rem;font-size:.85rem"
+             onchange="_onSciFileChange(event)">
+
+      <div id="sci-preview-wrap" style="display:none;margin-bottom:.75rem">
+        <canvas id="sci-preview" style="max-width:100%;border-radius:6px;border:1px solid #2a2a2a"></canvas>
+      </div>
+
+      <label>Mode</label>
+      <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
+        <button id="sci-mode-pixel" class="btn-primary btn-sm" style="flex:1" onclick="_setSciMode('pixel')">🎨 Pixel Art</button>
+        <button id="sci-mode-palette" class="btn-ghost btn-sm" style="flex:1" onclick="_setSciMode('palette')">🎞 Palette Extraction</button>
+      </div>
+
+      <div id="sci-pixel-opts">
+        <label>Scene name</label>
+        <input type="text" id="sci-name" placeholder="My Scene">
+        <div style="display:flex;gap:.5rem">
+          <div style="flex:1">
+            <label>Width</label>
+            <input type="number" id="sci-width" value="20" min="1" max="200">
+          </div>
+          <div style="flex:1">
+            <label>Height</label>
+            <input type="number" id="sci-height" value="10" min="1" max="200">
+          </div>
+        </div>
+      </div>
+
+      <div id="sci-palette-opts" style="display:none">
+        <label>Scene name</label>
+        <input type="text" id="sci-palette-name" placeholder="My Palette">
+        <label>Number of colors <span id="sci-ncolors-label">8</span></label>
+        <input type="range" id="sci-ncolors" min="2" max="32" value="8"
+               oninput="document.getElementById('sci-ncolors-label').textContent=this.value">
+      </div>
+
+      <button class="btn-primary" style="width:100%;margin-top:.3rem" onclick="doCreateSceneFromImage()">Create Scene</button>
     </div>
   </div>
 
@@ -515,7 +564,12 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <div class="card">
           <h2>Frames</h2>
           <div id="se-frames"></div>
-          <button class="btn-primary btn-sm" style="width:100%;margin-top:.5rem" onclick="addFrame()">+ Add Frame</button>
+          <div style="display:flex;gap:.4rem;margin-top:.5rem">
+            <button class="btn-primary btn-sm" style="flex:1" onclick="addFrame()">+ Add Frame</button>
+            <button class="btn-ghost btn-sm" title="Import image as frame" onclick="document.getElementById('sei-file').click()">🖼 Import</button>
+          </div>
+          <input type="file" id="sei-file" accept="image/jpeg,image/png,image/gif,image/webp"
+                 style="display:none" onchange="importImageAsFrame(event)">
         </div>
       </div>
 
@@ -1166,7 +1220,7 @@ function undoScene() {
 
 // ── Tab helpers ───────────────────────────────────────────────────────────────
 function showSceneView(view, sceneId = null, pushHistory = true) {
-  ['list','create','editor'].forEach(v => {
+  ['list','create','image','editor'].forEach(v => {
     document.getElementById('scene-view-' + v).style.display = v === view ? '' : 'none';
   });
   _sceneView = view;
@@ -1429,7 +1483,7 @@ function _renderFrameList() {
   _refreshWrapFrameSelect();
 }
 
-function addFrame() {
+async function addFrame() {
   const w = parseInt(_editScene?.w, 10);
   const h = parseInt(_editScene?.h, 10);
   const size = Number.isFinite(w) && Number.isFinite(h) ? w * h : 0;
@@ -1441,9 +1495,10 @@ function addFrame() {
 
   _pushHistory();
   _editScene.frames.push(Array.from({ length: size }, () => '#000000'));
-  _modified    = true;
+  _modified = true;
   _renderFrameList();
   _renderGrid();
+  await saveScene();
 }
 
 function deleteFrame(index) {
@@ -2250,6 +2305,177 @@ function _routeFromPath(path) {
     history.replaceState(null, '', '/');
     _routeFromPath('/');
   }
+}
+
+// ── Image import ──────────────────────────────────────────────────────────────
+
+let _sciMode = 'pixel';
+
+function showCreateSceneFromImage() {
+  _sciMode = 'pixel';
+  document.getElementById('sci-file').value = '';
+  document.getElementById('sci-name').value = '';
+  document.getElementById('sci-palette-name').value = '';
+  document.getElementById('sci-width').value = 20;
+  document.getElementById('sci-height').value = 10;
+  document.getElementById('sci-ncolors').value = 8;
+  document.getElementById('sci-ncolors-label').textContent = '8';
+  document.getElementById('sci-preview-wrap').style.display = 'none';
+  _setSciMode('pixel');
+  showSceneView('image');
+}
+
+function _setSciMode(mode) {
+  _sciMode = mode;
+  document.getElementById('sci-pixel-opts').style.display   = mode === 'pixel'   ? '' : 'none';
+  document.getElementById('sci-palette-opts').style.display = mode === 'palette' ? '' : 'none';
+  document.getElementById('sci-mode-pixel').className   = 'btn-sm ' + (mode === 'pixel'   ? 'btn-primary' : 'btn-ghost');
+  document.getElementById('sci-mode-palette').className = 'btn-sm ' + (mode === 'palette' ? 'btn-primary' : 'btn-ghost');
+}
+
+function _onSciFileChange(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const preview = document.getElementById('sci-preview');
+  const wrap    = document.getElementById('sci-preview-wrap');
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    preview.width  = Math.min(img.width, 300);
+    preview.height = Math.round(img.height * (preview.width / img.width));
+    preview.getContext('2d').drawImage(img, 0, 0, preview.width, preview.height);
+    wrap.style.display = '';
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
+function _loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    if (file.size > 10 * 1024 * 1024) { reject(new Error('File exceeds 10 MB limit.')); return; }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not load image.')); };
+    img.src = url;
+  });
+}
+
+function _imgCoverCrop(img, w, h) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx   = canvas.getContext('2d');
+  const scale = Math.max(w / img.width, h / img.height);
+  const sw    = img.width * scale;
+  const sh    = img.height * scale;
+  ctx.drawImage(img, (w - sw) / 2, (h - sh) / 2, sw, sh);
+  const data = ctx.getImageData(0, 0, w, h).data;
+  const cells = [];
+  for (let i = 0; i < w * h; i++) {
+    const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+    cells.push('#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join(''));
+  }
+  return cells;
+}
+
+function _medianCut(pixels, depth) {
+  if (depth === 0 || pixels.length === 0) {
+    const n = pixels.length || 1;
+    const avg = [0, 1, 2].map(c => Math.round(pixels.reduce((s, p) => s + p[c], 0) / n));
+    return [avg];
+  }
+  const ranges = [0, 1, 2].map(c => {
+    const vals = pixels.map(p => p[c]);
+    return Math.max(...vals) - Math.min(...vals);
+  });
+  const ch = ranges.indexOf(Math.max(...ranges));
+  pixels.sort((a, b) => a[ch] - b[ch]);
+  const mid = Math.floor(pixels.length / 2);
+  return [..._medianCut(pixels.slice(0, mid), depth - 1),
+          ..._medianCut(pixels.slice(mid),    depth - 1)];
+}
+
+function _extractPalette(img, n) {
+  const canvas = document.createElement('canvas');
+  const MAX = 64;
+  canvas.width  = Math.min(img.width,  MAX);
+  canvas.height = Math.min(img.height, MAX);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const data   = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const pixels = [];
+  for (let i = 0; i < canvas.width * canvas.height; i++) {
+    pixels.push([data[i*4], data[i*4+1], data[i*4+2]]);
+  }
+  const depth  = Math.ceil(Math.log2(n));
+  const colors = _medianCut(pixels, depth).slice(0, n);
+  return colors.map(([r, g, b]) => '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join(''));
+}
+
+async function doCreateSceneFromImage() {
+  const fileEl = document.getElementById('sci-file');
+  const file   = fileEl.files[0];
+  if (!file) { alert('Please select an image file.'); return; }
+
+  let img;
+  try { img = await _loadImageFromFile(file); }
+  catch (e) { alert(e.message); return; }
+
+  let name, w, h, firstFrame;
+  if (_sciMode === 'pixel') {
+    name       = document.getElementById('sci-name').value.trim() || 'Unnamed';
+    w          = parseInt(document.getElementById('sci-width').value)  || 20;
+    h          = parseInt(document.getElementById('sci-height').value) || 10;
+    firstFrame = _imgCoverCrop(img, w, h);
+  } else {
+    name = document.getElementById('sci-palette-name').value.trim() || 'Unnamed';
+    const n = parseInt(document.getElementById('sci-ncolors').value) || 8;
+    const colors = _extractPalette(img, n);
+    w          = colors.length;
+    h          = 1;
+    firstFrame = colors;
+  }
+
+  const res = await fetch('/api/scenes/create', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name, w, h})
+  });
+  const d = await res.json();
+  if (!d.ok) { alert('Failed to create scene: ' + (d.error || '?')); return; }
+
+  // Open the editor, replace the default frame with image pixels, then auto-save
+  await _openEditor(d.id);
+  if (_editScene && _editScene.frames.length > 0) {
+    _editScene.frames[0] = firstFrame;
+    _modified = true;
+    _renderFrameList();
+    _renderGrid();
+    await saveScene();
+  }
+}
+
+async function importImageAsFrame(ev) {
+  const file = ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+
+  const w = parseInt(_editScene?.w, 10);
+  const h = parseInt(_editScene?.h, 10);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w < 1 || h < 1) {
+    alert('Invalid scene dimensions.'); return;
+  }
+
+  let img;
+  try { img = await _loadImageFromFile(file); }
+  catch (e) { alert(e.message); return; }
+
+  const cells = _imgCoverCrop(img, w, h);
+  _pushHistory();
+  _editScene.frames.push(cells);
+  _modified = true;
+  _renderFrameList();
+  _renderGrid();
+  await saveScene();
 }
 
 window.addEventListener('popstate', () => _routeFromPath(location.pathname));
