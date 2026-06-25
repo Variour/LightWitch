@@ -452,7 +452,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
               Cols
               <input type="number" id="wrap-cols" min="0" max="999" value="0"
                      style="width:3.5rem;padding:.2rem .3rem;background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;font-size:.82rem"
-                     oninput="_wrapCols=Math.max(0,parseInt(this.value)||0)">
+                     >
             </label>
             <label style="display:flex;align-items:center;gap:.3rem">
               Col side
@@ -465,7 +465,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
               Rows
               <input type="number" id="wrap-rows" min="0" max="999" value="0"
                      style="width:3.5rem;padding:.2rem .3rem;background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;font-size:.82rem"
-                     oninput="_wrapRows=Math.max(0,parseInt(this.value)||0)">
+                     >
             </label>
             <label style="display:flex;align-items:center;gap:.3rem">
               Row side
@@ -1107,8 +1107,6 @@ let _recentColors = [];
 let _syncFrames  = false;
 let _gradColorA  = '#ff0000';
 let _gradColorB  = '#0000ff';
-let _wrapCols    = 0;
-let _wrapRows    = 0;
 let _zoomCellPx  = 27;  // default 50% larger than original 18px; changed via +/- buttons
 const _zoomStep = 4;
 let _hsvH = 0, _hsvS = 1, _hsvV = 1; // current HSV state
@@ -1932,8 +1930,8 @@ function gradFillColFor(frameIndex, c) {
 function applyWrapBlend() {
   if (!_editScene) return;
   const { w, h, frames } = _editScene;
-  const cols    = Math.min(_wrapCols, w - 1);
-  const rows    = Math.min(_wrapRows, h - 1);
+  const cols    = Math.min(Math.max(0, parseInt(document.getElementById('wrap-cols')?.value, 10) || 0), w - 1);
+  const rows    = Math.min(Math.max(0, parseInt(document.getElementById('wrap-rows')?.value, 10) || 0), h - 1);
   if (cols <= 0 && rows <= 0) return;
   const framesSel = document.getElementById('wrap-frames')?.value ?? 'all';
   const colSide   = document.getElementById('wrap-col-side')?.value ?? 'right';
