@@ -40,7 +40,7 @@ Add entries for your board type with these addresses:
 | `0x0` | `bootloader-esp32c3.bin` |
 | `0x8000` | `partitions.bin` |
 | `0x10000` | `firmware-esp32c3.bin` |
-| `0x290000` | `littlefs.bin` |
+| `0x3C0000` | `littlefs.bin` |
 
 **ESP32-WROOM-32:**
 
@@ -49,7 +49,7 @@ Add entries for your board type with these addresses:
 | `0x1000` | `bootloader-esp32dev.bin` |
 | `0x8000` | `partitions.bin` |
 | `0x10000` | `firmware-esp32dev.bin` |
-| `0x290000` | `littlefs.bin` |
+| `0x3C0000` | `littlefs.bin` |
 
 **5. Flash**
 
@@ -76,7 +76,6 @@ pio run -e esp32dev -t uploadfs   # For ESP32-WROOM-32 devices
 ```
 
 Both steps are required on a fresh device. Use the environment matching your device type. After this, all further updates can be done over WiFi.
-
 ---
 
 ## First boot
