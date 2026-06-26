@@ -11,6 +11,8 @@ struct PeerInfo {
     bool     active            = false;
     int8_t   rssi              = -90;
     bool     sceneSyncEnabled  = true;
+    bool     wifiConnected     = false;
+    char     fwVersion[16]     = {};
 
     bool online() const { return active && (millis() - lastSeen < 15000); }
 
@@ -30,7 +32,8 @@ public:
     void setOnChange(ChangeCb cb) { _onChange = cb; }
 
     // Returns true if the peer was newly seen (not previously active)
-    bool update(const uint8_t* mac, const char* name, uint8_t groupId, bool sceneSyncEnabled = true) {
+    bool update(const uint8_t* mac, const char* name, uint8_t groupId, bool sceneSyncEnabled = true,
+                bool wifiConnected = false, const char* fwVersion = "") {
         PeerInfo* p = _find(mac);
         bool isNew = (p == nullptr || !p->active);
         if (!p) p = _slot();
@@ -41,6 +44,8 @@ public:
         strlcpy(p->name, name, sizeof(p->name));
         p->groupId          = groupId;
         p->sceneSyncEnabled = sceneSyncEnabled;
+        p->wifiConnected    = wifiConnected;
+        strlcpy(p->fwVersion, fwVersion, sizeof(p->fwVersion));
         p->lastSeen         = millis();
         p->active           = true;
         if (isNew)

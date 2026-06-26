@@ -417,10 +417,12 @@ private:
     void _buildPeersJson(JsonDocument& doc) {
         auto& c = Config::get();
         auto self = doc["self"].to<JsonObject>();
-        self["mac"]     = WiFi.macAddress();
-        self["name"]    = c.deviceName;
-        self["groupId"] = c.groupId;
-        self["online"]  = true;
+        self["mac"]           = WiFi.macAddress();
+        self["name"]          = c.deviceName;
+        self["groupId"]       = c.groupId;
+        self["online"]        = true;
+        self["wifiConnected"] = (WiFi.status() == WL_CONNECTED);
+        self["version"]       = FW_VERSION;
 
         JsonArray arr = doc["peers"].to<JsonArray>();
         if (_peers) {
@@ -433,6 +435,8 @@ private:
                 o["online"]           = p.online();
                 o["rssi"]             = p.rssi;
                 o["sceneSyncEnabled"] = p.sceneSyncEnabled;
+                o["wifiConnected"]    = p.wifiConnected;
+                o["version"]          = p.fwVersion;
             }
         }
     }
