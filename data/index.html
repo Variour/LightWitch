@@ -680,10 +680,11 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
 <script>
 // ── Dashboard state ───────────────────────────────────────────────────────────
-let _groups  = [];
-let _peers   = [];
-let _self    = null;
-let _selfMac = '';
+let _groups    = [];
+let _peers     = [];
+let _self      = null;
+let _selfMac   = '';
+let _hasUpdate = false;
 let _sceneOptions = [];
 let _debounce = {};
 let _syncConflicts  = [];
@@ -960,14 +961,19 @@ function renderLights(self, peers) {
     const wifiIcon = `<span title="${wifiTitle}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
 
     const peerVer = p.version || '';
+    const fwSvg = (color) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg>`;
     let fwIconHtml = '–';
-    if (!p.isSelf && peerVer) {
+    if (p.isSelf) {
+      const fwColor = _hasUpdate ? '#48f' : '#4c4';
+      const fwTitle = _hasUpdate ? 'Firmware update available' : 'Firmware up to date';
+      fwIconHtml = `<span title="${fwTitle}">${fwSvg(fwColor)}</span>`;
+    } else if (peerVer) {
       const cmp = compareVersions(selfVer, peerVer);
       const fwColor = cmp === 0 ? '#4c4' : (cmp > 0 ? '#c44' : '#c84');
       const fwTitle = cmp === 0
         ? `v${peerVer} — up to date`
         : (cmp > 0 ? `v${peerVer} — older than this device` : `v${peerVer} — newer than this device`);
-      fwIconHtml = `<span title="${fwTitle}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${fwColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg></span>`;
+      fwIconHtml = `<span title="${fwTitle}">${fwSvg(fwColor)}</span>`;
     }
 
     return `<tr>
@@ -1072,6 +1078,8 @@ function _updPollStatus() {
 }
 
 function _updApplyStatus(data) {
+  _hasUpdate = data.hasUpdate === true;
+  if (_self) renderLights(_self, _peers);
   if (data.latestVersion) document.getElementById('upd-latest').textContent = data.latestVersion;
   document.getElementById('update-badge').style.display = data.hasUpdate ? '' : 'none';
   const applyBtn   = document.getElementById('upd-apply-btn');
