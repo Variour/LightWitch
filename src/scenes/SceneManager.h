@@ -14,16 +14,45 @@ public:
     }
 
     static void init() {
-        if (!LittleFS.exists("/scenes")) LittleFS.mkdir("/scenes");
+        // Migrate from /scenes/ (clashes with SPA route) to /sc/
+        if (LittleFS.exists("/scenes") && !LittleFS.exists("/sc")) {
+            LittleFS.mkdir("/sc");
+            File dir = LittleFS.open("/scenes");
+            if (dir && dir.isDirectory()) {
+                File f = dir.openNextFile();
+                while (f) {
+                    if (!f.isDirectory()) {
+                        String name = String(f.name());
+                        String oldPath = String("/scenes/") + name;
+                        String newPath = String("/sc/") + name;
+                        File src = LittleFS.open(oldPath, "r");
+                        File dst = LittleFS.open(newPath, "w");
+                        if (src && dst) {
+                            uint8_t buf[256];
+                            size_t n;
+                            while ((n = src.read(buf, sizeof(buf))) > 0) dst.write(buf, n);
+                            Logger::i("[scene] migrated %s -> %s", oldPath.c_str(), newPath.c_str());
+                        }
+                        src.close(); dst.close();
+                        LittleFS.remove(oldPath);
+                    }
+                    f.close();
+                    f = dir.openNextFile();
+                }
+                dir.close();
+            }
+            LittleFS.rmdir("/scenes");
+        }
+        if (!LittleFS.exists("/sc")) LittleFS.mkdir("/sc");
     }
 
     // Build a JSON object {scenes:[{id,name,w,h,fc},...]} for the list endpoint.
     // Reads only metadata fields from each scene file (via ArduinoJson filter).
     static void buildList(JsonDocument& resp) {
         JsonArray arr = resp["scenes"].to<JsonArray>();
-        File dir = LittleFS.open("/scenes");
+        File dir = LittleFS.open("/sc");
         if (!dir || !dir.isDirectory()) {
-            Logger::w("[scene] buildList: /scenes dir missing or not a directory");
+            Logger::w("[scene] buildList: /sc dir missing or not a directory");
             dir.close();
             return;
         }
@@ -200,7 +229,7 @@ public:
 
     static uint8_t buildManifestEntries(ManifestEntry* entries, uint8_t maxEntries) {
         uint8_t count = 0;
-        File dir = LittleFS.open("/scenes");
+        File dir = LittleFS.open("/sc");
         if (dir && dir.isDirectory()) {
             File f = dir.openNextFile();
             while (f && count < maxEntries) {
@@ -273,7 +302,7 @@ private:
     }
 
     static String _path(const char* id) {
-        return String("/scenes/") + id + ".json";
+        return String("/sc/") + id + ".json";
     }
 
     static std::set<String>& _tombstones() {
