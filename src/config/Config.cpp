@@ -205,6 +205,31 @@ bool Config::applyGroupSync(const GroupConfig& g) {
     return lightWins;
 }
 
+void Config::applyConfigSync(const char* json, size_t len) {
+    JsonDocument doc;
+    if (deserializeJson(doc, json, len)) {
+        Logger::e("[cfg] applyConfigSync: bad json");
+        return;
+    }
+    auto& c = _cfg;
+    if (!doc["wifiSsid"].isNull())     strlcpy(c.wifiSsid,     doc["wifiSsid"],     sizeof(c.wifiSsid));
+    if (!doc["wifiPassword"].isNull()) strlcpy(c.wifiPassword, doc["wifiPassword"], sizeof(c.wifiPassword));
+    if (!doc["mqttHost"].isNull())     strlcpy(c.mqttHost,     doc["mqttHost"],     sizeof(c.mqttHost));
+    if (!doc["mqttPort"].isNull())     c.mqttPort = (uint16_t)doc["mqttPort"];
+    if (!doc["mqttUser"].isNull())     strlcpy(c.mqttUser,     doc["mqttUser"],     sizeof(c.mqttUser));
+    if (!doc["mqttPassword"].isNull() && strlen(doc["mqttPassword"]) > 0)
+        strlcpy(c.mqttPassword, doc["mqttPassword"], sizeof(c.mqttPassword));
+    if (!doc["githubRepo"].isNull())   strlcpy(c.githubRepo,   doc["githubRepo"],   sizeof(c.githubRepo));
+    if (!doc["githubToken"].isNull() && strlen(doc["githubToken"]) > 0)
+        strlcpy(c.githubToken, doc["githubToken"], sizeof(c.githubToken));
+    if (!doc["otaEnabled"].isNull())       c.otaEnabled      = (bool)doc["otaEnabled"];
+    if (!doc["sceneSyncEnabled"].isNull()) c.sceneSyncEnabled = (bool)doc["sceneSyncEnabled"];
+    save();
+    Logger::i("[cfg] config sync applied, restarting");
+    delay(200);
+    ESP.restart();
+}
+
 void Config::_ensureDefaultGroup() {
     if (!_cfg.groups[0].exists) {
         _cfg.groups[0].id     = 0;

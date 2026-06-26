@@ -295,10 +295,13 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
   <!-- CONNECTED LIGHTS -->
   <div class="card">
-    <h2>Connected Lights</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+      <h2 style="margin:0">Connected Lights</h2>
+      <button class="btn-ghost btn-sm" onclick="pushConfig(null)" title="Push settings to all peers">Push config to all</button>
+    </div>
     <table class="lights-table">
-      <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th>Signal</th><th>Fw</th><th>Sync</th></tr></thead>
-      <tbody id="lights-body"><tr><td colspan="6" style="color:#444">Loading…</td></tr></tbody>
+      <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th>Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
+      <tbody id="lights-body"><tr><td colspan="7" style="color:#444">Loading…</td></tr></tbody>
     </table>
   </div>
 
@@ -939,7 +942,7 @@ function renderLights(self, peers) {
   const body = document.getElementById('lights-body');
 
   if (!all.length) {
-    body.innerHTML = '<tr><td colspan="6" style="color:#444">No lights found</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" style="color:#444">No lights found</td></tr>';
     return;
   }
 
@@ -975,6 +978,7 @@ function renderLights(self, peers) {
       fwIconHtml = `<span title="${fwTitle}">${fwSvg(fwColor)}</span>`;
     }
 
+    const pushCell = p.isSelf ? '' : `<button class="btn-ghost btn-sm" onclick="pushConfig('${mac}')" title="Push settings to this device">Push</button>`;
     return `<tr>
       <td>${dot}${esc(p.name)}${selfTag}</td>
       <td>
@@ -986,6 +990,7 @@ function renderLights(self, peers) {
       <td style="text-align:right;font-size:.78rem;color:#666;white-space:nowrap">${rssiText}</td>
       <td style="text-align:center;color:#444;font-size:.78rem">${fwIconHtml}</td>
       <td style="text-align:center">${syncCell}</td>
+      <td style="text-align:center">${pushCell}</td>
     </tr>`;
   }).join('');
 }
@@ -1001,6 +1006,15 @@ function setSceneSync(mac, enabled) {
   fetch('/api/peers/setscenesync', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({mac, enabled})
+  });
+}
+
+function pushConfig(mac) {
+  const label = mac ? 'Push config to this device?' : 'Push config to all devices?\nThis will overwrite their WiFi, MQTT, GitHub, and update settings.';
+  if (!confirm(label)) return;
+  fetch('/api/peers/pushconfig', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(mac ? {mac} : {})
   });
 }
 

@@ -25,6 +25,10 @@ static MqttManager      mqtt;
 static SceneSyncManager sceneSync;
 static bool             _otaActive = false;
 
+// Reassembly buffer for incoming config push chunks
+static String   _cfgSyncBuf;
+static uint16_t _cfgSyncExpected = 0;
+
 static void serialSink(LogLevel level, const char* msg) {
     const char* p = level == LogLevel::ERROR ? "[E]"
                   : level == LogLevel::WARN  ? "[W]"
@@ -189,6 +193,25 @@ void setup() {
         sceneSync.onSetSceneSync(enabled);
     });
 
+    mesh.setOnConfigChunk([](const uint8_t* srcMac, const ConfigChunkMsg* msg) {
+        uint8_t own[6];
+        WiFi.macAddress(own);
+        if (memcmp(srcMac, own, 6) == 0) return;  // ignore own broadcast
+        static const uint8_t kAllZeros[6] = {};
+        bool isAll = memcmp(msg->targetMac, kAllZeros, 6) == 0;
+        if (!isAll && memcmp(msg->targetMac, own, 6) != 0) return;
+        if (msg->chunkIndex == 0) {
+            _cfgSyncBuf     = "";
+            _cfgSyncExpected = msg->totalChunks;
+        }
+        if (msg->totalChunks != _cfgSyncExpected) return;
+        _cfgSyncBuf.concat((const char*)msg->data, msg->dataLen);
+        if (msg->chunkIndex == _cfgSyncExpected - 1) {
+            Logger::i("[cfg] config sync received (%u bytes), applying", (unsigned)_cfgSyncBuf.length());
+            Config::applyConfigSync(_cfgSyncBuf.c_str(), _cfgSyncBuf.length());
+        }
+    });
+
     // Another device told this device (or a peer) to change group
     mesh.setOnSetGroup([](const uint8_t* targetMac, uint8_t groupId) {
         uint8_t own[6];
@@ -275,6 +298,11 @@ void setup() {
                 sceneSync.setForcedAccept(id);
                 mesh.broadcastSceneRequest(id);
             }
+        },
+
+        // onPushConfig: push syncable settings to one or all peers via ESP-NOW
+        [](const uint8_t* targetMac, const char* json, size_t len) {
+            mesh.sendConfigChunks(targetMac, json, len);
         }
     );
 

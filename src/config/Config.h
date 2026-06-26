@@ -98,6 +98,9 @@ public:
     // Returns true if the light config was updated (incoming seq >= local seq).
     static bool applyGroupSync(const GroupConfig& g);
 
+    // Apply syncable settings received via config push, save, and restart.
+    static void applyConfigSync(const char* json, size_t len);
+
 private:
     static DeviceConfig _cfg;
     static const char*  _path;

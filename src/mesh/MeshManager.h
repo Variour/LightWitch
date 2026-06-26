@@ -26,6 +26,8 @@ public:
     using SceneChunkCb     = std::function<void(const SceneChunkMsg*)>;
     using SceneForceSetCb  = std::function<void(const char* id, uint32_t hash)>;
     using SetSceneSyncCb   = std::function<void(bool enabled)>;
+    // Config push callback — srcMac is the sender, used to ignore own broadcasts
+    using ConfigChunkCb    = std::function<void(const uint8_t* srcMac, const ConfigChunkMsg*)>;
 
     void setOnLightConfig(LightConfigCb cb)     { _onLightConfig    = cb; }
     void setOnPresence(PresenceCb cb)            { _onPresence       = cb; }
@@ -38,6 +40,7 @@ public:
     void setOnSceneChunk(SceneChunkCb cb)        { _onSceneChunk     = cb; }
     void setOnSceneForceSet(SceneForceSetCb cb)  { _onSceneForceSet  = cb; }
     void setOnSetSceneSync(SetSceneSyncCb cb)    { _onSetSceneSync   = cb; }
+    void setOnConfigChunk(ConfigChunkCb cb)      { _onConfigChunk    = cb; }
 
     void begin() {
         _instance = this;
@@ -159,6 +162,24 @@ public:
         _send(&msg, sizeof(msg));
     }
 
+    void sendConfigChunks(const uint8_t* targetMac, const char* json, size_t len) {
+        if (!_ready) return;
+        uint16_t totalChunks = (uint16_t)((len + CONFIG_CHUNK_DATA_SIZE - 1) / CONFIG_CHUNK_DATA_SIZE);
+        for (uint16_t i = 0; i < totalChunks; i++) {
+            ConfigChunkMsg msg;
+            memcpy(msg.targetMac, targetMac, 6);
+            msg.chunkIndex  = i;
+            msg.totalChunks = totalChunks;
+            size_t offset   = (size_t)i * CONFIG_CHUNK_DATA_SIZE;
+            size_t chunkLen = min((size_t)CONFIG_CHUNK_DATA_SIZE, len - offset);
+            msg.dataLen = (uint16_t)chunkLen;
+            memcpy(msg.data, json + offset, chunkLen);
+            _send(&msg, sizeof(msg));
+            if (i < totalChunks - 1) delay(20);
+        }
+        Logger::i("[mesh] config push: %u bytes in %u chunks", (unsigned)len, totalChunks);
+    }
+
     void broadcastSetSceneSync(const uint8_t* targetMac, bool enabled) {
         if (!_ready) return;
         SetSceneSyncMsg msg;
@@ -197,6 +218,7 @@ private:
     SceneChunkCb    _onSceneChunk;
     SceneForceSetCb _onSceneForceSet;
     SetSceneSyncCb  _onSetSceneSync;
+    ConfigChunkCb   _onConfigChunk;
 
     static MeshManager* _instance;
 
@@ -332,6 +354,12 @@ private:
                 if (memcmp(m->targetMac, own, 6) == 0) {
                     if (_instance->_onSetSceneSync) _instance->_onSetSceneSync(m->enabled != 0);
                 }
+                break;
+            }
+            case MsgType::ConfigChunk: {
+                if (len < (int)(sizeof(ConfigChunkMsg) - CONFIG_CHUNK_DATA_SIZE)) return;
+                auto* m = (ConfigChunkMsg*)data;
+                if (_instance->_onConfigChunk) _instance->_onConfigChunk(mac, m);
                 break;
             }
             default:
