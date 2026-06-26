@@ -6,7 +6,6 @@ node_modules/
 functions/
 src/
 scripts/
-data/scenes/
 *.md
 .gitignore
 platformio.ini
