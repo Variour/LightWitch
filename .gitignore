@@ -2,4 +2,4 @@
 .vscode/
 data/*.gz
 node_modules/
-.DS_Store
+.DS_Storetest-results/
