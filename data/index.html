@@ -1104,14 +1104,26 @@ const _pushSharedFields = [
 ];
 const _pushDeviceFields = ['push-ledType']; // deviceName has no "use current"
 
-function toggleField(id, useLocal) {
+// Sensitive fields: firmware fills the value; field is disabled when checked
+const _pushSensitiveFields = new Set([
+  'push-wifiPassword','push-apPassword','push-mqttPassword','push-githubToken'
+]);
+
+function toggleField(id, checked) {
   const el = document.getElementById(id);
-  el.disabled = useLocal;
-  if (el.tagName === 'SELECT') {
-    if (!useLocal) el.value = '';
+  if (_pushSensitiveFields.has(id)) {
+    el.disabled = checked;
+    el.placeholder = checked ? '(current value)' : '(leave blank to keep unchanged)';
+    if (checked) el.value = '';
   } else {
-    el.placeholder = useLocal ? '(current value)' : '(leave blank to keep unchanged)';
-    if (useLocal) el.value = '';
+    // Non-sensitive: insert value from local config when checked, clear when unchecked
+    const key = id.replace('push-', '');
+    if (el.tagName === 'SELECT') {
+      const val = _localConfig[key];
+      el.value = checked && val != null ? String(val) : '';
+    } else {
+      el.value = checked && _localConfig[key] != null ? _localConfig[key] : '';
+    }
   }
 }
 
@@ -1125,6 +1137,20 @@ function setAllPushFields(checked) {
     toggleField(id, checked);
   });
 }
+
+// Auto-uncheck "use current" for non-sensitive fields when the user edits the value
+document.addEventListener('DOMContentLoaded', () => {
+  [..._pushSharedFields, ..._pushDeviceFields]
+    .filter(id => !_pushSensitiveFields.has(id))
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
+        const cb = document.getElementById(id + '-ul');
+        if (cb) cb.checked = false;
+      });
+    });
+});
 
 function openPushModal(mac, peerName) {
   _pushTarget = mac || null;
@@ -1161,37 +1187,32 @@ async function submitPushConfig() {
   }
 
   const useLocal = [];
+  const isSensitive = id => _pushSensitiveFields.has(id);
   const ul = id => document.getElementById(id + '-ul')?.checked;
 
-  const strField = (elId, key) => {
+  // Sensitive fields: checked → firmware fills via useLocal; unchecked → read typed value
+  const sensitiveStr = (elId, key) => {
     if (ul(elId)) { useLocal.push(key); return; }
     const v = document.getElementById(elId).value.trim(); if (v) body[key] = v;
   };
-  const numField = (elId, key) => {
-    if (ul(elId)) { useLocal.push(key); return; }
-    const v = document.getElementById(elId).value.trim(); if (v) body[key] = parseInt(v);
-  };
-  const boolField = (elId, key) => {
-    if (ul(elId)) { useLocal.push(key); return; }
-    const v = document.getElementById(elId).value; if (v !== '') body[key] = v === 'true';
-  };
-  const intField = (elId, key) => {
-    if (ul(elId)) { useLocal.push(key); return; }
-    const v = document.getElementById(elId).value; if (v !== '') body[key] = parseInt(v);
-  };
+  // Non-sensitive fields: value already in field (populated by checkbox or typed by user)
+  const str  = (elId, key) => { const v = document.getElementById(elId).value.trim(); if (v) body[key] = v; };
+  const num  = (elId, key) => { const v = document.getElementById(elId).value.trim(); if (v) body[key] = parseInt(v); };
+  const bool = (elId, key) => { const v = document.getElementById(elId).value; if (v !== '') body[key] = v === 'true'; };
+  const int  = (elId, key) => { const v = document.getElementById(elId).value; if (v !== '') body[key] = parseInt(v); };
 
-  strField('push-wifiSsid',         'wifiSsid');
-  strField('push-wifiPassword',     'wifiPassword');
-  strField('push-apPassword',       'apPassword');
-  strField('push-mqttHost',         'mqttHost');
-  numField('push-mqttPort',         'mqttPort');
-  strField('push-mqttUser',         'mqttUser');
-  strField('push-mqttPassword',     'mqttPassword');
-  strField('push-githubRepo',       'githubRepo');
-  strField('push-githubToken',      'githubToken');
-  boolField('push-otaEnabled',      'otaEnabled');
-  boolField('push-sceneSyncEnabled','sceneSyncEnabled');
-  if (_pushTarget) intField('push-ledType', 'ledType');
+  str('push-wifiSsid',              'wifiSsid');
+  sensitiveStr('push-wifiPassword', 'wifiPassword');
+  sensitiveStr('push-apPassword',   'apPassword');
+  str('push-mqttHost',              'mqttHost');
+  num('push-mqttPort',              'mqttPort');
+  str('push-mqttUser',              'mqttUser');
+  sensitiveStr('push-mqttPassword', 'mqttPassword');
+  str('push-githubRepo',            'githubRepo');
+  sensitiveStr('push-githubToken',  'githubToken');
+  bool('push-otaEnabled',           'otaEnabled');
+  bool('push-sceneSyncEnabled',     'sceneSyncEnabled');
+  if (_pushTarget) int('push-ledType', 'ledType');
 
   if (useLocal.length) body.useLocal = useLocal;
 

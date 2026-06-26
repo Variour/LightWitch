@@ -800,33 +800,25 @@ private:
                 if (strcmp(v.as<const char*>(), key) == 0) return true;
             return false;
         };
-        auto addStrField = [&](const char* key, const char* localVal, size_t minLen = 0) {
-            if (isUseLocal(key)) { if (strlen(localVal) >= minLen) { payload[key] = localVal; any = true; } }
-            else addStr(key, minLen);
-        };
-        auto addBoolField = [&](const char* key, bool localVal) {
-            if (isUseLocal(key)) { payload[key] = localVal; any = true; }
-            else addBool(key);
-        };
-
-        // Shared fields
-        addStrField("wifiSsid",        c.wifiSsid);
-        addStrField("wifiPassword",    c.wifiPassword,  1);
+        // Shared fields (non-sensitive values arrive directly; sensitive ones via useLocal)
+        addStr("wifiSsid");
+        if (isUseLocal("wifiPassword")) { payload["wifiPassword"] = c.wifiPassword; any = true; }
+        else addStr("wifiPassword", 1);
         if (isUseLocal("apPassword")) { if (strlen(c.apPassword) >= 8) { payload["apPassword"] = c.apPassword; any = true; } }
         else addStr("apPassword", 8);
-        addStrField("mqttHost",        c.mqttHost);
-        if (isUseLocal("mqttPort"))   { payload["mqttPort"] = c.mqttPort; any = true; } else addNum("mqttPort");
-        addStrField("mqttUser",        c.mqttUser);
-        addStrField("mqttPassword",    c.mqttPassword,  1);
-        addStrField("githubRepo",      c.githubRepo);
-        addStrField("githubToken",     c.githubToken,   1);
-        addBoolField("otaEnabled",     c.otaEnabled);
-        addBoolField("sceneSyncEnabled", c.sceneSyncEnabled);
+        addStr("mqttHost");
+        addNum("mqttPort");
+        addStr("mqttUser");
+        if (isUseLocal("mqttPassword")) { payload["mqttPassword"] = c.mqttPassword; any = true; }
+        else addStr("mqttPassword", 1);
+        addStr("githubRepo");
+        if (isUseLocal("githubToken")) { payload["githubToken"] = c.githubToken; any = true; }
+        else addStr("githubToken", 1);
+        addBool("otaEnabled");
+        addBool("sceneSyncEnabled");
 
-        // Per-device: ledType
-        if (hasTarget) {
-            if (isUseLocal("ledType")) { payload["ledType"] = (int)c.ledType; any = true; }
-        }
+        // Per-device: ledType arrives directly (value selected in UI)
+        if (hasTarget) addNum("ledType");
 
         if (!any) {
             auto e = _makeErr("no fields to push"); _sendJson(r, 400, e); return;
