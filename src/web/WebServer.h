@@ -25,6 +25,8 @@ using SetRemoteSyncCb     = std::function<void(const uint8_t* mac, bool enabled)
 using ResolveConflictCb   = std::function<void(const char* id, const uint8_t* sourceMac)>;
 // Called to push syncable config to peers via mesh (targetMac all-zeros = all, json payload)
 using PushConfigCb        = std::function<void(const uint8_t* targetMac, const char* json, size_t len)>;
+// Called to broadcast a firmware update trigger to a specific peer
+using TriggerPeerUpdateCb = std::function<void(const uint8_t* mac)>;
 
 class BatteryWebServer {
 private:
@@ -53,7 +55,8 @@ public:
                SceneSyncManager* sceneSync = nullptr,
                SetRemoteSyncCb onSetRemoteSync = nullptr,
                ResolveConflictCb onResolveConflict = nullptr,
-               PushConfigCb onPushConfig = nullptr) {
+               PushConfigCb onPushConfig = nullptr,
+               TriggerPeerUpdateCb onTriggerPeerUpdate = nullptr) {
         _onGroupChange      = onGroupChange;
         _onGroupLight       = onGroupLight;
         _onGroupSync        = onGroupSync;
@@ -61,8 +64,9 @@ public:
         _peers              = peers;
         _sceneSync          = sceneSync;
         _onSetRemoteSync    = onSetRemoteSync;
-        _onResolveConflict  = onResolveConflict;
-        _onPushConfig       = onPushConfig;
+        _onResolveConflict    = onResolveConflict;
+        _onPushConfig         = onPushConfig;
+        _onTriggerPeerUpdate  = onTriggerPeerUpdate;
 
         Logger::i("[web] starting on port 80");
         _server.addHandler(&_reqLogger);
@@ -225,6 +229,14 @@ public:
         _server.on("/api/peers/pushconfig", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _pushConfig(r,d,l); });
 
+        _server.on("/api/peers/triggerupdate", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _triggerPeerUpdate(r,d,l); });
+
+        _server.on("/api/update/trigger", HTTP_POST, [](AsyncWebServerRequest* r) {
+            Updater::triggerAsync();
+            r->send(200, "application/json", "{\"ok\":true}");
+        });
+
         _server.on("/api/update/status", HTTP_GET, [](AsyncWebServerRequest* r) {
             auto& s = Updater::status();
             JsonDocument doc;
@@ -293,10 +305,11 @@ private:
     GroupLightCb      _onGroupLight;
     GroupSyncCb       _onGroupSync;
     SetRemoteGroupCb  _onSetRemote;
-    SetRemoteSyncCb   _onSetRemoteSync;
-    ResolveConflictCb _onResolveConflict;
-    PushConfigCb      _onPushConfig;
-    SceneSyncManager* _sceneSync = nullptr;
+    SetRemoteSyncCb     _onSetRemoteSync;
+    ResolveConflictCb   _onResolveConflict;
+    PushConfigCb        _onPushConfig;
+    TriggerPeerUpdateCb _onTriggerPeerUpdate;
+    SceneSyncManager*   _sceneSync = nullptr;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -852,6 +865,23 @@ private:
             auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
         }
         if (_onSetRemoteSync) _onSetRemoteSync(mac, enabled);
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/peers/triggerupdate ─────────────────────────────────────────
+    void _triggerPeerUpdate(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len)) {
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
+        }
+        const char* macStr = doc["mac"] | "";
+        uint8_t mac[6];
+        if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                   &mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]) != 6) {
+            auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
+        }
+        Logger::i("[web] trigger-update for %s", macStr);
+        if (_onTriggerPeerUpdate) _onTriggerPeerUpdate(mac);
         auto ok = _makeOk(); _sendJson(r, 200, ok);
     }
 

@@ -28,19 +28,22 @@ public:
     using SetSceneSyncCb   = std::function<void(bool enabled)>;
     // Config push callback — srcMac is the sender, used to ignore own broadcasts
     using ConfigChunkCb    = std::function<void(const uint8_t* srcMac, const ConfigChunkMsg*)>;
+    // Called when this device is told to trigger a firmware update
+    using TriggerUpdateCb  = std::function<void()>;
 
-    void setOnLightConfig(LightConfigCb cb)     { _onLightConfig    = cb; }
-    void setOnPresence(PresenceCb cb)            { _onPresence       = cb; }
-    void setOnSetGroup(SetGroupCb cb)            { _onSetGroup       = cb; }
-    void setOnGroupSync(GroupSyncCb cb)          { _onGroupSync      = cb; }
-    void setOnPhaseSync(PhaseSyncCb cb)          { _onPhaseSync      = cb; }
-    void setGetPhase(GetPhaseCb cb)              { _getPhase         = cb; }
-    void setOnSceneManifest(SceneManifestCb cb)  { _onSceneManifest  = cb; }
-    void setOnSceneRequest(SceneRequestCb cb)    { _onSceneRequest   = cb; }
-    void setOnSceneChunk(SceneChunkCb cb)        { _onSceneChunk     = cb; }
-    void setOnSceneForceSet(SceneForceSetCb cb)  { _onSceneForceSet  = cb; }
-    void setOnSetSceneSync(SetSceneSyncCb cb)    { _onSetSceneSync   = cb; }
-    void setOnConfigChunk(ConfigChunkCb cb)      { _onConfigChunk    = cb; }
+    void setOnLightConfig(LightConfigCb cb)      { _onLightConfig    = cb; }
+    void setOnPresence(PresenceCb cb)             { _onPresence       = cb; }
+    void setOnSetGroup(SetGroupCb cb)             { _onSetGroup       = cb; }
+    void setOnGroupSync(GroupSyncCb cb)           { _onGroupSync      = cb; }
+    void setOnPhaseSync(PhaseSyncCb cb)           { _onPhaseSync      = cb; }
+    void setGetPhase(GetPhaseCb cb)               { _getPhase         = cb; }
+    void setOnSceneManifest(SceneManifestCb cb)   { _onSceneManifest  = cb; }
+    void setOnSceneRequest(SceneRequestCb cb)     { _onSceneRequest   = cb; }
+    void setOnSceneChunk(SceneChunkCb cb)         { _onSceneChunk     = cb; }
+    void setOnSceneForceSet(SceneForceSetCb cb)   { _onSceneForceSet  = cb; }
+    void setOnSetSceneSync(SetSceneSyncCb cb)     { _onSetSceneSync   = cb; }
+    void setOnConfigChunk(ConfigChunkCb cb)       { _onConfigChunk    = cb; }
+    void setOnTriggerUpdate(TriggerUpdateCb cb)   { _onTriggerUpdate  = cb; }
 
     void begin() {
         _instance = this;
@@ -189,6 +192,13 @@ public:
         _send(&msg, sizeof(msg));
     }
 
+    void broadcastTriggerUpdate(const uint8_t* targetMac) {
+        if (!_ready) return;
+        TriggerUpdateMsg msg;
+        memcpy(msg.targetMac, targetMac, 6);
+        _send(&msg, sizeof(msg));
+    }
+
     // Re-broadcast all known groups (called when a new peer is seen)
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
@@ -219,6 +229,7 @@ private:
     SceneForceSetCb _onSceneForceSet;
     SetSceneSyncCb  _onSetSceneSync;
     ConfigChunkCb   _onConfigChunk;
+    TriggerUpdateCb _onTriggerUpdate;
 
     static MeshManager* _instance;
 
@@ -360,6 +371,17 @@ private:
                 if (len < (int)(sizeof(ConfigChunkMsg) - CONFIG_CHUNK_DATA_SIZE)) return;
                 auto* m = (ConfigChunkMsg*)data;
                 if (_instance->_onConfigChunk) _instance->_onConfigChunk(mac, m);
+                break;
+            }
+            case MsgType::TriggerUpdate: {
+                if (len < (int)sizeof(TriggerUpdateMsg)) return;
+                auto* m = (TriggerUpdateMsg*)data;
+                uint8_t own[6];
+                WiFi.macAddress(own);
+                if (memcmp(m->targetMac, own, 6) == 0) {
+                    Logger::i("[mesh] trigger-update rx");
+                    if (_instance->_onTriggerUpdate) _instance->_onTriggerUpdate();
+                }
                 break;
             }
             default:

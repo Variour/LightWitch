@@ -78,7 +78,8 @@ app.post('/api/config', (_req, res) => res.json({ ok: true }));
 app.get('/api/peers', (_req, res) => res.json({ self: MOCK_SELF, peers: MOCK_PEERS }));
 app.post('/api/peers/setgroup',     (_req, res) => res.json({ ok: true }));
 app.post('/api/peers/setscenesync', (_req, res) => res.json({ ok: true }));
-app.post('/api/peers/pushconfig',   (_req, res) => res.json({ ok: true }));
+app.post('/api/peers/pushconfig',      (_req, res) => res.json({ ok: true }));
+app.post('/api/peers/triggerupdate',   (_req, res) => res.json({ ok: true }));
 
 app.get('/api/scenes', (_req, res) => {
   const list = [...scenes.values()].map(({ id, name, w, h, fc }) => ({ id, name, w, h, fc }));
@@ -161,6 +162,29 @@ app.post('/api/update/apply', (_req, res) => {
       mockUpdate.state = 'done';
     }
   }, 500);
+});
+
+app.post('/api/update/trigger', (_req, res) => {
+  res.json({ ok: true });
+  if (mockUpdate.hasUpdate) {
+    // Simulate the apply flow
+    mockUpdate.state = 'downloading';
+    mockUpdate.progress = 0;
+    let p = 0;
+    const iv = setInterval(() => {
+      p += 10;
+      mockUpdate.progress = p;
+      if (p >= 100) { clearInterval(iv); mockUpdate.state = 'done'; }
+    }, 500);
+  } else {
+    // Simulate check then apply
+    mockUpdate.state = 'checking';
+    setTimeout(() => {
+      mockUpdate.state = 'idle';
+      mockUpdate.latestVersion = '9999.99.99.0';
+      mockUpdate.hasUpdate = true;
+    }, 2000);
+  }
 });
 
 app.get('/*path', (_req, res) => res.sendFile(join(DATA_DIR, 'index.html')));

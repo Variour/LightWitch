@@ -32,6 +32,10 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .btn-sm      { padding: .3rem .6rem; font-size: .78rem; }
 .btn-ghost   { background: #2a2a2a; color: #aaa; }
 .btn-primary:active { background: #1a5; }
+.btn-fw-trigger { background: none; border: none; padding: 0; cursor: pointer;
+                  line-height: 0; border-radius: 3px; }
+.btn-fw-trigger:hover { background: #2a2a2a; }
+.btn-fw-trigger:disabled { cursor: default; pointer-events: none; }
 
 /* Tab bar */
 .tab-bar { display: flex; gap: .4rem; margin-bottom: .75rem; }
@@ -1057,11 +1061,22 @@ function renderLights(self, peers) {
     let fwIconHtml = '–';
     if (ver) {
       const isNewest = compareVersions(ver, maxVersion) === 0;
-      const fwColor = isNewest ? '#4c4' : '#c84';
-      const fwTitle = isNewest
-        ? `v${ver} — newest on network`
-        : `v${ver} — older (newest: v${maxVersion})`;
-      fwIconHtml = `<span title="${fwTitle}">${fwSvg(fwColor)}</span>`;
+      const triggered = _fwTriggered.has(mac);
+      const fwColor = triggered ? '#4af' : (isNewest ? '#4c4' : '#c84');
+      const canTrigger = !isNewest && !triggered;
+      const fwTitle = triggered
+        ? `v${ver} — update triggered`
+        : (isNewest
+          ? `v${ver} — newest on network`
+          : `v${ver} — older (newest: v${maxVersion}) — click to trigger update`);
+      if (canTrigger) {
+        const handler = p.isSelf
+          ? `triggerSelfUpdate(this,'${mac}')`
+          : `triggerPeerUpdate(this,'${mac}')`;
+        fwIconHtml = `<button class="btn-fw-trigger" title="${fwTitle}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
+      } else {
+        fwIconHtml = `<span title="${fwTitle}">${fwSvg(fwColor)}</span>`;
+      }
     }
 
     const pushCell = p.isSelf ? '' : `<button class="btn-ghost btn-sm" onclick="openPushModal('${mac}','${esc(p.name)}')" title="Push settings to this device">Push</button>`;
@@ -1079,6 +1094,25 @@ function renderLights(self, peers) {
       <td style="text-align:center">${pushCell}</td>
     </tr>`;
   }).join('');
+}
+
+const _fwTriggered = new Set();
+
+function triggerPeerUpdate(btn, mac) {
+  btn.disabled = true;
+  _fwTriggered.add(mac);
+  fetch('/api/peers/triggerupdate', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({mac})
+  }).catch(() => {});
+  renderLights(_self, _peers);
+}
+
+function triggerSelfUpdate(btn, mac) {
+  btn.disabled = true;
+  _fwTriggered.add(mac);
+  fetch('/api/update/trigger', {method:'POST'}).catch(() => {});
+  renderLights(_self, _peers);
 }
 
 function assignGroup(mac, groupId) {
