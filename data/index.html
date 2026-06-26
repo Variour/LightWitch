@@ -1094,15 +1094,27 @@ function openPushModal(mac, peerName) {
     isAll ? 'Push config to all' : `Push config to ${peerName || mac}`;
   document.getElementById('push-device-section').style.display = isAll ? 'none' : '';
 
-  // Start all fields blank — user explicitly fills only what they want to push
-  ['push-deviceName','push-ledType','push-wifiSsid','push-wifiPassword',
-   'push-apPassword','push-mqttHost','push-mqttPort','push-mqttUser',
-   'push-mqttPassword','push-githubRepo','push-githubToken',
-   'push-otaEnabled','push-sceneSyncEnabled'].forEach(id => {
+  // Per-device fields start blank; shared fields pre-populate from local config
+  document.getElementById('push-deviceName').value = '';
+  document.getElementById('push-ledType').value = '';
+
+  const set = (id, val) => {
     const el = document.getElementById(id);
-    if (el.tagName === 'SELECT') el.value = '';
-    else el.value = '';
-  });
+    el.value = val != null ? val : '';
+  };
+  set('push-wifiSsid',         _localConfig.wifiSsid);
+  set('push-wifiPassword',     _localConfig.wifiPassword);
+  set('push-apPassword',       _localConfig.apPassword);
+  set('push-mqttHost',         _localConfig.mqttHost);
+  set('push-mqttPort',         _localConfig.mqttPort || '');
+  set('push-mqttUser',         _localConfig.mqttUser);
+  set('push-mqttPassword',     _localConfig.mqttPassword);
+  set('push-githubRepo',       _localConfig.githubRepo);
+  set('push-githubToken',      _localConfig.githubToken);
+  document.getElementById('push-otaEnabled').value =
+    _localConfig.otaEnabled != null ? String(_localConfig.otaEnabled) : '';
+  document.getElementById('push-sceneSyncEnabled').value =
+    _localConfig.sceneSyncEnabled != null ? String(_localConfig.sceneSyncEnabled) : '';
 
   const btn = document.getElementById('push-submit-btn');
   btn.disabled = false;
