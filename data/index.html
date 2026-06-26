@@ -297,8 +297,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   <div class="card">
     <h2>Connected Lights</h2>
     <table class="lights-table">
-      <thead><tr><th>Name</th><th>Group</th><th>Signal</th><th>Sync</th></tr></thead>
-      <tbody id="lights-body"><tr><td colspan="4" style="color:#444">Loading…</td></tr></tbody>
+      <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th>Signal</th><th>Fw</th><th>Sync</th></tr></thead>
+      <tbody id="lights-body"><tr><td colspan="6" style="color:#444">Loading…</td></tr></tbody>
     </table>
   </div>
 
@@ -918,6 +918,17 @@ async function deleteGroup(id) {
 }
 
 // ── Lights table ──────────────────────────────────────────────────────────────
+function compareVersions(a, b) {
+  if (a === b) return 0;
+  const pa = (a || '').split('.').map(Number);
+  const pb = (b || '').split('.').map(Number);
+  for (let i = 0; i < 4; i++) {
+    const na = pa[i] || 0, nb = pb[i] || 0;
+    if (na !== nb) return na < nb ? -1 : 1;
+  }
+  return 0;
+}
+
 function renderLights(self, peers) {
   _self  = self;
   _peers = peers;
@@ -928,18 +939,42 @@ function renderLights(self, peers) {
   const body = document.getElementById('lights-body');
 
   if (!all.length) {
-    body.innerHTML = '<tr><td colspan="3" style="color:#444">No lights found</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" style="color:#444">No lights found</td></tr>';
     return;
   }
 
+  const knownVersions = all.map(p => p.version || '').filter(Boolean);
+  const maxVersion = knownVersions.length
+    ? knownVersions.reduce((a, b) => compareVersions(a, b) >= 0 ? a : b)
+    : '';
+
+  const fwSvg = (color) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg>`;
+
   body.innerHTML = all.map(p => {
     const online = p.online !== false;
-    const dot = `<span class="dot ${online?'dot-on':'dot-off'}"></span>`;
+    const dot = `<span class="dot ${online?'dot-on':'dot-off'}" title="${online?'Online':'Offline'}"></span>`;
     const selfTag = p.isSelf ? `<span class="self-tag">(this)</span>` : '';
     const mac = p.mac || '';
     const rssiText = (!p.isSelf && online && p.rssi != null) ? `${p.rssi} dBm` : '–';
     const syncEnabled = p.sceneSyncEnabled !== false;
     const syncCell = `<input type="checkbox" title="Scene sync" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)" style="accent-color:#4af;cursor:pointer">`;
+
+    const wifiOn = p.wifiConnected === true;
+    const wifiColor = wifiOn ? '#4c4' : '#555';
+    const wifiTitle = wifiOn ? 'WiFi connected' : 'WiFi not connected';
+    const wifiIcon = `<span title="${wifiTitle}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
+
+    const ver = p.version || '';
+    let fwIconHtml = '–';
+    if (ver) {
+      const isNewest = compareVersions(ver, maxVersion) === 0;
+      const fwColor = isNewest ? '#4c4' : '#c84';
+      const fwTitle = isNewest
+        ? `v${ver} — newest on network`
+        : `v${ver} — older (newest: v${maxVersion})`;
+      fwIconHtml = `<span title="${fwTitle}">${fwSvg(fwColor)}</span>`;
+    }
+
     return `<tr>
       <td>${dot}${esc(p.name)}${selfTag}</td>
       <td>
@@ -947,7 +982,9 @@ function renderLights(self, peers) {
           ${_groups.map(g=>`<option value="${g.id}"${g.id===p.groupId?' selected':''}>${esc(g.name)}</option>`).join('')}
         </select>
       </td>
+      <td style="text-align:center">${wifiIcon}</td>
       <td style="text-align:right;font-size:.78rem;color:#666;white-space:nowrap">${rssiText}</td>
+      <td style="text-align:center;color:#444;font-size:.78rem">${fwIconHtml}</td>
       <td style="text-align:center">${syncCell}</td>
     </tr>`;
   }).join('');

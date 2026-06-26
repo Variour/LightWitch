@@ -8,6 +8,7 @@
 #include "PeerRegistry.h"
 #include "../config/Config.h"
 #include "../logging/Logger.h"
+#include "../version.h"
 
 class MeshManager {
 public:
@@ -218,6 +219,8 @@ private:
         msg.groupId           = Config::get().groupId;
         msg.sceneSyncEnabled  = Config::get().sceneSyncEnabled ? 1 : 0;
         strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
+        msg.wifiConnected     = (WiFi.status() == WL_CONNECTED) ? 1 : 0;
+        strlcpy(msg.fwVersion, FW_VERSION, sizeof(msg.fwVersion));
         _send(&msg, sizeof(msg));
     }
 
@@ -250,10 +253,12 @@ private:
 
         switch (type) {
             case MsgType::Presence: {
-                if (len < (int)sizeof(PresenceMsg)) return;
+                if (len < (int)PRESENCE_MSG_V1_SIZE) return;
                 auto* m = (PresenceMsg*)data;
                 bool sceneSyncEnabled = m->sceneSyncEnabled != 0;
-                bool isNew = _instance->peers.update(mac, m->name, m->groupId, sceneSyncEnabled);
+                bool wifiConnected    = (len >= (int)sizeof(PresenceMsg)) ? (m->wifiConnected != 0) : false;
+                const char* fwVersion = (len >= (int)sizeof(PresenceMsg)) ? m->fwVersion : "";
+                bool isNew = _instance->peers.update(mac, m->name, m->groupId, sceneSyncEnabled, wifiConnected, fwVersion);
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, m->groupId, isNew);
                 if (isNew) _instance->broadcastAllGroups();
                 break;

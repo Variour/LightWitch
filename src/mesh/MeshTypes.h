@@ -20,8 +20,11 @@ struct PresenceMsg {
     MsgType type    = MsgType::Presence;
     char    name[32];
     uint8_t groupId;
-    uint8_t sceneSyncEnabled;  // 1 = enabled, 0 = disabled
+    uint8_t sceneSyncEnabled;  // 1 = enabled, 0 = disabled  (v1 ends here — 35 bytes)
+    uint8_t wifiConnected;     // v2: 1 = connected to WiFi, 0 = not
+    char    fwVersion[16];     // v2: null-terminated firmware version string
 };
+static constexpr size_t PRESENCE_MSG_V1_SIZE = 35;
 
 struct LightConfigMsg {
     MsgType     type;
