@@ -692,7 +692,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <h2 style="margin:0" id="push-modal-title">Push config</h2>
         <button class="btn-ghost btn-sm" onclick="closePushModal()">✕</button>
       </div>
-      <p style="font-size:.82rem;color:#777;margin-bottom:.75rem">Only filled-in fields will be pushed. Leave a field blank to keep the current value on the target device.</p>
+      <p style="font-size:.82rem;color:#777;margin-bottom:.75rem">Only filled-in fields will be pushed. Leave a field blank to keep the current value on the target device. Password fields with "Use current" checked are filled in by this device before sending — the value never appears in the browser.</p>
 
       <div id="push-device-section">
         <hr class="section-divider">
@@ -712,27 +712,39 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
       <label>SSID</label>
       <input type="text" id="push-wifiSsid" placeholder="(leave blank to keep unchanged)">
       <label>Password</label>
-      <input type="password" id="push-wifiPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password">
-      <label>AP Password <small>(min 8 chars)</small></label>
-      <input type="password" id="push-apPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password">
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <input type="password" id="push-wifiPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password" style="flex:1;margin-bottom:0">
+        <label style="display:flex;align-items:center;gap:.3rem;font-weight:normal;font-size:.82rem;white-space:nowrap;margin-bottom:0"><input type="checkbox" id="push-wifiPassword-useLocal" onchange="togglePwField('push-wifiPassword',this.checked)"> Use current</label>
+      </div>
+      <label style="margin-top:.5rem">AP Password <small>(min 8 chars)</small></label>
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <input type="password" id="push-apPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password" style="flex:1;margin-bottom:0">
+        <label style="display:flex;align-items:center;gap:.3rem;font-weight:normal;font-size:.82rem;white-space:nowrap;margin-bottom:0"><input type="checkbox" id="push-apPassword-useLocal" onchange="togglePwField('push-apPassword',this.checked)"> Use current</label>
+      </div>
 
       <hr class="section-divider">
       <h3>MQTT <small>(leave broker blank to disable)</small></h3>
-      <label>Broker host</label>
+      <label style="margin-top:.5rem">Broker host</label>
       <input type="text" id="push-mqttHost" placeholder="(leave blank to keep unchanged)">
       <label>Port</label>
       <input type="number" id="push-mqttPort" placeholder="(leave blank to keep unchanged)" min="1" max="65535">
       <label>Username</label>
       <input type="text" id="push-mqttUser" placeholder="(leave blank to keep unchanged)">
       <label>Password</label>
-      <input type="password" id="push-mqttPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password">
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <input type="password" id="push-mqttPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password" style="flex:1;margin-bottom:0">
+        <label style="display:flex;align-items:center;gap:.3rem;font-weight:normal;font-size:.82rem;white-space:nowrap;margin-bottom:0"><input type="checkbox" id="push-mqttPassword-useLocal" onchange="togglePwField('push-mqttPassword',this.checked)"> Use current</label>
+      </div>
 
       <hr class="section-divider">
       <h3>GitHub</h3>
-      <label>Repository</label>
+      <label style="margin-top:.5rem">Repository</label>
       <input type="text" id="push-githubRepo" placeholder="(leave blank to keep unchanged)">
       <label>Token</label>
-      <input type="password" id="push-githubToken" placeholder="(leave blank to keep unchanged)" autocomplete="new-password">
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <input type="password" id="push-githubToken" placeholder="(leave blank to keep unchanged)" autocomplete="new-password" style="flex:1;margin-bottom:0">
+        <label style="display:flex;align-items:center;gap:.3rem;font-weight:normal;font-size:.82rem;white-space:nowrap;margin-bottom:0"><input type="checkbox" id="push-githubToken-useLocal" onchange="togglePwField('push-githubToken',this.checked)"> Use current</label>
+      </div>
 
       <hr class="section-divider">
       <h3>Options</h3>
@@ -1087,6 +1099,15 @@ function setSceneSync(mac, enabled) {
   });
 }
 
+const _pwFields = ['push-wifiPassword', 'push-apPassword', 'push-mqttPassword', 'push-githubToken'];
+
+function togglePwField(id, useLocal) {
+  const el = document.getElementById(id);
+  el.disabled = useLocal;
+  el.placeholder = useLocal ? '(current value)' : '(leave blank to keep unchanged)';
+  if (useLocal) el.value = '';
+}
+
 function openPushModal(mac, peerName) {
   _pushTarget = mac || null;
   const isAll = !_pushTarget;
@@ -1094,27 +1115,28 @@ function openPushModal(mac, peerName) {
     isAll ? 'Push config to all' : `Push config to ${peerName || mac}`;
   document.getElementById('push-device-section').style.display = isAll ? 'none' : '';
 
-  // Per-device fields start blank; shared fields pre-populate from local config
+  // Per-device fields start blank
   document.getElementById('push-deviceName').value = '';
   document.getElementById('push-ledType').value = '';
 
-  const set = (id, val) => {
-    const el = document.getElementById(id);
-    el.value = val != null ? val : '';
-  };
-  set('push-wifiSsid',         _localConfig.wifiSsid);
-  set('push-wifiPassword',     _localConfig.wifiPassword);
-  set('push-apPassword',       _localConfig.apPassword);
-  set('push-mqttHost',         _localConfig.mqttHost);
-  set('push-mqttPort',         _localConfig.mqttPort || '');
-  set('push-mqttUser',         _localConfig.mqttUser);
-  set('push-mqttPassword',     _localConfig.mqttPassword);
-  set('push-githubRepo',       _localConfig.githubRepo);
-  set('push-githubToken',      _localConfig.githubToken);
+  // Non-password shared fields pre-populate from local config
+  const set = (id, val) => { document.getElementById(id).value = val != null ? val : ''; };
+  set('push-wifiSsid',   _localConfig.wifiSsid);
+  set('push-mqttHost',   _localConfig.mqttHost);
+  set('push-mqttPort',   _localConfig.mqttPort || '');
+  set('push-mqttUser',   _localConfig.mqttUser);
+  set('push-githubRepo', _localConfig.githubRepo);
   document.getElementById('push-otaEnabled').value =
     _localConfig.otaEnabled != null ? String(_localConfig.otaEnabled) : '';
   document.getElementById('push-sceneSyncEnabled').value =
     _localConfig.sceneSyncEnabled != null ? String(_localConfig.sceneSyncEnabled) : '';
+
+  // Password checkboxes: checked by default for push-to-all, unchecked for single device
+  _pwFields.forEach(id => {
+    const cb = document.getElementById(id + '-useLocal');
+    cb.checked = isAll;
+    togglePwField(id, isAll);
+  });
 
   const btn = document.getElementById('push-submit-btn');
   btn.disabled = false;
@@ -1140,16 +1162,30 @@ async function submitPushConfig() {
   }
 
   const str = (id, key) => { const v = document.getElementById(id).value.trim(); if (v) body[key] = v; };
-  str('push-wifiSsid',     'wifiSsid');
-  str('push-wifiPassword', 'wifiPassword');
-  str('push-apPassword',   'apPassword');
-  str('push-mqttHost',     'mqttHost');
+  str('push-wifiSsid',   'wifiSsid');
+  str('push-mqttHost',   'mqttHost');
   const port = document.getElementById('push-mqttPort').value.trim();
   if (port) body.mqttPort = parseInt(port);
-  str('push-mqttUser',     'mqttUser');
-  str('push-mqttPassword', 'mqttPassword');
-  str('push-githubRepo',   'githubRepo');
-  str('push-githubToken',  'githubToken');
+  str('push-mqttUser',   'mqttUser');
+  str('push-githubRepo', 'githubRepo');
+
+  // Password fields: either useLocal sentinel or explicit value
+  const pwKeyMap = {
+    'push-wifiPassword': 'wifiPassword',
+    'push-apPassword':   'apPassword',
+    'push-mqttPassword': 'mqttPassword',
+    'push-githubToken':  'githubToken',
+  };
+  const useLocal = [];
+  for (const [elId, key] of Object.entries(pwKeyMap)) {
+    if (document.getElementById(elId + '-useLocal').checked) {
+      useLocal.push(key);
+    } else {
+      const v = document.getElementById(elId).value.trim();
+      if (v) body[key] = v;
+    }
+  }
+  if (useLocal.length) body.useLocal = useLocal;
   const boolSel = (id, key) => {
     const v = document.getElementById(id).value;
     if (v !== '') body[key] = v === 'true';
@@ -1157,8 +1193,8 @@ async function submitPushConfig() {
   boolSel('push-otaEnabled',       'otaEnabled');
   boolSel('push-sceneSyncEnabled', 'sceneSyncEnabled');
 
-  const payloadKeys = Object.keys(body).filter(k => k !== 'mac');
-  if (!payloadKeys.length) {
+  const payloadKeys = Object.keys(body).filter(k => k !== 'mac' && k !== 'useLocal');
+  if (!payloadKeys.length && !useLocal.length) {
     alert('Fill in at least one field to push.');
     return;
   }

@@ -795,16 +795,28 @@ private:
             }
         }
 
+        // useLocal: fields the UI wants filled from this device's own config
+        auto& c = Config::get();
+        JsonArray useLocal = doc["useLocal"].as<JsonArray>();
+        auto isUseLocal = [&](const char* key) -> bool {
+            for (JsonVariant v : useLocal)
+                if (strcmp(v.as<const char*>(), key) == 0) return true;
+            return false;
+        };
         // Shared fields
         addStr("wifiSsid");
-        addStr("wifiPassword", 1);
-        addStr("apPassword",   8);
+        if (isUseLocal("wifiPassword")) { payload["wifiPassword"] = c.wifiPassword; any = true; }
+        else addStr("wifiPassword", 1);
+        if (isUseLocal("apPassword"))   { if (strlen(c.apPassword) >= 8) { payload["apPassword"] = c.apPassword; any = true; } }
+        else addStr("apPassword", 8);
         addStr("mqttHost");
         addNum("mqttPort");
         addStr("mqttUser");
-        addStr("mqttPassword", 1);
+        if (isUseLocal("mqttPassword")) { payload["mqttPassword"] = c.mqttPassword; any = true; }
+        else addStr("mqttPassword", 1);
         addStr("githubRepo");
-        addStr("githubToken",  1);
+        if (isUseLocal("githubToken"))  { payload["githubToken"] = c.githubToken; any = true; }
+        else addStr("githubToken",  1);
         addBool("otaEnabled");
         addBool("sceneSyncEnabled");
 
