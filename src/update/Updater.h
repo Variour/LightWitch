@@ -4,6 +4,7 @@
 #include <WiFiClientSecure.h>
 #include <Update.h>
 #include <ArduinoJson.h>
+#include <atomic>
 #include "../config/Config.h"
 #include "../logging/Logger.h"
 #include "../version.h"
@@ -44,8 +45,22 @@ public:
         xTaskCreate(_applyTask, "fw_apply", 8192, nullptr, 1, nullptr);
     }
 
+    // Trigger: applies immediately if update already known, otherwise checks first
+    // and auto-applies once the check completes. Safe to call from web/mesh handler.
+    static void triggerAsync() {
+        if (_status.state == State::Downloading) return;
+        if (_status.hasUpdate) {
+            applyAsync();
+        } else {
+            _triggerPending = true;
+            if (_status.state != State::Checking)
+                checkAsync();
+        }
+    }
+
 private:
     static Status _status;
+    static std::atomic<bool> _triggerPending;
 
     static String _authHeader() {
         String h = "Bearer ";
@@ -201,6 +216,12 @@ private:
         bool ok = _fetchLatestRelease();
         if (!ok && !_status.error) _status.error = "check failed";
         _status.state = ok ? State::Idle : State::Error;
+        if (_triggerPending && _status.hasUpdate) {
+            _triggerPending = false;
+            applyAsync();
+        } else {
+            _triggerPending = false;
+        }
         vTaskDelete(nullptr);
     }
 
@@ -240,6 +261,7 @@ private:
 };
 
 inline Updater::Status Updater::_status;
+inline std::atomic<bool> Updater::_triggerPending{false};
 inline uint32_t        Updater::_firmwareAssetId = 0;
 inline uint32_t        Updater::_fsAssetId       = 0;
 inline char            Updater::_errorBuf[48]    = {};

@@ -193,6 +193,8 @@ void setup() {
         sceneSync.onSetSceneSync(enabled);
     });
 
+    mesh.setOnTriggerUpdate([]() { Updater::triggerAsync(); });
+
     mesh.setOnConfigChunk([](const uint8_t* srcMac, const ConfigChunkMsg* msg) {
         uint8_t own[6];
         WiFi.macAddress(own);
@@ -303,7 +305,10 @@ void setup() {
         // onPushConfig: push syncable settings to one or all peers via ESP-NOW
         [](const uint8_t* targetMac, const char* json, size_t len) {
             mesh.sendConfigChunks(targetMac, json, len);
-        }
+        },
+
+        // onTriggerPeerUpdate: broadcast a firmware update trigger to a specific peer
+        [](const uint8_t* mac) { mesh.broadcastTriggerUpdate(mac); }
     );
 
     Logger::i("[sys] ready");

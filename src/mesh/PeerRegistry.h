@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <functional>
 #include "../logging/Logger.h"
+#include "MeshTypes.h"
 
 struct PeerInfo {
     uint8_t  mac[6]            = {};
@@ -13,6 +14,7 @@ struct PeerInfo {
     bool     sceneSyncEnabled  = true;
     bool     wifiConnected     = false;
     char     fwVersion[16]     = {};
+    FwState  fwState           = FwState::Idle;
 
     bool online() const { return active && (millis() - lastSeen < 15000); }
 
@@ -33,7 +35,8 @@ public:
 
     // Returns true if the peer was newly seen (not previously active)
     bool update(const uint8_t* mac, const char* name, uint8_t groupId, bool sceneSyncEnabled = true,
-                bool wifiConnected = false, const char* fwVersion = "") {
+                bool wifiConnected = false, const char* fwVersion = "",
+                FwState fwState = FwState::Idle) {
         PeerInfo* p = _find(mac);
         bool isNew = (p == nullptr || !p->active);
         if (!p) p = _slot();
@@ -46,6 +49,7 @@ public:
         p->sceneSyncEnabled = sceneSyncEnabled;
         p->wifiConnected    = wifiConnected;
         strlcpy(p->fwVersion, fwVersion, sizeof(p->fwVersion));
+        p->fwState          = fwState;
         p->lastSeen         = millis();
         p->active           = true;
         if (isNew)

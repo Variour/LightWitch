@@ -14,8 +14,12 @@ enum class MsgType : uint8_t {
     SceneChunk    = 9,
     SceneForceSet = 10,
     SetSceneSync  = 11,
-    ConfigChunk   = 12,
+    ConfigChunk    = 12,
+    TriggerUpdate  = 13,
 };
+
+// fwState values for PresenceMsg (v3 field)
+enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
 
 struct PresenceMsg {
     MsgType type    = MsgType::Presence;
@@ -23,9 +27,11 @@ struct PresenceMsg {
     uint8_t groupId;
     uint8_t sceneSyncEnabled;  // 1 = enabled, 0 = disabled  (v1 ends here — 35 bytes)
     uint8_t wifiConnected;     // v2: 1 = connected to WiFi, 0 = not
-    char    fwVersion[16];     // v2: null-terminated firmware version string
+    char    fwVersion[16];     // v2: null-terminated firmware version string (52 bytes)
+    uint8_t fwState;           // v3: FwState enum value
 };
 static constexpr size_t PRESENCE_MSG_V1_SIZE = 35;
+static constexpr size_t PRESENCE_MSG_V2_SIZE = 52;
 
 struct LightConfigMsg {
     MsgType     type;
@@ -118,6 +124,13 @@ struct SetSceneSyncMsg {
     uint8_t enabled;  // 1 = enable, 0 = disable
 };
 // 8 bytes ✓
+
+// Tells a specific device to check for and apply a firmware update.
+struct TriggerUpdateMsg {
+    MsgType type = MsgType::TriggerUpdate;
+    uint8_t targetMac[6];
+};
+// 7 bytes ✓
 
 // ── Config push messages ──────────────────────────────────────────────────────
 
