@@ -27,7 +27,7 @@ const MOCK_CONFIG = {
   githubRepo: 'Variour/batterylight',
   groups: [
     { id: 0, name: 'Default',     exists: true, mode: 0, sceneId: '',          pattern: 0, r: 255, g: 200, b: 80,  brightness: 200, speed: 1, syncEnabled: true,  transitionEnabled: false, transitionTime: 1.0, proximityScale: 1.0 },
-    { id: 1, name: 'Scene Group', exists: true, mode: 1, sceneId: 'a1b2c3d4e5f6470789abcdef01234567', pattern: 0, r: 255, g: 100, b: 50, brightness: 180, speed: 1, syncEnabled: false, transitionEnabled: true,  transitionTime: 0.5, proximityScale: 1.0 },
+    { id: 1, name: 'Scene Group', exists: true, mode: 1, sceneId: 'a1b2c3d4e5f6470789abcdef', pattern: 0, r: 255, g: 100, b: 50, brightness: 180, speed: 1, syncEnabled: false, transitionEnabled: true,  transitionTime: 0.5, proximityScale: 1.0 },
   ],
 };
 
