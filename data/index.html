@@ -636,7 +636,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
       <label>SSID</label>
       <input type="text" id="wifiSsidAdd" placeholder="(device runs in AP mode when list is empty)">
       <label>Password</label>
-      <input type="password" id="wifiPasswordAdd" autocomplete="new-password">
+      <input type="password" id="wifiPasswordAdd" placeholder="(leave blank to skip)" autocomplete="new-password">
       <button class="btn-ghost" style="width:100%" onclick="addWifiNetwork()">Add network</button>
     </div>
     <label style="margin-top:.75rem">AP Password <small>(min 8 chars)</small></label>
@@ -730,7 +730,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <label style="margin-top:.4rem">SSID <small>(add one network to target)</small></label>
         <input type="text" id="push-wifiSsidNew" placeholder="(leave blank to skip)">
         <label>Password</label>
-        <input type="password" id="push-wifiPasswordNew" autocomplete="new-password">
+        <input type="password" id="push-wifiPasswordNew" placeholder="(leave blank to skip)" autocomplete="new-password">
       </div>
       <div class="push-fh" style="margin-top:.5rem"><span>AP Password <small>(min 8 chars)</small></span><label class="push-ul"><input type="checkbox" id="push-apPassword-ul" onchange="toggleField('push-apPassword',this.checked)"> Use current</label></div>
       <input type="password" id="push-apPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password">
