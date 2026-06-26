@@ -17,25 +17,11 @@ If a commit spans multiple scopes, use a more general scope, list both separated
 - Before starting with the implementation think through the request, identify any issues
 - Never assume default states
 
-## Release Notes
-
-Firmware releases use GitHub's auto-generated release notes, driven by PR labels. Every PR must have exactly one of these labels:
-
-- `enhancement` or `feature` — new functionality
-- `bug` or `fix` — bug fixes
-- `dependencies` — dependency updates (Dependabot applies this automatically)
-- `skip-changelog` — changes that should not appear in release notes (e.g. CI tweaks, docs, dev tooling fixes)
-
-Use the tool `github: issue write` to add the label
-
 ## Working on Issues
 
 - When working on an issue, always create a feature branch
-- Once done implementing the changes open a pull request into main
-- Never merge pull requests unless specifically asked
-- Add test checklists to PRs
-- when updating a branch with an open pr, review the test checklist and update it if necessary
-- if an issue contains research finish that first and confirm with the user, before making any write actions
+- If an issue contains research, finish that first and confirm with the user before making any write actions
+- To open a PR, use the `/open-pr` slash command — it contains all PR/label instructions
 
 ## UI Validation
 
