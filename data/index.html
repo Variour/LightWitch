@@ -1067,7 +1067,7 @@ function renderLights(self, peers) {
     const ver = p.version || '';
     let fwIconHtml = '–';
     if (ver) {
-      const isNewest = compareVersions(ver, maxVersion) === 0;
+      const isNewest = compareVersions(ver, maxVersion) === 0 && !(p.isSelf && _selfHasUpdate);
       const triggered = _fwTriggered.has(mac);
       const fwState = p.fwState || 'idle';
       const hasError = fwState === 'error';
@@ -1083,6 +1083,7 @@ function renderLights(self, peers) {
                     : fwState === 'done'     ? `v${ver} — update complete — rebooting…`
                     : inProgress             ? `v${ver} — update in progress…`
                     : isNewest               ? `v${ver} — newest on network`
+                    : (p.isSelf && _selfHasUpdate && _selfLatestVersion) ? `v${ver} — update available (v${_selfLatestVersion}) — click to trigger update`
                     :                          `v${ver} — older (newest: v${maxVersion}) — click to trigger update`;
       if (canTrigger) {
         const handler = p.isSelf
@@ -1387,6 +1388,8 @@ async function factoryReset() {
 
 // ── Firmware update ───────────────────────────────────────────────────────────
 let _updPollTimer = null;
+let _selfHasUpdate = false;
+let _selfLatestVersion = '';
 
 function _updSetStatus(text, color) {
   const el = document.getElementById('upd-status');
@@ -1428,6 +1431,9 @@ function _updPollStatus() {
 function _updApplyStatus(data) {
   if (data.latestVersion) document.getElementById('upd-latest').textContent = data.latestVersion;
   document.getElementById('update-badge').style.display = data.hasUpdate ? '' : 'none';
+  _selfHasUpdate = data.hasUpdate || false;
+  _selfLatestVersion = data.latestVersion || '';
+  if (_self) renderLights(_self, _peers);
   const applyBtn   = document.getElementById('upd-apply-btn');
   const progressWrap = document.getElementById('upd-progress-wrap');
   const checkBtn   = document.getElementById('upd-check-btn');
