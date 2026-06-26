@@ -8,6 +8,7 @@
 #include "PeerRegistry.h"
 #include "../config/Config.h"
 #include "../logging/Logger.h"
+#include "../update/Updater.h"
 #include "../version.h"
 
 class MeshManager {
@@ -254,6 +255,12 @@ private:
         strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
         msg.wifiConnected     = (WiFi.status() == WL_CONNECTED) ? 1 : 0;
         strlcpy(msg.fwVersion, FW_VERSION, sizeof(msg.fwVersion));
+        const auto& us = Updater::status();
+        msg.fwState = (uint8_t)(
+            us.state == Updater::State::Checking    ? FwState::Checking    :
+            us.state == Updater::State::Downloading ? FwState::Downloading :
+            us.state == Updater::State::Error       ? FwState::Error       :
+            us.state == Updater::State::Done        ? FwState::Done        : FwState::Idle);
         _send(&msg, sizeof(msg));
     }
 
@@ -289,9 +296,10 @@ private:
                 if (len < (int)PRESENCE_MSG_V1_SIZE) return;
                 auto* m = (PresenceMsg*)data;
                 bool sceneSyncEnabled = m->sceneSyncEnabled != 0;
-                bool wifiConnected    = (len >= (int)sizeof(PresenceMsg)) ? (m->wifiConnected != 0) : false;
-                const char* fwVersion = (len >= (int)sizeof(PresenceMsg)) ? m->fwVersion : "";
-                bool isNew = _instance->peers.update(mac, m->name, m->groupId, sceneSyncEnabled, wifiConnected, fwVersion);
+                bool wifiConnected    = (len >= (int)PRESENCE_MSG_V2_SIZE) ? (m->wifiConnected != 0) : false;
+                const char* fwVersion = (len >= (int)PRESENCE_MSG_V2_SIZE) ? m->fwVersion : "";
+                FwState fwState       = (len >= (int)sizeof(PresenceMsg))  ? (FwState)m->fwState : FwState::Idle;
+                bool isNew = _instance->peers.update(mac, m->name, m->groupId, sceneSyncEnabled, wifiConnected, fwVersion, fwState);
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, m->groupId, isNew);
                 if (isNew) _instance->broadcastAllGroups();
                 break;

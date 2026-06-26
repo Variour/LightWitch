@@ -437,6 +437,13 @@ private:
 
     void _buildPeersJson(JsonDocument& doc) {
         auto& c = Config::get();
+        const auto& us = Updater::status();
+        const char* selfFwState =
+            us.state == Updater::State::Checking    ? "checking"    :
+            us.state == Updater::State::Downloading ? "downloading" :
+            us.state == Updater::State::Error       ? "error"       :
+            us.state == Updater::State::Done        ? "done"        : "idle";
+
         auto self = doc["self"].to<JsonObject>();
         self["mac"]           = WiFi.macAddress();
         self["name"]          = c.deviceName;
@@ -444,11 +451,17 @@ private:
         self["online"]        = true;
         self["wifiConnected"] = (WiFi.status() == WL_CONNECTED);
         self["version"]       = FW_VERSION;
+        self["fwState"]       = selfFwState;
 
         JsonArray arr = doc["peers"].to<JsonArray>();
         if (_peers) {
             for (auto& p : *_peers) {
                 if (!p.active) continue;
+                const char* pFwState =
+                    p.fwState == FwState::Checking    ? "checking"    :
+                    p.fwState == FwState::Downloading ? "downloading" :
+                    p.fwState == FwState::Error       ? "error"       :
+                    p.fwState == FwState::Done        ? "done"        : "idle";
                 auto o = arr.add<JsonObject>();
                 o["mac"]              = p.macStr();
                 o["name"]             = p.name;
@@ -458,6 +471,7 @@ private:
                 o["sceneSyncEnabled"] = p.sceneSyncEnabled;
                 o["wifiConnected"]    = p.wifiConnected;
                 o["version"]          = p.fwVersion;
+                o["fwState"]          = pFwState;
             }
         }
     }
