@@ -53,33 +53,56 @@ static void setupWifi() {
     WiFi.mode(WIFI_AP_STA);
     WiFi.setTxPower(WIFI_TX_POWER);
 
-    if (strlen(c.wifiSsid) == 0) {
+    Config::loadWifi();
+    uint8_t count = Config::wifiCount();
+
+    if (count == 0) {
         WiFi.softAP(c.deviceName, c.apPassword, 1);
-        Logger::i("[wifi] No SSID configured, AP: %s  IP: %s",
+        Logger::i("[wifi] No networks configured, AP: %s  IP: %s",
                   c.deviceName, WiFi.softAPIP().toString().c_str());
         return;
     }
 
-    Logger::i("[wifi] Connecting to %s ...", c.wifiSsid);
     // Disconnect first to clear any stale PMK/connection state from previous boots.
     WiFi.disconnect(false);
     delay(100);
-    WiFi.begin(c.wifiSsid, c.wifiPassword);
 
-    uint32_t start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) delay(250);
-
-    if (WiFi.status() == WL_CONNECTED) {
-        // Stop AP beacon — no SSID visible, no clients accepted.
-        // The AP hardware stays up so WIFI_AP_STA mode is preserved.
-        WiFi.softAPdisconnect(false);
-        Logger::i("[wifi] Connected, IP: %s  (AP off)", WiFi.localIP().toString().c_str());
-    } else {
-        Logger::w("[wifi] Failed to connect, falling back to AP");
-        WiFi.setAutoReconnect(false);
-        WiFi.softAP(c.deviceName, c.apPassword, 1);
-        Logger::i("[wifi] AP: %s  IP: %s", c.deviceName, WiFi.softAPIP().toString().c_str());
+    // Try the last successful network first, then the rest in order.
+    uint8_t last = Config::wifiLast();
+    uint8_t tryOrder[MAX_WIFI_NETWORKS];
+    uint8_t idx = 0;
+    tryOrder[idx++] = last;
+    for (uint8_t i = 0; i < count; i++) {
+        if (i != last) tryOrder[idx++] = i;
     }
+
+    for (uint8_t t = 0; t < count; t++) {
+        uint8_t ni = tryOrder[t];
+        const char* ssid = Config::wifiNetworks()[ni].ssid;
+        const char* pass = Config::wifiNetworks()[ni].password;
+        Logger::i("[wifi] Trying %s ...", ssid);
+        WiFi.begin(ssid, pass);
+        uint32_t start = millis();
+        while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) delay(250);
+        if (WiFi.status() == WL_CONNECTED) {
+            // Stop AP beacon — no SSID visible, no clients accepted.
+            // The AP hardware stays up so WIFI_AP_STA mode is preserved.
+            WiFi.softAPdisconnect(false);
+            Logger::i("[wifi] Connected to %s, IP: %s  (AP off)", ssid, WiFi.localIP().toString().c_str());
+            if (ni != last) {
+                Config::setWifiLast(ni);
+                Config::saveWifi();
+            }
+            return;
+        }
+        WiFi.disconnect(false);
+        delay(100);
+    }
+
+    Logger::w("[wifi] All networks failed, falling back to AP");
+    WiFi.setAutoReconnect(false);
+    WiFi.softAP(c.deviceName, c.apPassword, 1);
+    Logger::i("[wifi] AP: %s  IP: %s", c.deviceName, WiFi.softAPIP().toString().c_str());
 }
 
 // ── OTA ──────────────────────────────────────────────────────────────────────
