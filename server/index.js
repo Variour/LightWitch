@@ -10,7 +10,7 @@ const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 const MOCK_CONFIG = {
   deviceName: 'Mock Device',
-  wifiSsid: '',
+  wifiSsid: 'HomeNetwork',
   otaPort: 3232,
   otaEnabled: true,
   groupId: 0,
@@ -19,9 +19,9 @@ const MOCK_CONFIG = {
   clockPin: 14,
   logLevel: 1,
   sceneSyncEnabled: true,
-  mqttHost: '',
+  mqttHost: 'mqtt.local',
   mqttPort: 1883,
-  mqttUser: '',
+  mqttUser: 'lights',
   version: 'mock',
   mac: '11:22:33:44:55:66',
   githubRepo: 'Variour/batterylight',

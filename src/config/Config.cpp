@@ -224,6 +224,11 @@ void Config::applyConfigSync(const char* json, size_t len) {
         strlcpy(c.githubToken, doc["githubToken"], sizeof(c.githubToken));
     if (!doc["otaEnabled"].isNull())       c.otaEnabled      = (bool)doc["otaEnabled"];
     if (!doc["sceneSyncEnabled"].isNull()) c.sceneSyncEnabled = (bool)doc["sceneSyncEnabled"];
+    if (!doc["deviceName"].isNull() && strlen(doc["deviceName"]) > 0)
+        strlcpy(c.deviceName, doc["deviceName"], sizeof(c.deviceName));
+    if (!doc["apPassword"].isNull() && strlen(doc["apPassword"]) >= 8)
+        strlcpy(c.apPassword, doc["apPassword"], sizeof(c.apPassword));
+    if (!doc["ledType"].isNull()) c.ledType = (LedType)(uint8_t)(int)doc["ledType"];
     save();
     Logger::i("[cfg] config sync applied, restarting");
     delay(200);

@@ -76,6 +76,12 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .add-group-row { display: flex; gap: .5rem; margin-top: .5rem; }
 .add-group-row input { margin-bottom: 0; }
 .section-divider { border: none; border-top: 1px solid #222; margin: .8rem 0; }
+.push-overlay { position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;overflow-y:auto;display:none }
+.push-modal { max-width:480px;margin:2rem auto;padding:1rem }
+.push-fh { display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.2rem }
+.push-fh>span { font-size:.9rem;font-weight:600 }
+.push-fh small { font-weight:normal }
+.push-ul { font-weight:normal;font-size:.82rem;margin:0;display:flex;align-items:center;gap:.3rem;cursor:pointer }
 
 /* Responsive two-column layout for larger screens */
 .layout { display: grid; grid-template-columns: 1fr; gap: .75rem; }
@@ -297,7 +303,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
       <h2 style="margin:0">Connected Lights</h2>
-      <button class="btn-ghost btn-sm" onclick="pushConfig(null)" title="Push settings to all peers">Push config to all</button>
+      <button class="btn-ghost btn-sm" onclick="openPushModal(null)" title="Push settings to all peers">Push config to all</button>
     </div>
     <table class="lights-table">
       <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th>Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
@@ -682,10 +688,89 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   </div>
 </div><!-- /tab-settings -->
 
+<!-- PUSH CONFIG MODAL -->
+<div id="push-overlay" class="push-overlay" onclick="if(event.target===this)closePushModal()">
+  <div class="push-modal">
+    <div class="card" style="margin:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+        <h2 style="margin:0" id="push-modal-title">Push config</h2>
+        <button class="btn-ghost btn-sm" onclick="closePushModal()">✕</button>
+      </div>
+      <p style="font-size:.82rem;color:#777;margin-bottom:.5rem">Check "Use current" to copy this device's value. Leave unchecked and blank to skip that field. Sensitive values are filled in by the firmware — they never appear in the browser.</p>
+      <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
+        <button class="btn-ghost btn-sm" onclick="setAllPushFields(true)">Select all</button>
+        <button class="btn-ghost btn-sm" onclick="setAllPushFields(false)">Deselect all</button>
+      </div>
+
+      <div id="push-device-section">
+        <hr class="section-divider">
+        <h3>Device</h3>
+        <label>Name <small>(type new name; no "use current")</small></label>
+        <input type="text" id="push-deviceName" placeholder="(leave blank to keep unchanged)" maxlength="31">
+        <div class="push-fh"><span>LED type</span><label class="push-ul"><input type="checkbox" id="push-ledType-ul" onchange="toggleField('push-ledType',this.checked)"> Use current</label></div>
+        <select id="push-ledType">
+          <option value="">— keep unchanged —</option>
+          <option value="0">WS2812B — single wire</option>
+          <option value="1">WS2801 — two wire</option>
+        </select>
+      </div>
+
+      <hr class="section-divider">
+      <h3>WiFi</h3>
+      <div class="push-fh"><span>SSID</span><label class="push-ul"><input type="checkbox" id="push-wifiSsid-ul" onchange="toggleField('push-wifiSsid',this.checked)"> Use current</label></div>
+      <input type="text" id="push-wifiSsid" placeholder="(leave blank to keep unchanged)">
+      <div class="push-fh"><span>Password</span><label class="push-ul"><input type="checkbox" id="push-wifiPassword-ul" onchange="toggleField('push-wifiPassword',this.checked)"> Use current</label></div>
+      <input type="password" id="push-wifiPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password">
+      <div class="push-fh"><span>AP Password <small>(min 8 chars)</small></span><label class="push-ul"><input type="checkbox" id="push-apPassword-ul" onchange="toggleField('push-apPassword',this.checked)"> Use current</label></div>
+      <input type="password" id="push-apPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password">
+
+      <hr class="section-divider">
+      <h3>MQTT <small>(leave broker blank to disable)</small></h3>
+      <div class="push-fh"><span>Broker host</span><label class="push-ul"><input type="checkbox" id="push-mqttHost-ul" onchange="toggleField('push-mqttHost',this.checked)"> Use current</label></div>
+      <input type="text" id="push-mqttHost" placeholder="(leave blank to keep unchanged)">
+      <div class="push-fh"><span>Port</span><label class="push-ul"><input type="checkbox" id="push-mqttPort-ul" onchange="toggleField('push-mqttPort',this.checked)"> Use current</label></div>
+      <input type="number" id="push-mqttPort" placeholder="(leave blank to keep unchanged)" min="1" max="65535">
+      <div class="push-fh"><span>Username</span><label class="push-ul"><input type="checkbox" id="push-mqttUser-ul" onchange="toggleField('push-mqttUser',this.checked)"> Use current</label></div>
+      <input type="text" id="push-mqttUser" placeholder="(leave blank to keep unchanged)">
+      <div class="push-fh"><span>Password</span><label class="push-ul"><input type="checkbox" id="push-mqttPassword-ul" onchange="toggleField('push-mqttPassword',this.checked)"> Use current</label></div>
+      <input type="password" id="push-mqttPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password">
+
+      <hr class="section-divider">
+      <h3>GitHub</h3>
+      <div class="push-fh"><span>Repository</span><label class="push-ul"><input type="checkbox" id="push-githubRepo-ul" onchange="toggleField('push-githubRepo',this.checked)"> Use current</label></div>
+      <input type="text" id="push-githubRepo" placeholder="(leave blank to keep unchanged)">
+      <div class="push-fh"><span>Token</span><label class="push-ul"><input type="checkbox" id="push-githubToken-ul" onchange="toggleField('push-githubToken',this.checked)"> Use current</label></div>
+      <input type="password" id="push-githubToken" placeholder="(leave blank to keep unchanged)" autocomplete="new-password">
+
+      <hr class="section-divider">
+      <h3>Options</h3>
+      <div class="push-fh"><span>OTA updates</span><label class="push-ul"><input type="checkbox" id="push-otaEnabled-ul" onchange="toggleField('push-otaEnabled',this.checked)"> Use current</label></div>
+      <select id="push-otaEnabled">
+        <option value="">— keep unchanged —</option>
+        <option value="true">Enabled</option>
+        <option value="false">Disabled</option>
+      </select>
+      <div class="push-fh"><span>Scene sync</span><label class="push-ul"><input type="checkbox" id="push-sceneSyncEnabled-ul" onchange="toggleField('push-sceneSyncEnabled',this.checked)"> Use current</label></div>
+      <select id="push-sceneSyncEnabled">
+        <option value="">— keep unchanged —</option>
+        <option value="true">Enabled</option>
+        <option value="false">Disabled</option>
+      </select>
+
+      <div style="display:flex;gap:.5rem;margin-top:.75rem">
+        <button class="btn-ghost" style="flex:1" onclick="closePushModal()">Cancel</button>
+        <button class="btn-primary" style="flex:1" id="push-submit-btn" onclick="submitPushConfig()">Push</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Dashboard state ───────────────────────────────────────────────────────────
-let _groups  = [];
-let _peers   = [];
+let _groups      = [];
+let _peers       = [];
+let _localConfig = {};
+let _pushTarget  = null; // null = all peers, string = specific MAC
 let _self    = null;
 let _selfMac = '';
 let _sceneOptions = [];
@@ -979,7 +1064,7 @@ function renderLights(self, peers) {
       fwIconHtml = `<span title="${fwTitle}">${fwSvg(fwColor)}</span>`;
     }
 
-    const pushCell = p.isSelf ? '' : `<button class="btn-ghost btn-sm" onclick="pushConfig('${mac}')" title="Push settings to this device">Push</button>`;
+    const pushCell = p.isSelf ? '' : `<button class="btn-ghost btn-sm" onclick="openPushModal('${mac}','${esc(p.name)}')" title="Push settings to this device">Push</button>`;
     return `<tr>
       <td>${dot}${esc(p.name)}${selfTag}</td>
       <td>
@@ -1010,13 +1095,149 @@ function setSceneSync(mac, enabled) {
   });
 }
 
-function pushConfig(mac) {
-  const label = mac ? 'Push config to this device?' : 'Push config to all devices?\nThis will overwrite their WiFi, MQTT, GitHub, and update settings.';
-  if (!confirm(label)) return;
-  fetch('/api/peers/pushconfig', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(mac ? {mac} : {})
+// Fields that support "use current" — shared fields first, then per-device
+const _pushSharedFields = [
+  'push-wifiSsid','push-wifiPassword','push-apPassword',
+  'push-mqttHost','push-mqttPort','push-mqttUser','push-mqttPassword',
+  'push-githubRepo','push-githubToken',
+  'push-otaEnabled','push-sceneSyncEnabled',
+];
+const _pushDeviceFields = ['push-ledType']; // deviceName has no "use current"
+
+// Sensitive fields: firmware fills the value; field is disabled when checked
+const _pushSensitiveFields = new Set([
+  'push-wifiPassword','push-apPassword','push-mqttPassword','push-githubToken'
+]);
+
+function toggleField(id, checked) {
+  const el = document.getElementById(id);
+  if (_pushSensitiveFields.has(id)) {
+    el.disabled = checked;
+    el.placeholder = checked ? '(current value)' : '(leave blank to keep unchanged)';
+    if (checked) el.value = '';
+  } else {
+    // Non-sensitive: insert value from local config when checked, clear when unchecked
+    const key = id.replace('push-', '');
+    if (el.tagName === 'SELECT') {
+      const val = _localConfig[key];
+      el.value = checked && val != null ? String(val) : '';
+    } else {
+      el.value = checked && _localConfig[key] != null ? _localConfig[key] : '';
+    }
+  }
+}
+
+function setAllPushFields(checked) {
+  const isAll = !_pushTarget;
+  const fields = isAll ? _pushSharedFields : [..._pushSharedFields, ..._pushDeviceFields];
+  fields.forEach(id => {
+    const cb = document.getElementById(id + '-ul');
+    if (!cb) return;
+    cb.checked = checked;
+    toggleField(id, checked);
   });
+}
+
+// Auto-uncheck "use current" for non-sensitive fields when the user edits the value
+document.addEventListener('DOMContentLoaded', () => {
+  [..._pushSharedFields, ..._pushDeviceFields]
+    .filter(id => !_pushSensitiveFields.has(id))
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
+        const cb = document.getElementById(id + '-ul');
+        if (cb) cb.checked = false;
+      });
+    });
+});
+
+function openPushModal(mac, peerName) {
+  _pushTarget = mac || null;
+  const isAll = !_pushTarget;
+  document.getElementById('push-modal-title').textContent =
+    isAll ? 'Push config to all' : `Push config to ${peerName || mac}`;
+  document.getElementById('push-device-section').style.display = isAll ? 'none' : '';
+
+  // Reset deviceName (no checkbox)
+  document.getElementById('push-deviceName').value = '';
+
+  // Set all checkboxes: all checked for push-to-all, all unchecked for per-device
+  setAllPushFields(isAll);
+
+  const btn = document.getElementById('push-submit-btn');
+  btn.disabled = false;
+  btn.textContent = 'Push';
+
+  document.getElementById('push-overlay').style.display = 'block';
+}
+
+function closePushModal() {
+  document.getElementById('push-overlay').style.display = 'none';
+}
+
+async function submitPushConfig() {
+  const body = {};
+  if (_pushTarget) body.mac = _pushTarget;
+
+  // deviceName — per-device only, always manual
+  if (_pushTarget) {
+    const name = document.getElementById('push-deviceName').value.trim();
+    if (name) body.deviceName = name;
+  }
+
+  const useLocal = [];
+  const isSensitive = id => _pushSensitiveFields.has(id);
+  const ul = id => document.getElementById(id + '-ul')?.checked;
+
+  // Sensitive fields: checked → firmware fills via useLocal; unchecked → read typed value
+  const sensitiveStr = (elId, key) => {
+    if (ul(elId)) { useLocal.push(key); return; }
+    const v = document.getElementById(elId).value.trim(); if (v) body[key] = v;
+  };
+  // Non-sensitive fields: value already in field (populated by checkbox or typed by user)
+  const str  = (elId, key) => { const v = document.getElementById(elId).value.trim(); if (v) body[key] = v; };
+  const num  = (elId, key) => { const v = document.getElementById(elId).value.trim(); if (v) body[key] = parseInt(v); };
+  const bool = (elId, key) => { const v = document.getElementById(elId).value; if (v !== '') body[key] = v === 'true'; };
+  const int  = (elId, key) => { const v = document.getElementById(elId).value; if (v !== '') body[key] = parseInt(v); };
+
+  str('push-wifiSsid',              'wifiSsid');
+  sensitiveStr('push-wifiPassword', 'wifiPassword');
+  sensitiveStr('push-apPassword',   'apPassword');
+  str('push-mqttHost',              'mqttHost');
+  num('push-mqttPort',              'mqttPort');
+  str('push-mqttUser',              'mqttUser');
+  sensitiveStr('push-mqttPassword', 'mqttPassword');
+  str('push-githubRepo',            'githubRepo');
+  sensitiveStr('push-githubToken',  'githubToken');
+  bool('push-otaEnabled',           'otaEnabled');
+  bool('push-sceneSyncEnabled',     'sceneSyncEnabled');
+  if (_pushTarget) int('push-ledType', 'ledType');
+
+  if (useLocal.length) body.useLocal = useLocal;
+
+  const payloadKeys = Object.keys(body).filter(k => k !== 'mac' && k !== 'useLocal');
+  if (!payloadKeys.length && !useLocal.length) {
+    alert('Fill in at least one field to push.');
+    return;
+  }
+
+  const btn = document.getElementById('push-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Pushing…';
+  try {
+    const res  = await fetch('/api/peers/pushconfig', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) { alert('Push failed: ' + (data.error || res.status)); return; }
+    closePushModal();
+  } catch(e) {
+    alert('Push failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Push';
+  }
 }
 
 // ── Settings save ─────────────────────────────────────────────────────────────
@@ -1180,6 +1401,7 @@ function _updApplyStatus(data) {
 async function loadConfig() {
   const res = await fetch('/api/config');
   const d   = await res.json();
+  _localConfig = d;
   const scenesRes = await fetch('/api/scenes');
   const scenesData = await scenesRes.json();
   _sceneOptions = scenesData.scenes || [];

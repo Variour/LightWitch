@@ -731,7 +731,11 @@ private:
         auto ok = _makeOk(); _sendJson(r, 200, ok);
     }
 
-    // Body: {mac?: string}  — mac omitted or empty = push to all peers
+    // Body: {mac?, deviceName?, ledType?, wifiSsid?, wifiPassword?, apPassword?,
+    //        mqttHost?, mqttPort?, mqttUser?, mqttPassword?, githubRepo?, githubToken?,
+    //        otaEnabled?, sceneSyncEnabled?}
+    // mac omitted or empty = push to all peers. Only present fields are pushed;
+    // deviceName and ledType require a specific target mac.
     void _pushConfig(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) {
@@ -739,25 +743,87 @@ private:
         }
         const char* macStr = doc["mac"] | "";
         uint8_t targetMac[6] = {0, 0, 0, 0, 0, 0};
-        if (macStr[0] != '\0') {
+        bool hasTarget = macStr[0] != '\0';
+        if (hasTarget) {
             if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
                        &targetMac[0], &targetMac[1], &targetMac[2],
                        &targetMac[3], &targetMac[4], &targetMac[5]) != 6) {
                 auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
             }
         }
-        auto& c = Config::get();
+
         JsonDocument payload;
-        payload["wifiSsid"]         = c.wifiSsid;
-        payload["wifiPassword"]     = c.wifiPassword;
-        payload["mqttHost"]         = c.mqttHost;
-        payload["mqttPort"]         = c.mqttPort;
-        payload["mqttUser"]         = c.mqttUser;
-        payload["mqttPassword"]     = c.mqttPassword;
-        payload["githubRepo"]       = c.githubRepo;
-        payload["githubToken"]      = c.githubToken;
-        payload["otaEnabled"]       = c.otaEnabled;
-        payload["sceneSyncEnabled"] = c.sceneSyncEnabled;
+        bool any = false;
+
+        auto addStr = [&](const char* key, size_t minLen = 0) {
+            if (doc[key].isNull()) return;
+            const char* v = doc[key] | "";
+            if (strlen(v) < minLen) return;
+            payload[key] = v; any = true;
+        };
+        auto addNum = [&](const char* key) {
+            if (doc[key].isNull()) return;
+            payload[key] = doc[key]; any = true;
+        };
+        auto addBool = [&](const char* key) {
+            if (doc[key].isNull()) return;
+            payload[key] = (bool)doc[key]; any = true;
+        };
+
+        // Per-device fields — only allowed when targeting a specific device
+        if (hasTarget) {
+            if (!doc["deviceName"].isNull()) {
+                const char* newName = doc["deviceName"] | "";
+                if (newName[0] != '\0') {
+                    // Uniqueness check against peer registry and own name
+                    if (strcmp(Config::get().deviceName, newName) == 0) {
+                        auto e = _makeErr("name already in use"); _sendJson(r, 409, e); return;
+                    }
+                    if (_peers) {
+                        for (auto& p : *_peers) {
+                            if (!p.active || memcmp(p.mac, targetMac, 6) == 0) continue;
+                            if (strcmp(p.name, newName) == 0) {
+                                auto e = _makeErr("name already in use"); _sendJson(r, 409, e); return;
+                            }
+                        }
+                    }
+                    payload["deviceName"] = newName; any = true;
+                }
+            }
+        }
+
+        // useLocal: fields the UI wants filled from this device's own config
+        auto& c = Config::get();
+        JsonArray useLocal = doc["useLocal"].as<JsonArray>();
+        auto isUseLocal = [&](const char* key) -> bool {
+            for (JsonVariant v : useLocal)
+                if (strcmp(v.as<const char*>(), key) == 0) return true;
+            return false;
+        };
+        // Shared fields (non-sensitive values arrive directly; sensitive ones via useLocal)
+        addStr("wifiSsid");
+        if (isUseLocal("wifiPassword")) { payload["wifiPassword"] = c.wifiPassword; any = true; }
+        else addStr("wifiPassword", 1);
+        if (isUseLocal("apPassword")) { if (strlen(c.apPassword) >= 8) { payload["apPassword"] = c.apPassword; any = true; } }
+        else addStr("apPassword", 8);
+        addStr("mqttHost");
+        addNum("mqttPort");
+        addStr("mqttUser");
+        if (isUseLocal("mqttPassword")) { payload["mqttPassword"] = c.mqttPassword; any = true; }
+        else addStr("mqttPassword", 1);
+        addStr("githubRepo");
+        if (isUseLocal("githubToken")) { payload["githubToken"] = c.githubToken; any = true; }
+        else addStr("githubToken", 1);
+        addBool("otaEnabled");
+        addBool("sceneSyncEnabled");
+
+        // Per-device: ledType arrives directly (value selected in UI)
+        if (hasTarget) addNum("ledType");
+
+        if (!any) {
+            auto e = _makeErr("no fields to push"); _sendJson(r, 400, e); return;
+        }
+
         String json;
         serializeJson(payload, json);
         if (_onPushConfig) _onPushConfig(targetMac, json.c_str(), json.length());
