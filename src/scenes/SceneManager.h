@@ -14,35 +14,6 @@ public:
     }
 
     static void init() {
-        // Migrate from /scenes/ (clashes with SPA route) to /sc/
-        if (LittleFS.exists("/scenes") && !LittleFS.exists("/sc")) {
-            LittleFS.mkdir("/sc");
-            File dir = LittleFS.open("/scenes");
-            if (dir && dir.isDirectory()) {
-                File f = dir.openNextFile();
-                while (f) {
-                    if (!f.isDirectory()) {
-                        String name = String(f.name());
-                        String oldPath = String("/scenes/") + name;
-                        String newPath = String("/sc/") + name;
-                        File src = LittleFS.open(oldPath, "r");
-                        File dst = LittleFS.open(newPath, "w");
-                        if (src && dst) {
-                            uint8_t buf[256];
-                            size_t n;
-                            while ((n = src.read(buf, sizeof(buf))) > 0) dst.write(buf, n);
-                            Logger::i("[scene] migrated %s -> %s", oldPath.c_str(), newPath.c_str());
-                        }
-                        src.close(); dst.close();
-                        LittleFS.remove(oldPath);
-                    }
-                    f.close();
-                    f = dir.openNextFile();
-                }
-                dir.close();
-            }
-            LittleFS.rmdir("/scenes");
-        }
         if (!LittleFS.exists("/sc")) LittleFS.mkdir("/sc");
     }
 
