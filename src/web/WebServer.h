@@ -363,6 +363,7 @@ private:
 
     // ── GET /api/config ──────────────────────────────────────────────────────
     void _getConfig(AsyncWebServerRequest* r) {
+        unsigned long t0 = millis();
         auto& c = Config::get();
         JsonDocument doc;
         doc["deviceName"] = c.deviceName;
@@ -389,10 +390,12 @@ private:
             _serializeGroup(arr.add<JsonObject>(), c.groups[i]);
         }
         _sendJson(r, 200, doc);
+        Logger::d("[web] GET /api/config done in %lums", millis() - t0);
     }
 
     // ── POST /api/config ─────────────────────────────────────────────────────
     void _postConfig(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        unsigned long t0 = millis();
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) {
             auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
@@ -426,16 +429,21 @@ private:
                 if (_onGroupChange) _onGroupChange();
             }
         }
+        unsigned long tSave = millis();
         Config::save();
+        Logger::d("[web] POST /api/config Config::save in %lums", millis() - tSave);
         auto ok = _makeOk(); _sendJson(r, 200, ok);
+        Logger::d("[web] POST /api/config done in %lums", millis() - t0);
         delay(200); ESP.restart();
     }
 
     // ── GET /api/peers ───────────────────────────────────────────────────────
     void _getPeers(AsyncWebServerRequest* r) {
+        unsigned long t0 = millis();
         JsonDocument doc;
         _buildPeersJson(doc);
         _sendJson(r, 200, doc);
+        Logger::d("[web] GET /api/peers done in %lums", millis() - t0);
     }
 
     void _buildPeersJson(JsonDocument& doc) {
@@ -481,6 +489,7 @@ private:
 
     // ── POST /api/groups/create ──────────────────────────────────────────────
     void _createGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        unsigned long t0 = millis();
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) {
             auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
@@ -490,7 +499,9 @@ private:
         if (id == 0xFF) {
             auto e = _makeErr("group limit reached"); _sendJson(r, 400, e); return;
         }
+        unsigned long tSave = millis();
         Config::save();
+        Logger::d("[web] POST /api/groups/create Config::save in %lums", millis() - tSave);
         const GroupConfig& g = Config::get().groups[id];
         if (_onGroupSync) _onGroupSync(g);
 
@@ -499,11 +510,13 @@ private:
         resp["id"] = id;
         _sendJson(r, 200, resp);
         _pushGroups();
+        Logger::d("[web] POST /api/groups/create done in %lums", millis() - t0);
     }
 
     // ── POST /api/groups/update ──────────────────────────────────────────────
     // Body: {id, name?, pattern?, r?, g?, b?, brightness?, speed?}
     void _updateGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        unsigned long t0 = millis();
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) {
             auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
@@ -521,10 +534,13 @@ private:
         if (!doc["syncEnabled"].isNull()) {
             g->syncEnabled = (bool)doc["syncEnabled"];
             // Propagate the toggle to other devices
+            unsigned long tSave = millis();
             Config::save();
+            Logger::d("[web] POST /api/groups/update Config::save in %lums", millis() - tSave);
             if (_onGroupSync) _onGroupSync(*g);
             auto ok = _makeOk(); _sendJson(r, 200, ok);
             _pushGroups();
+            Logger::d("[web] POST /api/groups/update (syncEnabled) done in %lums", millis() - t0);
             return;
         }
 
@@ -554,13 +570,19 @@ private:
             if (_onGroupSync) _onGroupSync(*g);
         }
 
-        Config::save();
+        {
+            unsigned long tSave = millis();
+            Config::save();
+            Logger::d("[web] POST /api/groups/update Config::save in %lums", millis() - tSave);
+        }
         auto ok = _makeOk(); _sendJson(r, 200, ok);
         if (nameChanged) _pushGroups();
+        Logger::d("[web] POST /api/groups/update done in %lums", millis() - t0);
     }
 
     // ── POST /api/groups/delete ──────────────────────────────────────────────
     void _deleteGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        unsigned long t0 = millis();
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) {
             auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
@@ -580,10 +602,15 @@ private:
             if (_onGroupChange) _onGroupChange();
         }
 
-        Config::save();
+        {
+            unsigned long tSave = millis();
+            Config::save();
+            Logger::d("[web] POST /api/groups/delete Config::save in %lums", millis() - tSave);
+        }
         if (_onGroupSync) _onGroupSync(tombstone);
         auto ok = _makeOk(); _sendJson(r, 200, ok);
         _pushGroups();
+        Logger::d("[web] POST /api/groups/delete done in %lums", millis() - t0);
     }
 
     // ── POST /api/peers/setgroup ─────────────────────────────────────────────
@@ -621,15 +648,18 @@ private:
     // ── WebSocket push ───────────────────────────────────────────────────────
     void _pushPeers() {
         if (!_ws || _ws->count() == 0) return;
+        unsigned long t0 = millis();
         JsonDocument doc;
         doc["t"] = "peers";
         _buildPeersJson(doc);
         String s; serializeJson(doc, s);
         _ws->textAll(s);
+        Logger::d("[web] pushPeers %ub in %lums", (unsigned)s.length(), millis() - t0);
     }
 
     void _pushGroups() {
         if (!_ws || _ws->count() == 0) return;
+        unsigned long t0 = millis();
         JsonDocument doc;
         doc["t"] = "groups";
         JsonArray arr = doc["list"].to<JsonArray>();
@@ -640,6 +670,7 @@ private:
         }
         String s; serializeJson(doc, s);
         _ws->textAll(s);
+        Logger::d("[web] pushGroups %ub in %lums", (unsigned)s.length(), millis() - t0);
     }
 
     void _pushLog(LogLevel level, const char* msg) {
@@ -656,11 +687,12 @@ private:
     // ── Scene handlers ───────────────────────────────────────────────────────
 
     void _getScenes(AsyncWebServerRequest* r) {
+        unsigned long t0 = millis();
         Logger::d("[scene] list requested");
         JsonDocument resp;
         SceneManager::buildList(resp);
         JsonArray arr = resp["scenes"].as<JsonArray>();
-        Logger::d("[scene] list: %u scene(s)", arr ? (unsigned)arr.size() : 0);
+        Logger::d("[scene] list: %u scene(s) in %lums", arr ? (unsigned)arr.size() : 0, millis() - t0);
         _sendJson(r, 200, resp);
     }
 
@@ -669,13 +701,16 @@ private:
             Logger::w("[scene] get: missing id param");
             auto e = _makeErr("missing id"); _sendJson(r, 400, e); return;
         }
+        unsigned long t0 = millis();
         String id   = r->getParam("id")->value();
         String path = SceneManager::path(id.c_str());
-        Logger::d("[scene] get: id=%s path=%s exists=%d", id.c_str(), path.c_str(), LittleFS.exists(path));
-        if (!LittleFS.exists(path)) {
+        bool exists = LittleFS.exists(path);
+        Logger::d("[scene] get: id=%s exists=%d", id.c_str(), exists);
+        if (!exists) {
             auto e = _makeErr("not found"); _sendJson(r, 404, e); return;
         }
         r->send(LittleFS, path, "application/json");
+        Logger::d("[scene] get: sent id=%s in %lums", id.c_str(), millis() - t0);
     }
 
     void _createScene(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
