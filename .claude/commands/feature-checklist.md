@@ -7,3 +7,5 @@ Verify all of the following before marking a feature or API change complete:
 5. **Mock data breadth** — mock data must exercise whatever the new feature depends on (e.g. add a second group to `MOCK_CONFIG` if the feature involves group switching or peer assignment)
 
 Run `/validate-ui` after completing the checklist if any `data/` or `server/` files were changed.
+
+Use `/grill-me` to stress-test the implementation before opening a PR.

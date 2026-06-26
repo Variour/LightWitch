@@ -12,4 +12,4 @@ Start work on GitHub issue #$ARGUMENTS in the variour/batterylight repository.
 - Never assume default states
 - Challenge the request if something seems off
 - Be critical
-- When done implementing, use `/grilling` to verify and challenge the plan
+- Use `/grill-me` at any point to stress-test the plan or implementation before moving forward

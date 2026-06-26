@@ -8,6 +8,8 @@ Explain the development workflow and what to do next based on the current state 
 4. `/feature-checklist` — verify API/config/WS/mock parity for any feature or API change
 5. `/open-pr` — open a pull request with the correct label and test checklist
 
+Use `/grill-me` at any point to stress-test a plan or implementation.
+
 ## What to do next
 
 Look at the current git state and working directory, then tell the user which step they are at and what to do next:
