@@ -19,9 +19,7 @@ If a commit spans multiple scopes, use a more general scope, list both separated
 
 ## Working on Issues
 
-- When working on an issue, always create a feature branch
-- If an issue contains research, finish that first and confirm with the user before making any write actions
-- To open a PR, use the `/open-pr` slash command — it contains all PR/label instructions
+Use `/issue <id>` to start work on an issue and `/open-pr` when ready to open a pull request.
 
 ## UI Validation
 
