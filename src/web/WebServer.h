@@ -764,10 +764,17 @@ private:
     // ── GET /api/wifi ─────────────────────────────────────────────────────────
     void _getWifi(AsyncWebServerRequest* r) {
         JsonDocument doc;
-        if (WiFi.status() == WL_CONNECTED)
-            doc["connected"] = WiFi.SSID().c_str();
-        else
+        if (WiFi.status() == WL_CONNECTED) {
+            // Use Config::wifiLast() rather than WiFi.SSID() to avoid calling
+            // esp_wifi_sta_get_ap_info() from an async handler — that call can
+            // block waiting for the WiFi driver lock during reconnect events.
+            uint8_t last = Config::wifiLast();
+            doc["connected"] = (last < Config::wifiCount())
+                ? (const char*)Config::wifiNetworks()[last].ssid
+                : (const char*)nullptr;
+        } else {
             doc["connected"] = nullptr;
+        }
         JsonArray arr = doc["networks"].to<JsonArray>();
         for (uint8_t i = 0; i < Config::wifiCount(); i++)
             arr.add(Config::wifiNetworks()[i].ssid);
