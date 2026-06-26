@@ -14,6 +14,7 @@ enum class MsgType : uint8_t {
     SceneChunk    = 9,
     SceneForceSet = 10,
     SetSceneSync  = 11,
+    ConfigChunk   = 12,
 };
 
 struct PresenceMsg {
@@ -117,3 +118,20 @@ struct SetSceneSyncMsg {
     uint8_t enabled;  // 1 = enable, 0 = disable
 };
 // 8 bytes ✓
+
+// ── Config push messages ──────────────────────────────────────────────────────
+
+// One chunk of a config-sync JSON payload (push-on-request, initiated by user).
+// targetMac all-zeros means apply on all receiving devices; otherwise only the
+// device whose MAC matches will apply the config.
+static constexpr uint16_t CONFIG_CHUNK_DATA_SIZE = 230;
+
+struct ConfigChunkMsg {
+    MsgType  type = MsgType::ConfigChunk;
+    uint8_t  targetMac[6];   // all-zeros = push to all
+    uint16_t chunkIndex;
+    uint16_t totalChunks;
+    uint16_t dataLen;
+    uint8_t  data[CONFIG_CHUNK_DATA_SIZE];
+};
+// 1 + 6 + 2 + 2 + 2 + 230 = 243 bytes ✓

@@ -78,6 +78,7 @@ app.post('/api/config', (_req, res) => res.json({ ok: true }));
 app.get('/api/peers', (_req, res) => res.json({ self: MOCK_SELF, peers: MOCK_PEERS }));
 app.post('/api/peers/setgroup',     (_req, res) => res.json({ ok: true }));
 app.post('/api/peers/setscenesync', (_req, res) => res.json({ ok: true }));
+app.post('/api/peers/pushconfig',   (_req, res) => res.json({ ok: true }));
 
 app.get('/api/scenes', (_req, res) => {
   const list = [...scenes.values()].map(({ id, name, w, h, fc }) => ({ id, name, w, h, fc }));

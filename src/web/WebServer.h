@@ -23,6 +23,8 @@ using SetRemoteGroupCb    = std::function<void(const uint8_t* mac, uint8_t group
 using SetRemoteSyncCb     = std::function<void(const uint8_t* mac, bool enabled)>;
 // Called when a conflict is resolved (id, sourceMac — null means local copy wins)
 using ResolveConflictCb   = std::function<void(const char* id, const uint8_t* sourceMac)>;
+// Called to push syncable config to peers via mesh (targetMac all-zeros = all, json payload)
+using PushConfigCb        = std::function<void(const uint8_t* targetMac, const char* json, size_t len)>;
 
 class BatteryWebServer {
 private:
@@ -50,7 +52,8 @@ public:
                PeerRegistry* peers,
                SceneSyncManager* sceneSync = nullptr,
                SetRemoteSyncCb onSetRemoteSync = nullptr,
-               ResolveConflictCb onResolveConflict = nullptr) {
+               ResolveConflictCb onResolveConflict = nullptr,
+               PushConfigCb onPushConfig = nullptr) {
         _onGroupChange      = onGroupChange;
         _onGroupLight       = onGroupLight;
         _onGroupSync        = onGroupSync;
@@ -59,6 +62,7 @@ public:
         _sceneSync          = sceneSync;
         _onSetRemoteSync    = onSetRemoteSync;
         _onResolveConflict  = onResolveConflict;
+        _onPushConfig       = onPushConfig;
 
         Logger::i("[web] starting on port 80");
         _server.addHandler(&_reqLogger);
@@ -218,6 +222,9 @@ public:
         _server.on("/api/peers/setscenesync", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _setRemoteSceneSync(r,d,l); });
 
+        _server.on("/api/peers/pushconfig", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _pushConfig(r,d,l); });
+
         _server.on("/api/update/status", HTTP_GET, [](AsyncWebServerRequest* r) {
             auto& s = Updater::status();
             JsonDocument doc;
@@ -288,6 +295,7 @@ private:
     SetRemoteGroupCb  _onSetRemote;
     SetRemoteSyncCb   _onSetRemoteSync;
     ResolveConflictCb _onResolveConflict;
+    PushConfigCb      _onPushConfig;
     SceneSyncManager* _sceneSync = nullptr;
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -720,6 +728,39 @@ private:
             }
             if (_onResolveConflict) _onResolveConflict(id, mac);
         }
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+    }
+
+    // Body: {mac?: string}  — mac omitted or empty = push to all peers
+    void _pushConfig(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len)) {
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
+        }
+        const char* macStr = doc["mac"] | "";
+        uint8_t targetMac[6] = {0, 0, 0, 0, 0, 0};
+        if (macStr[0] != '\0') {
+            if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                       &targetMac[0], &targetMac[1], &targetMac[2],
+                       &targetMac[3], &targetMac[4], &targetMac[5]) != 6) {
+                auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
+            }
+        }
+        auto& c = Config::get();
+        JsonDocument payload;
+        payload["wifiSsid"]         = c.wifiSsid;
+        payload["wifiPassword"]     = c.wifiPassword;
+        payload["mqttHost"]         = c.mqttHost;
+        payload["mqttPort"]         = c.mqttPort;
+        payload["mqttUser"]         = c.mqttUser;
+        payload["mqttPassword"]     = c.mqttPassword;
+        payload["githubRepo"]       = c.githubRepo;
+        payload["githubToken"]      = c.githubToken;
+        payload["otaEnabled"]       = c.otaEnabled;
+        payload["sceneSyncEnabled"] = c.sceneSyncEnabled;
+        String json;
+        serializeJson(payload, json);
+        if (_onPushConfig) _onPushConfig(targetMac, json.c_str(), json.length());
         auto ok = _makeOk(); _sendJson(r, 200, ok);
     }
 
