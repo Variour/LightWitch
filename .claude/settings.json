@@ -11,6 +11,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/user/batteryLight/.claude/check-ui-validation.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

@@ -3,10 +3,11 @@
   "configurations": [
     {
       "name": "web-ui",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8080"],
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/index.js"],
+      "env": { "DEV_NO_AUTH": "true" },
       "port": 8080,
-      "cwd": "${workspaceFolder}/data"
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

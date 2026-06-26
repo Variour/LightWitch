@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import express from 'express';
 
+const DEV_NO_AUTH = process.env.DEV_NO_AUTH === 'true';
+
 const CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -15,15 +17,17 @@ const ALLOWED_USERS = process.env.ALLOWED_GITHUB_USERS
 // Both modes require TOKEN_SECRET, SESSION_SECRET, and ALLOWED_GITHUB_USERS.
 const IS_AUTH_SERVER = !!CLIENT_ID;
 
-const missing = [];
-if (!CLIENT_ID && !AUTH_ORIGIN)         missing.push('GITHUB_CLIENT_ID (or AUTH_ORIGIN for PR containers)');
-if (IS_AUTH_SERVER && !CLIENT_SECRET)   missing.push('GITHUB_CLIENT_SECRET');
-if (!SESSION_SECRET)                    missing.push('SESSION_SECRET');
-if (!TOKEN_SECRET)                      missing.push('TOKEN_SECRET');
-if (!ALLOWED_USERS)                     missing.push('ALLOWED_GITHUB_USERS');
-if (missing.length) {
-  console.error('Missing required environment variables:\n' + missing.map(v => `  - ${v}`).join('\n'));
-  process.exit(1);
+if (!DEV_NO_AUTH) {
+  const missing = [];
+  if (!CLIENT_ID && !AUTH_ORIGIN)         missing.push('GITHUB_CLIENT_ID (or AUTH_ORIGIN for PR containers)');
+  if (IS_AUTH_SERVER && !CLIENT_SECRET)   missing.push('GITHUB_CLIENT_SECRET');
+  if (!SESSION_SECRET)                    missing.push('SESSION_SECRET');
+  if (!TOKEN_SECRET)                      missing.push('TOKEN_SECRET');
+  if (!ALLOWED_USERS)                     missing.push('ALLOWED_GITHUB_USERS');
+  if (missing.length) {
+    console.error('Missing required environment variables:\n' + missing.map(v => `  - ${v}`).join('\n'));
+    process.exit(1);
+  }
 }
 
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
@@ -201,6 +205,8 @@ export { router as authRouter };
 // --- Middleware ---
 
 export function requireAuth(req, res, next) {
+  if (DEV_NO_AUTH) return next();
+
   // Always allow auth routes through
   if (req.path.startsWith('/auth/')) return next();
 
