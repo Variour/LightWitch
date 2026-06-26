@@ -44,6 +44,7 @@ struct LightConfig {
 
 static constexpr uint8_t MAX_GROUPS        = 8;
 static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
+static constexpr uint8_t CONFIG_SCHEMA_VERSION = 1;
 
 struct WifiNetwork {
     char ssid[64]     = {};
