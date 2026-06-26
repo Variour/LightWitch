@@ -282,15 +282,13 @@ private:
     }
 
     static String _makeId() {
-        uint8_t b[16];
-        for (int i = 0; i < 4; i++) {
+        uint8_t b[12];
+        for (int i = 0; i < 3; i++) {
             uint32_t r = esp_random();
             memcpy(b + i * 4, &r, 4);
         }
-        b[6] = (b[6] & 0x0F) | 0x40;  // version 4
-        b[8] = (b[8] & 0x3F) | 0x80;  // variant bits
-        char buf[33];
-        for (int i = 0; i < 16; i++) snprintf(buf + i * 2, 3, "%02x", b[i]);
-        return String(buf);  // 32 hex chars, no hyphens
+        char buf[25];
+        for (int i = 0; i < 12; i++) snprintf(buf + i * 2, 3, "%02x", b[i]);
+        return String(buf);  // 24 hex chars = 96 bits of entropy
     }
 };
