@@ -103,7 +103,7 @@ void setup() {
     Serial.begin(115200);
     Logger::addSink(serialSink);
 
-    if (!LittleFS.begin(true)) {
+    if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) {
         Logger::e("[fs] mount failed");
     } else {
         File root = LittleFS.open("/");
