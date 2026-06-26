@@ -293,13 +293,14 @@ private:
 
         switch (type) {
             case MsgType::Presence: {
-                if (len < (int)PRESENCE_MSG_V1_SIZE) return;
+                // Accept messages that have all payload fields; version byte (last) is optional
+                // for backward compat with pre-versioning firmware (treated as version 0).
+                static constexpr int PRESENCE_PAYLOAD_SIZE = (int)(sizeof(PresenceMsg) - 1);
+                if (len < PRESENCE_PAYLOAD_SIZE) return;
                 auto* m = (PresenceMsg*)data;
-                bool sceneSyncEnabled = m->sceneSyncEnabled != 0;
-                bool wifiConnected    = (len >= (int)PRESENCE_MSG_V2_SIZE) ? (m->wifiConnected != 0) : false;
-                const char* fwVersion = (len >= (int)PRESENCE_MSG_V2_SIZE) ? m->fwVersion : "";
-                FwState fwState       = (len >= (int)sizeof(PresenceMsg))  ? (FwState)m->fwState : FwState::Idle;
-                bool isNew = _instance->peers.update(mac, m->name, m->groupId, sceneSyncEnabled, wifiConnected, fwVersion, fwState);
+                bool isNew = _instance->peers.update(mac, m->name, m->groupId,
+                    m->sceneSyncEnabled != 0, m->wifiConnected != 0,
+                    m->fwVersion, (FwState)m->fwState);
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, m->groupId, isNew);
                 if (isNew) _instance->broadcastAllGroups();
                 break;

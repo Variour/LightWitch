@@ -54,6 +54,18 @@ static void deserializeGroup(JsonVariant o, GroupConfig& g) {
     g.light.proximityScale     = o["proximityScale"]    | 1.0f;
 }
 
+static bool migrateDoc(JsonDocument& doc) {
+    uint8_t ver = doc["schemaVersion"] | (uint8_t)0;
+    if (ver > CONFIG_SCHEMA_VERSION) {
+        Logger::w("[cfg] schema version %u > firmware max %u — ignoring", ver, CONFIG_SCHEMA_VERSION);
+        return false;
+    }
+    if (ver < CONFIG_SCHEMA_VERSION)
+        Logger::i("[cfg] migrating config schema from v%u to v%u", ver, CONFIG_SCHEMA_VERSION);
+    // future migrations: if (ver < 2) { ... }
+    return true;
+}
+
 static void applyDoc(JsonDocument& doc) {
     strlcpy(Config::get().deviceName,   doc["deviceName"]   | "batterylight", sizeof(Config::get().deviceName));
     strlcpy(Config::get().apPassword,   doc["apPassword"]   | "bl-9f4a2c81", sizeof(Config::get().apPassword));
@@ -86,7 +98,7 @@ bool Config::load() {
             JsonDocument doc;
             bool ok = !deserializeJson(doc, f);
             f.close();
-            if (ok) {
+            if (ok && migrateDoc(doc)) {
                 applyDoc(doc);
                 _ensureDefaultGroup();
                 if (!group(_cfg.groupId)) _cfg.groupId = 0;
@@ -105,7 +117,7 @@ bool Config::load() {
         prefs.end();
         if (json.length() > 0) {
             JsonDocument doc;
-            if (!deserializeJson(doc, json)) {
+            if (!deserializeJson(doc, json) && migrateDoc(doc)) {
                 applyDoc(doc);
                 _ensureDefaultGroup();
                 if (!group(_cfg.groupId)) _cfg.groupId = 0;
@@ -128,6 +140,7 @@ bool Config::load() {
 
 bool Config::save() {
     JsonDocument doc;
+    doc["schemaVersion"] = CONFIG_SCHEMA_VERSION;
     doc["deviceName"]   = _cfg.deviceName;
     doc["apPassword"]   = _cfg.apPassword;
     doc["otaPort"]           = _cfg.otaPort;

@@ -18,20 +18,24 @@ enum class MsgType : uint8_t {
     TriggerUpdate  = 13,
 };
 
-// fwState values for PresenceMsg (v3 field)
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
 
+static constexpr uint8_t PRESENCE_MSG_VERSION = 1;
+
+// version is the last field so that receivers on older firmware (which lack the
+// version byte) still decode all preceding fields correctly from the same offsets.
+// A message without a trailing version byte is treated as version 0 (pre-versioning),
+// which has the same layout as version 1.
 struct PresenceMsg {
     MsgType type    = MsgType::Presence;
     char    name[32];
     uint8_t groupId;
-    uint8_t sceneSyncEnabled;  // 1 = enabled, 0 = disabled  (v1 ends here — 35 bytes)
-    uint8_t wifiConnected;     // v2: 1 = connected to WiFi, 0 = not
-    char    fwVersion[16];     // v2: null-terminated firmware version string (52 bytes)
-    uint8_t fwState;           // v3: FwState enum value
+    uint8_t sceneSyncEnabled;
+    uint8_t wifiConnected;
+    char    fwVersion[16];
+    uint8_t fwState;
+    uint8_t version = PRESENCE_MSG_VERSION;
 };
-static constexpr size_t PRESENCE_MSG_V1_SIZE = 35;
-static constexpr size_t PRESENCE_MSG_V2_SIZE = 52;
 
 struct LightConfigMsg {
     MsgType     type;
