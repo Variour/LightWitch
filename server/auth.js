@@ -25,8 +25,8 @@ if (!DEV_NO_AUTH) {
   if (!TOKEN_SECRET)                      missing.push('TOKEN_SECRET');
   if (!ALLOWED_USERS)                     missing.push('ALLOWED_GITHUB_USERS');
   if (missing.length) {
-    console.error('Missing required environment variables:\n' + missing.map(v => `  - ${v}`).join('\n'));
-    process.exit(1);
+    console.error('Auth misconfigured — missing env vars:\n' + missing.map(v => `  - ${v}`).join('\n'));
+    console.error('Set DEV_NO_AUTH=true to bypass auth for local development.');
   }
 }
 
@@ -58,7 +58,7 @@ function makeSessionValue(username) {
 }
 
 function parseSessionValue(value) {
-  if (!value) return null;
+  if (!value || !SESSION_SECRET) return null;
   const lastPipe = value.lastIndexOf('|');
   if (lastPipe < 0) return null;
   const payload = value.slice(0, lastPipe);
@@ -96,6 +96,7 @@ function makeToken(username) {
 }
 
 function parseToken(token) {
+  if (!TOKEN_SECRET) return null;
   try {
     const decoded = Buffer.from(token, 'base64url').toString();
     const lastPipe = decoded.lastIndexOf('|');
