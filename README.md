@@ -76,11 +76,6 @@ pio run -e esp32dev -t uploadfs   # For ESP32-WROOM-32 devices
 ```
 
 Both steps are required on a fresh device. Use the environment matching your device type. After this, all further updates can be done over WiFi.
-
-### Migrating an existing device to a new partition table
-
-If the partition table changed (e.g. to increase OTA slot size), OTA alone cannot update it — the new table must be written via USB. Run both steps above on the device. Settings stored in NVS are preserved; the filesystem (`data/`) is overwritten, so the device will restore settings from NVS on next boot as normal.
-
 ---
 
 ## First boot
