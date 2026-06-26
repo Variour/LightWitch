@@ -1065,15 +1065,15 @@ function renderLights(self, peers) {
       const fwState = p.fwState || 'idle';
       const hasError = fwState === 'error';
       const inProgress = fwState === 'checking' || fwState === 'downloading' || fwState === 'done';
-      const fwColor = hasError    ? '#c44'
-                    : triggered   ? '#4af'
+      const fwColor = triggered   ? '#4af'
+                    : hasError    ? '#c44'
                     : inProgress  ? '#4af'
                     : isNewest    ? '#4c4'
                     :               '#c84';
-      const canTrigger = !isNewest && !triggered && !inProgress && !hasError;
-      const fwTitle = hasError               ? `v${ver} — update failed`
+      const canTrigger = !isNewest && !triggered && !inProgress;
+      const fwTitle = triggered              ? `v${ver} — update triggered`
+                    : hasError               ? `v${ver} — update failed — click to retry`
                     : fwState === 'done'     ? `v${ver} — update complete — rebooting…`
-                    : triggered              ? `v${ver} — update triggered`
                     : inProgress             ? `v${ver} — update in progress…`
                     : isNewest               ? `v${ver} — newest on network`
                     :                          `v${ver} — older (newest: v${maxVersion}) — click to trigger update`;
