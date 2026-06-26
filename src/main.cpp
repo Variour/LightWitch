@@ -54,7 +54,7 @@ static void setupWifi() {
     WiFi.setTxPower(WIFI_TX_POWER);
 
     if (strlen(c.wifiSsid) == 0) {
-        WiFi.softAP(c.deviceName, c.apPassword);
+        WiFi.softAP(c.deviceName, c.apPassword, 1);
         Logger::i("[wifi] No SSID configured, AP: %s  IP: %s",
                   c.deviceName, WiFi.softAPIP().toString().c_str());
         return;
@@ -77,7 +77,7 @@ static void setupWifi() {
     } else {
         Logger::w("[wifi] Failed to connect, falling back to AP");
         WiFi.setAutoReconnect(false);
-        WiFi.softAP(c.deviceName, c.apPassword);
+        WiFi.softAP(c.deviceName, c.apPassword, 1);
         Logger::i("[wifi] AP: %s  IP: %s", c.deviceName, WiFi.softAPIP().toString().c_str());
     }
 }
