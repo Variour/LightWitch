@@ -18,5 +18,4 @@ Apply exactly one label using `mcp__github__issue_write`. Valid labels:
 
 ## Issue workflow reminders
 
-- If an issue contains research, finish and confirm with the user before any write actions
 - When updating a branch with an open PR, review the test checklist and update it if necessary
