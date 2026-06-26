@@ -96,7 +96,6 @@ function makeToken(username) {
 }
 
 function parseToken(token) {
-  if (!TOKEN_SECRET) return null;
   try {
     const decoded = Buffer.from(token, 'base64url').toString();
     const lastPipe = decoded.lastIndexOf('|');
