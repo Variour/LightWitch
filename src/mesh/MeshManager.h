@@ -56,9 +56,13 @@ public:
         esp_now_register_recv_cb(_onRecv);
         esp_now_register_send_cb(_onSent);
         // Promiscuous sniffer captures RSSI from raw 802.11 frames.
-        // ESP-NOW action frames (subtype 0xD) carry source MAC at byte 10.
-        esp_wifi_set_promiscuous(true);
-        esp_wifi_set_promiscuous_rx_cb(_promiscuousRecv);
+        // Only enable in AP mode: in STA mode the beacon/probe flood from the
+        // router hammers this callback from the WiFi task, starving the TCP stack
+        // and making the web interface extremely slow.
+        if (WiFi.status() != WL_CONNECTED) {
+            esp_wifi_set_promiscuous(true);
+            esp_wifi_set_promiscuous_rx_cb(_promiscuousRecv);
+        }
         Logger::i("[mesh] ready, MAC: %s", WiFi.macAddress().c_str());
         _ready = true;
     }
