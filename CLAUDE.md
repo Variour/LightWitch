@@ -2,13 +2,14 @@ never regenerate the index.html.gz
 
 ## Commit Messages
 
-Use scoped commits: `type(scope): description`
+Use [scoped commits](https://scopedcommits.com/): `scope: description`
 
-- **type**: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`
-- **scope**: the area changed, e.g. `web`, `mqtt`, `ota`, `peers`, `ci`, `config`
-- **description**: short, imperative, lowercase
+- **scope** — the subsystem or area the commit touches, e.g. `web`, `mqtt`, `ota`, `peers`, `ci`, `config`
+- **description** — a short summary of the change
 
-Examples: `feat(web): add scene editor`, `fix(mqtt): handle reconnect on timeout`, `chore(ci): bump platformio version`
+Examples: `web: add scene editor`, `mqtt: handle reconnect on timeout`, `ci: bump platformio version`
+
+If a commit spans multiple scopes, use a more general scope, list both separated by a comma, or use `treewide`.
 
 ## General guidance
 - Never make assumptions, ask to clarify
