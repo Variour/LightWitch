@@ -10,7 +10,6 @@ const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 const MOCK_CONFIG = {
   deviceName: 'Mock Device',
-  wifiSsid: 'HomeNetwork',
   otaPort: 3232,
   otaEnabled: true,
   groupId: 0,
@@ -36,6 +35,12 @@ const MOCK_PEERS = [
   { name: 'Mock Light 2', mac: '22:33:44:55:66:77', groupId: 0, online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  version: 'mock',         fwState: 'error' },
   { name: 'Mock Light 3', mac: '33:44:55:66:77:88', groupId: 1, online: false, rssi: -80, sceneSyncEnabled: false, wifiConnected: false, version: '2026.01.01.0', fwState: 'idle'  },
 ];
+
+const wifiNetworks = [
+  { ssid: 'HomeNetwork', password: 'secret1' },
+  { ssid: 'WorkWifi',    password: 'secret2' },
+];
+let wifiConnected = 'HomeNetwork';
 
 const scenes = new Map();
 
@@ -74,6 +79,28 @@ app.use(express.static(DATA_DIR));
 
 app.get('/api/config', (_req, res) => res.json(MOCK_CONFIG));
 app.post('/api/config', (_req, res) => res.json({ ok: true }));
+
+app.get('/api/wifi', (_req, res) => res.json({
+  connected: wifiConnected,
+  networks: wifiNetworks.map(n => n.ssid),
+}));
+app.post('/api/wifi/add', (req, res) => {
+  const { ssid, password } = req.body;
+  if (!ssid) return res.status(400).json({ error: 'ssid required' });
+  const existing = wifiNetworks.find(n => n.ssid === ssid);
+  if (existing) { existing.password = password || ''; return res.json({ ok: true }); }
+  if (wifiNetworks.length >= 5) return res.status(409).json({ error: 'network list full' });
+  wifiNetworks.push({ ssid, password: password || '' });
+  res.json({ ok: true });
+});
+app.post('/api/wifi/delete', (req, res) => {
+  const { ssid } = req.body;
+  if (!ssid) return res.status(400).json({ error: 'ssid required' });
+  const idx = wifiNetworks.findIndex(n => n.ssid === ssid);
+  if (idx !== -1) wifiNetworks.splice(idx, 1);
+  if (wifiConnected === ssid) wifiConnected = null;
+  res.json({ ok: true });
+});
 
 app.get('/api/peers', (_req, res) => res.json({ self: MOCK_SELF, peers: MOCK_PEERS }));
 app.post('/api/peers/setgroup',     (_req, res) => res.json({ ok: true }));

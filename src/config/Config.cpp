@@ -4,8 +4,13 @@
 #include <esp_mac.h>
 #include "../logging/Logger.h"
 
-DeviceConfig Config::_cfg;
-const char*  Config::_path = "/config.json";
+DeviceConfig    Config::_cfg;
+const char*     Config::_path = "/config.json";
+WifiNetwork     Config::_wifiNetworks[MAX_WIFI_NETWORKS];
+uint8_t         Config::_wifiCount = 0;
+uint8_t         Config::_wifiLast  = 0;
+
+static const char* _wifiPath = "/wifi.json";
 
 static constexpr char NVS_NS[]  = "bl";
 static constexpr char NVS_KEY[] = "cfg";
@@ -51,8 +56,6 @@ static void deserializeGroup(JsonVariant o, GroupConfig& g) {
 
 static void applyDoc(JsonDocument& doc) {
     strlcpy(Config::get().deviceName,   doc["deviceName"]   | "batterylight", sizeof(Config::get().deviceName));
-    strlcpy(Config::get().wifiSsid,     doc["wifiSsid"]     | "",             sizeof(Config::get().wifiSsid));
-    strlcpy(Config::get().wifiPassword, doc["wifiPassword"] | "",             sizeof(Config::get().wifiPassword));
     strlcpy(Config::get().apPassword,   doc["apPassword"]   | "bl-9f4a2c81", sizeof(Config::get().apPassword));
     Config::get().otaPort        = doc["otaPort"]        | 3232;
     Config::get().otaEnabled     = doc["otaEnabled"]     | true;
@@ -126,8 +129,6 @@ bool Config::load() {
 bool Config::save() {
     JsonDocument doc;
     doc["deviceName"]   = _cfg.deviceName;
-    doc["wifiSsid"]     = _cfg.wifiSsid;
-    doc["wifiPassword"] = _cfg.wifiPassword;
     doc["apPassword"]   = _cfg.apPassword;
     doc["otaPort"]           = _cfg.otaPort;
     doc["otaEnabled"]        = _cfg.otaEnabled;
@@ -212,8 +213,6 @@ void Config::applyConfigSync(const char* json, size_t len) {
         return;
     }
     auto& c = _cfg;
-    if (!doc["wifiSsid"].isNull())     strlcpy(c.wifiSsid,     doc["wifiSsid"],     sizeof(c.wifiSsid));
-    if (!doc["wifiPassword"].isNull()) strlcpy(c.wifiPassword, doc["wifiPassword"], sizeof(c.wifiPassword));
     if (!doc["mqttHost"].isNull())     strlcpy(c.mqttHost,     doc["mqttHost"],     sizeof(c.mqttHost));
     if (!doc["mqttPort"].isNull())     c.mqttPort = (uint16_t)doc["mqttPort"];
     if (!doc["mqttUser"].isNull())     strlcpy(c.mqttUser,     doc["mqttUser"],     sizeof(c.mqttUser));
@@ -229,10 +228,103 @@ void Config::applyConfigSync(const char* json, size_t len) {
     if (!doc["apPassword"].isNull() && strlen(doc["apPassword"]) >= 8)
         strlcpy(c.apPassword, doc["apPassword"], sizeof(c.apPassword));
     if (!doc["ledType"].isNull()) c.ledType = (LedType)(uint8_t)(int)doc["ledType"];
+
+    if (doc["addWifiNetworks"].is<JsonArray>()) {
+        loadWifi();
+        JsonArray nets = doc["addWifiNetworks"].as<JsonArray>();
+        // Count new (non-duplicate) entries to check cap
+        uint8_t newCount = _wifiCount;
+        for (JsonVariant v : nets) {
+            const char* ssid = v["ssid"] | "";
+            if (strlen(ssid) == 0) continue;
+            bool exists = false;
+            for (uint8_t i = 0; i < _wifiCount; i++)
+                if (strcmp(_wifiNetworks[i].ssid, ssid) == 0) { exists = true; break; }
+            if (!exists) newCount++;
+        }
+        if (newCount > MAX_WIFI_NETWORKS) {
+            Logger::w("[cfg] addWifiNetworks would exceed %u, skipping wifi merge", MAX_WIFI_NETWORKS);
+        } else {
+            for (JsonVariant v : nets) {
+                const char* ssid = v["ssid"] | "";
+                const char* pass = v["password"] | "";
+                if (strlen(ssid) == 0) continue;
+                addWifiNetwork(ssid, pass);
+            }
+        }
+    }
+
     save();
     Logger::i("[cfg] config sync applied, restarting");
     delay(200);
     ESP.restart();
+}
+
+bool Config::loadWifi() {
+    _wifiCount = 0;
+    _wifiLast  = 0;
+    if (!LittleFS.exists(_wifiPath)) return false;
+    File f = LittleFS.open(_wifiPath, "r");
+    if (!f) return false;
+    JsonDocument doc;
+    bool ok = !deserializeJson(doc, f);
+    f.close();
+    if (!ok) return false;
+    _wifiLast = doc["last"] | (uint8_t)0;
+    if (doc["networks"].is<JsonArray>()) {
+        for (JsonVariant v : doc["networks"].as<JsonArray>()) {
+            if (_wifiCount >= MAX_WIFI_NETWORKS) break;
+            strlcpy(_wifiNetworks[_wifiCount].ssid,     v["ssid"]     | "", sizeof(_wifiNetworks[0].ssid));
+            strlcpy(_wifiNetworks[_wifiCount].password, v["password"] | "", sizeof(_wifiNetworks[0].password));
+            _wifiCount++;
+        }
+    }
+    return true;
+}
+
+bool Config::saveWifi() {
+    JsonDocument doc;
+    doc["last"] = _wifiLast;
+    JsonArray arr = doc["networks"].to<JsonArray>();
+    for (uint8_t i = 0; i < _wifiCount; i++) {
+        JsonObject o = arr.add<JsonObject>();
+        o["ssid"]     = _wifiNetworks[i].ssid;
+        o["password"] = _wifiNetworks[i].password;
+    }
+    File f = LittleFS.open(_wifiPath, "w");
+    if (!f) { Logger::e("[cfg] wifi.json write failed"); return false; }
+    serializeJson(doc, f);
+    f.close();
+    return true;
+}
+
+bool Config::addWifiNetwork(const char* ssid, const char* password) {
+    for (uint8_t i = 0; i < _wifiCount; i++) {
+        if (strcmp(_wifiNetworks[i].ssid, ssid) == 0) {
+            strlcpy(_wifiNetworks[i].password, password, sizeof(_wifiNetworks[0].password));
+            return saveWifi();
+        }
+    }
+    if (_wifiCount >= MAX_WIFI_NETWORKS) return false;
+    strlcpy(_wifiNetworks[_wifiCount].ssid,     ssid,     sizeof(_wifiNetworks[0].ssid));
+    strlcpy(_wifiNetworks[_wifiCount].password, password, sizeof(_wifiNetworks[0].password));
+    _wifiCount++;
+    return saveWifi();
+}
+
+bool Config::deleteWifiNetwork(const char* ssid) {
+    for (uint8_t i = 0; i < _wifiCount; i++) {
+        if (strcmp(_wifiNetworks[i].ssid, ssid) == 0) {
+            for (uint8_t j = i; j < _wifiCount - 1; j++)
+                _wifiNetworks[j] = _wifiNetworks[j + 1];
+            _wifiCount--;
+            if (_wifiLast == i) _wifiLast = 0;
+            else if (_wifiLast > i) _wifiLast--;
+            saveWifi();
+            return true;
+        }
+    }
+    return false;
 }
 
 void Config::_ensureDefaultGroup() {

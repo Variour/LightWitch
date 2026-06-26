@@ -42,7 +42,13 @@ struct LightConfig {
     float     proximityScale    = 1.0f;
 };
 
-static constexpr uint8_t MAX_GROUPS = 8;
+static constexpr uint8_t MAX_GROUPS        = 8;
+static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
+
+struct WifiNetwork {
+    char ssid[64]     = {};
+    char password[64] = {};
+};
 
 struct GroupConfig {
     uint8_t     id          = 0;
@@ -54,8 +60,6 @@ struct GroupConfig {
 
 struct DeviceConfig {
     char        deviceName[32]   = "light";
-    char        wifiSsid[64]     = "";
-    char        wifiPassword[64] = "";
     char        apPassword[64]   = "bl-9f4a2c81";
     uint16_t    otaPort          = 3232;
     bool        otaEnabled       = true;
@@ -77,6 +81,18 @@ public:
     static bool    load();
     static bool    save();
     static void    reset();
+
+    static bool    loadWifi();
+    static bool    saveWifi();
+    // Returns false if cap reached and SSID is not already in the list.
+    // If SSID already exists, updates its password and returns true.
+    static bool    addWifiNetwork(const char* ssid, const char* password);
+    static bool    deleteWifiNetwork(const char* ssid);
+
+    static WifiNetwork* wifiNetworks() { return _wifiNetworks; }
+    static uint8_t      wifiCount()    { return _wifiCount; }
+    static uint8_t      wifiLast()     { return _wifiLast; }
+    static void         setWifiLast(uint8_t i) { _wifiLast = i; }
 
     static DeviceConfig& get()   { return _cfg; }
 
@@ -104,5 +120,8 @@ public:
 private:
     static DeviceConfig _cfg;
     static const char*  _path;
+    static WifiNetwork  _wifiNetworks[MAX_WIFI_NETWORKS];
+    static uint8_t      _wifiCount;
+    static uint8_t      _wifiLast;
     static void _ensureDefaultGroup();
 };

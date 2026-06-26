@@ -89,6 +89,12 @@ public:
         _server.on("/api/config", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _postConfig(r,d,l); });
 
+        _server.on("/api/wifi", HTTP_GET, [this](AsyncWebServerRequest* r){ _getWifi(r); });
+        _server.on("/api/wifi/add", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _addWifi(r,d,l); });
+        _server.on("/api/wifi/delete", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _deleteWifi(r,d,l); });
+
         _server.on("/api/peers", HTTP_GET, [this](AsyncWebServerRequest* r){ _getPeers(r); });
 
         _server.on("/api/groups/create", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
@@ -360,7 +366,6 @@ private:
         auto& c = Config::get();
         JsonDocument doc;
         doc["deviceName"] = c.deviceName;
-        doc["wifiSsid"]   = c.wifiSsid;
         doc["otaPort"]    = c.otaPort;
         doc["otaEnabled"] = c.otaEnabled;
         doc["groupId"]    = c.groupId;
@@ -394,8 +399,6 @@ private:
         }
         auto& c = Config::get();
         if (!doc["deviceName"].isNull())   strlcpy(c.deviceName,   doc["deviceName"],   sizeof(c.deviceName));
-        if (!doc["wifiSsid"].isNull())     strlcpy(c.wifiSsid,     doc["wifiSsid"],     sizeof(c.wifiSsid));
-        if (!doc["wifiPassword"].isNull()) strlcpy(c.wifiPassword, doc["wifiPassword"], sizeof(c.wifiPassword));
         if (!doc["apPassword"].isNull())   strlcpy(c.apPassword,   doc["apPassword"],   sizeof(c.apPassword));
         if (!doc["otaPort"].isNull())      c.otaPort    = doc["otaPort"];
         if (!doc["otaEnabled"].isNull())   c.otaEnabled = (bool)doc["otaEnabled"];
@@ -758,7 +761,53 @@ private:
         auto ok = _makeOk(); _sendJson(r, 200, ok);
     }
 
-    // Body: {mac?, deviceName?, ledType?, wifiSsid?, wifiPassword?, apPassword?,
+    // ── GET /api/wifi ─────────────────────────────────────────────────────────
+    void _getWifi(AsyncWebServerRequest* r) {
+        JsonDocument doc;
+        if (WiFi.status() == WL_CONNECTED)
+            doc["connected"] = WiFi.SSID().c_str();
+        else
+            doc["connected"] = nullptr;
+        JsonArray arr = doc["networks"].to<JsonArray>();
+        for (uint8_t i = 0; i < Config::wifiCount(); i++)
+            arr.add(Config::wifiNetworks()[i].ssid);
+        _sendJson(r, 200, doc);
+    }
+
+    // ── POST /api/wifi/add ────────────────────────────────────────────────────
+    // Body: {ssid, password}
+    void _addWifi(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len)) {
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
+        }
+        const char* ssid = doc["ssid"] | "";
+        const char* pass = doc["password"] | "";
+        if (strlen(ssid) == 0) {
+            auto e = _makeErr("ssid required"); _sendJson(r, 400, e); return;
+        }
+        if (!Config::addWifiNetwork(ssid, pass)) {
+            auto e = _makeErr("network list full"); _sendJson(r, 409, e); return;
+        }
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/wifi/delete ─────────────────────────────────────────────────
+    // Body: {ssid}
+    void _deleteWifi(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len)) {
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
+        }
+        const char* ssid = doc["ssid"] | "";
+        if (strlen(ssid) == 0) {
+            auto e = _makeErr("ssid required"); _sendJson(r, 400, e); return;
+        }
+        Config::deleteWifiNetwork(ssid);
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+    }
+
+    // Body: {mac?, deviceName?, ledType?, addWifiNetworks?, apPassword?,
     //        mqttHost?, mqttPort?, mqttUser?, mqttPassword?, githubRepo?, githubToken?,
     //        otaEnabled?, sceneSyncEnabled?}
     // mac omitted or empty = push to all peers. Only present fields are pushed;
@@ -827,10 +876,23 @@ private:
                 if (strcmp(v.as<const char*>(), key) == 0) return true;
             return false;
         };
-        // Shared fields (non-sensitive values arrive directly; sensitive ones via useLocal)
-        addStr("wifiSsid");
-        if (isUseLocal("wifiPassword")) { payload["wifiPassword"] = c.wifiPassword; any = true; }
-        else addStr("wifiPassword", 1);
+        // Shared fields
+        if (isUseLocal("wifiNetworks")) {
+            // Push this device's full wifi list for merge on target
+            uint8_t n = Config::wifiCount();
+            if (n > 0) {
+                JsonArray nets = payload["addWifiNetworks"].to<JsonArray>();
+                for (uint8_t i = 0; i < n; i++) {
+                    JsonObject o = nets.add<JsonObject>();
+                    o["ssid"]     = Config::wifiNetworks()[i].ssid;
+                    o["password"] = Config::wifiNetworks()[i].password;
+                }
+                any = true;
+            }
+        } else if (!doc["addWifiNetworks"].isNull()) {
+            payload["addWifiNetworks"] = doc["addWifiNetworks"];
+            any = true;
+        }
         if (isUseLocal("apPassword")) { if (strlen(c.apPassword) >= 8) { payload["apPassword"] = c.apPassword; any = true; } }
         else addStr("apPassword", 8);
         addStr("mqttHost");

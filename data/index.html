@@ -631,11 +631,15 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
     <hr class="section-divider">
     <h3>WiFi</h3>
-    <label>SSID</label>
-    <input type="text" id="wifiSsid" placeholder="(leave blank for AP only)">
-    <label>Password</label>
-    <input type="password" id="wifiPassword" placeholder="(unchanged if empty)">
-    <label>AP Password <small>(min 8 chars)</small></label>
+    <div id="wifi-list" style="margin-bottom:.5rem"></div>
+    <div style="display:flex;flex-direction:column;gap:.4rem">
+      <label>SSID</label>
+      <input type="text" id="wifiSsidAdd" placeholder="(device runs in AP mode when list is empty)">
+      <label>Password</label>
+      <input type="password" id="wifiPasswordAdd" autocomplete="new-password">
+      <button class="btn-ghost" style="width:100%" onclick="addWifiNetwork()">Add network</button>
+    </div>
+    <label style="margin-top:.75rem">AP Password <small>(min 8 chars)</small></label>
     <input type="password" id="apPassword" placeholder="(unchanged if empty)">
     <label>OTA port</label>
     <input type="number" id="otaPort" value="3232" min="1" max="65535">
@@ -721,11 +725,14 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
       <hr class="section-divider">
       <h3>WiFi</h3>
-      <div class="push-fh"><span>SSID</span><label class="push-ul"><input type="checkbox" id="push-wifiSsid-ul" onchange="toggleField('push-wifiSsid',this.checked)"> Use current</label></div>
-      <input type="text" id="push-wifiSsid" placeholder="(leave blank to keep unchanged)">
-      <div class="push-fh"><span>Password</span><label class="push-ul"><input type="checkbox" id="push-wifiPassword-ul" onchange="toggleField('push-wifiPassword',this.checked)"> Use current</label></div>
-      <input type="password" id="push-wifiPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password">
-      <div class="push-fh"><span>AP Password <small>(min 8 chars)</small></span><label class="push-ul"><input type="checkbox" id="push-apPassword-ul" onchange="toggleField('push-apPassword',this.checked)"> Use current</label></div>
+      <label class="push-fh" style="cursor:pointer"><input type="checkbox" id="push-wifiNetworks-ul" onchange="togglePushWifi(this.checked)"> Push my WiFi networks (merged into target's list)</label>
+      <div id="push-wifi-manual">
+        <label style="margin-top:.4rem">SSID <small>(add one network to target)</small></label>
+        <input type="text" id="push-wifiSsidNew" placeholder="(leave blank to skip)">
+        <label>Password</label>
+        <input type="password" id="push-wifiPasswordNew" autocomplete="new-password">
+      </div>
+      <div class="push-fh" style="margin-top:.5rem"><span>AP Password <small>(min 8 chars)</small></span><label class="push-ul"><input type="checkbox" id="push-apPassword-ul" onchange="toggleField('push-apPassword',this.checked)"> Use current</label></div>
       <input type="password" id="push-apPassword" placeholder="(leave blank to keep unchanged)" autocomplete="new-password">
 
       <hr class="section-divider">
@@ -1139,7 +1146,7 @@ function setSceneSync(mac, enabled) {
 
 // Fields that support "use current" — shared fields first, then per-device
 const _pushSharedFields = [
-  'push-wifiSsid','push-wifiPassword','push-apPassword',
+  'push-wifiNetworks','push-apPassword',
   'push-mqttHost','push-mqttPort','push-mqttUser','push-mqttPassword',
   'push-githubRepo','push-githubToken',
   'push-otaEnabled','push-sceneSyncEnabled',
@@ -1148,7 +1155,7 @@ const _pushDeviceFields = ['push-ledType']; // deviceName has no "use current"
 
 // Sensitive fields: firmware fills the value; field is disabled when checked
 const _pushSensitiveFields = new Set([
-  'push-wifiPassword','push-apPassword','push-mqttPassword','push-githubToken'
+  'push-apPassword','push-mqttPassword','push-githubToken'
 ]);
 
 function toggleField(id, checked) {
@@ -1169,10 +1176,21 @@ function toggleField(id, checked) {
   }
 }
 
+function togglePushWifi(checked) {
+  document.getElementById('push-wifi-manual').style.display = checked ? 'none' : '';
+}
+
 function setAllPushFields(checked) {
   const isAll = !_pushTarget;
   const fields = isAll ? _pushSharedFields : [..._pushSharedFields, ..._pushDeviceFields];
   fields.forEach(id => {
+    if (id === 'push-wifiNetworks') {
+      const cb = document.getElementById(id + '-ul');
+      if (!cb) return;
+      cb.checked = checked;
+      togglePushWifi(checked);
+      return;
+    }
     const cb = document.getElementById(id + '-ul');
     if (!cb) return;
     cb.checked = checked;
@@ -1201,8 +1219,12 @@ function openPushModal(mac, peerName) {
     isAll ? 'Push config to all' : `Push config to ${peerName || mac}`;
   document.getElementById('push-device-section').style.display = isAll ? 'none' : '';
 
-  // Reset deviceName (no checkbox)
+  // Reset deviceName (no checkbox) and wifi manual fields
   document.getElementById('push-deviceName').value = '';
+  const wSsidEl = document.getElementById('push-wifiSsidNew');
+  const wPassEl = document.getElementById('push-wifiPasswordNew');
+  if (wSsidEl) wSsidEl.value = '';
+  if (wPassEl) wPassEl.value = '';
 
   // Set all checkboxes: all checked for push-to-all, all unchecked for per-device
   setAllPushFields(isAll);
@@ -1243,8 +1265,14 @@ async function submitPushConfig() {
   const bool = (elId, key) => { const v = document.getElementById(elId).value; if (v !== '') body[key] = v === 'true'; };
   const int  = (elId, key) => { const v = document.getElementById(elId).value; if (v !== '') body[key] = parseInt(v); };
 
-  str('push-wifiSsid',              'wifiSsid');
-  sensitiveStr('push-wifiPassword', 'wifiPassword');
+  // WiFi: either push full list (useLocal) or add one manual entry
+  if (document.getElementById('push-wifiNetworks-ul')?.checked) {
+    useLocal.push('wifiNetworks');
+  } else {
+    const wSsid = document.getElementById('push-wifiSsidNew')?.value.trim();
+    const wPass = document.getElementById('push-wifiPasswordNew')?.value.trim();
+    if (wSsid) body.addWifiNetworks = [{ssid: wSsid, password: wPass || ''}];
+  }
   sensitiveStr('push-apPassword',   'apPassword');
   str('push-mqttHost',              'mqttHost');
   num('push-mqttPort',              'mqttPort');
@@ -1294,7 +1322,6 @@ async function saveSettings() {
 
   const body = {
     deviceName: document.getElementById('deviceName').value,
-    wifiSsid:   document.getElementById('wifiSsid').value,
     otaPort:    parseInt(document.getElementById('otaPort').value),
     otaEnabled: document.getElementById('otaEnabled').checked,
     ledType:    parseInt(document.getElementById('ledType').value),
@@ -1303,11 +1330,9 @@ async function saveSettings() {
     mqttPort:   parseInt(document.getElementById('mqttPort').value) || 1883,
     mqttUser:   document.getElementById('mqttUser').value,
   };
-  const pw     = document.getElementById('wifiPassword').value;
   const apPw   = document.getElementById('apPassword').value;
   const mqttPw = document.getElementById('mqttPassword').value;
   const ghTok  = document.getElementById('githubToken').value;
-  if (pw)     body.wifiPassword  = pw;
   if (apPw)   body.apPassword    = apPw;
   if (mqttPw) body.mqttPassword  = mqttPw;
   body.githubRepo = document.getElementById('githubRepo').value;
@@ -1439,6 +1464,52 @@ function _updApplyStatus(data) {
   }
 }
 
+// ── WiFi network management ───────────────────────────────────────────────────
+function renderWifiList(networks, connected) {
+  const el = document.getElementById('wifi-list');
+  if (!el) return;
+  if (!networks.length) {
+    el.innerHTML = '<div style="font-size:.82rem;color:#555;margin-bottom:.25rem">(no networks saved — device runs in AP mode)</div>';
+    return;
+  }
+  el.innerHTML = networks.map(ssid => {
+    const isConn = ssid === connected;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.3rem 0;border-bottom:1px solid #222">
+      <span style="font-size:.9rem">${ssid}${isConn ? ' <small style="color:#4c4">(connected)</small>' : ''}</span>
+      <button class="btn-ghost btn-sm" onclick="deleteWifiNetwork(${JSON.stringify(ssid)})">Delete</button>
+    </div>`;
+  }).join('');
+}
+
+async function addWifiNetwork() {
+  const ssid = document.getElementById('wifiSsidAdd').value.trim();
+  const pass = document.getElementById('wifiPasswordAdd').value;
+  if (!ssid) { alert('SSID is required'); return; }
+  const res = await fetch('/api/wifi/add', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ssid, password: pass})
+  });
+  const data = await res.json();
+  if (!res.ok) { alert('Error: ' + (data.error || res.status)); return; }
+  document.getElementById('wifiSsidAdd').value = '';
+  document.getElementById('wifiPasswordAdd').value = '';
+  const wr = await fetch('/api/wifi');
+  const wd = await wr.json();
+  renderWifiList(wd.networks || [], wd.connected || null);
+}
+
+async function deleteWifiNetwork(ssid) {
+  if (!confirm(`Remove "${ssid}" from the WiFi list?`)) return;
+  const res = await fetch('/api/wifi/delete', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ssid})
+  });
+  if (!res.ok) { const d = await res.json(); alert('Error: ' + (d.error || res.status)); return; }
+  const wr = await fetch('/api/wifi');
+  const wd = await wr.json();
+  renderWifiList(wd.networks || [], wd.connected || null);
+}
+
 // ── Load config ───────────────────────────────────────────────────────────────
 async function loadConfig() {
   const res = await fetch('/api/config');
@@ -1449,7 +1520,6 @@ async function loadConfig() {
   _sceneOptions = scenesData.scenes || [];
   _selfMac  = d.mac || '';
   document.getElementById('deviceName').value = d.deviceName || '';
-  document.getElementById('wifiSsid').value   = d.wifiSsid   || '';
   document.getElementById('otaPort').value    = d.otaPort    || 3232;
   document.getElementById('otaEnabled').checked = d.otaEnabled !== false;
   if (d.ledType  !== undefined) document.getElementById('ledType').value  = d.ledType;
@@ -1468,6 +1538,11 @@ async function loadConfig() {
     document.getElementById('upd-current').textContent = d.version;
   }
   if (d.groups) renderGroups(d.groups);
+  try {
+    const wr  = await fetch('/api/wifi');
+    const wd  = await wr.json();
+    renderWifiList(wd.networks || [], wd.connected || null);
+  } catch {}
   const pr = await fetch('/api/peers');
   const pd = await pr.json();
   renderLights(pd.self, pd.peers || []);
