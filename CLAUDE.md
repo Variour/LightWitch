@@ -1,5 +1,15 @@
 never regenerate the index.html.gz
 
+## Commit Messages
+
+Use scoped commits: `type(scope): description`
+
+- **type**: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`
+- **scope**: the area changed, e.g. `web`, `mqtt`, `ota`, `peers`, `ci`, `config`
+- **description**: short, imperative, lowercase
+
+Examples: `feat(web): add scene editor`, `fix(mqtt): handle reconnect on timeout`, `chore(ci): bump platformio version`
+
 ## General guidance
 - Never make assumptions, ask to clarify
 - Challenge requests if necessary, be critical
