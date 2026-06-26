@@ -14,16 +14,16 @@ public:
     }
 
     static void init() {
-        if (!LittleFS.exists("/scenes")) LittleFS.mkdir("/scenes");
+        if (!LittleFS.exists("/sc")) LittleFS.mkdir("/sc");
     }
 
     // Build a JSON object {scenes:[{id,name,w,h,fc},...]} for the list endpoint.
     // Reads only metadata fields from each scene file (via ArduinoJson filter).
     static void buildList(JsonDocument& resp) {
         JsonArray arr = resp["scenes"].to<JsonArray>();
-        File dir = LittleFS.open("/scenes");
+        File dir = LittleFS.open("/sc");
         if (!dir || !dir.isDirectory()) {
-            Logger::w("[scene] buildList: /scenes dir missing or not a directory");
+            Logger::w("[scene] buildList: /sc dir missing or not a directory");
             dir.close();
             return;
         }
@@ -200,7 +200,7 @@ public:
 
     static uint8_t buildManifestEntries(ManifestEntry* entries, uint8_t maxEntries) {
         uint8_t count = 0;
-        File dir = LittleFS.open("/scenes");
+        File dir = LittleFS.open("/sc");
         if (dir && dir.isDirectory()) {
             File f = dir.openNextFile();
             while (f && count < maxEntries) {
@@ -273,7 +273,7 @@ private:
     }
 
     static String _path(const char* id) {
-        return String("/scenes/") + id + ".json";
+        return String("/sc/") + id + ".json";
     }
 
     static std::set<String>& _tombstones() {
