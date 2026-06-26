@@ -37,6 +37,16 @@ Use the tool `github: issue write` to add the label
 - when updating a branch with an open pr, review the test checklist and update it if necessary
 - if an issue contains research finish that first and confirm with the user, before making any write actions
 
+## UI Validation
+
+After implementing any change that touches `data/` or `server/`, validate the UI with Playwright before marking the task complete. Use the `/run` skill, which handles all the mechanics:
+
+- Start the mock server: `DEV_NO_AUTH=true node server/index.js` (server exits immediately without this flag)
+- Playwright Chromium: `executablePath: '/opt/pw-browsers/chromium'`
+- UI base URL: `http://localhost:8080`
+
+Validate **what the current change affects** — not a fixed list. Take screenshots and report what you see.
+
 ## Feature Implementation Checklist
 
 When implementing any new feature or API change, verify all of the following:
