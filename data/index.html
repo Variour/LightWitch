@@ -652,7 +652,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     <label>Personal access token <small>(fine-grained, Contents: read-only)</small></label>
     <input type="password" id="githubToken" placeholder="(unchanged if empty)">
 
-    <button class="btn-primary" style="width:100%;margin-top:.5rem" onclick="saveSettings()">Save &amp; Reboot</button>
+    <button id="save-reboot-btn" class="btn-primary" style="width:100%;margin-top:.5rem" onclick="saveSettings()">Save &amp; Reboot</button>
+    <div id="save-reboot-status" style="margin-top:.5rem;font-size:.85rem;text-align:center;color:#888"></div>
   </div>
 
   <!-- FIRMWARE UPDATE -->
@@ -1020,6 +1021,14 @@ function pushConfig(mac) {
 
 // ── Settings save ─────────────────────────────────────────────────────────────
 async function saveSettings() {
+  const btn    = document.getElementById('save-reboot-btn');
+  const status = document.getElementById('save-reboot-status');
+
+  btn.disabled    = true;
+  btn.textContent = 'Saving…';
+  status.style.color = '#888';
+  status.textContent = '';
+
   const body = {
     deviceName: document.getElementById('deviceName').value,
     wifiSsid:   document.getElementById('wifiSsid').value,
@@ -1040,8 +1049,46 @@ async function saveSettings() {
   if (mqttPw) body.mqttPassword  = mqttPw;
   body.githubRepo = document.getElementById('githubRepo').value;
   if (ghTok)  body.githubToken   = ghTok;
-  await fetch('/api/config', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  alert('Saved. Device will reboot.');
+
+  try {
+    const res = await fetch('/api/config', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+  } catch(e) {
+    btn.disabled    = false;
+    btn.textContent = 'Save & Reboot';
+    status.style.color = '#f66';
+    status.textContent = 'Save failed: ' + e.message;
+    return;
+  }
+
+  btn.textContent = 'Saved — rebooting…';
+  status.style.color = '#888';
+  status.textContent = 'Waiting for device…';
+
+  // Poll until device responds again, then switch to dashboard
+  const deadline = Date.now() + 60_000;
+  await new Promise(r => setTimeout(r, 3000)); // let device start rebooting
+  while (Date.now() < deadline) {
+    try {
+      const r = await fetch('/api/config', {signal: AbortSignal.timeout(2000)});
+      if (r.ok) {
+        status.style.color = '#4f4';
+        status.textContent = 'Device is back online!';
+        await new Promise(r => setTimeout(r, 800));
+        switchTab('dashboard');
+        btn.disabled    = false;
+        btn.textContent = 'Save & Reboot';
+        status.textContent = '';
+        return;
+      }
+    } catch(_) { /* device still rebooting */ }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
+  status.style.color = '#f66';
+  status.textContent = 'Device not responding — check your connection.';
+  btn.disabled    = false;
+  btn.textContent = 'Save & Reboot';
 }
 
 async function factoryReset() {
