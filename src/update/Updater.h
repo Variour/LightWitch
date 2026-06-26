@@ -4,6 +4,7 @@
 #include <WiFiClientSecure.h>
 #include <Update.h>
 #include <ArduinoJson.h>
+#include <atomic>
 #include "../config/Config.h"
 #include "../logging/Logger.h"
 #include "../version.h"
@@ -59,7 +60,7 @@ public:
 
 private:
     static Status _status;
-    static bool   _triggerPending;
+    static std::atomic<bool> _triggerPending;
 
     static String _authHeader() {
         String h = "Bearer ";
@@ -260,7 +261,7 @@ private:
 };
 
 inline Updater::Status Updater::_status;
-inline bool            Updater::_triggerPending  = false;
+inline std::atomic<bool> Updater::_triggerPending{false};
 inline uint32_t        Updater::_firmwareAssetId = 0;
 inline uint32_t        Updater::_fsAssetId       = 0;
 inline char            Updater::_errorBuf[48]    = {};
