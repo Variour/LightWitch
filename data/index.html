@@ -1064,18 +1064,19 @@ function renderLights(self, peers) {
       const triggered = _fwTriggered.has(mac);
       const fwState = p.fwState || 'idle';
       const hasError = fwState === 'error';
-      const inProgress = fwState === 'checking' || fwState === 'downloading';
+      const inProgress = fwState === 'checking' || fwState === 'downloading' || fwState === 'done';
       const fwColor = hasError    ? '#c44'
                     : triggered   ? '#4af'
                     : inProgress  ? '#4af'
                     : isNewest    ? '#4c4'
                     :               '#c84';
       const canTrigger = !isNewest && !triggered && !inProgress && !hasError;
-      const fwTitle = hasError    ? `v${ver} — update failed`
-                    : triggered   ? `v${ver} — update triggered`
-                    : inProgress  ? `v${ver} — update in progress…`
-                    : isNewest    ? `v${ver} — newest on network`
-                    :               `v${ver} — older (newest: v${maxVersion}) — click to trigger update`;
+      const fwTitle = hasError               ? `v${ver} — update failed`
+                    : fwState === 'done'     ? `v${ver} — update complete — rebooting…`
+                    : triggered              ? `v${ver} — update triggered`
+                    : inProgress             ? `v${ver} — update in progress…`
+                    : isNewest               ? `v${ver} — newest on network`
+                    :                          `v${ver} — older (newest: v${maxVersion}) — click to trigger update`;
       if (canTrigger) {
         const handler = p.isSelf
           ? `triggerSelfUpdate(this,'${mac}')`
