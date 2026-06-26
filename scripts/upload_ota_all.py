@@ -79,7 +79,8 @@ def _build_fs(env):
     block = int(env.subst("$SPIFFS_BLOCK").strip() or 4096)
     size  = _spiffs_size(env)
     r = subprocess.run(
-        [tool, "-c", data_dir, "-p", str(page), "-b", str(block), "-s", str(size), out_file],
+        [tool, "-c", data_dir, "-p", str(page), "-b", str(block), "-s", str(size),
+         "--name_max", "64", out_file],
         capture_output=True,
     )
     if r.returncode != 0:
