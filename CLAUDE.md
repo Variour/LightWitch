@@ -14,7 +14,6 @@ If a commit spans multiple scopes, use a more general scope, list both separated
 ## General guidance
 - Never make assumptions, ask to clarify
 - Challenge requests if necessary, be critical
-- Before starting with the implementation think through the request, identify any issues
 - Never assume default states
 
 ## Working on Issues
