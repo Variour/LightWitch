@@ -22,19 +22,15 @@ enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 
 
 static constexpr uint8_t PRESENCE_MSG_VERSION = 1;
 
-// version is the last field so that receivers on older firmware (which lack the
-// version byte) still decode all preceding fields correctly from the same offsets.
-// A message without a trailing version byte is treated as version 0 (pre-versioning),
-// which has the same layout as version 1.
 struct PresenceMsg {
     MsgType type    = MsgType::Presence;
+    uint8_t version = PRESENCE_MSG_VERSION;
     char    name[32];
     uint8_t groupId;
     uint8_t sceneSyncEnabled;
     uint8_t wifiConnected;
     char    fwVersion[16];
     uint8_t fwState;
-    uint8_t version = PRESENCE_MSG_VERSION;
 };
 
 struct LightConfigMsg {

@@ -293,11 +293,9 @@ private:
 
         switch (type) {
             case MsgType::Presence: {
-                // Accept messages that have all payload fields; version byte (last) is optional
-                // for backward compat with pre-versioning firmware (treated as version 0).
-                static constexpr int PRESENCE_PAYLOAD_SIZE = (int)(sizeof(PresenceMsg) - 1);
-                if (len < PRESENCE_PAYLOAD_SIZE) return;
+                if (len < (int)sizeof(PresenceMsg)) return;
                 auto* m = (PresenceMsg*)data;
+                if (m->version != PRESENCE_MSG_VERSION) return;
                 bool isNew = _instance->peers.update(mac, m->name, m->groupId,
                     m->sceneSyncEnabled != 0, m->wifiConnected != 0,
                     m->fwVersion, (FwState)m->fwState);
