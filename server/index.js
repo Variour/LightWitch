@@ -45,9 +45,9 @@ let wifiConnected = 'HomeNetwork';
 
 const scenes = new Map();
 
-// Pre-populate scenes from all static JSON files in data/scenes/
+// Pre-populate scenes from all static JSON files in data/sc/
 try {
-  const scenesDir = join(DATA_DIR, 'scenes');
+  const scenesDir = join(DATA_DIR, 'sc');
   for (const f of fs.readdirSync(scenesDir).filter(f => f.endsWith('.json'))) {
     const raw = JSON.parse(fs.readFileSync(join(scenesDir, f), 'utf8'));
     scenes.set(raw.id, raw);
