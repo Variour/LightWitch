@@ -102,6 +102,13 @@ public:
         if (_current) _current->tick(millis());
     }
 
+    void notifySceneUpdated(const char* sceneId) {
+        if (_sceneMode == SceneMode::Matrix)
+            _sceneMatrix.reloadIfCurrent(sceneId);
+        else if (_sceneMode == SceneMode::String)
+            _sceneString.reloadIfCurrent(sceneId);
+    }
+
     float getPhase()        const { return _current ? _current->getPhase()    : 0.0f; }
     void  snapPhase(float p)      { if (_current) _current->snapPhase(p); }
     void  resetPhase()            { if (_current) _current->resetPhase(); }

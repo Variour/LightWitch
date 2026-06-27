@@ -31,6 +31,8 @@ using TriggerPeerUpdateCb = std::function<void(const uint8_t* mac)>;
 using CheckPeerUpdateCb   = std::function<void(const uint8_t* mac)>;
 // Called to trigger a manual channel re-search
 using MeshSearchCb        = std::function<void()>;
+// Called after a scene file is successfully written (locally or via mesh)
+using SceneSavedCb        = std::function<void(const char* sceneId)>;
 
 class BatteryWebServer {
 private:
@@ -154,6 +156,7 @@ public:
                 if (ok) {
                     Logger::i("[scene] save ok: %s", st->id.c_str());
                     if (_sceneSync) _sceneSync->onSceneChanged();
+                    if (_onSceneSaved) _onSceneSaved(st->id.c_str());
                 } else {
                     Logger::e("[scene] save failed: %s (failed=%d written=%d)",
                               st->error ? st->error : "?", st->failed, st->written);
@@ -323,6 +326,7 @@ public:
     // Called from main when peer list changes (via mesh callback)
     void pushPeers()  { _pushPeers(); }
     void pushGroups() { _pushGroups(); }
+    void setOnSceneSaved(SceneSavedCb cb) { _onSceneSaved = cb; }
 
 private:
     AsyncWebServer   _server{80};
@@ -341,6 +345,7 @@ private:
     CheckPeerUpdateCb   _onCheckPeerUpdate;
     MeshSearchCb        _onMeshSearch;
     SceneSyncManager*   _sceneSync = nullptr;
+    SceneSavedCb        _onSceneSaved;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
