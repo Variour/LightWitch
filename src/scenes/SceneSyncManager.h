@@ -627,7 +627,6 @@ private:
             }
             if (_broadcastManifestMsg) _broadcastManifestMsg(msg);
         }
-        Logger::d("[sync] broadcast manifest: %u entries, %u pages", total, totalPages);
     }
 
     // ── State ─────────────────────────────────────────────────────────────────
