@@ -665,6 +665,10 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     <input type="text" id="githubRepo" placeholder="variour/batterylight">
     <label>Personal access token <small>(fine-grained, Contents: read-only)</small></label>
     <input type="password" id="githubToken" placeholder="(unchanged if empty)">
+    <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;margin-top:.25rem">
+      <input type="checkbox" id="checkUpdateOnStartup">
+      Check for updates on startup
+    </label>
 
     <button id="save-reboot-btn" class="btn-primary" style="width:100%;margin-top:.5rem" onclick="saveSettings()">Save &amp; Reboot</button>
     <div id="save-reboot-status" style="margin-top:.5rem;font-size:.85rem;text-align:center;color:#888"></div>
@@ -1337,6 +1341,7 @@ async function saveSettings() {
   if (apPw)   body.apPassword    = apPw;
   if (mqttPw) body.mqttPassword  = mqttPw;
   body.githubRepo = document.getElementById('githubRepo').value;
+  body.checkUpdateOnStartup = document.getElementById('checkUpdateOnStartup').checked;
   if (ghTok)  body.githubToken   = ghTok;
 
   try {
@@ -1539,6 +1544,7 @@ async function loadConfig() {
   if (d.mqttPort   !== undefined) document.getElementById('mqttPort').value   = d.mqttPort;
   if (d.mqttUser   !== undefined) document.getElementById('mqttUser').value   = d.mqttUser;
   if (d.githubRepo !== undefined) document.getElementById('githubRepo').value = d.githubRepo;
+  document.getElementById('checkUpdateOnStartup').checked = d.checkUpdateOnStartup === true;
   if (d.version) {
     document.getElementById('fw-version').textContent = 'v' + d.version;
     document.getElementById('upd-current').textContent = d.version;

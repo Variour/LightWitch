@@ -72,7 +72,8 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().otaPort        = doc["otaPort"]        | 3232;
     Config::get().otaEnabled     = doc["otaEnabled"]     | true;
     Config::get().groupId        = doc["groupId"]        | (uint8_t)0;
-    Config::get().sceneSyncEnabled = doc["sceneSyncEnabled"] | true;
+    Config::get().sceneSyncEnabled     = doc["sceneSyncEnabled"]     | true;
+    Config::get().checkUpdateOnStartup = doc["checkUpdateOnStartup"] | false;
     Config::get().ledType   = (LedType)(uint8_t)(doc["ledType"]  | 0);
     Config::get().logLevel  = doc["logLevel"]  | (uint8_t)0;
     strlcpy(Config::get().mqttHost,     doc["mqttHost"]     | "",    sizeof(Config::get().mqttHost));
@@ -146,7 +147,8 @@ bool Config::save() {
     doc["otaPort"]           = _cfg.otaPort;
     doc["otaEnabled"]        = _cfg.otaEnabled;
     doc["groupId"]           = _cfg.groupId;
-    doc["sceneSyncEnabled"]  = _cfg.sceneSyncEnabled;
+    doc["sceneSyncEnabled"]     = _cfg.sceneSyncEnabled;
+    doc["checkUpdateOnStartup"] = _cfg.checkUpdateOnStartup;
     doc["ledType"]      = (uint8_t)_cfg.ledType;
     doc["logLevel"]     = _cfg.logLevel;
     doc["mqttHost"]     = _cfg.mqttHost;
@@ -234,8 +236,9 @@ void Config::applyConfigSync(const char* json, size_t len) {
     if (!doc["githubRepo"].isNull())   strlcpy(c.githubRepo,   doc["githubRepo"],   sizeof(c.githubRepo));
     if (!doc["githubToken"].isNull() && strlen(doc["githubToken"]) > 0)
         strlcpy(c.githubToken, doc["githubToken"], sizeof(c.githubToken));
-    if (!doc["otaEnabled"].isNull())       c.otaEnabled      = (bool)doc["otaEnabled"];
-    if (!doc["sceneSyncEnabled"].isNull()) c.sceneSyncEnabled = (bool)doc["sceneSyncEnabled"];
+    if (!doc["otaEnabled"].isNull())            c.otaEnabled           = (bool)doc["otaEnabled"];
+    if (!doc["sceneSyncEnabled"].isNull())      c.sceneSyncEnabled      = (bool)doc["sceneSyncEnabled"];
+    if (!doc["checkUpdateOnStartup"].isNull())  c.checkUpdateOnStartup  = (bool)doc["checkUpdateOnStartup"];
     if (!doc["deviceName"].isNull() && strlen(doc["deviceName"]) > 0)
         strlcpy(c.deviceName, doc["deviceName"], sizeof(c.deviceName));
     if (!doc["apPassword"].isNull() && strlen(doc["apPassword"]) >= 8)

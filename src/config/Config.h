@@ -73,7 +73,8 @@ struct DeviceConfig {
     char        mqttPassword[64] = "";
     char        githubToken[128] = "";
     char        githubRepo[64]   = "variour/batterylight";
-    bool        sceneSyncEnabled = true;
+    bool        sceneSyncEnabled        = true;
+    bool        checkUpdateOnStartup    = false;
     GroupConfig groups[MAX_GROUPS];
 };
 
