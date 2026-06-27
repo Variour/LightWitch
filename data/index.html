@@ -313,7 +313,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
       </div>
     </div>
     <table class="lights-table">
-      <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th>Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
       <tbody id="lights-body"><tr><td colspan="7" style="color:#444">Loading…</td></tr></tbody>
     </table>
   </div>
@@ -818,6 +818,7 @@ function switchTab(tab, pushHistory = true) {
 // ── Groups UI ─────────────────────────────────────────────────────────────────
 function renderGroups(groups) {
   _groups = groups;
+  if (_self) renderLights(_self, _peers);
   const el = document.getElementById('groups-list');
   el.innerHTML = '';
   for (const g of groups) {
@@ -956,6 +957,9 @@ function onGroupControl(id) {
   const proxModeWrap = document.getElementById(`gprox-mode-wrap-${id}`);
   if (proxModeWrap) proxModeWrap.style.display = mode === 2 ? '' : 'none';
 
+  const grp = _groups.find(g => g.id === id);
+  if (grp) { grp.mode = mode; _updateSignalColumn(); }
+
   const transTimeWrap = document.getElementById(`gtranstime-wrap-${id}`);
   const transEnabled  = document.getElementById(`gtrans-${id}`)?.checked;
   if (transTimeWrap) transTimeWrap.style.display = transEnabled ? '' : 'none';
@@ -1036,6 +1040,14 @@ function compareVersions(a, b) {
   return 0;
 }
 
+function _updateSignalColumn() {
+  const showSignal = _groups.some(g => g.mode === 2);
+  document.getElementById('signal-th').style.display = showSignal ? '' : 'none';
+  document.querySelectorAll('#lights-body tr td:nth-child(4)').forEach(td => {
+    td.style.display = showSignal ? '' : 'none';
+  });
+}
+
 function renderLights(self, peers) {
   _self  = self;
   _peers = peers;
@@ -1049,6 +1061,8 @@ function renderLights(self, peers) {
     body.innerHTML = '<tr><td colspan="7" style="color:#444">No lights found</td></tr>';
     return;
   }
+
+  _updateSignalColumn();
 
   const knownVersions = all.map(p => p.version || '').filter(Boolean);
   const maxVersion = knownVersions.length
