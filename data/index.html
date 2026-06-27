@@ -1153,7 +1153,7 @@ function setSceneSync(mac, enabled) {
 }
 
 function meshSearch() {
-  if (!confirm('Re-searching for mesh peers will disconnect active peers temporarily. Continue?')) return;
+  if (!confirm('Re-searching for mesh peers will disconnect active peers temporarily and may drop your connection to this device. Continue?')) return;
   fetch('/api/mesh/search', { method: 'POST' });
 }
 
