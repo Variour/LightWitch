@@ -3145,7 +3145,6 @@ function openEditLightModal(l) {
 }
 
 function _openLightModal(l) {
-  let grpOpts = _groups.map(g=>`<option value="${g.id}"${g.id===l.groupId?' selected':''}>${esc(g.name)}</option>`).join('');
   const title = _editLightIndex === null ? 'Add light' : `Edit light ${l.index}`;
   const overlay = document.createElement('div');
   overlay.id = 'light-modal-overlay';
@@ -3168,8 +3167,6 @@ function _openLightModal(l) {
     <input type="number" id="lm-width" value="${l.width}" min="1" max="1000">
     <label>Rows <small>(1 = string, >1 = matrix)</small></label>
     <input type="number" id="lm-height" value="${l.height}" min="1" max="100">
-    <label>Group</label>
-    <select id="lm-groupId">${grpOpts}</select>
     <button class="btn-ghost" style="width:100%;margin-top:.75rem" onclick="saveLightModal()">Save &amp; Reboot</button>
   </div></div>`;
   overlay.style.display = 'block';
@@ -3195,7 +3192,6 @@ async function saveLightModal() {
     clockPin: parseInt(document.getElementById('lm-clockPin').value),
     width:    parseInt(document.getElementById('lm-width').value) || 1,
     height:   parseInt(document.getElementById('lm-height').value) || 1,
-    groupId:  parseInt(document.getElementById('lm-groupId').value),
   };
   const url = _editLightIndex === null ? '/api/lights/add' : '/api/lights/update';
   if (_editLightIndex !== null) body.index = _editLightIndex;
