@@ -1062,8 +1062,6 @@ function renderLights(self, peers) {
     return;
   }
 
-  _updateSignalColumn();
-
   const knownVersions = all.map(p => p.version || '').filter(Boolean);
   const maxVersion = knownVersions.length
     ? knownVersions.reduce((a, b) => compareVersions(a, b) >= 0 ? a : b)
@@ -1131,6 +1129,7 @@ function renderLights(self, peers) {
       <td style="text-align:center">${pushCell}</td>
     </tr>`;
   }).join('');
+  _updateSignalColumn();
 }
 
 const _fwTriggered = new Set();
