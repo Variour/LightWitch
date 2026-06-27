@@ -24,6 +24,8 @@ static constexpr uint32_t SYNC_CHUNK_SEND_INTERVAL_MS = 20;
 
 class SceneSyncManager {
 public:
+    void setOnSceneSaved(std::function<void(const char*)> cb) { _onSceneSaved = cb; }
+
     // Called from MeshManager when a SceneManifest packet arrives
     void onManifest(const uint8_t* senderMac, const SceneManifestMsg* msg) {
         if (!Config::get().sceneSyncEnabled) return;
@@ -611,6 +613,8 @@ private:
         bool ok = SceneManager::saveRaw(id, _recv.buffer, totalSize);
         Logger::i("[sync] scene %s saved (%u bytes, hash=%08x) ok=%d", id, totalSize, incomingHash, ok);
 
+        if (ok && _onSceneSaved) _onSceneSaved(id);
+
         if (ok && forced) {
             // We just accepted a remote winner — broadcast force-set + chunks so all other
             // devices also adopt this content.
@@ -677,4 +681,5 @@ private:
     RequestFn                          _broadcastRequest;
     ChunkFn                            _broadcastChunk;
     std::function<void(const SceneManifestMsg&)> _broadcastManifestMsg;
+    std::function<void(const char*)>   _onSceneSaved;
 };

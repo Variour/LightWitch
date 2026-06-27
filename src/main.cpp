@@ -369,6 +369,13 @@ void setup() {
         [](const uint8_t* mac) { mesh.broadcastCheckUpdate(mac); }
     );
 
+    auto notifySceneUpdated = [](const char* id) {
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+            if (_leds[i]) _runners[i].notifySceneUpdated(id);
+    };
+    webServer.setOnSceneSaved(notifySceneUpdated);
+    sceneSync.setOnSceneSaved(notifySceneUpdated);
+
     Logger::i("[sys] ready");
     if (Config::get().checkUpdateOnStartup && WiFi.status() == WL_CONNECTED) Updater::checkAsync();
 }

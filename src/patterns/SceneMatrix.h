@@ -37,6 +37,18 @@ public:
         }
     }
 
+    // Re-read the scene file if it matches the currently loaded scene.
+    // Call this when a scene file is written so in-memory frames stay current.
+    void reloadIfCurrent(const char* sceneId) {
+        if (!sceneId || strncmp(sceneId, _cfg.sceneId, sizeof(_cfg.sceneId)) != 0) return;
+        _load(sceneId);
+        _frameIdx     = 0;
+        _prevFrameIdx = 0;
+        _blending     = false;
+        _frameStartMs = millis();
+        _render(_frameIdx, _frameIdx, 0.0f);
+    }
+
     void tick(uint32_t now) override {
         if (!_led || _frames.empty()) return;
 

@@ -36,6 +36,13 @@ public:
         }
     }
 
+    // Re-read the scene palette if it matches the currently loaded scene.
+    void reloadIfCurrent(const char* sceneId) {
+        if (!sceneId || strncmp(sceneId, _cfg.sceneId, sizeof(_cfg.sceneId)) != 0) return;
+        _loadPalette(sceneId);
+        _initLeds(millis());
+    }
+
     void tick(uint32_t now) override {
         if (!_led) return;
         if (_cfg.transitionEnabled && !_states.empty()) {
