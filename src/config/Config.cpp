@@ -12,8 +12,9 @@ uint8_t         Config::_wifiLast  = 0;
 
 static const char* _wifiPath = "/wifi.json";
 
-static constexpr char NVS_NS[]  = "bl";
-static constexpr char NVS_KEY[] = "cfg";
+static constexpr char NVS_NS[]      = "bl";
+static constexpr char NVS_KEY[]     = "cfg";
+static constexpr char NVS_WIFI_KEY[] = "wifi";
 
 static void serializeGroup(JsonArray arr, const GroupConfig& g) {
     JsonObject o = arr.add<JsonObject>();
@@ -279,23 +280,45 @@ void Config::applyConfigSync(const char* json, size_t len) {
 bool Config::loadWifi() {
     _wifiCount = 0;
     _wifiLast  = 0;
-    if (!LittleFS.exists(_wifiPath)) return false;
-    File f = LittleFS.open(_wifiPath, "r");
-    if (!f) return false;
-    JsonDocument doc;
-    bool ok = !deserializeJson(doc, f);
-    f.close();
-    if (!ok) return false;
-    _wifiLast = doc["last"] | (uint8_t)0;
-    if (doc["networks"].is<JsonArray>()) {
+
+    auto parseDoc = [&](JsonDocument& doc) {
+        _wifiLast = doc["last"] | (uint8_t)0;
+        if (!doc["networks"].is<JsonArray>()) return;
         for (JsonVariant v : doc["networks"].as<JsonArray>()) {
             if (_wifiCount >= MAX_WIFI_NETWORKS) break;
             strlcpy(_wifiNetworks[_wifiCount].ssid,     v["ssid"]     | "", sizeof(_wifiNetworks[0].ssid));
             strlcpy(_wifiNetworks[_wifiCount].password, v["password"] | "", sizeof(_wifiNetworks[0].password));
             _wifiCount++;
         }
+    };
+
+    if (LittleFS.exists(_wifiPath)) {
+        File f = LittleFS.open(_wifiPath, "r");
+        if (f) {
+            JsonDocument doc;
+            bool ok = !deserializeJson(doc, f);
+            f.close();
+            if (ok) { parseDoc(doc); return true; }
+        }
     }
-    return true;
+
+    // LittleFS wifi missing or corrupt — try NVS backup (survives FS OTA erase).
+    Preferences prefs;
+    if (prefs.begin(NVS_NS, /*readOnly=*/true)) {
+        String json = prefs.getString(NVS_WIFI_KEY, "");
+        prefs.end();
+        if (json.length() > 0) {
+            JsonDocument doc;
+            if (!deserializeJson(doc, json)) {
+                parseDoc(doc);
+                Logger::i("[cfg] no wifi.json — restored from NVS");
+                saveWifi();  // write back to LittleFS
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 bool Config::saveWifi() {
@@ -311,6 +334,16 @@ bool Config::saveWifi() {
     if (!f) { Logger::e("[cfg] wifi.json write failed"); return false; }
     serializeJson(doc, f);
     f.close();
+
+    // Mirror to NVS — survives FS OTA partition erasures.
+    String json;
+    serializeJson(doc, json);
+    Preferences prefs;
+    if (prefs.begin(NVS_NS, /*readOnly=*/false)) {
+        prefs.putString(NVS_WIFI_KEY, json);
+        prefs.end();
+    }
+
     return true;
 }
 
