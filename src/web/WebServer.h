@@ -27,6 +27,8 @@ using ResolveConflictCb   = std::function<void(const char* id, const uint8_t* so
 using PushConfigCb        = std::function<void(const uint8_t* targetMac, const char* json, size_t len)>;
 // Called to broadcast a firmware update trigger to a specific peer
 using TriggerPeerUpdateCb = std::function<void(const uint8_t* mac)>;
+// Called to trigger a manual channel re-search
+using MeshSearchCb        = std::function<void()>;
 
 class BatteryWebServer {
 private:
@@ -56,7 +58,8 @@ public:
                SetRemoteSyncCb onSetRemoteSync = nullptr,
                ResolveConflictCb onResolveConflict = nullptr,
                PushConfigCb onPushConfig = nullptr,
-               TriggerPeerUpdateCb onTriggerPeerUpdate = nullptr) {
+               TriggerPeerUpdateCb onTriggerPeerUpdate = nullptr,
+               MeshSearchCb onMeshSearch = nullptr) {
         _onGroupChange      = onGroupChange;
         _onGroupLight       = onGroupLight;
         _onGroupSync        = onGroupSync;
@@ -67,6 +70,7 @@ public:
         _onResolveConflict    = onResolveConflict;
         _onPushConfig         = onPushConfig;
         _onTriggerPeerUpdate  = onTriggerPeerUpdate;
+        _onMeshSearch         = onMeshSearch;
 
         Logger::i("[web] starting on port 80");
         _server.addHandler(&_reqLogger);
@@ -281,6 +285,11 @@ public:
             delay(500); ESP.restart();
         });
 
+        _server.on("/api/mesh/search", HTTP_POST, [this](AsyncWebServerRequest* r){
+            if (_onMeshSearch) _onMeshSearch();
+            r->send(200, "application/json", "{\"ok\":true}");
+        });
+
         // Browsers always request a favicon; return 204 so the request doesn't
         // fall through serveStatic's default-file fallback and generate log noise.
         _server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest* r){ r->send(204); });
@@ -314,6 +323,7 @@ private:
     ResolveConflictCb   _onResolveConflict;
     PushConfigCb        _onPushConfig;
     TriggerPeerUpdateCb _onTriggerPeerUpdate;
+    MeshSearchCb        _onMeshSearch;
     SceneSyncManager*   _sceneSync = nullptr;
 
     // ── helpers ──────────────────────────────────────────────────────────────
