@@ -35,6 +35,7 @@ const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', groupId: 0
 const MOCK_PEERS = [
   { name: 'Mock Light 2', mac: '22:33:44:55:66:77', groupId: 0, online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.01.01.0', fwState: 'idle'  },
   { name: 'Mock Light 3', mac: '33:44:55:66:77:88', groupId: 1, online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, version: '2026.01.01.0', fwState: 'idle'  },
+  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', groupId: 0, online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  },
 ];
 
 const wifiNetworks = [
@@ -108,6 +109,12 @@ app.post('/api/peers/setgroup',     (_req, res) => res.json({ ok: true }));
 app.post('/api/peers/setscenesync', (_req, res) => res.json({ ok: true }));
 app.post('/api/peers/pushconfig',      (_req, res) => res.json({ ok: true }));
 app.post('/api/peers/triggerupdate', (req, res) => {
+  const { mac } = req.body || {};
+  const peer = MOCK_PEERS.find(p => p.mac === mac);
+  if (peer && !peer.wifiConnected) return res.status(409).json({ error: 'peer not connected to WiFi' });
+  res.json({ ok: true });
+});
+app.post('/api/peers/checkupdate', (req, res) => {
   const { mac } = req.body || {};
   const peer = MOCK_PEERS.find(p => p.mac === mac);
   if (peer && !peer.wifiConnected) return res.status(409).json({ error: 'peer not connected to WiFi' });

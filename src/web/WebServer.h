@@ -27,6 +27,8 @@ using ResolveConflictCb   = std::function<void(const char* id, const uint8_t* so
 using PushConfigCb        = std::function<void(const uint8_t* targetMac, const char* json, size_t len)>;
 // Called to broadcast a firmware update trigger to a specific peer
 using TriggerPeerUpdateCb = std::function<void(const uint8_t* mac)>;
+// Called to broadcast a firmware update check to a specific peer (no auto-install)
+using CheckPeerUpdateCb   = std::function<void(const uint8_t* mac)>;
 // Called to trigger a manual channel re-search
 using MeshSearchCb        = std::function<void()>;
 
@@ -59,7 +61,8 @@ public:
                ResolveConflictCb onResolveConflict = nullptr,
                PushConfigCb onPushConfig = nullptr,
                TriggerPeerUpdateCb onTriggerPeerUpdate = nullptr,
-               MeshSearchCb onMeshSearch = nullptr) {
+               MeshSearchCb onMeshSearch = nullptr,
+               CheckPeerUpdateCb onCheckPeerUpdate = nullptr) {
         _onGroupChange      = onGroupChange;
         _onGroupLight       = onGroupLight;
         _onGroupSync        = onGroupSync;
@@ -71,6 +74,7 @@ public:
         _onPushConfig         = onPushConfig;
         _onTriggerPeerUpdate  = onTriggerPeerUpdate;
         _onMeshSearch         = onMeshSearch;
+        _onCheckPeerUpdate    = onCheckPeerUpdate;
 
         Logger::i("[web] starting on port 80");
         _server.addHandler(&_reqLogger);
@@ -241,6 +245,9 @@ public:
         _server.on("/api/peers/triggerupdate", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _triggerPeerUpdate(r,d,l); });
 
+        _server.on("/api/peers/checkupdate", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _checkPeerUpdate(r,d,l); });
+
         _server.on("/api/update/trigger", HTTP_POST, [](AsyncWebServerRequest* r) {
             Updater::triggerAsync();
             r->send(200, "application/json", "{\"ok\":true}");
@@ -323,6 +330,7 @@ private:
     ResolveConflictCb   _onResolveConflict;
     PushConfigCb        _onPushConfig;
     TriggerPeerUpdateCb _onTriggerPeerUpdate;
+    CheckPeerUpdateCb   _onCheckPeerUpdate;
     MeshSearchCb        _onMeshSearch;
     SceneSyncManager*   _sceneSync = nullptr;
 
@@ -985,6 +993,33 @@ private:
         }
         Logger::i("[web] trigger-update for %s", macStr);
         if (_onTriggerPeerUpdate) _onTriggerPeerUpdate(mac);
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/peers/checkupdate ───────────────────────────────────────────
+    void _checkPeerUpdate(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len)) {
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
+        }
+        const char* macStr = doc["mac"] | "";
+        uint8_t mac[6];
+        if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                   &mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]) != 6) {
+            auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
+        }
+        if (_peers) {
+            for (auto& p : *_peers) {
+                if (p.active && memcmp(p.mac, mac, 6) == 0) {
+                    if (!p.wifiConnected) {
+                        auto e = _makeErr("peer not connected to WiFi"); _sendJson(r, 409, e); return;
+                    }
+                    break;
+                }
+            }
+        }
+        Logger::i("[web] check-update for %s", macStr);
+        if (_onCheckPeerUpdate) _onCheckPeerUpdate(mac);
         auto ok = _makeOk(); _sendJson(r, 200, ok);
     }
 

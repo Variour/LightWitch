@@ -229,6 +229,7 @@ void setup() {
     });
 
     mesh.setOnTriggerUpdate([]() { Updater::triggerAsync(); });
+    mesh.setOnCheckUpdate([]() { Updater::checkAsync(); });
 
     mesh.setOnConfigChunk([](const uint8_t* srcMac, const ConfigChunkMsg* msg) {
         uint8_t own[6];
@@ -346,7 +347,10 @@ void setup() {
         [](const uint8_t* mac) { mesh.broadcastTriggerUpdate(mac); },
 
         // onMeshSearch: user triggered manual channel re-search from web UI
-        []() { channelMgr.beginSearch(); }
+        []() { channelMgr.beginSearch(); },
+
+        // onCheckPeerUpdate: broadcast a firmware update check to a specific peer (no auto-install)
+        [](const uint8_t* mac) { mesh.broadcastCheckUpdate(mac); }
     );
 
     Logger::i("[sys] ready");
