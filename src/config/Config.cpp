@@ -61,9 +61,10 @@ static bool migrateDoc(JsonDocument& doc) {
         Logger::w("[cfg] schema version %u > firmware max %u — ignoring", ver, CONFIG_SCHEMA_VERSION);
         return false;
     }
-    if (ver < CONFIG_SCHEMA_VERSION)
-        Logger::i("[cfg] migrating config schema from v%u to v%u", ver, CONFIG_SCHEMA_VERSION);
-    // future migrations: if (ver < 2) { ... }
+    if (ver < CONFIG_SCHEMA_VERSION) {
+        Logger::i("[cfg] schema v%u < v%u — resetting to defaults", ver, CONFIG_SCHEMA_VERSION);
+        return false;
+    }
     return true;
 }
 
@@ -72,10 +73,8 @@ static void applyDoc(JsonDocument& doc) {
     strlcpy(Config::get().apPassword,   doc["apPassword"]   | "bl-9f4a2c81", sizeof(Config::get().apPassword));
     Config::get().otaPort        = doc["otaPort"]        | 3232;
     Config::get().otaEnabled     = doc["otaEnabled"]     | true;
-    Config::get().groupId        = doc["groupId"]        | (uint8_t)0;
     Config::get().sceneSyncEnabled     = doc["sceneSyncEnabled"]     | true;
     Config::get().checkUpdateOnStartup = doc["checkUpdateOnStartup"] | false;
-    Config::get().ledType   = (LedType)(uint8_t)(doc["ledType"]  | 0);
     Config::get().logLevel  = doc["logLevel"]  | (uint8_t)0;
     strlcpy(Config::get().mqttHost,     doc["mqttHost"]     | "",    sizeof(Config::get().mqttHost));
     Config::get().mqttPort  = doc["mqttPort"]  | (uint16_t)1883;
@@ -83,6 +82,21 @@ static void applyDoc(JsonDocument& doc) {
     strlcpy(Config::get().mqttPassword, doc["mqttPassword"] | "",    sizeof(Config::get().mqttPassword));
     strlcpy(Config::get().githubToken,  doc["githubToken"]  | "",    sizeof(Config::get().githubToken));
     strlcpy(Config::get().githubRepo,   doc["githubRepo"]   | "variour/batterylight", sizeof(Config::get().githubRepo));
+
+    if (doc["lights"].is<JsonArray>()) {
+        for (JsonVariant v : doc["lights"].as<JsonArray>()) {
+            uint8_t idx = v["index"] | (uint8_t)0;
+            if (idx >= MAX_LIGHTS) continue;
+            auto& l = Config::get().lights[idx];
+            l.exists   = v["exists"]   | false;
+            l.ledType  = (LedType)(uint8_t)(v["ledType"] | 0);
+            l.dataPin  = v["dataPin"]  | (uint8_t)LED_DATA_PIN;
+            l.clockPin = v["clockPin"] | (uint8_t)LED_CLOCK_PIN;
+            l.width    = v["width"]    | (uint16_t)1;
+            l.height   = v["height"]   | (uint16_t)1;
+            l.groupId  = v["groupId"]  | (uint8_t)0;
+        }
+    }
 
     if (doc["groups"].is<JsonArray>()) {
         for (JsonVariant v : doc["groups"].as<JsonArray>()) {
@@ -93,7 +107,6 @@ static void applyDoc(JsonDocument& doc) {
 }
 
 bool Config::load() {
-    // Try LittleFS first
     if (LittleFS.exists(_path)) {
         File f = LittleFS.open(_path, "r");
         if (f) {
@@ -103,16 +116,13 @@ bool Config::load() {
             if (ok && migrateDoc(doc)) {
                 applyDoc(doc);
                 _ensureDefaultGroup();
-                if (!group(_cfg.groupId)) _cfg.groupId = 0;
+                _ensureDefaultLight();
                 Logger::d("[cfg] loaded from LittleFS");
                 return true;
             }
         }
     }
 
-    // LittleFS config missing or corrupt — try NVS backup.
-    // NVS lives in its own partition and survives both firmware and FS OTA updates,
-    // so config is always recoverable even after a full filesystem erase.
     Preferences prefs;
     if (prefs.begin(NVS_NS, /*readOnly=*/true)) {
         String json = prefs.getString(NVS_KEY, "");
@@ -122,9 +132,9 @@ bool Config::load() {
             if (!deserializeJson(doc, json) && migrateDoc(doc)) {
                 applyDoc(doc);
                 _ensureDefaultGroup();
-                if (!group(_cfg.groupId)) _cfg.groupId = 0;
+                _ensureDefaultLight();
                 Logger::i("[cfg] no LittleFS config — restored from NVS");
-                save();  // write back to LittleFS so future boots don't need NVS
+                save();
                 return true;
             }
         }
@@ -132,8 +142,7 @@ bool Config::load() {
 
     Logger::w("[cfg] no saved config — using defaults");
     _ensureDefaultGroup();
-    // Derive a unique default name from the factory MAC so devices are distinguishable
-    // out of the box without any configuration.
+    _ensureDefaultLight();
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
     snprintf(_cfg.deviceName, sizeof(_cfg.deviceName), "light-%02x%02x%02x", mac[3], mac[4], mac[5]);
@@ -147,10 +156,8 @@ bool Config::save() {
     doc["apPassword"]   = _cfg.apPassword;
     doc["otaPort"]           = _cfg.otaPort;
     doc["otaEnabled"]        = _cfg.otaEnabled;
-    doc["groupId"]           = _cfg.groupId;
     doc["sceneSyncEnabled"]     = _cfg.sceneSyncEnabled;
     doc["checkUpdateOnStartup"] = _cfg.checkUpdateOnStartup;
-    doc["ledType"]      = (uint8_t)_cfg.ledType;
     doc["logLevel"]     = _cfg.logLevel;
     doc["mqttHost"]     = _cfg.mqttHost;
     doc["mqttPort"]     = _cfg.mqttPort;
@@ -159,17 +166,30 @@ bool Config::save() {
     doc["githubToken"]  = _cfg.githubToken;
     doc["githubRepo"]   = _cfg.githubRepo;
 
+    JsonArray lightsArr = doc["lights"].to<JsonArray>();
+    for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+        if (!_cfg.lights[i].exists) continue;
+        auto& l = _cfg.lights[i];
+        JsonObject o = lightsArr.add<JsonObject>();
+        o["index"]   = i;
+        o["exists"]  = l.exists;
+        o["ledType"] = (uint8_t)l.ledType;
+        o["dataPin"] = l.dataPin;
+        o["clockPin"]= l.clockPin;
+        o["width"]   = l.width;
+        o["height"]  = l.height;
+        o["groupId"] = l.groupId;
+    }
+
     JsonArray arr = doc["groups"].to<JsonArray>();
     for (uint8_t i = 0; i < MAX_GROUPS; i++)
         if (_cfg.groups[i].exists) serializeGroup(arr, _cfg.groups[i]);
 
-    // Write to LittleFS
     bool fsOk = false;
     File f = LittleFS.open(_path, "w");
     if (f) { serializeJson(doc, f); f.close(); fsOk = true; }
     if (!fsOk) Logger::e("[cfg] LittleFS write failed");
 
-    // Mirror to NVS — survives both firmware and FS OTA partition erasures.
     String json;
     serializeJson(doc, json);
     Preferences prefs;
@@ -184,7 +204,6 @@ bool Config::save() {
 
 void Config::reset() {
     LittleFS.remove(_path);
-
     Preferences prefs;
     if (prefs.begin(NVS_NS, false)) { prefs.clear(); prefs.end(); }
 }
@@ -208,9 +227,6 @@ bool Config::applyGroupSync(const GroupConfig& g) {
         _cfg.groups[g.id].exists = false;
         return false;
     }
-    // A device that was offline may broadcast a stale GroupSync on rejoin.
-    // Keep whichever light config has the higher seq number so the most
-    // recently-changed settings always win, regardless of who sends first.
     bool hadGroup   = _cfg.groups[g.id].exists;
     uint32_t ourSeq = hadGroup ? _cfg.groups[g.id].light.seq : 0;
     bool lightWins  = !hadGroup || g.light.seq >= ourSeq;
@@ -244,12 +260,10 @@ void Config::applyConfigSync(const char* json, size_t len) {
         strlcpy(c.deviceName, doc["deviceName"], sizeof(c.deviceName));
     if (!doc["apPassword"].isNull() && strlen(doc["apPassword"]) >= 8)
         strlcpy(c.apPassword, doc["apPassword"], sizeof(c.apPassword));
-    if (!doc["ledType"].isNull()) c.ledType = (LedType)(uint8_t)(int)doc["ledType"];
 
     if (doc["addWifiNetworks"].is<JsonArray>()) {
         loadWifi();
         JsonArray nets = doc["addWifiNetworks"].as<JsonArray>();
-        // Count new (non-duplicate) entries to check cap
         uint8_t newCount = _wifiCount;
         for (JsonVariant v : nets) {
             const char* ssid = v["ssid"] | "";
@@ -302,7 +316,6 @@ bool Config::loadWifi() {
         }
     }
 
-    // LittleFS wifi missing or corrupt — try NVS backup (survives FS OTA erase).
     Preferences prefs;
     if (prefs.begin(NVS_NS, /*readOnly=*/true)) {
         String json = prefs.getString(NVS_WIFI_KEY, "");
@@ -312,7 +325,7 @@ bool Config::loadWifi() {
             if (!deserializeJson(doc, json)) {
                 parseDoc(doc);
                 Logger::i("[cfg] no wifi.json — restored from NVS");
-                saveWifi();  // write back to LittleFS
+                saveWifi();
                 return true;
             }
         }
@@ -335,7 +348,6 @@ bool Config::saveWifi() {
     serializeJson(doc, f);
     f.close();
 
-    // Mirror to NVS — survives FS OTA partition erasures.
     String json;
     serializeJson(doc, json);
     Preferences prefs;
@@ -381,5 +393,20 @@ void Config::_ensureDefaultGroup() {
         _cfg.groups[0].id     = 0;
         _cfg.groups[0].exists = true;
         strlcpy(_cfg.groups[0].name, "Default", sizeof(_cfg.groups[0].name));
+    }
+}
+
+void Config::_ensureDefaultLight() {
+    // If no lights are configured, create one with hardware defaults.
+    bool any = false;
+    for (uint8_t i = 0; i < MAX_LIGHTS; i++) if (_cfg.lights[i].exists) { any = true; break; }
+    if (!any) {
+        _cfg.lights[0].exists   = true;
+        _cfg.lights[0].ledType  = LedType::WS2812B;
+        _cfg.lights[0].dataPin  = LED_DATA_PIN;
+        _cfg.lights[0].clockPin = LED_CLOCK_PIN;
+        _cfg.lights[0].width    = 1;
+        _cfg.lights[0].height   = 1;
+        _cfg.lights[0].groupId  = 0;
     }
 }

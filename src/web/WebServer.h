@@ -17,8 +17,8 @@ using GroupChangeCb  = std::function<void()>;
 using GroupLightCb   = std::function<void(uint8_t, const LightConfig&)>;
 // Called when a group is created/updated/deleted (the full GroupConfig)
 using GroupSyncCb    = std::function<void(const GroupConfig&)>;
-// Called when we want to move a remote peer to a group
-using SetRemoteGroupCb    = std::function<void(const uint8_t* mac, uint8_t groupId)>;
+// Called when we want to move a specific light on a remote peer to a group
+using SetRemoteGroupCb    = std::function<void(const uint8_t* mac, uint8_t lightIndex, uint8_t groupId)>;
 // Called when we want to toggle sceneSyncEnabled on a remote peer
 using SetRemoteSyncCb     = std::function<void(const uint8_t* mac, bool enabled)>;
 // Called when a conflict is resolved (id, sourceMac — null means local copy wins)
@@ -113,6 +113,14 @@ public:
 
         _server.on("/api/peers/setgroup", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _setRemoteGroup(r,d,l); });
+
+        _server.on("/api/lights", HTTP_GET, [this](AsyncWebServerRequest* r){ _getLights(r); });
+        _server.on("/api/lights/add", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _addLight(r,d,l); });
+        _server.on("/api/lights/update", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _updateLight(r,d,l); });
+        _server.on("/api/lights/delete", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _deleteLight(r,d,l); });
 
         // ── Scene API ─────────────────────────────────────────────────────────
         // Specific routes must be registered before /api/scenes because
@@ -385,12 +393,8 @@ private:
         doc["deviceName"] = c.deviceName;
         doc["otaPort"]    = c.otaPort;
         doc["otaEnabled"] = c.otaEnabled;
-        doc["groupId"]    = c.groupId;
         doc["mac"]        = WiFi.macAddress();
         doc["version"]    = FW_VERSION;
-        doc["ledType"]    = (uint8_t)c.ledType;
-        doc["dataPin"]    = LED_DATA_PIN;
-        doc["clockPin"]   = LED_CLOCK_PIN;
         doc["logLevel"]         = c.logLevel;
         doc["sceneSyncEnabled"]     = c.sceneSyncEnabled;
         doc["checkUpdateOnStartup"] = c.checkUpdateOnStartup;
@@ -400,6 +404,20 @@ private:
         // mqttPassword intentionally omitted — write-only from UI
         doc["githubRepo"] = c.githubRepo;
         // githubToken intentionally omitted — write-only from UI
+
+        JsonArray lightsArr = doc["lights"].to<JsonArray>();
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            if (!c.lights[i].exists) continue;
+            auto& l = c.lights[i];
+            JsonObject lo = lightsArr.add<JsonObject>();
+            lo["index"]   = i;
+            lo["ledType"] = (uint8_t)l.ledType;
+            lo["dataPin"] = l.dataPin;
+            lo["clockPin"]= l.clockPin;
+            lo["width"]   = l.width;
+            lo["height"]  = l.height;
+            lo["groupId"] = l.groupId;
+        }
 
         JsonArray arr = doc["groups"].to<JsonArray>();
         for (uint8_t i = 0; i < MAX_GROUPS; i++) {
@@ -420,7 +438,6 @@ private:
         if (!doc["apPassword"].isNull())   strlcpy(c.apPassword,   doc["apPassword"],   sizeof(c.apPassword));
         if (!doc["otaPort"].isNull())      c.otaPort    = doc["otaPort"];
         if (!doc["otaEnabled"].isNull())   c.otaEnabled = (bool)doc["otaEnabled"];
-        if (!doc["ledType"].isNull())      c.ledType  = (LedType)(uint8_t)doc["ledType"];
         if (!doc["logLevel"].isNull()) {
             c.logLevel = (uint8_t)doc["logLevel"];
             Logger::setLevel((LogLevel)c.logLevel);
@@ -439,13 +456,6 @@ private:
         if (!doc["githubToken"].isNull() && strlen(doc["githubToken"]) > 0)
             strlcpy(c.githubToken, doc["githubToken"], sizeof(c.githubToken));
 
-        if (!doc["groupId"].isNull()) {
-            uint8_t newGroup = doc["groupId"];
-            if (newGroup != c.groupId && Config::group(newGroup)) {
-                c.groupId = newGroup;
-                if (_onGroupChange) _onGroupChange();
-            }
-        }
         Config::save();
         auto ok = _makeOk(); _sendJson(r, 200, ok);
         delay(200); ESP.restart();
@@ -470,11 +480,22 @@ private:
         auto self = doc["self"].to<JsonObject>();
         self["mac"]           = WiFi.macAddress();
         self["name"]          = c.deviceName;
-        self["groupId"]       = c.groupId;
         self["online"]        = true;
         self["wifiConnected"] = (WiFi.status() == WL_CONNECTED);
         self["version"]       = FW_VERSION;
         self["fwState"]       = selfFwState;
+        {
+            JsonArray la = self["lights"].to<JsonArray>();
+            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+                if (!c.lights[i].exists) continue;
+                JsonObject lo = la.add<JsonObject>();
+                lo["index"]   = i;
+                lo["groupId"] = c.lights[i].groupId;
+                lo["ledType"] = (uint8_t)c.lights[i].ledType;
+                lo["width"]   = c.lights[i].width;
+                lo["height"]  = c.lights[i].height;
+            }
+        }
 
         JsonArray arr = doc["peers"].to<JsonArray>();
         if (_peers) {
@@ -488,13 +509,18 @@ private:
                 auto o = arr.add<JsonObject>();
                 o["mac"]              = p.macStr();
                 o["name"]             = p.name;
-                o["groupId"]          = p.groupId;
                 o["online"]           = p.online();
                 o["rssi"]             = p.rssi;
                 o["sceneSyncEnabled"] = p.sceneSyncEnabled;
                 o["wifiConnected"]    = p.wifiConnected;
                 o["version"]          = p.fwVersion;
                 o["fwState"]          = pFwState;
+                JsonArray la = o["lights"].to<JsonArray>();
+                for (uint8_t i = 0; i < p.lightCount && i < MAX_LIGHTS; i++) {
+                    JsonObject lo = la.add<JsonObject>();
+                    lo["index"]   = i;
+                    lo["groupId"] = p.lightGroupIds[i];
+                }
             }
         }
     }
@@ -593,11 +619,13 @@ private:
         tombstone.exists = false;
         g->exists = false;
 
-        // Move this device to Default if it was in the deleted group
-        if (Config::get().groupId == id) {
-            Config::get().groupId = 0;
-            if (_onGroupChange) _onGroupChange();
+        // Move any lights in the deleted group to Default
+        bool anyMoved = false;
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            auto& l = Config::get().lights[i];
+            if (l.exists && l.groupId == id) { l.groupId = 0; anyMoved = true; }
         }
+        if (anyMoved && _onGroupChange) _onGroupChange();
 
         Config::save();
         if (_onGroupSync) _onGroupSync(tombstone);
@@ -606,18 +634,23 @@ private:
     }
 
     // ── POST /api/peers/setgroup ─────────────────────────────────────────────
+    // Body: {mac, lightIndex, groupId}
     void _setRemoteGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) {
             auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
         }
-        uint8_t groupId = doc["groupId"] | (uint8_t)0;
+        uint8_t lightIndex = doc["lightIndex"] | (uint8_t)0;
+        uint8_t groupId    = doc["groupId"]    | (uint8_t)0;
         const char* macStr = doc["mac"] | "";
 
-        // Check if it's this device
+        if (lightIndex >= MAX_LIGHTS) {
+            auto e = _makeErr("invalid lightIndex"); _sendJson(r, 400, e); return;
+        }
+
         if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
             if (Config::group(groupId)) {
-                Config::get().groupId = groupId;
+                Config::get().lights[lightIndex].groupId = groupId;
                 Config::save();
                 if (_onGroupChange) _onGroupChange();
             }
@@ -626,14 +659,13 @@ private:
             return;
         }
 
-        // Parse mac string to bytes
         uint8_t mac[6];
         if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
                    &mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]) != 6) {
             auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
         }
 
-        if (_onSetRemote) _onSetRemote(mac, groupId);
+        if (_onSetRemote) _onSetRemote(mac, lightIndex, groupId);
         auto ok = _makeOk(); _sendJson(r, 200, ok);
     }
 
@@ -931,9 +963,6 @@ private:
         addBool("otaEnabled");
         addBool("sceneSyncEnabled");
 
-        // Per-device: ledType arrives directly (value selected in UI)
-        if (hasTarget) addNum("ledType");
-
         if (!any) {
             auto e = _makeErr("no fields to push"); _sendJson(r, 400, e); return;
         }
@@ -1021,6 +1050,108 @@ private:
         Logger::i("[web] check-update for %s", macStr);
         if (_onCheckPeerUpdate) _onCheckPeerUpdate(mac);
         auto ok = _makeOk(); _sendJson(r, 200, ok);
+    }
+
+    // ── GET /api/lights ───────────────────────────────────────────────────────
+    void _getLights(AsyncWebServerRequest* r) {
+        JsonDocument doc;
+        JsonArray arr = doc["lights"].to<JsonArray>();
+        doc["maxLights"] = MAX_LIGHTS;
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            auto& l = Config::get().lights[i];
+            if (!l.exists) continue;
+            JsonObject o = arr.add<JsonObject>();
+            o["index"]   = i;
+            o["ledType"] = (uint8_t)l.ledType;
+            o["dataPin"] = l.dataPin;
+            o["clockPin"]= l.clockPin;
+            o["width"]   = l.width;
+            o["height"]  = l.height;
+            o["groupId"] = l.groupId;
+        }
+        _sendJson(r, 200, doc);
+    }
+
+    // ── POST /api/lights/add ──────────────────────────────────────────────────
+    // Body: {ledType, dataPin, clockPin, width, height, groupId}
+    void _addLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len)) {
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
+        }
+        // Find first free slot
+        uint8_t idx = 0xFF;
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            if (!Config::get().lights[i].exists) { idx = i; break; }
+        }
+        if (idx == 0xFF) {
+            auto e = _makeErr("light limit reached"); _sendJson(r, 400, e); return;
+        }
+        auto& l = Config::get().lights[idx];
+        l.exists   = true;
+        l.ledType  = (LedType)(uint8_t)(doc["ledType"]  | 0);
+        l.dataPin  = doc["dataPin"]  | (uint8_t)LED_DATA_PIN;
+        l.clockPin = doc["clockPin"] | (uint8_t)LED_CLOCK_PIN;
+        l.width    = doc["width"]    | (uint16_t)1;
+        l.height   = doc["height"]   | (uint16_t)1;
+        l.groupId  = doc["groupId"]  | (uint8_t)0;
+        if (l.width == 0) l.width = 1;
+        if (l.height == 0) l.height = 1;
+        Config::save();
+        JsonDocument resp;
+        resp["ok"]    = true;
+        resp["index"] = idx;
+        _sendJson(r, 200, resp);
+        // Hardware config changes require restart to take effect
+        delay(200); ESP.restart();
+    }
+
+    // ── POST /api/lights/update ───────────────────────────────────────────────
+    // Body: {index, ledType?, dataPin?, clockPin?, width?, height?, groupId?}
+    void _updateLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len)) {
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
+        }
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
+            auto e = _makeErr("not found"); _sendJson(r, 404, e); return;
+        }
+        auto& l = Config::get().lights[idx];
+        bool hwChanged = false;
+        if (!doc["ledType"].isNull())  { l.ledType  = (LedType)(uint8_t)doc["ledType"]; hwChanged = true; }
+        if (!doc["dataPin"].isNull())  { l.dataPin  = doc["dataPin"];  hwChanged = true; }
+        if (!doc["clockPin"].isNull()) { l.clockPin = doc["clockPin"]; hwChanged = true; }
+        if (!doc["width"].isNull())    { l.width  = max((uint16_t)1, (uint16_t)doc["width"]);  hwChanged = true; }
+        if (!doc["height"].isNull())   { l.height = max((uint16_t)1, (uint16_t)doc["height"]); hwChanged = true; }
+        // groupId change: soft config, no restart needed
+        if (!doc["groupId"].isNull()) {
+            uint8_t gid = doc["groupId"];
+            if (Config::group(gid)) {
+                l.groupId = gid;
+                if (_onGroupChange) _onGroupChange();
+            }
+        }
+        Config::save();
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+        if (hwChanged) { delay(200); ESP.restart(); }
+    }
+
+    // ── POST /api/lights/delete ───────────────────────────────────────────────
+    // Body: {index}
+    void _deleteLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len)) {
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
+        }
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
+            auto e = _makeErr("not found"); _sendJson(r, 404, e); return;
+        }
+        Config::get().lights[idx].exists = false;
+        Config::save();
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+        delay(200); ESP.restart();
     }
 
     static String _jsonStr(const char* s) {

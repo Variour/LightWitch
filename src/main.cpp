@@ -16,10 +16,10 @@
 #include "mqtt/MqttManager.h"
 #include "scenes/SceneSyncManager.h"
 
-static Ws2812bDriver    _ws2812b;
-static Ws2801Driver     _ws2801;
-static LedDriver*       led       = nullptr;
-static PatternRunner    runner;
+static Ws2812bDriver    _ws2812bPool[MAX_LIGHTS];
+static Ws2801Driver     _ws2801Pool[MAX_LIGHTS];
+static LedDriver*       _leds[MAX_LIGHTS]    = {};
+static PatternRunner    _runners[MAX_LIGHTS];
 static MeshManager      mesh;
 static ChannelManager   channelMgr;
 static BatteryWebServer webServer;
@@ -40,22 +40,21 @@ static void serialSink(LogLevel level, const char* msg) {
 
 // ── Light / group helpers ─────────────────────────────────────────────────────
 
-// Apply this device's current group light config to the pattern runner
-static void applyActiveLight() {
-    runner.applyConfig(Config::light());
+// Apply each light's group config to its runner
+static void applyAllLights() {
+    for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+        auto& l = Config::get().lights[i];
+        if (!l.exists || !_leds[i]) continue;
+        auto* g = Config::group(l.groupId);
+        if (g) _runners[i].applyConfig(g->light);
+    }
 }
 
 // ── WiFi ─────────────────────────────────────────────────────────────────────
 static void setupWifi() {
     auto& c = Config::get();
 
-    // WIFI_AP_STA is required for stable OTA and ESP-NOW coexistence on ESP32.
-    // When STA connects we stop the AP beacon via softAPdisconnect() rather than
-    // switching mode, which would break OTA (triggers ASSOC_LEAVE mid-transfer).
     WiFi.mode(WIFI_AP_STA);
-    // Disable internal auto-reconnect so only our controlled retry loop fires.
-    // Without this, the stack re-calls esp_wifi_connect() on every AUTH_EXPIRE,
-    // spamming the AP and triggering rate-limiting that kills subsequent attempts.
     WiFi.setAutoReconnect(false);
 
     Config::loadWifi();
@@ -69,7 +68,6 @@ static void setupWifi() {
         return;
     }
 
-    // Try the last successful network first, then the rest in order.
     uint8_t last = Config::wifiLast();
     uint8_t tryOrder[MAX_WIFI_NETWORKS];
     uint8_t idx = 0;
@@ -83,9 +81,6 @@ static void setupWifi() {
         const char* ssid = Config::wifiNetworks()[ni].ssid;
         const char* pass = Config::wifiNetworks()[ni].password;
         for (uint8_t attempt = 0; attempt < 3; attempt++) {
-            // Disconnect before each attempt to guarantee a clean stack state.
-            // On retries, allow more settling time — 4WAY_HANDSHAKE_TIMEOUT
-            // leaves the stack in partial state that needs longer to clear.
             WiFi.disconnect(false);
             delay(attempt == 0 ? 100 : 2000);
             Logger::i("[wifi] Trying %s (attempt %u/3)...", ssid, attempt + 1);
@@ -94,8 +89,6 @@ static void setupWifi() {
             uint32_t start = millis();
             while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) delay(250);
             if (WiFi.status() == WL_CONNECTED) {
-                // Stop AP beacon — no SSID visible, no clients accepted.
-                // The AP hardware stays up so WIFI_AP_STA mode is preserved.
                 WiFi.softAPdisconnect(false);
                 Logger::i("[wifi] Connected to %s, IP: %s  (AP off)", ssid, WiFi.localIP().toString().c_str());
                 if (ni != last) {
@@ -145,33 +138,54 @@ void setup() {
     }
     Config::load();
     Logger::setLevel((LogLevel)Config::get().logLevel);
-    Logger::i("[sys] firmware %s  device: %s  group: %u",
-              FW_VERSION, Config::get().deviceName, Config::get().groupId);
+    Logger::i("[sys] firmware %s  device: %s", FW_VERSION, Config::get().deviceName);
 
     setupWifi();
     channelMgr.begin();
 
-    if (Config::get().ledType == LedType::WS2801) {
-        _ws2801.begin();
-        led = &_ws2801;
-        Logger::i("[led] WS2801 data=GPIO%d clock=GPIO%d", Ws2801Driver::DATA_PIN, Ws2801Driver::CLOCK_PIN);
-    } else {
-        _ws2812b.begin();
-        led = &_ws2812b;
-        Logger::i("[led] WS2812B data=GPIO%d", Ws2812bDriver::DATA_PIN);
+    // Initialise one driver + runner per configured light
+    for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+        auto& l = Config::get().lights[i];
+        if (!l.exists) continue;
+        uint16_t numLeds = (uint16_t)l.width * l.height;
+        if (numLeds == 0) numLeds = 1;
+        LedDriver* drv;
+        if (l.ledType == LedType::WS2801) {
+            _ws2801Pool[i].setup(l.dataPin, l.clockPin, numLeds);
+            _ws2801Pool[i].begin();
+            drv = &_ws2801Pool[i];
+            Logger::i("[led] light %u: WS2801 data=GPIO%d clock=GPIO%d leds=%u group=%u",
+                      i, l.dataPin, l.clockPin, numLeds, l.groupId);
+        } else {
+            _ws2812bPool[i].setup(l.dataPin, numLeds);
+            _ws2812bPool[i].begin();
+            drv = &_ws2812bPool[i];
+            Logger::i("[led] light %u: WS2812B data=GPIO%d leds=%u group=%u",
+                      i, l.dataPin, numLeds, l.groupId);
+        }
+        _leds[i] = drv;
+        _runners[i].begin(*drv);
+        _runners[i].setPeerRegistry(&mesh.peers);
+        _runners[i].setGroupId(l.groupId);
+        auto* g = Config::group(l.groupId);
+        if (g) _runners[i].applyConfig(g->light);
     }
-    runner.begin(*led);
-    applyActiveLight();
 
+    // Wire MQTT to the first active light's group for now
     mqtt.setOnCommand([](const LightConfig& cfg) {
-        GroupConfig* g = Config::group(Config::get().groupId);
-        if (!g) return;
-        g->light = cfg;
-        Config::save();
-        runner.applyConfig(cfg);
-        mesh.broadcastLightConfig(Config::get().groupId, cfg);
-        if (g) mesh.broadcastGroupSync(*g);
-        mqtt.publishState(cfg);
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            auto& l = Config::get().lights[i];
+            if (!l.exists || !_leds[i]) continue;
+            GroupConfig* g = Config::group(l.groupId);
+            if (!g) continue;
+            g->light = cfg;
+            Config::save();
+            _runners[i].applyConfig(cfg);
+            mesh.broadcastLightConfig(l.groupId, cfg);
+            mesh.broadcastGroupSync(*g);
+            mqtt.publishState(cfg);
+            break;
+        }
     });
     mqtt.begin(Config::get());
 
@@ -181,7 +195,6 @@ void setup() {
     if (Config::get().otaEnabled) setupOta();
     mesh.begin();
     mesh.setOnPeerHeard([](){ channelMgr.onPeerHeard(); });
-    runner.setPeerRegistry(&mesh.peers);
 
     // Wire SceneSyncManager → MeshManager
     sceneSync.setBroadcastFns(
@@ -193,25 +206,26 @@ void setup() {
 
     // ── Mesh callbacks ────────────────────────────────────────────────────────
 
-    // Received light config for a group
     mesh.setOnLightConfig([](uint8_t groupId, const LightConfig& cfg) {
         GroupConfig* g = Config::group(groupId);
         if (!g) { Logger::w("[mesh] light config for unknown group %u — ignored", groupId); return; }
         g->light = cfg;
         Config::save();
-        if (groupId == Config::get().groupId) {
-            runner.applyConfig(cfg);
-            mqtt.publishState(cfg);
+        // Apply to all runners in this group
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            auto& l = Config::get().lights[i];
+            if (l.exists && l.groupId == groupId && _leds[i]) {
+                _runners[i].applyConfig(cfg);
+                mqtt.publishState(cfg);
+            }
         }
     });
 
-    // Peer came online
-    mesh.setOnPresence([](const uint8_t*, const char*, uint8_t, bool isNew) {
+    mesh.setOnPresence([](const uint8_t*, const char*, bool isNew) {
         webServer.pushPeers();
         if (isNew) sceneSync.onNewPeer();
     });
 
-    // Scene sync mesh callbacks
     mesh.setOnSceneManifest([](const uint8_t* mac, const SceneManifestMsg* msg) {
         sceneSync.onManifest(mac, msg);
     });
@@ -234,7 +248,7 @@ void setup() {
     mesh.setOnConfigChunk([](const uint8_t* srcMac, const ConfigChunkMsg* msg) {
         uint8_t own[6];
         WiFi.macAddress(own);
-        if (memcmp(srcMac, own, 6) == 0) return;  // ignore own broadcast
+        if (memcmp(srcMac, own, 6) == 0) return;
         static const uint8_t kAllZeros[6] = {};
         bool isAll = memcmp(msg->targetMac, kAllZeros, 6) == 0;
         if (!isAll && memcmp(msg->targetMac, own, 6) != 0) return;
@@ -250,106 +264,107 @@ void setup() {
         }
     });
 
-    // Another device told this device (or a peer) to change group
-    mesh.setOnSetGroup([](const uint8_t* targetMac, uint8_t groupId) {
+    // Another device told this device (or a peer) to change a light's group
+    mesh.setOnSetGroup([](const uint8_t* targetMac, uint8_t lightIndex, uint8_t groupId) {
         uint8_t own[6];
         WiFi.macAddress(own);
         if (memcmp(targetMac, own, 6) == 0) {
-            if (Config::group(groupId)) {
-                Config::get().groupId = groupId;
+            if (lightIndex < MAX_LIGHTS && Config::group(groupId)) {
+                Config::get().lights[lightIndex].groupId = groupId;
                 Config::save();
-                applyActiveLight();
-                Logger::i("[mesh] moved to group %u", groupId);
+                if (_leds[lightIndex]) {
+                    _runners[lightIndex].setGroupId(groupId);
+                    auto* g = Config::group(groupId);
+                    if (g) _runners[lightIndex].applyConfig(g->light);
+                }
+                Logger::i("[mesh] light %u moved to group %u", lightIndex, groupId);
             }
         }
-        // Update peer registry group field
-        mesh.peers.updateGroup(targetMac, groupId);
+        mesh.peers.updateLightGroup(targetMac, lightIndex, groupId);
         webServer.pushPeers();
     });
 
-    // Group list changed (create / rename / delete from another device)
     mesh.setOnGroupSync([](const GroupConfig& g) {
         bool lightUpdated = Config::applyGroupSync(g);
         Config::save();
-        if (!Config::group(Config::get().groupId)) {
-            Logger::i("[mesh] active group deleted — falling back to Default");
-            Config::get().groupId = 0;
-            applyActiveLight();
-        } else if (lightUpdated && g.id == Config::get().groupId && g.exists) {
-            // Incoming light config has a higher seq than ours — apply it.
-            // This covers rejoining devices receiving the group's current state,
-            // while ignoring stale syncs from devices that were themselves offline.
-            applyActiveLight();
+        if (!g.exists) {
+            // Group deleted — move any lights in it to Default
+            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+                auto& l = Config::get().lights[i];
+                if (l.exists && l.groupId == g.id) l.groupId = 0;
+            }
+            Config::save();
+            applyAllLights();
+        } else if (lightUpdated && g.exists) {
+            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+                auto& l = Config::get().lights[i];
+                if (l.exists && l.groupId == g.id && _leds[i])
+                    _runners[i].applyConfig(g.light);
+            }
         }
         webServer.pushGroups();
     });
 
-    // Received phase sync from the group's sync master
     mesh.setOnPhaseSync([](uint8_t groupId, float phase) {
-        if (groupId != Config::get().groupId) return;
-        GroupConfig* g = Config::group(groupId);
-        if (!g || !g->syncEnabled) {
-            return;
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            auto& l = Config::get().lights[i];
+            if (!l.exists || l.groupId != groupId) continue;
+            GroupConfig* g = Config::group(l.groupId);
+            if (!g || !g->syncEnabled) continue;
+            _runners[i].snapPhase(phase);
         }
-        runner.snapPhase(phase);
     });
 
-    // Provide current phase for the periodic sync broadcast
-    mesh.setGetPhase([](){ return runner.getPhase(); });
+    mesh.setGetPhase([](uint8_t lightIndex) -> float {
+        return _runners[lightIndex].getPhase();
+    });
 
     // ── Web server callbacks ──────────────────────────────────────────────────
 
     webServer.begin(
-        // onGroupChange: this device's group changed via web UI
-        []() { applyActiveLight(); },
+        // onGroupChange: re-apply all lights when group assignment changed via web
+        []() { applyAllLights(); },
 
-        // onGroupLight: a group's light config changed via web UI → broadcast
         [](uint8_t groupId, const LightConfig& cfg) {
-            if (groupId == Config::get().groupId) {
-                runner.applyConfig(cfg);
-                mqtt.publishState(cfg);
+            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+                auto& l = Config::get().lights[i];
+                if (l.exists && l.groupId == groupId && _leds[i]) {
+                    _runners[i].applyConfig(cfg);
+                    mqtt.publishState(cfg);
+                }
             }
             mesh.broadcastLightConfig(groupId, cfg);
             if (auto* g = Config::group(groupId)) mesh.broadcastGroupSync(*g);
         },
 
-        // onGroupSync: group created/renamed/deleted via web UI → broadcast
         [](const GroupConfig& g) { mesh.broadcastGroupSync(g); },
 
-        // onSetRemote: move a remote peer's group via web UI
-        [](const uint8_t* mac, uint8_t groupId) { mesh.broadcastSetGroup(mac, groupId); },
+        [](const uint8_t* mac, uint8_t lightIndex, uint8_t groupId) {
+            mesh.broadcastSetGroup(mac, lightIndex, groupId);
+        },
 
         &mesh.peers,
         &sceneSync,
 
-        // onSetRemoteSync: toggle sceneSyncEnabled on a remote device
         [](const uint8_t* mac, bool enabled) { mesh.broadcastSetSceneSync(mac, enabled); },
 
-        // onResolveConflict: user picked a winner for a conflicted scene
         [](const char* id, const uint8_t* sourceMac) {
             if (sourceMac == nullptr) {
-                // Local copy wins — force-set and broadcast chunks
                 sceneSync.resolveWithLocal(id);
             } else {
-                // Remote copy wins — mark as forced accept, request chunks from the mesh.
-                // On receive, SceneSyncManager will save unconditionally and re-broadcast.
                 sceneSync.setForcedAccept(id);
                 mesh.broadcastSceneRequest(id);
             }
         },
 
-        // onPushConfig: push syncable settings to one or all peers via ESP-NOW
         [](const uint8_t* targetMac, const char* json, size_t len) {
             mesh.sendConfigChunks(targetMac, json, len);
         },
 
-        // onTriggerPeerUpdate: broadcast a firmware update trigger to a specific peer
         [](const uint8_t* mac) { mesh.broadcastTriggerUpdate(mac); },
 
-        // onMeshSearch: user triggered manual channel re-search from web UI
         []() { channelMgr.beginSearch(); },
 
-        // onCheckPeerUpdate: broadcast a firmware update check to a specific peer (no auto-install)
         [](const uint8_t* mac) { mesh.broadcastCheckUpdate(mac); }
     );
 
@@ -365,7 +380,8 @@ void loop() {
         channelMgr.tick();
         mesh.tick();
         mqtt.loop();
-        runner.tick();
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+            if (_leds[i]) _runners[i].tick();
         sceneSync.tick();
     }
 }

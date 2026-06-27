@@ -1,33 +1,34 @@
 #pragma once
 #include "LedDriver.h"
-#include <FastLED.h>
-
-#ifndef LED_DATA_PIN
-#define LED_DATA_PIN 25
-#endif
+#include <Adafruit_NeoPixel.h>
 
 class Ws2812bDriver : public LedDriver {
 public:
-    static constexpr uint8_t DATA_PIN   = LED_DATA_PIN;
-    static constexpr uint8_t NUM_LEDS   = 100;  // full strip length — cleared on boot
-    static constexpr uint8_t ACTIVE_LEDS = 1;   // LEDs driven by patterns
+    void setup(uint8_t dataPin, uint16_t numLeds) {
+        _pin     = dataPin;
+        _numLeds = numLeds;
+    }
 
     void begin() override {
-        FastLED.addLeds<WS2812B, DATA_PIN, GRB>(_leds, NUM_LEDS);
-        FastLED.setMaxPowerInVoltsAndMilliamps(5, 500);
-        off();
+        _neo = new Adafruit_NeoPixel(_numLeds, _pin, NEO_GRB + NEO_KHZ800);
+        _neo->begin();
+        _neo->clear();
+        _neo->show();
     }
 
     void setColor(uint8_t r, uint8_t g, uint8_t b) override {
-        for (uint8_t i = 0; i < ACTIVE_LEDS; i++) _leds[i] = CRGB(r, g, b);
-        FastLED.show();
+        uint32_t c = _neo->Color(r, g, b);
+        for (uint16_t i = 0; i < _numLeds; i++) _neo->setPixelColor(i, c);
+        _neo->show();
     }
 
     void off() override {
-        fill_solid(_leds, NUM_LEDS, CRGB::Black);
-        FastLED.show();
+        _neo->clear();
+        _neo->show();
     }
 
 private:
-    CRGB _leds[NUM_LEDS];
+    uint8_t            _pin     = 25;
+    uint16_t           _numLeds = 1;
+    Adafruit_NeoPixel* _neo     = nullptr;
 };

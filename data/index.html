@@ -619,11 +619,6 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     <h3>Device</h3>
     <label>Device name (mDNS hostname)</label>
     <input type="text" id="deviceName" placeholder="batterylight">
-    <label>LED type</label>
-    <select id="ledType">
-      <option value="0">WS2812B — single wire</option>
-      <option value="1">WS2801 — two wire</option>
-    </select>
     <label>Log level</label>
     <select id="logLevel">
       <option value="0">Debug</option>
@@ -631,6 +626,11 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
       <option value="2">Warn</option>
       <option value="3">Error</option>
     </select>
+
+    <hr class="section-divider">
+    <h3>Lights</h3>
+    <div id="lights-hw-list" style="margin-bottom:.75rem"></div>
+    <button class="btn-ghost" style="width:100%" id="add-light-btn" onclick="openAddLightModal()">Add light</button>
 
     <hr class="section-divider">
     <h3>WiFi</h3>
@@ -722,12 +722,6 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <h3>Device</h3>
         <label>Name <small>(type new name; no "use current")</small></label>
         <input type="text" id="push-deviceName" placeholder="(leave blank to keep unchanged)" maxlength="31">
-        <div class="push-fh"><span>LED type</span><label class="push-ul"><input type="checkbox" id="push-ledType-ul" onchange="toggleField('push-ledType',this.checked)"> Use current</label></div>
-        <select id="push-ledType">
-          <option value="">— keep unchanged —</option>
-          <option value="0">WS2812B — single wire</option>
-          <option value="1">WS2801 — two wire</option>
-        </select>
       </div>
 
       <hr class="section-divider">
@@ -1122,13 +1116,17 @@ function renderLights(self, peers) {
     }
 
     const pushCell = p.isSelf ? '' : `<button class="btn-ghost btn-sm" onclick="openPushModal('${mac}','${esc(p.name)}')" title="Push settings to this device">Push</button>`;
+    const lights = p.lights || [];
+    const groupSelects = lights.length === 0
+      ? '<span style="color:#555;font-size:.78rem">no lights</span>'
+      : lights.map(l => {
+          const opts = _groups.map(g=>`<option value="${g.id}"${g.id===l.groupId?' selected':''}>${esc(g.name)}</option>`).join('');
+          const label = lights.length > 1 ? `<span style="font-size:.72rem;color:#888;margin-right:.25rem">L${l.index}</span>` : '';
+          return `<div style="display:flex;align-items:center;gap:.25rem;margin-bottom:.2rem">${label}<select onchange="assignGroup('${mac}',${l.index},parseInt(this.value))">${opts}</select></div>`;
+        }).join('');
     return `<tr>
       <td>${dot}${esc(p.name)}${selfTag}</td>
-      <td>
-        <select onchange="assignGroup('${mac}', parseInt(this.value))">
-          ${_groups.map(g=>`<option value="${g.id}"${g.id===p.groupId?' selected':''}>${esc(g.name)}</option>`).join('')}
-        </select>
-      </td>
+      <td>${groupSelects}</td>
       <td style="text-align:center">${wifiIcon}</td>
       <td style="text-align:right;font-size:.78rem;color:#666;white-space:nowrap">${rssiText}</td>
       <td style="text-align:center;color:#444;font-size:.78rem">${fwIconHtml}</td>
@@ -1190,10 +1188,10 @@ function checkSelfUpdate(btn) {
   setTimeout(() => { btn.disabled = false; }, 2000);
 }
 
-function assignGroup(mac, groupId) {
+function assignGroup(mac, lightIndex, groupId) {
   fetch('/api/peers/setgroup', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({mac, groupId})
+    body: JSON.stringify({mac, lightIndex, groupId})
   });
 }
 
@@ -1216,7 +1214,7 @@ const _pushSharedFields = [
   'push-githubRepo','push-githubToken',
   'push-otaEnabled','push-sceneSyncEnabled',
 ];
-const _pushDeviceFields = ['push-ledType']; // deviceName has no "use current"
+const _pushDeviceFields = []; // deviceName has no "use current"
 
 // Sensitive fields: firmware fills the value; field is disabled when checked
 const _pushSensitiveFields = new Set([
@@ -1347,7 +1345,6 @@ async function submitPushConfig() {
   sensitiveStr('push-githubToken',  'githubToken');
   bool('push-otaEnabled',           'otaEnabled');
   bool('push-sceneSyncEnabled',     'sceneSyncEnabled');
-  if (_pushTarget) int('push-ledType', 'ledType');
 
   if (useLocal.length) body.useLocal = useLocal;
 
@@ -1389,7 +1386,6 @@ async function saveSettings() {
     deviceName: document.getElementById('deviceName').value,
     otaPort:    parseInt(document.getElementById('otaPort').value),
     otaEnabled: document.getElementById('otaEnabled').checked,
-    ledType:    parseInt(document.getElementById('ledType').value),
     logLevel:   parseInt(document.getElementById('logLevel').value),
     mqttHost:   document.getElementById('mqttHost').value,
     mqttPort:   parseInt(document.getElementById('mqttPort').value) || 1883,
@@ -1593,13 +1589,8 @@ async function loadConfig() {
   document.getElementById('deviceName').value = d.deviceName || '';
   document.getElementById('otaPort').value    = d.otaPort    || 3232;
   document.getElementById('otaEnabled').checked = d.otaEnabled !== false;
-  if (d.ledType  !== undefined) document.getElementById('ledType').value  = d.ledType;
-  if (d.dataPin  !== undefined) {
-    const sel = document.getElementById('ledType');
-    sel.options[0].text = `WS2812B — single wire (data: GPIO ${d.dataPin})`;
-    sel.options[1].text = `WS2801 — two wire (data: GPIO ${d.dataPin}, clock: GPIO ${d.clockPin})`;
-  }
   if (d.logLevel !== undefined) document.getElementById('logLevel').value = d.logLevel;
+  if (d.lights) renderLightsHw(d.lights);
   if (d.mqttHost   !== undefined) document.getElementById('mqttHost').value   = d.mqttHost;
   if (d.mqttPort   !== undefined) document.getElementById('mqttPort').value   = d.mqttPort;
   if (d.mqttUser   !== undefined) document.getElementById('mqttUser').value   = d.mqttUser;
@@ -3106,6 +3097,122 @@ async function importImageAsFrame(ev) {
 }
 
 window.addEventListener('popstate', () => _routeFromPath(location.pathname));
+
+// ── Lights hardware management ────────────────────────────────────────────────
+const LED_TYPE_NAMES = ['WS2812B — single wire', 'WS2801 — two wire'];
+
+function renderLightsHw(lights) {
+  const el = document.getElementById('lights-hw-list');
+  if (!el) return;
+  if (!lights || !lights.length) {
+    el.innerHTML = '<p style="color:#555;font-size:.85rem">No lights configured.</p>';
+    return;
+  }
+  el.innerHTML = lights.map(l => {
+    const topo = l.height > 1 ? `${l.width}×${l.height} matrix` : `${l.width} LED string`;
+    const pins = l.ledType === 1
+      ? `data GPIO${l.dataPin}, clock GPIO${l.clockPin}`
+      : `data GPIO${l.dataPin}`;
+    const grp = _groups.find(g => g.id === l.groupId);
+    const grpName = grp ? esc(grp.name) : `group ${l.groupId}`;
+    return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <strong>Light ${l.index}</strong>
+          <span style="color:#888;font-size:.82rem;margin-left:.5rem">${LED_TYPE_NAMES[l.ledType] || 'Unknown'}</span>
+        </div>
+        <div style="display:flex;gap:.4rem">
+          <button class="btn-ghost btn-sm" onclick="openEditLightModal(${JSON.stringify(l).replace(/"/g,'&quot;')})">Edit</button>
+          <button class="btn-ghost btn-sm" style="color:#c44" onclick="deleteLight(${l.index})">Delete</button>
+        </div>
+      </div>
+      <div style="font-size:.8rem;color:#888;margin-top:.25rem">${topo} · ${pins} · group: ${grpName}</div>
+    </div>`;
+  }).join('');
+}
+
+// Light add/edit modal (reused for both)
+let _editLightIndex = null;
+
+function openAddLightModal() {
+  _editLightIndex = null;
+  _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1, groupId: 0});
+}
+
+function openEditLightModal(l) {
+  _editLightIndex = l.index;
+  _openLightModal(l);
+}
+
+function _openLightModal(l) {
+  let grpOpts = _groups.map(g=>`<option value="${g.id}"${g.id===l.groupId?' selected':''}>${esc(g.name)}</option>`).join('');
+  const title = _editLightIndex === null ? 'Add light' : `Edit light ${l.index}`;
+  const overlay = document.createElement('div');
+  overlay.id = 'light-modal-overlay';
+  overlay.className = 'push-overlay';
+  overlay.innerHTML = `<div class="push-modal"><div class="card" style="margin:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+      <h2 style="margin:0">${title}</h2>
+      <button class="btn-ghost btn-sm" onclick="document.getElementById('light-modal-overlay').remove()">✕</button>
+    </div>
+    <label>LED type</label>
+    <select id="lm-ledType">
+      <option value="0"${l.ledType===0?' selected':''}>WS2812B — single wire</option>
+      <option value="1"${l.ledType===1?' selected':''}>WS2801 — two wire</option>
+    </select>
+    <label>Data pin (GPIO)</label>
+    <input type="number" id="lm-dataPin" value="${l.dataPin}" min="0" max="39">
+    <label id="lm-clockPin-label">Clock pin (GPIO) <small>(WS2801 only)</small></label>
+    <input type="number" id="lm-clockPin" value="${l.clockPin}" min="0" max="39">
+    <label>Length (LEDs in string, or columns if matrix)</label>
+    <input type="number" id="lm-width" value="${l.width}" min="1" max="1000">
+    <label>Rows <small>(1 = string, >1 = matrix)</small></label>
+    <input type="number" id="lm-height" value="${l.height}" min="1" max="100">
+    <label>Group</label>
+    <select id="lm-groupId">${grpOpts}</select>
+    <button class="btn-ghost" style="width:100%;margin-top:.75rem" onclick="saveLightModal()">Save &amp; Reboot</button>
+  </div></div>`;
+  document.body.appendChild(overlay);
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  // Show/hide clock pin based on type
+  const lt = overlay.querySelector('#lm-ledType');
+  const clkLabel = overlay.querySelector('#lm-clockPin-label');
+  const clkInput = overlay.querySelector('#lm-clockPin');
+  function updateClockVisibility() {
+    const show = lt.value === '1';
+    clkLabel.style.display = show ? '' : 'none';
+    clkInput.style.display = show ? '' : 'none';
+  }
+  updateClockVisibility();
+  lt.addEventListener('change', updateClockVisibility);
+}
+
+async function saveLightModal() {
+  const body = {
+    ledType:  parseInt(document.getElementById('lm-ledType').value),
+    dataPin:  parseInt(document.getElementById('lm-dataPin').value),
+    clockPin: parseInt(document.getElementById('lm-clockPin').value),
+    width:    parseInt(document.getElementById('lm-width').value) || 1,
+    height:   parseInt(document.getElementById('lm-height').value) || 1,
+    groupId:  parseInt(document.getElementById('lm-groupId').value),
+  };
+  const url = _editLightIndex === null ? '/api/lights/add' : '/api/lights/update';
+  if (_editLightIndex !== null) body.index = _editLightIndex;
+  const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const d = await res.json();
+  if (!res.ok) { alert('Error: ' + (d.error || res.status)); return; }
+  document.getElementById('light-modal-overlay')?.remove();
+  // Device will reboot; show a brief message
+  alert('Light saved. Device is rebooting…');
+}
+
+async function deleteLight(index) {
+  if (!confirm(`Delete light ${index}? The device will reboot.`)) return;
+  const res = await fetch('/api/lights/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
+  const d = await res.json();
+  if (!res.ok) { alert('Error: ' + (d.error || res.status)); return; }
+  alert('Light deleted. Device is rebooting…');
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 loadConfig();
