@@ -20,10 +20,10 @@ class PatternRunner {
 public:
     void begin(LedDriver& led) {
         _led = &led;
-        applyConfig(Config::light());
     }
 
     void setPeerRegistry(PeerRegistry* peers) { _proximity.setPeers(peers); }
+    void setGroupId(uint8_t groupId)          { _proximity.setGroupId(groupId); }
 
     void applyConfig(const LightConfig& cfg) {
         if (cfg.mode == GroupMode::Proximity) {

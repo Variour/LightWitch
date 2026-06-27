@@ -2,9 +2,16 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
+#ifndef LED_DATA_PIN
+#define LED_DATA_PIN 25
+#endif
+#ifndef LED_CLOCK_PIN
+#define LED_CLOCK_PIN 26
+#endif
+
 enum class LedType : uint8_t {
-    WS2812B = 0,  // single-wire NeoPixel — data on LED_DATA_PIN (default GPIO 25, ESP32-C3 uses GPIO 20)
-    WS2801  = 1,  // two-wire SPI — data on LED_DATA_PIN, clock on LED_CLOCK_PIN (default GPIO 25/26, ESP32-C3 uses GPIO 20/21)
+    WS2812B = 0,  // single-wire NeoPixel
+    WS2801  = 1,  // two-wire SPI
 };
 
 enum class PatternId : uint8_t {
@@ -43,8 +50,9 @@ struct LightConfig {
 };
 
 static constexpr uint8_t MAX_GROUPS        = 8;
+static constexpr uint8_t MAX_LIGHTS        = 4;
 static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
-static constexpr uint8_t CONFIG_SCHEMA_VERSION = 1;
+static constexpr uint8_t CONFIG_SCHEMA_VERSION = 2;
 
 struct WifiNetwork {
     char ssid[64]     = {};
@@ -56,7 +64,19 @@ struct GroupConfig {
     char        name[24]    = {};
     LightConfig light;
     bool        exists      = false;
-    bool        syncEnabled = true;  // sync animation phase across group members
+    bool        syncEnabled = true;
+};
+
+// Per-light physical hardware configuration, stored in DeviceConfig.
+struct LightHardwareConfig {
+    char     name[20]  = "";
+    LedType  ledType   = LedType::WS2812B;
+    uint8_t  dataPin   = LED_DATA_PIN;
+    uint8_t  clockPin  = LED_CLOCK_PIN;
+    uint16_t width     = 1;    // string length, or matrix columns
+    uint16_t height    = 1;    // 1 = string, >1 = matrix
+    uint8_t  groupId   = 0;    // which group's LightConfig this light follows
+    bool     exists    = false;
 };
 
 struct DeviceConfig {
@@ -64,9 +84,7 @@ struct DeviceConfig {
     char        apPassword[64]   = "bl-9f4a2c81";
     uint16_t    otaPort          = 3232;
     bool        otaEnabled       = true;
-    uint8_t     groupId          = 0;
-    LedType     ledType          = LedType::WS2812B;
-    uint8_t     logLevel         = 0;  // LogLevel::DEBUG
+    uint8_t     logLevel         = 0;
     char        mqttHost[64]     = "";
     uint16_t    mqttPort         = 1883;
     char        mqttUser[32]     = "";
@@ -75,6 +93,7 @@ struct DeviceConfig {
     char        githubRepo[64]   = "variour/batterylight";
     bool        sceneSyncEnabled        = true;
     bool        checkUpdateOnStartup    = false;
+    LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
 };
 
@@ -86,8 +105,6 @@ public:
 
     static bool    loadWifi();
     static bool    saveWifi();
-    // Returns false if cap reached and SSID is not already in the list.
-    // If SSID already exists, updates its password and returns true.
     static bool    addWifiNetwork(const char* ssid, const char* password);
     static bool    deleteWifiNetwork(const char* ssid);
 
@@ -98,25 +115,15 @@ public:
 
     static DeviceConfig& get()   { return _cfg; }
 
-    // Light config for the group this device currently belongs to
-    static LightConfig& light() {
-        auto* g = group(_cfg.groupId);
-        return g ? g->light : _cfg.groups[0].light;
-    }
-
     static GroupConfig* group(uint8_t id) {
         if (id < MAX_GROUPS && _cfg.groups[id].exists) return &_cfg.groups[id];
         return nullptr;
     }
 
-    // Create a new group; returns the new id or 0xFF if full
     static uint8_t createGroup(const char* name);
 
-    // Apply a GroupConfig received from the mesh (create/update/delete).
-    // Returns true if the light config was updated (incoming seq >= local seq).
     static bool applyGroupSync(const GroupConfig& g);
 
-    // Apply syncable settings received via config push, save, and restart.
     static void applyConfigSync(const char* json, size_t len);
 
 private:
@@ -126,4 +133,5 @@ private:
     static uint8_t      _wifiCount;
     static uint8_t      _wifiLast;
     static void _ensureDefaultGroup();
+    static void _ensureDefaultLight();
 };

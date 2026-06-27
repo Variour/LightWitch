@@ -10,18 +10,23 @@
 class Proximity : public Pattern {
 public:
     void setPeers(PeerRegistry* peers) { _peers = peers; }
+    void setGroupId(uint8_t groupId) { _groupId = groupId; }
 
     float getPeriod() const override { return 1000.0f; }
 
     void tick(uint32_t) override {
         if (!_peers) { _led->setColor(0, 0, 0); return; }
 
-        uint8_t myGroup = Config::get().groupId;
+        uint8_t myGroup = _groupId;
         int8_t  bestRssi = -127;
         bool    found    = false;
 
         for (const auto& p : *_peers) {
-            if (!p.online() || p.groupId != myGroup) continue;
+            if (!p.online()) continue;
+            bool inGroup = false;
+            for (uint8_t i = 0; i < p.lightCount && i < MAX_LIGHTS; i++)
+                if (p.lightGroupIds[i] == myGroup) { inGroup = true; break; }
+            if (!inGroup) continue;
             if (!found || p.rssi > bestRssi) { bestRssi = p.rssi; found = true; }
         }
 

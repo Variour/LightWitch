@@ -8,14 +8,15 @@ import { authRouter, requireAuth } from './auth.js';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
+const mockLights = [
+  { index: 0, name: 'Living room', ledType: 0, dataPin: 13, clockPin: 14, width: 1, height: 1, groupId: 0 },
+  { index: 1, name: 'Bedroom',     ledType: 1, dataPin: 25, clockPin: 26, width: 8, height: 8, groupId: 1 },
+];
+
 const MOCK_CONFIG = {
   deviceName: 'Mock Device',
   otaPort: 3232,
   otaEnabled: true,
-  groupId: 0,
-  ledType: 0,
-  dataPin: 13,
-  clockPin: 14,
   logLevel: 1,
   sceneSyncEnabled: true,
   checkUpdateOnStartup: false,
@@ -25,17 +26,18 @@ const MOCK_CONFIG = {
   version: 'mock',
   mac: '11:22:33:44:55:66',
   githubRepo: 'Variour/batterylight',
+  lights: mockLights,
   groups: [
     { id: 0, name: 'Default',     exists: true, mode: 0, sceneId: '',          pattern: 0, r: 255, g: 200, b: 80,  brightness: 200, speed: 1, syncEnabled: true,  transitionEnabled: false, transitionTime: 1.0, proximityScale: 1.0 },
     { id: 1, name: 'Scene Group', exists: true, mode: 1, sceneId: 'a1b2c3d4e5f6470789abcdef', pattern: 0, r: 255, g: 100, b: 50, brightness: 180, speed: 1, syncEnabled: false, transitionEnabled: true,  transitionTime: 0.5, proximityScale: 1.0 },
   ],
 };
 
-const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', groupId: 0, online: true,  sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  };
+const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', lights: [{ index: 0, name: 'Living room', groupId: 0, ledType: 0, width: 1, height: 1 }, { index: 1, name: 'Bedroom', groupId: 1, ledType: 1, width: 8, height: 8 }], online: true,  sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  };
 const MOCK_PEERS = [
-  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', groupId: 0, online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.01.01.0', fwState: 'idle'  },
-  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', groupId: 1, online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, version: '2026.01.01.0', fwState: 'idle'  },
-  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', groupId: 0, online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  },
+  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.01.01.0', fwState: 'idle'  },
+  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, version: '2026.01.01.0', fwState: 'idle'  },
+  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  },
 ];
 
 const wifiNetworks = [
@@ -157,6 +159,29 @@ app.post('/api/scenes/delete', (req, res) => {
 
 app.get('/api/scenes/sync/conflicts', (_req, res) => res.json({ conflicts: [], peerScenes: [] }));
 app.post('/api/scenes/sync/resolve',  (_req, res) => res.json({ ok: true }));
+
+app.get('/api/lights', (_req, res) => res.json({ lights: mockLights, maxLights: 4 }));
+app.post('/api/lights/add', (req, res) => {
+  const free = [0,1,2,3].find(i => !mockLights.find(l => l.index === i));
+  if (free === undefined) return res.status(400).json({ error: 'light limit reached' });
+  const { name = '', ledType = 0, dataPin = 13, clockPin = 14, width = 1, height = 1, groupId = 0 } = req.body || {};
+  mockLights.push({ index: free, name, ledType, dataPin, clockPin, width, height, groupId });
+  res.json({ ok: true, index: free });
+});
+app.post('/api/lights/update', (req, res) => {
+  const { index, ...fields } = req.body || {};
+  const light = mockLights.find(l => l.index === index);
+  if (!light) return res.status(404).json({ error: 'not found' });
+  Object.assign(light, fields);
+  res.json({ ok: true });
+});
+app.post('/api/lights/delete', (req, res) => {
+  const { index } = req.body || {};
+  const idx = mockLights.findIndex(l => l.index === index);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  mockLights.splice(idx, 1);
+  res.json({ ok: true });
+});
 
 app.post('/api/groups/create',  (_req, res) => res.json({ ok: true }));
 app.post('/api/groups/update',  (_req, res) => res.json({ ok: true }));

@@ -16,27 +16,25 @@ public:
     PeerRegistry peers;
 
     using LightConfigCb    = std::function<void(uint8_t groupId, const LightConfig&)>;
-    using PresenceCb       = std::function<void(const uint8_t* mac, const char* name, uint8_t groupId, bool isNew)>;
-    using SetGroupCb       = std::function<void(const uint8_t* targetMac, uint8_t groupId)>;
+    using PresenceCb       = std::function<void(const uint8_t* mac, const char* name, bool isNew)>;
+    using SetGroupCb       = std::function<void(const uint8_t* targetMac, uint8_t lightIndex, uint8_t groupId)>;
     using GroupSyncCb      = std::function<void(const GroupConfig&)>;
     using PhaseSyncCb      = std::function<void(uint8_t groupId, float phase)>;
-    using GetPhaseCb       = std::function<float()>;
-    // Scene sync callbacks
+    // Returns the current animation phase for the given light index.
+    using GetPhaseCb       = std::function<float(uint8_t lightIndex)>;
     using SceneManifestCb  = std::function<void(const uint8_t* mac, const SceneManifestMsg*)>;
     using SceneRequestCb   = std::function<void(const uint8_t* mac, const char* id)>;
     using SceneChunkCb     = std::function<void(const SceneChunkMsg*)>;
     using SceneForceSetCb  = std::function<void(const char* id, uint32_t hash)>;
     using SetSceneSyncCb   = std::function<void(bool enabled)>;
-    // Config push callback — srcMac is the sender, used to ignore own broadcasts
     using ConfigChunkCb    = std::function<void(const uint8_t* srcMac, const ConfigChunkMsg*)>;
-    // Called when this device is told to trigger a firmware update
     using TriggerUpdateCb  = std::function<void()>;
     // Called when this device is told to check for a firmware update (no auto-install)
     using CheckUpdateCb    = std::function<void()>;
     using PeerHeardCb      = std::function<void()>;
 
     void setOnPeerHeard(PeerHeardCb cb)           { _onPeerHeard      = cb; }
-    void setOnLightConfig(LightConfigCb cb)      { _onLightConfig    = cb; }
+    void setOnLightConfig(LightConfigCb cb)       { _onLightConfig    = cb; }
     void setOnPresence(PresenceCb cb)             { _onPresence       = cb; }
     void setOnSetGroup(SetGroupCb cb)             { _onSetGroup       = cb; }
     void setOnGroupSync(GroupSyncCb cb)           { _onGroupSync      = cb; }
@@ -60,10 +58,8 @@ public:
         _addBroadcastPeer();
         esp_now_register_recv_cb(_onRecv);
         esp_now_register_send_cb(_onSent);
-        {
-            GroupConfig* g = Config::group(Config::get().groupId);
-            _setSnifferEnabled(g && g->light.mode == GroupMode::Proximity);
-        }
+        // Enable sniffer if any existing light is in proximity mode
+        _setSnifferEnabled(_anyProximity());
         Logger::i("[mesh] ready, MAC: %s", WiFi.macAddress().c_str());
         _ready = true;
     }
@@ -78,32 +74,32 @@ public:
             _sendPresence();
         }
 
-        // Sync master broadcasts phase every 2 s (only for animated patterns in groups with sync on)
-        bool isMaster = _isSyncMaster();
-        if (isMaster != _wasSyncMaster) {
-            _wasSyncMaster = isMaster;
-            if (isMaster)
-                Logger::i("[sync] became sync master for group %u", Config::get().groupId);
-            else
-                Logger::i("[sync] lost sync master for group %u", Config::get().groupId);
-        }
-        {
-            GroupConfig* g = Config::group(Config::get().groupId);
-            bool inProximity = g && g->light.mode == GroupMode::Proximity;
-            _setSnifferEnabled(inProximity);
-            if (inProximity && now - _lastProximityPing >= 500) {
-                _lastProximityPing = now;
+        // Proximity: enable sniffer + ping if any light is in proximity mode
+        bool inProximity = _anyProximity();
+        _setSnifferEnabled(inProximity);
+        if (inProximity && now - _lastProximityPing >= 500) {
+            _lastProximityPing = now;
+            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+                auto& l = Config::get().lights[i];
+                if (!l.exists) continue;
+                GroupConfig* g = Config::group(l.groupId);
+                if (!g || g->light.mode != GroupMode::Proximity) continue;
                 ProximityPingMsg msg;
-                msg.groupId = Config::get().groupId;
+                msg.groupId = l.groupId;
                 _send(&msg, sizeof(msg));
             }
         }
 
-        if (now - _lastPhaseBroadcast >= 2000 && isMaster) {
+        // Phase sync: broadcast for each local light group where this device is master
+        if (now - _lastPhaseBroadcast >= 2000 && _getPhase) {
             _lastPhaseBroadcast = now;
-            GroupConfig* g = Config::group(Config::get().groupId);
-            if (g && g->syncEnabled && _getPhase) {
-                broadcastPhaseSync(Config::get().groupId, _getPhase());
+            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+                auto& l = Config::get().lights[i];
+                if (!l.exists) continue;
+                if (!_isSyncMaster(l.groupId)) continue;
+                GroupConfig* g = Config::group(l.groupId);
+                if (!g || !g->syncEnabled) continue;
+                broadcastPhaseSync(l.groupId, _getPhase(i));
             }
         }
     }
@@ -119,11 +115,12 @@ public:
         _send(&msg, sizeof(msg));
     }
 
-    void broadcastSetGroup(const uint8_t* targetMac, uint8_t groupId) {
+    void broadcastSetGroup(const uint8_t* targetMac, uint8_t lightIndex, uint8_t groupId) {
         if (!_ready) return;
         SetGroupMsg msg;
-        msg.type    = MsgType::SetGroup;
-        msg.groupId = groupId;
+        msg.type       = MsgType::SetGroup;
+        msg.lightIndex = lightIndex;
+        msg.groupId    = groupId;
         memcpy(msg.targetMac, targetMac, 6);
         _send(&msg, sizeof(msg));
     }
@@ -214,7 +211,6 @@ public:
         _send(&msg, sizeof(msg));
     }
 
-    // Re-broadcast all known groups (called when a new peer is seen)
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
             if (Config::get().groups[i].exists)
@@ -231,7 +227,6 @@ private:
     uint32_t _lastProximityPing    = 0;
     uint8_t  _lastSentGroup      = 0xFF;
     uint32_t _lastSentSeq        = UINT32_MAX;
-    bool     _wasSyncMaster      = false;
 
     PeerHeardCb     _onPeerHeard;
     LightConfigCb   _onLightConfig;
@@ -259,18 +254,27 @@ private:
     void _addBroadcastPeer() {
         esp_now_peer_info_t peer{};
         memset(peer.peer_addr, 0xFF, 6);
-        peer.channel = 0;  // 0 = always use current radio channel; no re-registration needed on channel change
+        peer.channel = 0;
         peer.encrypt = false;
         esp_now_add_peer(&peer);
     }
 
+    bool _anyProximity() {
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            auto& l = Config::get().lights[i];
+            if (!l.exists) continue;
+            GroupConfig* g = Config::group(l.groupId);
+            if (g && g->light.mode == GroupMode::Proximity) return true;
+        }
+        return false;
+    }
+
     void _sendPresence() {
         PresenceMsg msg;
-        msg.type              = MsgType::Presence;
-        msg.groupId           = Config::get().groupId;
-        msg.sceneSyncEnabled  = Config::get().sceneSyncEnabled ? 1 : 0;
+        msg.type             = MsgType::Presence;
+        msg.sceneSyncEnabled = Config::get().sceneSyncEnabled ? 1 : 0;
         strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
-        msg.wifiConnected     = (WiFi.status() == WL_CONNECTED) ? 1 : 0;
+        msg.wifiConnected = (WiFi.status() == WL_CONNECTED) ? 1 : 0;
         strlcpy(msg.fwVersion, FW_VERSION, sizeof(msg.fwVersion));
         const auto& us = Updater::status();
         msg.fwState = (uint8_t)(
@@ -278,14 +282,40 @@ private:
             us.state == Updater::State::Downloading ? FwState::Downloading :
             us.state == Updater::State::Error       ? FwState::Error       :
             us.state == Updater::State::Done        ? FwState::Done        : FwState::Idle);
+
+        msg.lightCount = 0;
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            msg.lightGroupIds[i] = 0xFF;
+            msg.lightNames[i][0] = '\0';
+        }
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            auto& l = Config::get().lights[i];
+            if (!l.exists) continue;
+            if (msg.lightCount < MAX_LIGHTS) {
+                uint8_t slot = msg.lightCount++;
+                msg.lightGroupIds[slot] = l.groupId;
+                strlcpy(msg.lightNames[slot], l.name, 20);
+            }
+        }
         _send(&msg, sizeof(msg));
     }
 
-    // Promiscuous sniffer captures RSSI from raw 802.11 frames.
-    // ESP-NOW action frames (subtype 0xD) carry source MAC at byte 10.
-    // Restrict to management frames at the driver level: without this filter,
-    // every data frame (high volume in STA mode) is delivered to the callback
-    // from the WiFi task, which starves the lwIP stack and kills web performance.
+    // Returns true if this device has the lowest MAC among online peers that also
+    // have a light in groupId. The lowest-MAC device acts as the phase-sync master.
+    bool _isSyncMaster(uint8_t groupId) {
+        uint8_t ownMac[6];
+        WiFi.macAddress(ownMac);
+        for (const auto& p : peers) {
+            if (!p.online()) continue;
+            bool inGroup = false;
+            for (uint8_t i = 0; i < p.lightCount && i < MAX_LIGHTS; i++)
+                if (p.lightGroupIds[i] == groupId) { inGroup = true; break; }
+            if (!inGroup) continue;
+            if (memcmp(p.mac, ownMac, 6) < 0) return false;
+        }
+        return true;
+    }
+
     void _setSnifferEnabled(bool enable) {
         if (enable == _snifferRunning) return;
         if (enable) {
@@ -301,26 +331,11 @@ private:
         _snifferRunning = enable;
     }
 
-    // Returns true if this device has the lowest MAC among online peers in the same group.
-    // The lowest-MAC device acts as the phase-sync master for its group.
-    bool _isSyncMaster() {
-        uint8_t ownMac[6];
-        WiFi.macAddress(ownMac);
-        uint8_t myGroup = Config::get().groupId;
-        for (const auto& p : peers) {
-            if (!p.online() || p.groupId != myGroup) continue;
-            if (memcmp(p.mac, ownMac, 6) < 0) return false;
-        }
-        return true;
-    }
-
-    // Promiscuous callback fires for every received 802.11 frame.
-    // Filter to action frames (ESP-NOW) and update the sender's RSSI in the registry.
     static void _promiscuousRecv(void* buf, wifi_promiscuous_pkt_type_t type) {
         if (type != WIFI_PKT_MGMT || !_instance) return;
         const auto* pkt = (const wifi_promiscuous_pkt_t*)buf;
         if (pkt->rx_ctrl.sig_len < 16) return;
-        if ((pkt->payload[0] & 0xFC) != 0xD0) return;  // not an action frame
+        if ((pkt->payload[0] & 0xFC) != 0xD0) return;
         _instance->peers.updateRssi(pkt->payload + 10, (int8_t)pkt->rx_ctrl.rssi);
     }
 
@@ -333,11 +348,12 @@ private:
                 if (len < (int)sizeof(PresenceMsg)) return;
                 auto* m = (PresenceMsg*)data;
                 if (m->version != PRESENCE_MSG_VERSION) return;
-                bool isNew = _instance->peers.update(mac, m->name, m->groupId,
+                bool isNew = _instance->peers.update(mac, m->name,
+                    m->lightCount, m->lightGroupIds, m->lightNames,
                     m->sceneSyncEnabled != 0, m->wifiConnected != 0,
                     m->fwVersion, (FwState)m->fwState);
                 if (_instance->_onPeerHeard) _instance->_onPeerHeard();
-                if (_instance->_onPresence) _instance->_onPresence(mac, m->name, m->groupId, isNew);
+                if (_instance->_onPresence) _instance->_onPresence(mac, m->name, isNew);
                 if (isNew) _instance->broadcastAllGroups();
                 break;
             }
@@ -354,11 +370,12 @@ private:
             case MsgType::SetGroup: {
                 if (len < (int)sizeof(SetGroupMsg)) return;
                 auto* m = (SetGroupMsg*)data;
-                Logger::i("[mesh] set-group rx: target %02x:%02x:%02x:%02x:%02x:%02x → group %u",
+                Logger::i("[mesh] set-group rx: target %02x:%02x:%02x:%02x:%02x:%02x light %u → group %u",
                           m->targetMac[0], m->targetMac[1], m->targetMac[2],
-                          m->targetMac[3], m->targetMac[4], m->targetMac[5], m->groupId);
-                if (_instance->_onSetGroup) _instance->_onSetGroup(m->targetMac, m->groupId);
-                _instance->peers.updateGroup(mac, m->groupId);
+                          m->targetMac[3], m->targetMac[4], m->targetMac[5],
+                          m->lightIndex, m->groupId);
+                if (_instance->_onSetGroup) _instance->_onSetGroup(m->targetMac, m->lightIndex, m->groupId);
+                _instance->peers.updateLightGroup(mac, m->lightIndex, m->groupId);
                 break;
             }
             case MsgType::GroupSync: {
@@ -376,7 +393,6 @@ private:
                 break;
             }
             case MsgType::ProximityPing:
-                // RSSI already captured by the promiscuous sniffer; nothing else to do.
                 break;
             case MsgType::SceneManifest: {
                 if (len < (int)(sizeof(SceneManifestMsg) - sizeof(SceneManifestEntry) * MANIFEST_ENTRIES_PER_MSG)) return;

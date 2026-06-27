@@ -157,7 +157,13 @@ private:
         if (deserializeJson(doc, payload, len)) { Logger::w("[mqtt] bad command JSON"); return; }
         Logger::d("[mqtt] command rx");
 
-        LightConfig cfg = Config::light();  // start from current state
+        // Start from the first active light's group config
+        LightConfig cfg;
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            auto& l = Config::get().lights[i];
+            if (!l.exists) continue;
+            if (auto* g = Config::group(l.groupId)) { cfg = g->light; break; }
+        }
 
         if (!doc["state"].isNull() && strcmp((const char*)doc["state"], "OFF") == 0)
             cfg.brightness = 0;
