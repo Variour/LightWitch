@@ -1087,6 +1087,7 @@ function renderLights(self, peers) {
     let fwIconHtml = '–';
     if (ver) {
       const isNewest = compareVersions(ver, maxVersion) === 0 && !(p.isSelf && _selfHasUpdate);
+      if (isNewest) _fwTriggered.delete(mac);
       const triggered = _fwTriggered.has(mac);
       const fwState = p.fwState || 'idle';
       const hasError = fwState === 'error';
