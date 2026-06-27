@@ -73,6 +73,7 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().otaEnabled     = doc["otaEnabled"]     | true;
     Config::get().groupId        = doc["groupId"]        | (uint8_t)0;
     Config::get().sceneSyncEnabled     = doc["sceneSyncEnabled"]     | true;
+    Config::get().proximityEnabled     = doc["proximityEnabled"]     | false;
     Config::get().checkUpdateOnStartup = doc["checkUpdateOnStartup"] | false;
     Config::get().ledType   = (LedType)(uint8_t)(doc["ledType"]  | 0);
     Config::get().logLevel  = doc["logLevel"]  | (uint8_t)0;
@@ -148,6 +149,7 @@ bool Config::save() {
     doc["otaEnabled"]        = _cfg.otaEnabled;
     doc["groupId"]           = _cfg.groupId;
     doc["sceneSyncEnabled"]     = _cfg.sceneSyncEnabled;
+    doc["proximityEnabled"]     = _cfg.proximityEnabled;
     doc["checkUpdateOnStartup"] = _cfg.checkUpdateOnStartup;
     doc["ledType"]      = (uint8_t)_cfg.ledType;
     doc["logLevel"]     = _cfg.logLevel;
