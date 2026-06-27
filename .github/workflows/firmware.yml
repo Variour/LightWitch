@@ -44,9 +44,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Inject version into version.h
+      - name: Inject version into version.cpp
         run: |
-          sed -i 's/#define FW_VERSION ".*"/#define FW_VERSION "${{ needs.setup.outputs.version }}"/' src/version.h
+          sed -i 's/const char\* FW_VERSION = ".*";/const char* FW_VERSION = "${{ needs.setup.outputs.version }}";/' src/version.cpp
 
       - uses: actions/setup-python@v6
         with:
@@ -57,8 +57,11 @@ jobs:
           path: |
             ~/.platformio
             .pio/libdeps
-          key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}
-          restore-keys: pio-${{ matrix.env }}-
+            .pio/build/${{ matrix.env }}
+          key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'src/**', 'include/**', 'lib/**') }}
+          restore-keys: |
+            pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}-
+            pio-${{ matrix.env }}-
 
       - name: Install PlatformIO
         run: pip install platformio
