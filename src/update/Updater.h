@@ -4,9 +4,12 @@
 #include <WiFiClientSecure.h>
 #include <Update.h>
 #include <ArduinoJson.h>
+#include <LittleFS.h>
 #include <atomic>
+#include <vector>
 #include "../config/Config.h"
 #include "../logging/Logger.h"
+#include "../scenes/SceneManager.h"
 #include "../version.h"
 
 // GitHub API-based OTA updater.
@@ -244,6 +247,40 @@ private:
         vTaskDelete(nullptr);
     }
 
+    // Read all scene files from LittleFS into memory before the FS image overwrites them.
+    static std::vector<String> _backupScenes() {
+        std::vector<String> result;
+        File dir = LittleFS.open("/sc");
+        if (!dir || !dir.isDirectory()) { dir.close(); return result; }
+        File f = dir.openNextFile();
+        while (f) {
+            if (!f.isDirectory()) {
+                String data = f.readString();
+                if (data.length() > 0) result.push_back(std::move(data));
+            }
+            f.close();
+            f = dir.openNextFile();
+        }
+        dir.close();
+        Logger::i("[upd] backed up %u scene(s)", (unsigned)result.size());
+        return result;
+    }
+
+    // Remount LittleFS after the new image has been flashed and write scenes back.
+    static void _restoreScenes(const std::vector<String>& scenes) {
+        LittleFS.end();
+        if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) {
+            Logger::e("[upd] failed to remount LittleFS — scenes lost");
+            return;
+        }
+        SceneManager::init();
+        unsigned restored = 0;
+        for (const String& json : scenes) {
+            if (SceneManager::save(json.c_str(), json.length())) restored++;
+        }
+        Logger::i("[upd] restored %u/%u scene(s)", restored, (unsigned)scenes.size());
+    }
+
     static void _applyTask(void*) {
         // Re-fetch to get asset IDs if needed
         if (!_firmwareAssetId && !_fsAssetId) {
@@ -260,7 +297,9 @@ private:
         }
         if (ok && _fsAssetId) {
             _status.progress = 0;
+            std::vector<String> scenes = _backupScenes();
             ok = _downloadAndFlash(_fsAssetId, U_SPIFFS, "filesystem");
+            if (ok && !scenes.empty()) _restoreScenes(scenes);
         }
 
         if (ok) {
