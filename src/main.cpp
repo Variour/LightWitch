@@ -63,10 +63,6 @@ static void setupWifi() {
         return;
     }
 
-    // Disconnect first to clear any stale PMK/connection state from previous boots.
-    WiFi.disconnect(false);
-    delay(100);
-
     // Try the last successful network first, then the rest in order.
     uint8_t last = Config::wifiLast();
     uint8_t tryOrder[MAX_WIFI_NETWORKS];
@@ -80,25 +76,32 @@ static void setupWifi() {
         uint8_t ni = tryOrder[t];
         const char* ssid = Config::wifiNetworks()[ni].ssid;
         const char* pass = Config::wifiNetworks()[ni].password;
-        Logger::i("[wifi] Trying %s ...", ssid);
-        WiFi.begin(ssid, pass);
-        uint32_t start = millis();
-        while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) delay(250);
-        if (WiFi.status() == WL_CONNECTED) {
-            // Stop AP beacon — no SSID visible, no clients accepted.
-            // The AP hardware stays up so WIFI_AP_STA mode is preserved.
-            WiFi.softAPdisconnect(false);
-            Logger::i("[wifi] Connected to %s, IP: %s  (AP off)", ssid, WiFi.localIP().toString().c_str());
-            if (ni != last) {
-                Config::setWifiLast(ni);
-                Config::saveWifi();
+        for (uint8_t attempt = 0; attempt < 3; attempt++) {
+            // Disconnect before each attempt to guarantee a clean stack state.
+            // On retries, allow more settling time — 4WAY_HANDSHAKE_TIMEOUT
+            // leaves the stack in partial state that needs longer to clear.
+            WiFi.disconnect(false);
+            delay(attempt == 0 ? 100 : 1000);
+            Logger::i("[wifi] Trying %s (attempt %u/3)...", ssid, attempt + 1);
+            WiFi.begin(ssid, pass);
+            uint32_t start = millis();
+            while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) delay(250);
+            if (WiFi.status() == WL_CONNECTED) {
+                // Stop AP beacon — no SSID visible, no clients accepted.
+                // The AP hardware stays up so WIFI_AP_STA mode is preserved.
+                WiFi.softAPdisconnect(false);
+                Logger::i("[wifi] Connected to %s, IP: %s  (AP off)", ssid, WiFi.localIP().toString().c_str());
+                if (ni != last) {
+                    Config::setWifiLast(ni);
+                    Config::saveWifi();
+                }
+                return;
             }
-            return;
         }
-        WiFi.disconnect(false);
-        delay(100);
     }
 
+    WiFi.disconnect(false);
+    delay(100);
     Logger::w("[wifi] All networks failed, falling back to AP");
     WiFi.setAutoReconnect(false);
     WiFi.softAP(c.deviceName, c.apPassword, 1);
