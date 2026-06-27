@@ -21,7 +21,7 @@ enum class MsgType : uint8_t {
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
 
-static constexpr uint8_t PRESENCE_MSG_VERSION = 2;
+static constexpr uint8_t PRESENCE_MSG_VERSION = 3;
 
 // lightGroupIds: groupId for each light slot; 0xFF means that slot is empty.
 struct PresenceMsg {
@@ -34,6 +34,7 @@ struct PresenceMsg {
     uint8_t fwState;
     uint8_t lightCount;
     uint8_t lightGroupIds[MAX_LIGHTS];
+    char    lightNames[MAX_LIGHTS][20];
 };
 
 struct LightConfigMsg {

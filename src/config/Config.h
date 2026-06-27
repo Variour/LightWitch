@@ -69,13 +69,14 @@ struct GroupConfig {
 
 // Per-light physical hardware configuration, stored in DeviceConfig.
 struct LightHardwareConfig {
-    LedType  ledType  = LedType::WS2812B;
-    uint8_t  dataPin  = LED_DATA_PIN;
-    uint8_t  clockPin = LED_CLOCK_PIN;
-    uint16_t width    = 1;    // string length, or matrix columns
-    uint16_t height   = 1;    // 1 = string, >1 = matrix
-    uint8_t  groupId  = 0;    // which group's LightConfig this light follows
-    bool     exists   = false;
+    char     name[20]  = "";
+    LedType  ledType   = LedType::WS2812B;
+    uint8_t  dataPin   = LED_DATA_PIN;
+    uint8_t  clockPin  = LED_CLOCK_PIN;
+    uint16_t width     = 1;    // string length, or matrix columns
+    uint16_t height    = 1;    // 1 = string, >1 = matrix
+    uint8_t  groupId   = 0;    // which group's LightConfig this light follows
+    bool     exists    = false;
 };
 
 struct DeviceConfig {

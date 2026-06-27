@@ -9,6 +9,7 @@ struct PeerInfo {
     char     name[32]                   = {};
     uint8_t  lightCount                 = 0;
     uint8_t  lightGroupIds[MAX_LIGHTS]  = {0xFF, 0xFF, 0xFF, 0xFF};
+    char     lightNames[MAX_LIGHTS][20] = {};
     uint32_t lastSeen                   = 0;
     bool     active                     = false;
     int8_t   rssi                       = -90;
@@ -36,6 +37,7 @@ public:
 
     bool update(const uint8_t* mac, const char* name,
                 uint8_t lightCount, const uint8_t lightGroupIds[MAX_LIGHTS],
+                const char lightNames_[MAX_LIGHTS][20] = nullptr,
                 bool sceneSyncEnabled = true, bool wifiConnected = false,
                 const char* fwVersion = "", FwState fwState = FwState::Idle) {
         PeerInfo* p = _find(mac);
@@ -55,8 +57,13 @@ public:
         memcpy(p->mac, mac, 6);
         strlcpy(p->name, name, sizeof(p->name));
         p->lightCount = lightCount < MAX_LIGHTS ? lightCount : MAX_LIGHTS;
-        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
             p->lightGroupIds[i] = (i < lightCount) ? lightGroupIds[i] : 0xFF;
+            if (lightNames_ && i < lightCount)
+                strlcpy(p->lightNames[i], lightNames_[i], 20);
+            else if (i >= lightCount)
+                p->lightNames[i][0] = '\0';
+        }
         p->sceneSyncEnabled = sceneSyncEnabled;
         p->wifiConnected    = wifiConnected;
         strlcpy(p->fwVersion, fwVersion, sizeof(p->fwVersion));

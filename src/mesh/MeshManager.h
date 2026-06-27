@@ -284,13 +284,18 @@ private:
             us.state == Updater::State::Done        ? FwState::Done        : FwState::Idle);
 
         msg.lightCount = 0;
-        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
             msg.lightGroupIds[i] = 0xFF;
+            msg.lightNames[i][0] = '\0';
+        }
         for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
             auto& l = Config::get().lights[i];
             if (!l.exists) continue;
-            if (msg.lightCount < MAX_LIGHTS)
-                msg.lightGroupIds[msg.lightCount++] = l.groupId;
+            if (msg.lightCount < MAX_LIGHTS) {
+                uint8_t slot = msg.lightCount++;
+                msg.lightGroupIds[slot] = l.groupId;
+                strlcpy(msg.lightNames[slot], l.name, 20);
+            }
         }
         _send(&msg, sizeof(msg));
     }
@@ -344,7 +349,7 @@ private:
                 auto* m = (PresenceMsg*)data;
                 if (m->version != PRESENCE_MSG_VERSION) return;
                 bool isNew = _instance->peers.update(mac, m->name,
-                    m->lightCount, m->lightGroupIds,
+                    m->lightCount, m->lightGroupIds, m->lightNames,
                     m->sceneSyncEnabled != 0, m->wifiConnected != 0,
                     m->fwVersion, (FwState)m->fwState);
                 if (_instance->_onPeerHeard) _instance->_onPeerHeard();

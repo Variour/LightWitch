@@ -95,6 +95,7 @@ static void applyDoc(JsonDocument& doc) {
             l.width    = v["width"]    | (uint16_t)1;
             l.height   = v["height"]   | (uint16_t)1;
             l.groupId  = v["groupId"]  | (uint8_t)0;
+            if (!v["name"].isNull()) strlcpy(l.name, v["name"] | "", sizeof(l.name));
         }
     }
 
@@ -173,6 +174,7 @@ bool Config::save() {
         JsonObject o = lightsArr.add<JsonObject>();
         o["index"]   = i;
         o["exists"]  = l.exists;
+        o["name"]    = l.name;
         o["ledType"] = (uint8_t)l.ledType;
         o["dataPin"] = l.dataPin;
         o["clockPin"]= l.clockPin;

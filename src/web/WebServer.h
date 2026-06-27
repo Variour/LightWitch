@@ -519,6 +519,7 @@ private:
                 for (uint8_t i = 0; i < p.lightCount && i < MAX_LIGHTS; i++) {
                     JsonObject lo = la.add<JsonObject>();
                     lo["index"]   = i;
+                    lo["name"]    = p.lightNames[i];
                     lo["groupId"] = p.lightGroupIds[i];
                 }
             }
@@ -1062,6 +1063,7 @@ private:
             if (!l.exists) continue;
             JsonObject o = arr.add<JsonObject>();
             o["index"]   = i;
+            o["name"]    = l.name;
             o["ledType"] = (uint8_t)l.ledType;
             o["dataPin"] = l.dataPin;
             o["clockPin"]= l.clockPin;
@@ -1089,6 +1091,7 @@ private:
         }
         auto& l = Config::get().lights[idx];
         l.exists   = true;
+        strlcpy(l.name, doc["name"] | "", sizeof(l.name));
         l.ledType  = (LedType)(uint8_t)(doc["ledType"]  | 0);
         l.dataPin  = doc["dataPin"]  | (uint8_t)LED_DATA_PIN;
         l.clockPin = doc["clockPin"] | (uint8_t)LED_CLOCK_PIN;
@@ -1119,6 +1122,7 @@ private:
         }
         auto& l = Config::get().lights[idx];
         bool hwChanged = false;
+        if (!doc["name"].isNull())     strlcpy(l.name, doc["name"] | "", sizeof(l.name));
         if (!doc["ledType"].isNull())  { l.ledType  = (LedType)(uint8_t)doc["ledType"]; hwChanged = true; }
         if (!doc["dataPin"].isNull())  { l.dataPin  = doc["dataPin"];  hwChanged = true; }
         if (!doc["clockPin"].isNull()) { l.clockPin = doc["clockPin"]; hwChanged = true; }

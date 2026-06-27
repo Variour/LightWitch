@@ -9,8 +9,8 @@ import { authRouter, requireAuth } from './auth.js';
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 const mockLights = [
-  { index: 0, ledType: 0, dataPin: 13, clockPin: 14, width: 1, height: 1, groupId: 0 },
-  { index: 1, ledType: 1, dataPin: 25, clockPin: 26, width: 8, height: 8, groupId: 1 },
+  { index: 0, name: 'Living room', ledType: 0, dataPin: 13, clockPin: 14, width: 1, height: 1, groupId: 0 },
+  { index: 1, name: 'Bedroom',     ledType: 1, dataPin: 25, clockPin: 26, width: 8, height: 8, groupId: 1 },
 ];
 
 const MOCK_CONFIG = {
@@ -33,11 +33,11 @@ const MOCK_CONFIG = {
   ],
 };
 
-const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', lights: [{ index: 0, groupId: 0, ledType: 0, width: 1, height: 1 }, { index: 1, groupId: 1, ledType: 1, width: 8, height: 8 }], online: true,  sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  };
+const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', lights: [{ index: 0, name: 'Living room', groupId: 0, ledType: 0, width: 1, height: 1 }, { index: 1, name: 'Bedroom', groupId: 1, ledType: 1, width: 8, height: 8 }], online: true,  sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  };
 const MOCK_PEERS = [
-  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.01.01.0', fwState: 'idle'  },
-  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, groupId: 1 }, { index: 1, groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, version: '2026.01.01.0', fwState: 'idle'  },
-  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, groupId: 0 }], online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  },
+  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.01.01.0', fwState: 'idle'  },
+  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, version: '2026.01.01.0', fwState: 'idle'  },
+  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  },
 ];
 
 const wifiNetworks = [
@@ -164,8 +164,8 @@ app.get('/api/lights', (_req, res) => res.json({ lights: mockLights, maxLights: 
 app.post('/api/lights/add', (req, res) => {
   const free = [0,1,2,3].find(i => !mockLights.find(l => l.index === i));
   if (free === undefined) return res.status(400).json({ error: 'light limit reached' });
-  const { ledType = 0, dataPin = 13, clockPin = 14, width = 1, height = 1, groupId = 0 } = req.body || {};
-  mockLights.push({ index: free, ledType, dataPin, clockPin, width, height, groupId });
+  const { name = '', ledType = 0, dataPin = 13, clockPin = 14, width = 1, height = 1, groupId = 0 } = req.body || {};
+  mockLights.push({ index: free, name, ledType, dataPin, clockPin, width, height, groupId });
   res.json({ ok: true, index: free });
 });
 app.post('/api/lights/update', (req, res) => {

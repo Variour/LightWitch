@@ -1121,7 +1121,8 @@ function renderLights(self, peers) {
       ? '<span style="color:#555;font-size:.78rem">no lights</span>'
       : lights.map(l => {
           const opts = _groups.map(g=>`<option value="${g.id}"${g.id===l.groupId?' selected':''}>${esc(g.name)}</option>`).join('');
-          const label = lights.length > 1 ? `<span style="font-size:.72rem;color:#888;margin-right:.25rem">L${l.index}</span>` : '';
+          const lightLabel = l.name ? esc(l.name) : `L${l.index}`;
+          const label = `<span style="font-size:.72rem;color:#888;margin-right:.25rem">${lightLabel}</span>`;
           return `<div style="display:flex;align-items:center;gap:.25rem;margin-bottom:.2rem">${label}<select onchange="assignGroup('${mac}',${l.index},parseInt(this.value))">${opts}</select></div>`;
         }).join('');
     return `<tr>
@@ -3113,10 +3114,11 @@ function renderLightsHw(lights) {
     const pins = l.ledType === 1
       ? `data GPIO${l.dataPin}, clock GPIO${l.clockPin}`
       : `data GPIO${l.dataPin}`;
+    const label = l.name ? l.name : `Light ${l.index}`;
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div>
-          <strong>Light ${l.index}</strong>
+          <strong>${label}</strong>
           <span style="color:#888;font-size:.82rem;margin-left:.5rem">${LED_TYPE_NAMES[l.ledType] || 'Unknown'}</span>
         </div>
         <div style="display:flex;gap:.4rem">
@@ -3152,6 +3154,8 @@ function _openLightModal(l) {
       <h2 style="margin:0">${title}</h2>
       <button class="btn-ghost btn-sm" onclick="document.getElementById('light-modal-overlay').remove()">✕</button>
     </div>
+    <label>Name <small>(optional)</small></label>
+    <input type="text" id="lm-name" value="${l.name||''}" maxlength="19" placeholder="e.g. Living room">
     <label>LED type</label>
     <select id="lm-ledType">
       <option value="0"${l.ledType===0?' selected':''}>WS2812B — single wire</option>
@@ -3185,6 +3189,7 @@ function _openLightModal(l) {
 
 async function saveLightModal() {
   const body = {
+    name:     document.getElementById('lm-name').value.trim(),
     ledType:  parseInt(document.getElementById('lm-ledType').value),
     dataPin:  parseInt(document.getElementById('lm-dataPin').value),
     clockPin: parseInt(document.getElementById('lm-clockPin').value),
