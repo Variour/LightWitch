@@ -45,7 +45,8 @@ struct LightConfig {
     float     speed             = 1.0f;
     uint32_t  seq               = 0;
     bool      transitionEnabled = false;
-    float     transitionTime    = 10.0f;
+    float     transitionTime    = 2.0f;
+    float     frameDuration     = 1.0f;
     float     proximityScale    = 1.0f;
 };
 

@@ -21,6 +21,12 @@ public:
         _ws->show();
     }
 
+    void setPixel(uint16_t idx, uint8_t r, uint8_t g, uint8_t b) override {
+        _ws->setPixelColor(idx, r, g, b);
+    }
+
+    void show() override { _ws->show(); }
+
     void off() override {
         for (uint16_t i = 0; i < _numLeds; i++) _ws->setPixelColor(i, 0);
         _ws->show();

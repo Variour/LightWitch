@@ -33,6 +33,7 @@ static void serializeGroup(JsonArray arr, const GroupConfig& g) {
     o["seq"]               = g.light.seq;
     o["transitionEnabled"] = g.light.transitionEnabled;
     o["transitionTime"]    = g.light.transitionTime;
+    o["frameDuration"]     = g.light.frameDuration;
     o["proximityScale"]    = g.light.proximityScale;
 }
 
@@ -51,7 +52,8 @@ static void deserializeGroup(JsonVariant o, GroupConfig& g) {
     g.light.speed              = o["speed"]             | 1.0f;
     g.light.seq                = o["seq"]               | (uint32_t)0;
     g.light.transitionEnabled  = o["transitionEnabled"] | false;
-    g.light.transitionTime     = o["transitionTime"]    | 10.0f;
+    g.light.transitionTime     = o["transitionTime"]    | 2.0f;
+    g.light.frameDuration      = o["frameDuration"]     | 1.0f;
     g.light.proximityScale     = o["proximityScale"]    | 1.0f;
 }
 

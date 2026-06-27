@@ -22,6 +22,12 @@ public:
         _neo->show();
     }
 
+    void setPixel(uint16_t idx, uint8_t r, uint8_t g, uint8_t b) override {
+        _neo->setPixelColor(idx, r, g, b);
+    }
+
+    void show() override { _neo->show(); }
+
     void off() override {
         _neo->clear();
         _neo->show();
