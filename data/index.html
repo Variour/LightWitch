@@ -3113,8 +3113,6 @@ function renderLightsHw(lights) {
     const pins = l.ledType === 1
       ? `data GPIO${l.dataPin}, clock GPIO${l.clockPin}`
       : `data GPIO${l.dataPin}`;
-    const grp = _groups.find(g => g.id === l.groupId);
-    const grpName = grp ? esc(grp.name) : `group ${l.groupId}`;
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div>
@@ -3126,7 +3124,7 @@ function renderLightsHw(lights) {
           <button class="btn-ghost btn-sm" style="color:#c44" onclick="deleteLight(${l.index})">Delete</button>
         </div>
       </div>
-      <div style="font-size:.8rem;color:#888;margin-top:.25rem">${topo} · ${pins} · group: ${grpName}</div>
+      <div style="font-size:.8rem;color:#888;margin-top:.25rem">${topo} · ${pins}</div>
     </div>`;
   }).join('');
 }
@@ -3136,7 +3134,7 @@ let _editLightIndex = null;
 
 function openAddLightModal() {
   _editLightIndex = null;
-  _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1, groupId: 0});
+  _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1});
 }
 
 function openEditLightModal(l) {
