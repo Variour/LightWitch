@@ -973,6 +973,16 @@ private:
                    &mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]) != 6) {
             auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
         }
+        if (_peers) {
+            for (auto& p : *_peers) {
+                if (p.active && memcmp(p.mac, mac, 6) == 0) {
+                    if (!p.wifiConnected) {
+                        auto e = _makeErr("peer not connected to WiFi"); _sendJson(r, 409, e); return;
+                    }
+                    break;
+                }
+            }
+        }
         Logger::i("[web] trigger-update for %s", macStr);
         if (_onTriggerPeerUpdate) _onTriggerPeerUpdate(mac);
         auto ok = _makeOk(); _sendJson(r, 200, ok);

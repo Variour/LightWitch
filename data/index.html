@@ -1134,13 +1134,24 @@ function renderLights(self, peers) {
 
 const _fwTriggered = new Set();
 
-function triggerPeerUpdate(btn, mac) {
+async function triggerPeerUpdate(btn, mac) {
   btn.disabled = true;
+  try {
+    const res = await fetch('/api/peers/triggerupdate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({mac})
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert('Cannot trigger update: ' + (data.error || res.status));
+      btn.disabled = false;
+      return;
+    }
+  } catch(e) {
+    btn.disabled = false;
+    return;
+  }
   _fwTriggered.add(mac);
-  fetch('/api/peers/triggerupdate', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({mac})
-  }).catch(() => {});
   renderLights(_self, _peers);
 }
 

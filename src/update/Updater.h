@@ -31,6 +31,12 @@ public:
     // Non-blocking check: spawns a task. Safe to call from web handler.
     static void checkAsync() {
         if (_status.state == State::Checking || _status.state == State::Downloading) return;
+        if (WiFi.status() != WL_CONNECTED) {
+            _status = Status{};
+            _status.state = State::Error;
+            _status.error = "not connected to WiFi";
+            return;
+        }
         _status = Status{};
         _status.state = State::Checking;
         xTaskCreate(_checkTask, "fw_check", 8192, nullptr, 1, nullptr);
@@ -40,6 +46,11 @@ public:
     static void applyAsync() {
         if (_status.state == State::Downloading) return;
         if (!_status.hasUpdate) return;
+        if (WiFi.status() != WL_CONNECTED) {
+            _status.state = State::Error;
+            _status.error = "not connected to WiFi";
+            return;
+        }
         _status.state    = State::Downloading;
         _status.progress = 0;
         xTaskCreate(_applyTask, "fw_apply", 8192, nullptr, 1, nullptr);
@@ -49,6 +60,11 @@ public:
     // and auto-applies once the check completes. Safe to call from web/mesh handler.
     static void triggerAsync() {
         if (_status.state == State::Downloading) return;
+        if (WiFi.status() != WL_CONNECTED) {
+            _status.state = State::Error;
+            _status.error = "not connected to WiFi";
+            return;
+        }
         if (_status.hasUpdate) {
             applyAsync();
         } else {
