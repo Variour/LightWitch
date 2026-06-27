@@ -35,6 +35,7 @@ const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', groupId: 0
 const MOCK_PEERS = [
   { name: 'Mock Light 2', mac: '22:33:44:55:66:77', groupId: 0, online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.01.01.0', fwState: 'idle'  },
   { name: 'Mock Light 3', mac: '33:44:55:66:77:88', groupId: 1, online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, version: '2026.01.01.0', fwState: 'idle'  },
+  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', groupId: 0, online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  },
 ];
 
 const wifiNetworks = [
