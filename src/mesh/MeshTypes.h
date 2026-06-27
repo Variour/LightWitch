@@ -16,6 +16,7 @@ enum class MsgType : uint8_t {
     SetSceneSync  = 11,
     ConfigChunk    = 12,
     TriggerUpdate  = 13,
+    CheckUpdate    = 14,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -128,6 +129,13 @@ struct SetSceneSyncMsg {
 // Tells a specific device to check for and apply a firmware update.
 struct TriggerUpdateMsg {
     MsgType type = MsgType::TriggerUpdate;
+    uint8_t targetMac[6];
+};
+// 7 bytes ✓
+
+// Tells a specific device to check for a firmware update (no auto-install).
+struct CheckUpdateMsg {
+    MsgType type = MsgType::CheckUpdate;
     uint8_t targetMac[6];
 };
 // 7 bytes ✓

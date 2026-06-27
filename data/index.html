@@ -1098,17 +1098,23 @@ function renderLights(self, peers) {
                     : isNewest    ? '#4c4'
                     :               '#c84';
       const canTrigger = !isNewest && !triggered && !inProgress;
+      const canCheck = isNewest && !inProgress;
       const fwTitle = triggered              ? `v${ver} — update triggered`
                     : hasError               ? `v${ver} — update failed — click to retry`
                     : fwState === 'done'     ? `v${ver} — update complete — rebooting…`
                     : inProgress             ? `v${ver} — update in progress…`
-                    : isNewest               ? `v${ver} — newest on network`
+                    : isNewest               ? `v${ver} — newest on network — click to check for updates`
                     : (p.isSelf && _selfHasUpdate && _selfLatestVersion) ? `v${ver} — update available (v${_selfLatestVersion}) — click to trigger update`
                     :                          `v${ver} — older (newest: v${maxVersion}) — click to trigger update`;
       if (canTrigger) {
         const handler = p.isSelf
           ? `triggerSelfUpdate(this,'${mac}')`
           : `triggerPeerUpdate(this,'${mac}')`;
+        fwIconHtml = `<button class="btn-fw-trigger" title="${fwTitle}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
+      } else if (canCheck) {
+        const handler = p.isSelf
+          ? `checkSelfUpdate(this,'${mac}')`
+          : `checkPeerUpdate(this,'${mac}')`;
         fwIconHtml = `<button class="btn-fw-trigger" title="${fwTitle}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
       } else {
         fwIconHtml = `<span title="${fwTitle}">${fwSvg(fwColor)}</span>`;
@@ -1161,6 +1167,27 @@ function triggerSelfUpdate(btn, mac) {
   _fwTriggered.add(mac);
   fetch('/api/update/trigger', {method:'POST'}).catch(() => {});
   renderLights(_self, _peers);
+}
+
+async function checkPeerUpdate(btn, mac) {
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/peers/checkupdate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({mac})
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert('Cannot trigger update check: ' + (data.error || res.status));
+    }
+  } catch(e) {}
+  btn.disabled = false;
+}
+
+function checkSelfUpdate(btn) {
+  btn.disabled = true;
+  fetch('/api/update/check', {method:'POST'}).catch(() => {});
+  setTimeout(() => { btn.disabled = false; }, 2000);
 }
 
 function assignGroup(mac, groupId) {

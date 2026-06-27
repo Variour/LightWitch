@@ -113,6 +113,12 @@ app.post('/api/peers/triggerupdate', (req, res) => {
   if (peer && !peer.wifiConnected) return res.status(409).json({ error: 'peer not connected to WiFi' });
   res.json({ ok: true });
 });
+app.post('/api/peers/checkupdate', (req, res) => {
+  const { mac } = req.body || {};
+  const peer = MOCK_PEERS.find(p => p.mac === mac);
+  if (peer && !peer.wifiConnected) return res.status(409).json({ error: 'peer not connected to WiFi' });
+  res.json({ ok: true });
+});
 
 app.get('/api/scenes', (_req, res) => {
   const list = [...scenes.values()].map(({ id, name, w, h, fc }) => ({ id, name, w, h, fc }));

@@ -31,6 +31,8 @@ public:
     using ConfigChunkCb    = std::function<void(const uint8_t* srcMac, const ConfigChunkMsg*)>;
     // Called when this device is told to trigger a firmware update
     using TriggerUpdateCb  = std::function<void()>;
+    // Called when this device is told to check for a firmware update (no auto-install)
+    using CheckUpdateCb    = std::function<void()>;
     using PeerHeardCb      = std::function<void()>;
 
     void setOnPeerHeard(PeerHeardCb cb)           { _onPeerHeard      = cb; }
@@ -47,6 +49,7 @@ public:
     void setOnSetSceneSync(SetSceneSyncCb cb)     { _onSetSceneSync   = cb; }
     void setOnConfigChunk(ConfigChunkCb cb)       { _onConfigChunk    = cb; }
     void setOnTriggerUpdate(TriggerUpdateCb cb)   { _onTriggerUpdate  = cb; }
+    void setOnCheckUpdate(CheckUpdateCb cb)       { _onCheckUpdate    = cb; }
 
     void begin() {
         _instance = this;
@@ -204,6 +207,13 @@ public:
         _send(&msg, sizeof(msg));
     }
 
+    void broadcastCheckUpdate(const uint8_t* targetMac) {
+        if (!_ready) return;
+        CheckUpdateMsg msg;
+        memcpy(msg.targetMac, targetMac, 6);
+        _send(&msg, sizeof(msg));
+    }
+
     // Re-broadcast all known groups (called when a new peer is seen)
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
@@ -237,6 +247,7 @@ private:
     SetSceneSyncCb  _onSetSceneSync;
     ConfigChunkCb   _onConfigChunk;
     TriggerUpdateCb _onTriggerUpdate;
+    CheckUpdateCb   _onCheckUpdate;
 
     static MeshManager* _instance;
 
@@ -415,6 +426,17 @@ private:
                 if (memcmp(m->targetMac, own, 6) == 0) {
                     Logger::i("[mesh] trigger-update rx");
                     if (_instance->_onTriggerUpdate) _instance->_onTriggerUpdate();
+                }
+                break;
+            }
+            case MsgType::CheckUpdate: {
+                if (len < (int)sizeof(CheckUpdateMsg)) return;
+                auto* m = (CheckUpdateMsg*)data;
+                uint8_t own[6];
+                WiFi.macAddress(own);
+                if (memcmp(m->targetMac, own, 6) == 0) {
+                    Logger::i("[mesh] check-update rx");
+                    if (_instance->_onCheckUpdate) _instance->_onCheckUpdate();
                 }
                 break;
             }
