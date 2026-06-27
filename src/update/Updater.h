@@ -89,6 +89,7 @@ private:
         http.addHeader("X-GitHub-Api-Version", "2022-11-28");
         http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
+        http.setTimeout(15000);
         int code = http.GET();
         if (code != 200) {
             Logger::e("[upd] releases API returned %d", code);
@@ -98,9 +99,11 @@ private:
             return false;
         }
 
-        JsonDocument doc;
-        DeserializationError err = deserializeJson(doc, http.getStream());
+        String body = http.getString();
         http.end();
+
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, body);
         if (err) {
             Logger::e("[upd] JSON parse error: %s", err.c_str());
             _status.error = "JSON parse error";
