@@ -51,7 +51,6 @@ static void setupWifi() {
     // When STA connects we stop the AP beacon via softAPdisconnect() rather than
     // switching mode, which would break OTA (triggers ASSOC_LEAVE mid-transfer).
     WiFi.mode(WIFI_AP_STA);
-    WiFi.setTxPower(WIFI_TX_POWER);
     // Disable internal auto-reconnect so only our controlled retry loop fires.
     // Without this, the stack re-calls esp_wifi_connect() on every AUTH_EXPIRE,
     // spamming the AP and triggering rate-limiting that kills subsequent attempts.
@@ -62,6 +61,7 @@ static void setupWifi() {
 
     if (count == 0) {
         WiFi.softAP(c.deviceName, c.apPassword, 1);
+        WiFi.setTxPower(WIFI_TX_POWER);
         Logger::i("[wifi] No networks configured, AP: %s  IP: %s",
                   c.deviceName, WiFi.softAPIP().toString().c_str());
         return;
@@ -88,6 +88,7 @@ static void setupWifi() {
             delay(attempt == 0 ? 100 : 2000);
             Logger::i("[wifi] Trying %s (attempt %u/3)...", ssid, attempt + 1);
             WiFi.begin(ssid, pass);
+            WiFi.setTxPower(WIFI_TX_POWER);
             uint32_t start = millis();
             while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) delay(250);
             if (WiFi.status() == WL_CONNECTED) {
@@ -108,6 +109,7 @@ static void setupWifi() {
     delay(100);
     Logger::w("[wifi] All networks failed, falling back to AP");
     WiFi.softAP(c.deviceName, c.apPassword, 1);
+    WiFi.setTxPower(WIFI_TX_POWER);
     Logger::i("[wifi] AP: %s  IP: %s", c.deviceName, WiFi.softAPIP().toString().c_str());
 }
 
