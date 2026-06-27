@@ -1,6 +1,7 @@
 .pio/
 .vscode/
 data/*.gz
+data/wifi.json
 node_modules/
 .DS_Store
 test-results/
