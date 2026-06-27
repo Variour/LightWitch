@@ -75,10 +75,13 @@ public:
         Logger::i("[sync] sceneSyncEnabled set to %d", (int)enabled);
     }
 
-    // Called when a new peer is detected — send our manifest immediately
-    void onNewPeer() {
-        if (Config::get().sceneSyncEnabled)
-            _lastManifestBroadcast = 0;  // force immediate broadcast on next tick
+    // Called when a new peer is detected — send our manifest immediately and reset sync state
+    void onNewPeer(const uint8_t* mac) {
+        if (!Config::get().sceneSyncEnabled) return;
+        _lastManifestBroadcast = 0;  // force immediate broadcast on next tick
+        // Reset the peer's initialSyncDone so we use conflict logic on reconnect
+        PeerManifest* pm = _findOrCreatePeerManifest(mac);
+        if (pm) pm->initialSyncDone = false;
     }
 
     // Scene deleted via web UI — add tombstone and broadcast manifest
@@ -218,7 +221,9 @@ private:
 
     struct PeerManifest {
         uint8_t           mac[6];
-        bool              active = false;
+        bool              active            = false;
+        bool              initialSyncDone   = false;  // true after first clean manifest exchange
+        bool              hasConflictThisManifest = false;
         PeerManifestEntry entries[SYNC_MAX_PEER_SCENES];
         uint8_t           count  = 0;
     };
@@ -317,6 +322,11 @@ private:
     // ── Manifest processing ───────────────────────────────────────────────────
 
     void _processManifest(const uint8_t* senderMac, const SceneManifestMsg* msg) {
+        PeerManifest* pm = _findOrCreatePeerManifest(senderMac);
+
+        // Reset per-manifest conflict flag on the first page
+        if (msg->page == 0 && pm) pm->hasConflictThisManifest = false;
+
         uint8_t safeCount = msg->count < MANIFEST_ENTRIES_PER_MSG ? msg->count : MANIFEST_ENTRIES_PER_MSG;
         for (uint8_t i = 0; i < safeCount; i++) {
             const SceneManifestEntry& e = msg->entries[i];
@@ -332,18 +342,32 @@ private:
                     // I have it, peer deleted it → conflict
                     Logger::d("[sync] conflict: peer deleted %s, we have hash=%08x", e.id, localHash);
                     _registerConflict(e.id, localHash, senderMac, 0);
+                    if (pm) pm->hasConflictThisManifest = true;
                 }
             } else if (localAbsent) {
                 // New scene from peer — fetch it
                 Logger::i("[sync] new scene %s from peer, fetching", e.id);
-                _enqueueRequest(e.id);
+                _enqueueRequest(e.id, false);
             } else if (localHash == e.hash) {
-                // Identical — clear any stale conflict entry for this peer
-                // (no action needed)
+                // Identical — no action needed
+            } else if (pm && pm->initialSyncDone) {
+                // Peer edited this scene while we were both online — auto-accept
+                Logger::i("[sync] live edit: scene %s local=%08x peer=%08x, auto-fetching", e.id, localHash, e.hash);
+                _clearConflict(e.id);
+                _enqueueRequest(e.id, true);
             } else {
-                // Hash mismatch — conflict
+                // Hash mismatch on first sync or after reconnect — conflict
                 Logger::d("[sync] conflict: scene %s local=%08x peer=%08x", e.id, localHash, e.hash);
                 _registerConflict(e.id, localHash, senderMac, e.hash);
+                if (pm) pm->hasConflictThisManifest = true;
+            }
+        }
+
+        // After the last page: if no conflicts were seen, mark initial sync complete
+        if (pm && !pm->initialSyncDone && msg->page == msg->totalPages - 1) {
+            if (!pm->hasConflictThisManifest) {
+                pm->initialSyncDone = true;
+                Logger::d("[sync] initial sync done with peer, live-edit mode enabled");
             }
         }
     }
@@ -361,6 +385,7 @@ private:
     struct FetchEntry {
         char     id[33];
         bool     active;
+        bool     autoAccept;  // true = live edit from online peer, save without conflict check
         uint8_t  retries;
         uint32_t lastRequestMs;
     };
@@ -368,10 +393,14 @@ private:
     FetchEntry _fetchQueue[SYNC_MAX_FETCH_QUEUE] = {};
     uint8_t    _fetchQueueCount = 0;
 
-    void _enqueueRequest(const char* id) {
-        // Avoid duplicates
-        for (uint8_t i = 0; i < _fetchQueueCount; i++)
-            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 33) == 0) return;
+    void _enqueueRequest(const char* id, bool autoAccept = false) {
+        // Avoid duplicates; upgrade to autoAccept if already queued as conflict-check
+        for (uint8_t i = 0; i < _fetchQueueCount; i++) {
+            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 33) == 0) {
+                if (autoAccept) _fetchQueue[i].autoAccept = true;
+                return;
+            }
+        }
         if (_fetchQueueCount >= SYNC_MAX_FETCH_QUEUE) {
             Logger::w("[sync] fetch queue full, dropping request for %s", id);
             return;
@@ -379,6 +408,7 @@ private:
         FetchEntry& e = _fetchQueue[_fetchQueueCount++];
         strlcpy(e.id, id, 33);
         e.active        = true;
+        e.autoAccept    = autoAccept;
         e.retries       = 0;
         e.lastRequestMs = 0;  // request immediately on next tick
     }
@@ -394,6 +424,13 @@ private:
         for (uint8_t i = 0; i < _fetchQueueCount; i++)
             if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 33) == 0)
                 _fetchQueue[i].active = false;
+    }
+
+    bool _isFetchAutoAccept(const char* id) {
+        for (uint8_t i = 0; i < _fetchQueueCount; i++)
+            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 33) == 0)
+                return _fetchQueue[i].autoAccept;
+        return false;
     }
 
     // ── Chunk send ────────────────────────────────────────────────────────────
@@ -533,13 +570,14 @@ private:
         uint32_t totalSize = (uint32_t)(_recv.totalChunks - 1) * CHUNK_DATA_SIZE + lastMsg->dataLen;
         uint32_t incomingHash = SceneManager::crc32OfData(_recv.buffer, totalSize);
         uint32_t localHash    = SceneManager::crc32(id);
-        bool forced = strncmp(id, _forcedAcceptId, 33) == 0 && _forcedAcceptId[0] != 0;
+        bool forced     = strncmp(id, _forcedAcceptId, 33) == 0 && _forcedAcceptId[0] != 0;
+        bool autoAccept = _isFetchAutoAccept(id);
 
         // Validate assembled content against the hash the peer advertised in SceneManifest.
         if (!forced && !_validateAgainstPeerManifest(id, incomingHash)) {
             Logger::w("[sync] scene %s hash mismatch vs peer manifest (got %08x), retrying", id, incomingHash);
             _resetReceive();
-            _enqueueRequest(id);
+            _enqueueRequest(id, autoAccept);
             return;
         }
 
@@ -550,7 +588,7 @@ private:
             return;
         }
 
-        if (localHash != 0 && !forced) {
+        if (localHash != 0 && !forced && !autoAccept) {
             // Content differs from local copy — conflict; don't overwrite.
             // Peer cache already records the incoming hash so conflicts API will surface it.
             Logger::i("[sync] received scene %s conflicts with local copy, not saving", id);

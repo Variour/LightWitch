@@ -222,9 +222,9 @@ void setup() {
         }
     });
 
-    mesh.setOnPresence([](const uint8_t*, const char*, bool isNew) {
+    mesh.setOnPresence([](const uint8_t* mac, const char*, bool isNew) {
         webServer.pushPeers();
-        if (isNew) sceneSync.onNewPeer();
+        if (isNew) sceneSync.onNewPeer(mac);
     });
 
     mesh.setOnSceneManifest([](const uint8_t* mac, const SceneManifestMsg* msg) {
