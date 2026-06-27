@@ -17,8 +17,7 @@ public:
     }
 
     void setColor(uint8_t r, uint8_t g, uint8_t b) override {
-        uint32_t c = Adafruit_WS2801::Color(r, g, b);
-        for (uint16_t i = 0; i < _numLeds; i++) _ws->setPixelColor(i, c);
+        for (uint16_t i = 0; i < _numLeds; i++) _ws->setPixelColor(i, r, g, b);
         _ws->show();
     }
 

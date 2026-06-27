@@ -55,5 +55,6 @@ public:
     }
 
 private:
-    PeerRegistry* _peers = nullptr;
+    PeerRegistry* _peers   = nullptr;
+    uint8_t       _groupId = 0;
 };
