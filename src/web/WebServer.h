@@ -367,6 +367,7 @@ private:
         o["speed"]             = g.light.speed;
         o["transitionEnabled"] = g.light.transitionEnabled;
         o["transitionTime"]    = g.light.transitionTime;
+        o["frameDuration"]     = g.light.frameDuration;
         o["proximityScale"]    = g.light.proximityScale;
     }
 
@@ -382,6 +383,7 @@ private:
         if (!j["speed"].isNull())             l.speed             = j["speed"];
         if (!j["transitionEnabled"].isNull()) l.transitionEnabled = (bool)j["transitionEnabled"];
         if (!j["transitionTime"].isNull())    l.transitionTime    = (float)j["transitionTime"];
+        if (!j["frameDuration"].isNull())     l.frameDuration     = (float)j["frameDuration"];
         if (!j["proximityScale"].isNull())    l.proximityScale    = (float)j["proximityScale"];
         return l;
     }
@@ -579,7 +581,7 @@ private:
                          || !doc["g"].isNull()       || !doc["b"].isNull()
                          || !doc["brightness"].isNull() || !doc["speed"].isNull()
                          || !doc["transitionEnabled"].isNull() || !doc["transitionTime"].isNull()
-                         || !doc["proximityScale"].isNull();
+                         || !doc["frameDuration"].isNull()    || !doc["proximityScale"].isNull();
         if (lightChanged) {
             auto& l = g->light;
             if (!doc["mode"].isNull())             l.mode              = (GroupMode)(uint8_t)doc["mode"];
@@ -592,6 +594,7 @@ private:
             if (!doc["speed"].isNull())            l.speed             = doc["speed"];
             if (!doc["transitionEnabled"].isNull()) l.transitionEnabled = (bool)doc["transitionEnabled"];
             if (!doc["transitionTime"].isNull())   l.transitionTime    = (float)doc["transitionTime"];
+            if (!doc["frameDuration"].isNull())    l.frameDuration     = (float)doc["frameDuration"];
             if (!doc["proximityScale"].isNull())   l.proximityScale    = (float)doc["proximityScale"];
             l.seq++;
             if (_onGroupLight) _onGroupLight(id, l);

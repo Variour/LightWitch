@@ -825,7 +825,9 @@ function renderGroups(groups) {
     const noSync      = PATTERNS[pat]?.syncable === false;
     const sceneId = String(g.sceneId || '');
     const transitionEnabled = Boolean(g.transitionEnabled);
-    const transitionTime = Number.isFinite(g.transitionTime) && g.transitionTime >= 0.5 ? g.transitionTime : 10;
+    const transitionTime = Number.isFinite(g.transitionTime) && g.transitionTime >= 0.1 ? g.transitionTime : 2;
+    const frameDuration = Number.isFinite(g.frameDuration) && g.frameDuration >= 0 ? g.frameDuration : 0;
+    const animEnabled = frameDuration > 0;
     const proximityScale = Number.isFinite(g.proximityScale) ? g.proximityScale : 1.0;
     card.innerHTML = `
       <div class="group-header">
@@ -881,7 +883,7 @@ function renderGroups(groups) {
               <option value=""${!sceneId?' selected':''}>Choose a scene…</option>
               ${_sceneOptions.map(s=>`<option value="${esc(s.id)}"${sceneId===String(s.id)?' selected':''}>${esc(s.name)} (${s.w}×${s.h})</option>`).join('')}
             </select>
-            <p class="pattern-desc">The first frame of the selected scene supplies the color for this group.</p>
+            <p class="pattern-desc">Matrix lights display the scene image pixel-by-pixel. String lights assign each LED a random color from the scene palette.</p>
           </div>
           <div>
             <label>Brightness</label>
@@ -889,14 +891,27 @@ function renderGroups(groups) {
                    oninput="onGroupControl(${g.id})">
           </div>
           <div class="sync-row" style="margin-top:.3rem">
-            <input type="checkbox" id="gtrans-${g.id}" ${transitionEnabled?'checked':''}
-                   onchange="onGroupControl(${g.id})">
-            <label for="gtrans-${g.id}" style="margin:0;color:inherit;font-size:inherit">Transition between colors</label>
+            <input type="checkbox" id="ganim-${g.id}" ${animEnabled?'checked':''}
+                   onchange="document.getElementById('ganimdur-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
+            <label for="ganim-${g.id}" style="margin:0;color:inherit;font-size:inherit">Animate frames</label>
           </div>
-          <div id="gtranstime-wrap-${g.id}" style="${transitionEnabled?'':'display:none'}">
-            <label style="margin-top:.4rem">Transition time <span id="gtt-label-${g.id}">${transitionTime}s</span></label>
-            <input type="range" id="gtt-${g.id}" min="1" max="120" step="1" value="${transitionTime}"
-                   oninput="document.getElementById('gtt-label-${g.id}').textContent=this.value+'s'; onGroupControl(${g.id})">
+          <div id="ganimdur-wrap-${g.id}" style="${animEnabled?'':'display:none'}">
+            <label style="margin-top:.4rem">Frame duration <span id="gfd-label-${g.id}">${(animEnabled?frameDuration:1).toFixed(1)}s</span></label>
+            <input type="range" id="gfd-${g.id}" min="0.5" max="60" step="0.5" value="${animEnabled?frameDuration:1}"
+                   oninput="document.getElementById('gfd-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'s'; onGroupControl(${g.id})">
+          </div>
+          <div id="gtrans-wrap-${g.id}">
+            <div class="sync-row" style="margin-top:.3rem">
+              <input type="checkbox" id="gtrans-${g.id}" ${transitionEnabled?'checked':''}
+                     onchange="document.getElementById('gtranstime-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
+              <label for="gtrans-${g.id}" style="margin:0;color:inherit;font-size:inherit">Blend / cycle colors</label>
+            </div>
+            <p class="pattern-desc" style="margin-top:.2rem">Matrix: blends between frames. String: each LED independently cycles through colors.</p>
+            <div id="gtranstime-wrap-${g.id}" style="${transitionEnabled?'':'display:none'}">
+              <label style="margin-top:.4rem">Transition time <span id="gtt-label-${g.id}">${transitionTime}s</span></label>
+              <input type="range" id="gtt-${g.id}" min="0.1" max="30" step="0.1" value="${transitionTime}"
+                     oninput="document.getElementById('gtt-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'s'; onGroupControl(${g.id})">
+            </div>
           </div>
         </div>
 
@@ -981,7 +996,10 @@ function applyGroupControl(id) {
       brightness:        parseInt(brEl?.value || 255),
       speed:             parseFloat(document.getElementById(`gsp-${id}`)?.value || 1),
       transitionEnabled: document.getElementById(`gtrans-${id}`)?.checked || false,
-      transitionTime:    parseFloat(document.getElementById(`gtt-${id}`)?.value || 10),
+      transitionTime:    parseFloat(document.getElementById(`gtt-${id}`)?.value || 2),
+      frameDuration:     document.getElementById(`ganim-${id}`)?.checked
+                           ? parseFloat(document.getElementById(`gfd-${id}`)?.value || 1)
+                           : 0,
       proximityScale:    parseFloat(document.getElementById(`gprox-${id}`)?.value || 1),
     })
   });
