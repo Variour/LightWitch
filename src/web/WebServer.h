@@ -379,7 +379,6 @@ private:
         doc["clockPin"]   = LED_CLOCK_PIN;
         doc["logLevel"]         = c.logLevel;
         doc["sceneSyncEnabled"]     = c.sceneSyncEnabled;
-        doc["proximityEnabled"]     = c.proximityEnabled;
         doc["checkUpdateOnStartup"] = c.checkUpdateOnStartup;
         doc["mqttHost"]   = c.mqttHost;
         doc["mqttPort"]   = c.mqttPort;
@@ -416,9 +415,6 @@ private:
         }
         if (!doc["sceneSyncEnabled"].isNull()) {
             c.sceneSyncEnabled = (bool)doc["sceneSyncEnabled"];
-        }
-        if (!doc["proximityEnabled"].isNull()) {
-            c.proximityEnabled = (bool)doc["proximityEnabled"];
         }
         if (!doc["checkUpdateOnStartup"].isNull())
             c.checkUpdateOnStartup = (bool)doc["checkUpdateOnStartup"];

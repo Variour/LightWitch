@@ -74,7 +74,6 @@ struct DeviceConfig {
     char        githubToken[128] = "";
     char        githubRepo[64]   = "variour/batterylight";
     bool        sceneSyncEnabled        = true;
-    bool        proximityEnabled        = false;
     bool        checkUpdateOnStartup    = false;
     GroupConfig groups[MAX_GROUPS];
 };

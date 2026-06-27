@@ -26,7 +26,7 @@ public:
     void setPeerRegistry(PeerRegistry* peers) { _proximity.setPeers(peers); }
 
     void applyConfig(const LightConfig& cfg) {
-        if (Config::get().proximityEnabled && cfg.mode == GroupMode::Proximity) {
+        if (cfg.mode == GroupMode::Proximity) {
             if (_current != &_proximity) {
                 Logger::i("[pattern] → Proximity  rgb(%u,%u,%u) br=%u scale=%.1f",
                           cfg.color.r, cfg.color.g, cfg.color.b, cfg.brightness, cfg.proximityScale);
