@@ -3172,6 +3172,7 @@ function _openLightModal(l) {
     <select id="lm-groupId">${grpOpts}</select>
     <button class="btn-ghost" style="width:100%;margin-top:.75rem" onclick="saveLightModal()">Save &amp; Reboot</button>
   </div></div>`;
+  overlay.style.display = 'block';
   document.body.appendChild(overlay);
   overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
   // Show/hide clock pin based on type
@@ -3202,8 +3203,7 @@ async function saveLightModal() {
   const d = await res.json();
   if (!res.ok) { alert('Error: ' + (d.error || res.status)); return; }
   document.getElementById('light-modal-overlay')?.remove();
-  // Device will reboot; show a brief message
-  alert('Light saved. Device is rebooting…');
+  loadConfig();
 }
 
 async function deleteLight(index) {
@@ -3211,7 +3211,7 @@ async function deleteLight(index) {
   const res = await fetch('/api/lights/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
   const d = await res.json();
   if (!res.ok) { alert('Error: ' + (d.error || res.status)); return; }
-  alert('Light deleted. Device is rebooting…');
+  loadConfig();
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
