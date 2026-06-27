@@ -100,6 +100,8 @@ static void setupWifi() {
         }
     }
 
+    WiFi.disconnect(false);
+    delay(100);
     Logger::w("[wifi] All networks failed, falling back to AP");
     WiFi.setAutoReconnect(false);
     WiFi.softAP(c.deviceName, c.apPassword, 1);
