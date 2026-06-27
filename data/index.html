@@ -307,7 +307,10 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
       <h2 style="margin:0">Connected Lights</h2>
-      <button class="btn-ghost btn-sm" onclick="openPushModal(null)" title="Push settings to all peers">Push config to all</button>
+      <div style="display:flex;gap:.5rem">
+        <button class="btn-ghost btn-sm" onclick="meshSearch()" title="Search for mesh peers on other channels">Search channel</button>
+        <button class="btn-ghost btn-sm" onclick="openPushModal(null)" title="Push settings to all peers">Push config to all</button>
+      </div>
     </div>
     <table class="lights-table">
       <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th>Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
@@ -1147,6 +1150,11 @@ function setSceneSync(mac, enabled) {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({mac, enabled})
   });
+}
+
+function meshSearch() {
+  if (!confirm('Re-searching for mesh peers will disconnect active peers temporarily. Continue?')) return;
+  fetch('/api/mesh/search', { method: 'POST' });
 }
 
 // Fields that support "use current" — shared fields first, then per-device

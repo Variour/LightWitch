@@ -31,7 +31,9 @@ public:
     using ConfigChunkCb    = std::function<void(const uint8_t* srcMac, const ConfigChunkMsg*)>;
     // Called when this device is told to trigger a firmware update
     using TriggerUpdateCb  = std::function<void()>;
+    using PeerHeardCb      = std::function<void()>;
 
+    void setOnPeerHeard(PeerHeardCb cb)           { _onPeerHeard      = cb; }
     void setOnLightConfig(LightConfigCb cb)      { _onLightConfig    = cb; }
     void setOnPresence(PresenceCb cb)             { _onPresence       = cb; }
     void setOnSetGroup(SetGroupCb cb)             { _onSetGroup       = cb; }
@@ -221,6 +223,7 @@ private:
     uint32_t _lastSentSeq        = UINT32_MAX;
     bool     _wasSyncMaster      = false;
 
+    PeerHeardCb     _onPeerHeard;
     LightConfigCb   _onLightConfig;
     PresenceCb      _onPresence;
     SetGroupCb      _onSetGroup;
@@ -245,7 +248,7 @@ private:
     void _addBroadcastPeer() {
         esp_now_peer_info_t peer{};
         memset(peer.peer_addr, 0xFF, 6);
-        peer.channel = WiFi.channel();
+        peer.channel = 0;  // 0 = always use current radio channel; no re-registration needed on channel change
         peer.encrypt = false;
         esp_now_add_peer(&peer);
     }
@@ -322,6 +325,7 @@ private:
                 bool isNew = _instance->peers.update(mac, m->name, m->groupId,
                     m->sceneSyncEnabled != 0, m->wifiConnected != 0,
                     m->fwVersion, (FwState)m->fwState);
+                if (_instance->_onPeerHeard) _instance->_onPeerHeard();
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, m->groupId, isNew);
                 if (isNew) _instance->broadcastAllGroups();
                 break;

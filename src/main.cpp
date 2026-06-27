@@ -11,6 +11,7 @@
 #include "led/Ws2801Driver.h"
 #include "patterns/PatternRunner.h"
 #include "mesh/MeshManager.h"
+#include "mesh/ChannelManager.h"
 #include "web/WebServer.h"
 #include "mqtt/MqttManager.h"
 #include "scenes/SceneSyncManager.h"
@@ -20,6 +21,7 @@ static Ws2801Driver     _ws2801;
 static LedDriver*       led       = nullptr;
 static PatternRunner    runner;
 static MeshManager      mesh;
+static ChannelManager   channelMgr;
 static BatteryWebServer webServer;
 static MqttManager      mqtt;
 static SceneSyncManager sceneSync;
@@ -147,6 +149,7 @@ void setup() {
               FW_VERSION, Config::get().deviceName, Config::get().groupId);
 
     setupWifi();
+    channelMgr.begin();
 
     if (Config::get().ledType == LedType::WS2801) {
         _ws2801.begin();
@@ -177,6 +180,7 @@ void setup() {
 
     if (Config::get().otaEnabled) setupOta();
     mesh.begin();
+    mesh.setOnPeerHeard([](){ channelMgr.onPeerHeard(); });
     runner.setPeerRegistry(&mesh.peers);
 
     // Wire SceneSyncManager → MeshManager
@@ -339,7 +343,10 @@ void setup() {
         },
 
         // onTriggerPeerUpdate: broadcast a firmware update trigger to a specific peer
-        [](const uint8_t* mac) { mesh.broadcastTriggerUpdate(mac); }
+        [](const uint8_t* mac) { mesh.broadcastTriggerUpdate(mac); },
+
+        // onMeshSearch: user triggered manual channel re-search from web UI
+        []() { channelMgr.beginSearch(); }
     );
 
     Logger::i("[sys] ready");
@@ -351,6 +358,7 @@ void loop() {
     if (Config::get().otaEnabled) ArduinoOTA.handle();
     webServer.loop();
     if (!_otaActive) {
+        channelMgr.tick();
         mesh.tick();
         mqtt.loop();
         runner.tick();
