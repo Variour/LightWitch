@@ -18,6 +18,7 @@ const MOCK_CONFIG = {
   clockPin: 14,
   logLevel: 1,
   sceneSyncEnabled: true,
+  checkUpdateOnStartup: false,
   mqttHost: 'mqtt.local',
   mqttPort: 1883,
   mqttUser: 'lights',

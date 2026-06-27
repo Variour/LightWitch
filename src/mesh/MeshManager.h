@@ -55,17 +55,10 @@ public:
         _addBroadcastPeer();
         esp_now_register_recv_cb(_onRecv);
         esp_now_register_send_cb(_onSent);
-        // Promiscuous sniffer captures RSSI from raw 802.11 frames.
-        // ESP-NOW action frames (subtype 0xD) carry source MAC at byte 10.
-        // Restrict to management frames at the driver level: without this filter,
-        // every data frame (high volume in STA mode) is delivered to the callback
-        // from the WiFi task, which starves the lwIP stack and kills web performance.
         {
-            wifi_promiscuous_filter_t f = { .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT };
-            esp_wifi_set_promiscuous_filter(&f);
+            GroupConfig* g = Config::group(Config::get().groupId);
+            _setSnifferEnabled(g && g->light.mode == GroupMode::Proximity);
         }
-        esp_wifi_set_promiscuous(true);
-        esp_wifi_set_promiscuous_rx_cb(_promiscuousRecv);
         Logger::i("[mesh] ready, MAC: %s", WiFi.macAddress().c_str());
         _ready = true;
     }
@@ -89,9 +82,11 @@ public:
             else
                 Logger::i("[sync] lost sync master for group %u", Config::get().groupId);
         }
-        if (now - _lastProximityPing >= 500) {
+        {
             GroupConfig* g = Config::group(Config::get().groupId);
-            if (g && g->light.mode == GroupMode::Proximity) {
+            bool inProximity = g && g->light.mode == GroupMode::Proximity;
+            _setSnifferEnabled(inProximity);
+            if (inProximity && now - _lastProximityPing >= 500) {
                 _lastProximityPing = now;
                 ProximityPingMsg msg;
                 msg.groupId = Config::get().groupId;
@@ -218,6 +213,7 @@ public:
 
 private:
     bool     _ready                = false;
+    bool     _snifferRunning       = false;
     uint32_t _lastHeartbeat        = 0;
     uint32_t _lastPhaseBroadcast   = 0;
     uint32_t _lastProximityPing    = 0;
@@ -269,6 +265,26 @@ private:
             us.state == Updater::State::Error       ? FwState::Error       :
             us.state == Updater::State::Done        ? FwState::Done        : FwState::Idle);
         _send(&msg, sizeof(msg));
+    }
+
+    // Promiscuous sniffer captures RSSI from raw 802.11 frames.
+    // ESP-NOW action frames (subtype 0xD) carry source MAC at byte 10.
+    // Restrict to management frames at the driver level: without this filter,
+    // every data frame (high volume in STA mode) is delivered to the callback
+    // from the WiFi task, which starves the lwIP stack and kills web performance.
+    void _setSnifferEnabled(bool enable) {
+        if (enable == _snifferRunning) return;
+        if (enable) {
+            wifi_promiscuous_filter_t f = { .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT };
+            esp_wifi_set_promiscuous_filter(&f);
+            esp_wifi_set_promiscuous(true);
+            esp_wifi_set_promiscuous_rx_cb(_promiscuousRecv);
+            Logger::i("[mesh] proximity sniffer started");
+        } else {
+            esp_wifi_set_promiscuous(false);
+            Logger::i("[mesh] proximity sniffer stopped");
+        }
+        _snifferRunning = enable;
     }
 
     // Returns true if this device has the lowest MAC among online peers in the same group.
