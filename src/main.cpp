@@ -335,7 +335,7 @@ void setup() {
     );
 
     Logger::i("[sys] ready");
-    if (WiFi.status() == WL_CONNECTED) Updater::checkAsync();
+    if (Config::get().checkUpdateOnStartup && WiFi.status() == WL_CONNECTED) Updater::checkAsync();
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────

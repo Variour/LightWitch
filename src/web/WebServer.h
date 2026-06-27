@@ -378,7 +378,8 @@ private:
         doc["dataPin"]    = LED_DATA_PIN;
         doc["clockPin"]   = LED_CLOCK_PIN;
         doc["logLevel"]         = c.logLevel;
-        doc["sceneSyncEnabled"] = c.sceneSyncEnabled;
+        doc["sceneSyncEnabled"]     = c.sceneSyncEnabled;
+        doc["checkUpdateOnStartup"] = c.checkUpdateOnStartup;
         doc["mqttHost"]   = c.mqttHost;
         doc["mqttPort"]   = c.mqttPort;
         doc["mqttUser"]   = c.mqttUser;
@@ -415,6 +416,8 @@ private:
         if (!doc["sceneSyncEnabled"].isNull()) {
             c.sceneSyncEnabled = (bool)doc["sceneSyncEnabled"];
         }
+        if (!doc["checkUpdateOnStartup"].isNull())
+            c.checkUpdateOnStartup = (bool)doc["checkUpdateOnStartup"];
         if (!doc["mqttHost"].isNull())     strlcpy(c.mqttHost, doc["mqttHost"], sizeof(c.mqttHost));
         if (!doc["mqttPort"].isNull())     c.mqttPort = (uint16_t)doc["mqttPort"];
         if (!doc["mqttUser"].isNull())     strlcpy(c.mqttUser, doc["mqttUser"], sizeof(c.mqttUser));
