@@ -9,8 +9,8 @@ import { authRouter, requireAuth } from './auth.js';
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 const mockLights = [
-  { index: 0, name: 'Living room', ledType: 0, dataPin: 13, clockPin: 14, width: 1, height: 1, groupId: 0 },
-  { index: 1, name: 'Bedroom',     ledType: 1, dataPin: 25, clockPin: 26, width: 8, height: 8, groupId: 1 },
+  { index: 0, name: 'Living room', ledType: 0, dataPin: 13, clockPin: 14, width: 1,  height: 1, matrixStart: 0, matrixDir: 0, groupId: 0 },
+  { index: 1, name: 'Bedroom',     ledType: 1, dataPin: 25, clockPin: 26, width: 8,  height: 8, matrixStart: 2, matrixDir: 1, groupId: 1 },
 ];
 
 const MOCK_CONFIG = {
@@ -164,8 +164,8 @@ app.get('/api/lights', (_req, res) => res.json({ lights: mockLights, maxLights: 
 app.post('/api/lights/add', (req, res) => {
   const free = [0,1,2,3].find(i => !mockLights.find(l => l.index === i));
   if (free === undefined) return res.status(400).json({ error: 'light limit reached' });
-  const { name = '', ledType = 0, dataPin = 13, clockPin = 14, width = 1, height = 1, groupId = 0 } = req.body || {};
-  mockLights.push({ index: free, name, ledType, dataPin, clockPin, width, height, groupId });
+  const { name = '', ledType = 0, dataPin = 13, clockPin = 14, width = 1, height = 1, matrixStart = 0, matrixDir = 0, groupId = 0 } = req.body || {};
+  mockLights.push({ index: free, name, ledType, dataPin, clockPin, width, height, matrixStart, matrixDir, groupId });
   res.json({ ok: true, index: free });
 });
 app.post('/api/lights/update', (req, res) => {

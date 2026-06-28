@@ -419,13 +419,15 @@ private:
             if (!c.lights[i].exists) continue;
             auto& l = c.lights[i];
             JsonObject lo = lightsArr.add<JsonObject>();
-            lo["index"]   = i;
-            lo["ledType"] = (uint8_t)l.ledType;
-            lo["dataPin"] = l.dataPin;
-            lo["clockPin"]= l.clockPin;
-            lo["width"]   = l.width;
-            lo["height"]  = l.height;
-            lo["groupId"] = l.groupId;
+            lo["index"]       = i;
+            lo["ledType"]     = (uint8_t)l.ledType;
+            lo["dataPin"]     = l.dataPin;
+            lo["clockPin"]    = l.clockPin;
+            lo["width"]       = l.width;
+            lo["height"]      = l.height;
+            lo["matrixStart"] = (uint8_t)l.matrixStart;
+            lo["matrixDir"]   = (uint8_t)l.matrixDir;
+            lo["groupId"]     = l.groupId;
         }
 
         JsonArray arr = doc["groups"].to<JsonArray>();
@@ -1080,15 +1082,17 @@ private:
             o["ledType"] = (uint8_t)l.ledType;
             o["dataPin"] = l.dataPin;
             o["clockPin"]= l.clockPin;
-            o["width"]   = l.width;
-            o["height"]  = l.height;
-            o["groupId"] = l.groupId;
+            o["width"]       = l.width;
+            o["height"]      = l.height;
+            o["matrixStart"] = (uint8_t)l.matrixStart;
+            o["matrixDir"]   = (uint8_t)l.matrixDir;
+            o["groupId"]     = l.groupId;
         }
         _sendJson(r, 200, doc);
     }
 
     // ── POST /api/lights/add ──────────────────────────────────────────────────
-    // Body: {ledType, dataPin, clockPin, width, height, groupId}
+    // Body: {ledType, dataPin, clockPin, width, height, matrixStart, matrixDir, groupId}
     void _addLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) {
@@ -1108,9 +1112,11 @@ private:
         l.ledType  = (LedType)(uint8_t)(doc["ledType"]  | 0);
         l.dataPin  = doc["dataPin"]  | (uint8_t)LED_DATA_PIN;
         l.clockPin = doc["clockPin"] | (uint8_t)LED_CLOCK_PIN;
-        l.width    = doc["width"]    | (uint16_t)1;
-        l.height   = doc["height"]   | (uint16_t)1;
-        l.groupId  = doc["groupId"]  | (uint8_t)0;
+        l.width       = doc["width"]       | (uint16_t)1;
+        l.height      = doc["height"]      | (uint16_t)1;
+        l.matrixStart = (MatrixStart)(uint8_t)(doc["matrixStart"] | (uint8_t)0);
+        l.matrixDir   = (MatrixDirection)(uint8_t)(doc["matrixDir"] | (uint8_t)0);
+        l.groupId     = doc["groupId"]     | (uint8_t)0;
         if (l.width == 0) l.width = 1;
         if (l.height == 0) l.height = 1;
         Config::save();
@@ -1123,7 +1129,7 @@ private:
     }
 
     // ── POST /api/lights/update ───────────────────────────────────────────────
-    // Body: {index, ledType?, dataPin?, clockPin?, width?, height?, groupId?}
+    // Body: {index, ledType?, dataPin?, clockPin?, width?, height?, matrixStart?, matrixDir?, groupId?}
     void _updateLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) {
@@ -1139,8 +1145,10 @@ private:
         if (!doc["ledType"].isNull())  { l.ledType  = (LedType)(uint8_t)doc["ledType"]; hwChanged = true; }
         if (!doc["dataPin"].isNull())  { l.dataPin  = doc["dataPin"];  hwChanged = true; }
         if (!doc["clockPin"].isNull()) { l.clockPin = doc["clockPin"]; hwChanged = true; }
-        if (!doc["width"].isNull())    { l.width  = max((uint16_t)1, (uint16_t)doc["width"]);  hwChanged = true; }
-        if (!doc["height"].isNull())   { l.height = max((uint16_t)1, (uint16_t)doc["height"]); hwChanged = true; }
+        if (!doc["width"].isNull())       { l.width       = max((uint16_t)1, (uint16_t)doc["width"]);                      hwChanged = true; }
+        if (!doc["height"].isNull())      { l.height      = max((uint16_t)1, (uint16_t)doc["height"]);                     hwChanged = true; }
+        if (!doc["matrixStart"].isNull()) { l.matrixStart = (MatrixStart)(uint8_t)doc["matrixStart"];                      hwChanged = true; }
+        if (!doc["matrixDir"].isNull())   { l.matrixDir   = (MatrixDirection)(uint8_t)doc["matrixDir"];                    hwChanged = true; }
         // groupId change: soft config, no restart needed
         if (!doc["groupId"].isNull()) {
             uint8_t gid = doc["groupId"];
