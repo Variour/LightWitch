@@ -804,6 +804,17 @@ const TAB_PATHS = {
   scenes: '/scenes',
   settings: '/settings',
 };
+let _currentPath = location.pathname;
+
+function _pushPath(path) {
+  history.pushState(null, '', path);
+  _currentPath = path;
+}
+
+function _replacePath(path) {
+  history.replaceState(null, '', path);
+  _currentPath = path;
+}
 
 function _showTab(tab) {
   document.getElementById('tab-dashboard').style.display = tab === 'dashboard' ? '' : 'none';
@@ -814,12 +825,15 @@ function _showTab(tab) {
 }
 
 function switchTab(tab, pushHistory = true) {
-  _showTab(tab);
   if (tab === 'scenes') {
+    if (!_confirmSceneNavigation('Unsaved changes will be lost. Go back?')) return;
+    _showTab(tab);
     showSceneView('list', null, pushHistory);
     return;
   }
-  if (pushHistory) history.pushState(null, '', TAB_PATHS[tab] || '/dashboard');
+  if (!_confirmSceneNavigation()) return;
+  _showTab(tab);
+  if (pushHistory) _pushPath(TAB_PATHS[tab] || '/dashboard');
 }
 
 // ── Groups UI ─────────────────────────────────────────────────────────────────
@@ -1793,8 +1807,8 @@ function showSceneView(view, sceneId = null, pushHistory = true) {
   _sceneView = view;
   if (view === 'list') _loadScenes();
   if (pushHistory) {
-    if (view === 'list') history.pushState(null, '', '/scenes');
-    else if (view === 'editor' && sceneId) history.pushState(null, '', `/scenes/${encodeURIComponent(sceneId)}`);
+    if (view === 'list') _pushPath('/scenes');
+    else if (view === 'editor' && sceneId) _pushPath(`/scenes/${encodeURIComponent(sceneId)}`);
   }
 }
 
@@ -1962,7 +1976,7 @@ async function resolveConflict(sceneId, sourceMac) {
 
 // ── Open editor ───────────────────────────────────────────────────────────────
 async function openEditor(id) {
-  if (_modified && !confirm('Unsaved changes will be lost. Continue?')) return;
+  if (!_confirmSceneNavigation()) return;
   await _openEditor(id);
 }
 
@@ -2880,6 +2894,24 @@ function _normalizeImportedScene(data) {
 
 let _autoSaveTimer = null;
 
+function _hasUnsavedSceneChanges() {
+  return _sceneView === 'editor' && _modified;
+}
+
+function _resetSceneEditorState() {
+  clearTimeout(_autoSaveTimer);
+  _modified = false;
+  _history  = [];
+  _editScene = null;
+  _setSaveBtnState(false);
+}
+
+function _confirmSceneNavigation(message = 'Unsaved changes will be lost. Continue?') {
+  if (_hasUnsavedSceneChanges() && !confirm(message)) return false;
+  if (_sceneView === 'editor') _resetSceneEditorState();
+  return true;
+}
+
 function _scheduleAutoSave() {
   if (!document.getElementById('se-auto-save')?.checked) return;
   clearTimeout(_autoSaveTimer);
@@ -2929,38 +2961,40 @@ async function saveScene() {
 }
 
 function backToSceneList() {
-  if (_modified && !confirm('Unsaved changes will be lost. Go back?')) return;
-  clearTimeout(_autoSaveTimer);
-  _modified = false;
-  _history  = [];
+  if (!_confirmSceneNavigation('Unsaved changes will be lost. Go back?')) return;
   showSceneView('list');
 }
 
 // ── Routing ───────────────────────────────────────────────────────────────────
 function _routeFromPath(path) {
   if (path === '/' || path === '') {
-    history.replaceState(null, '', '/dashboard');
+    _replacePath('/dashboard');
     _routeFromPath('/dashboard');
   } else if (path === '/dashboard') {
     _showTab('dashboard');
+    _currentPath = path;
   } else if (path === '/settings') {
     _showTab('settings');
+    _currentPath = path;
   } else if (path === '/scenes') {
     _showTab('scenes');
     showSceneView('list', null, false);
+    _currentPath = path;
   } else if (path === '/scenes/create') {
     _showTab('scenes');
     showSceneView('create', null, false);
+    _currentPath = path;
   } else if (path.startsWith('/scenes/') && path !== '/scenes/create') {
     const id = decodeURIComponent(path.slice('/scenes/'.length));
     if (id) {
       _showTab('scenes');
       _openEditor(id, false);
+      _currentPath = path;
     } else {
       _routeFromPath('/scenes');
     }
   } else {
-    history.replaceState(null, '', '/dashboard');
+    _replacePath('/dashboard');
     _routeFromPath('/dashboard');
   }
 }
@@ -3136,7 +3170,14 @@ async function importImageAsFrame(ev) {
   await saveScene();
 }
 
-window.addEventListener('popstate', () => _routeFromPath(location.pathname));
+window.addEventListener('popstate', () => {
+  const nextPath = location.pathname;
+  if (!_confirmSceneNavigation()) {
+    _pushPath(_currentPath);
+    return;
+  }
+  _routeFromPath(nextPath);
+});
 
 // ── Lights hardware management ────────────────────────────────────────────────
 const LED_TYPE_NAMES = ['WS2812B — single wire', 'WS2801 — two wire'];
