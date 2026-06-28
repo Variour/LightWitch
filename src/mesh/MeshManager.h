@@ -25,8 +25,10 @@ public:
     using SceneManifestCb  = std::function<void(const uint8_t* mac, const SceneManifestMsg*)>;
     using SceneRequestCb   = std::function<void(const uint8_t* mac, const char* id)>;
     using SceneChunkCb     = std::function<void(const SceneChunkMsg*)>;
-    using SceneForceSetCb  = std::function<void(const char* id, uint32_t hash)>;
-    using SetSceneSyncCb   = std::function<void(bool enabled)>;
+    using SceneForceSetCb   = std::function<void(const char* id, uint32_t hash)>;
+    using SceneEditPushCb   = std::function<void(const uint8_t* mac, const char* id, uint32_t prevHash)>;
+    using RequestManifestCb = std::function<void()>;
+    using SetSceneSyncCb    = std::function<void(bool enabled)>;
     using ConfigChunkCb    = std::function<void(const uint8_t* srcMac, const ConfigChunkMsg*)>;
     using TriggerUpdateCb  = std::function<void()>;
     // Called when this device is told to check for a firmware update (no auto-install)
@@ -43,8 +45,10 @@ public:
     void setOnSceneManifest(SceneManifestCb cb)   { _onSceneManifest  = cb; }
     void setOnSceneRequest(SceneRequestCb cb)     { _onSceneRequest   = cb; }
     void setOnSceneChunk(SceneChunkCb cb)         { _onSceneChunk     = cb; }
-    void setOnSceneForceSet(SceneForceSetCb cb)   { _onSceneForceSet  = cb; }
-    void setOnSetSceneSync(SetSceneSyncCb cb)     { _onSetSceneSync   = cb; }
+    void setOnSceneForceSet(SceneForceSetCb cb)     { _onSceneForceSet    = cb; }
+    void setOnSceneEditPush(SceneEditPushCb cb)     { _onSceneEditPush    = cb; }
+    void setOnRequestManifest(RequestManifestCb cb) { _onRequestManifest  = cb; }
+    void setOnSetSceneSync(SetSceneSyncCb cb)       { _onSetSceneSync     = cb; }
     void setOnConfigChunk(ConfigChunkCb cb)       { _onConfigChunk    = cb; }
     void setOnTriggerUpdate(TriggerUpdateCb cb)   { _onTriggerUpdate  = cb; }
     void setOnCheckUpdate(CheckUpdateCb cb)       { _onCheckUpdate    = cb; }
@@ -161,6 +165,20 @@ public:
         _send(&msg, sizeof(msg));
     }
 
+    void broadcastSceneEditPush(const char* id, uint32_t prevHash) {
+        if (!_ready) return;
+        SceneEditPushMsg msg;
+        strlcpy(msg.id, id, 33);
+        msg.prevHash = prevHash;
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastRequestManifest() {
+        if (!_ready) return;
+        RequestManifestMsg msg;
+        _send(&msg, sizeof(msg));
+    }
+
     void broadcastSceneForceSet(const char* id, uint32_t hash) {
         if (!_ready) return;
         SceneForceSetMsg msg;
@@ -238,8 +256,10 @@ private:
     SceneManifestCb _onSceneManifest;
     SceneRequestCb  _onSceneRequest;
     SceneChunkCb    _onSceneChunk;
-    SceneForceSetCb _onSceneForceSet;
-    SetSceneSyncCb  _onSetSceneSync;
+    SceneForceSetCb   _onSceneForceSet;
+    SceneEditPushCb   _onSceneEditPush;
+    RequestManifestCb _onRequestManifest;
+    SetSceneSyncCb    _onSetSceneSync;
     ConfigChunkCb   _onConfigChunk;
     TriggerUpdateCb _onTriggerUpdate;
     CheckUpdateCb   _onCheckUpdate;
@@ -416,6 +436,16 @@ private:
                 if (len < (int)sizeof(SceneForceSetMsg)) return;
                 auto* m = (SceneForceSetMsg*)data;
                 if (_instance->_onSceneForceSet) _instance->_onSceneForceSet(m->id, m->hash);
+                break;
+            }
+            case MsgType::SceneEditPush: {
+                if (len < (int)sizeof(SceneEditPushMsg)) return;
+                auto* m = (SceneEditPushMsg*)data;
+                if (_instance->_onSceneEditPush) _instance->_onSceneEditPush(mac, m->id, m->prevHash);
+                break;
+            }
+            case MsgType::RequestManifest: {
+                if (_instance->_onRequestManifest) _instance->_onRequestManifest();
                 break;
             }
             case MsgType::SetSceneSync: {

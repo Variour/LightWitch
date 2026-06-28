@@ -204,6 +204,12 @@ void setup() {
         [](const SceneChunkMsg& msg)      { mesh.broadcastSceneChunk(msg); },
         [](const SceneManifestMsg& msg)   { mesh.broadcastSceneManifest(msg); }
     );
+    sceneSync.setEditPushFn([](const char* id, uint32_t prevHash) {
+        mesh.broadcastSceneEditPush(id, prevHash);
+    });
+    sceneSync.setRequestManifestFn([]() {
+        mesh.broadcastRequestManifest();
+    });
 
     // ── Mesh callbacks ────────────────────────────────────────────────────────
 
@@ -238,6 +244,12 @@ void setup() {
     });
     mesh.setOnSceneForceSet([](const char* id, uint32_t hash) {
         sceneSync.onForceSet(id, hash);
+    });
+    mesh.setOnSceneEditPush([](const uint8_t* mac, const char* id, uint32_t prevHash) {
+        sceneSync.onSceneEditPush(mac, id, prevHash);
+    });
+    mesh.setOnRequestManifest([]() {
+        sceneSync.onRequestManifest();
     });
     mesh.setOnSetSceneSync([](bool enabled) {
         sceneSync.onSetSceneSync(enabled);

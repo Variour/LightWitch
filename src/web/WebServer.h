@@ -46,11 +46,12 @@ private:
     };
 
     struct SceneSaveState {
-        String  buffer;
-        String  id;
-        File    file;
-        bool    failed = false;
-        bool    written = false;
+        String   buffer;
+        String   id;
+        File     file;
+        uint32_t prevHash = 0;
+        bool     failed = false;
+        bool     written = false;
         const char* error = nullptr;
     };
 
@@ -155,7 +156,7 @@ public:
 
                 if (ok) {
                     Logger::i("[scene] save ok: %s", st->id.c_str());
-                    if (_sceneSync) _sceneSync->onSceneChanged();
+                    if (_sceneSync) _sceneSync->onSceneChanged(st->id.c_str(), st->prevHash);
                     if (_onSceneSaved) _onSceneSaved(st->id.c_str());
                 } else {
                     Logger::e("[scene] save failed: %s (failed=%d written=%d)",
@@ -197,7 +198,8 @@ public:
                     }
 
                     st->id = found;
-                    Logger::d("[scene] save: id=%s, opening file", st->id.c_str());
+                    st->prevHash = SceneManager::crc32(st->id.c_str());
+                    Logger::d("[scene] save: id=%s prevHash=%08x, opening file", st->id.c_str(), st->prevHash);
                     SceneManager::init();
                     st->file = LittleFS.open(SceneManager::path(st->id.c_str()), "w");
                     if (!st->file) {
@@ -450,7 +452,9 @@ private:
             Logger::setLevel((LogLevel)c.logLevel);
         }
         if (!doc["sceneSyncEnabled"].isNull()) {
+            bool prev = c.sceneSyncEnabled;
             c.sceneSyncEnabled = (bool)doc["sceneSyncEnabled"];
+            if (c.sceneSyncEnabled && !prev && _sceneSync) _sceneSync->onSyncEnabled();
         }
         if (!doc["checkUpdateOnStartup"].isNull())
             c.checkUpdateOnStartup = (bool)doc["checkUpdateOnStartup"];
@@ -753,7 +757,7 @@ private:
             auto e = _makeErr("create failed"); _sendJson(r, 500, e); return;
         }
         Logger::i("[scene] create: ok id=%s", id.c_str());
-        if (_sceneSync) _sceneSync->onSceneChanged();
+        if (_sceneSync) _sceneSync->onSceneChanged(id.c_str(), 0);
         JsonDocument resp;
         resp["ok"] = true;
         resp["id"] = id;
@@ -992,8 +996,10 @@ private:
         bool enabled       = doc["enabled"] | true;
 
         if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
+            bool prev = Config::get().sceneSyncEnabled;
             Config::get().sceneSyncEnabled = enabled;
             Config::save();
+            if (enabled && !prev && _sceneSync) _sceneSync->onSyncEnabled();
             auto ok = _makeOk(); _sendJson(r, 200, ok);
             return;
         }

@@ -17,6 +17,8 @@ enum class MsgType : uint8_t {
     ConfigChunk    = 12,
     TriggerUpdate  = 13,
     CheckUpdate    = 14,
+    SceneEditPush  = 15,
+    RequestManifest = 16,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -109,6 +111,19 @@ struct SceneForceSetMsg {
     MsgType  type = MsgType::SceneForceSet;
     char     id[33];
     uint32_t hash;
+};
+
+// Broadcast before chunk stream on any scene save (create or edit).
+// prevHash=0 means new scene; prevHash=crc32 of scene before save otherwise.
+struct SceneEditPushMsg {
+    MsgType  type = MsgType::SceneEditPush;
+    char     id[33];
+    uint32_t prevHash;
+};
+
+// Broadcast to ask all sync-enabled peers to send their manifest.
+struct RequestManifestMsg {
+    MsgType type = MsgType::RequestManifest;
 };
 
 struct SetSceneSyncMsg {
