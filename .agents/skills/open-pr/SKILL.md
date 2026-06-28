@@ -19,8 +19,6 @@ Use this after the implementation has been reviewed and the user wants to ship i
 
 3. Validate before publishing.
    - Run `/feature-checklist` for feature or API changes.
-   - Run `/validate-ui` if any `data/` or `server/` files changed.
-   - If validation fails, stop and report it unless the user explicitly wants to continue anyway.
 
 4. Publish the branch.
    - Create a branch name from issue id if available and a concise description.
