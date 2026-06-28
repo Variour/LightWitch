@@ -60,9 +60,16 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   padding: .8rem;
 }
 .light-device-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
   margin-bottom: .65rem;
 }
-.light-device-title { min-width: 0; }
+.light-device-title {
+  min-width: 0;
+  flex: 1;
+}
 .light-device-title-line {
   display: flex;
   align-items: center;
@@ -97,6 +104,13 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   margin: 0;
   accent-color: #4af;
   cursor: pointer;
+}
+.light-device-actions {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.light-device-actions button {
+  white-space: nowrap;
 }
 .light-device-lights {
   display: grid;
@@ -1347,9 +1361,9 @@ function renderLights(self, peers) {
               <span class="light-device-icons">${mobileIcons}</span>
             </div>
           </div>
+          ${mobileActions}
         </div>
         <div class="light-device-lights">${mobileLights}</div>
-        ${mobileActions}
       </div>`
     };
   });
