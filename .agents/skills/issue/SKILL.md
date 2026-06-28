@@ -40,7 +40,7 @@ Treat the user arguments as a GitHub issue number for the repository in the curr
 
 6. Prepare the repository for implementation.
    - Check that the worktree is clean before starting. If there are local changes, stop and ask the user what to do.
-   - Start from `main`.
+   - ALWAYS start from `main`.
    - Make sure local `main` is current with `origin/main` before implementation begins.
 
 7. Execute the work.

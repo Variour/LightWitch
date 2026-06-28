@@ -23,6 +23,7 @@ Use this after the implementation has been reviewed and the user wants to ship i
    - If validation fails, stop and report it unless the user explicitly wants to continue anyway.
 
 4. Publish the branch.
+   - Create a branch name from issue id if available and a concise description.
    - Use the required commit-message format.
    - Commit and push the approved changes.
 
