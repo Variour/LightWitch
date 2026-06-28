@@ -1,5 +1,17 @@
 # Known Issues
 
+## WiFi channel usage: non-standard channels can break peer discovery
+
+The mesh channel logic only auto-searches the previously stored channel plus channels `1`, `6`, and `11`. In addition, fallback AP mode is started on channel `1`.
+
+This means setups that rely on non-standard 2.4 GHz channels such as `2–5`, `7–10`, `12`, or `13` can behave unexpectedly:
+
+- devices may fail to discover peers after boot if no channel has been stored yet
+- devices can split across channels after WiFi changes or resets
+- manual **Search channel** may still not find peers unless one device is already locked to the target channel and can teach it to others
+
+In practice, the system is most reliable when the WiFi network uses channel `1`, `6`, or `11`.
+
 ## OTA filesystem update: scene backup limited by available heap
 
 When a firmware update includes a `littlefs.bin` asset, custom scenes are read into heap memory before the filesystem is flashed and written back afterwards. If the total size of all scene files exceeds available heap (typically ~150–200 KB free on ESP32), the backup will silently drop scenes that could not be allocated. In practice, current scenes are a few KB in total and this limit is not a concern, but very large or numerous scenes could be lost.
