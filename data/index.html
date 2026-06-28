@@ -60,17 +60,13 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   padding: .8rem;
 }
 .light-device-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: .75rem;
   margin-bottom: .65rem;
 }
 .light-device-title { min-width: 0; }
 .light-device-title-line {
   display: flex;
   align-items: center;
-  gap: .25rem;
+  gap: .35rem;
   flex-wrap: wrap;
 }
 .light-device-name {
@@ -79,42 +75,28 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   color: #eee;
   word-break: break-word;
 }
-.light-device-status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .35rem;
-  margin-bottom: .65rem;
-}
-.light-device-status-item {
+.light-device-icons {
   display: inline-flex;
   align-items: center;
-  gap: .3rem;
-  background: #111;
-  border: 1px solid #222;
-  border-radius: 999px;
-  padding: .18rem .5rem;
-  font-size: .74rem;
+  gap: .32rem;
+  min-width: 0;
+}
+.light-device-icons > * {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: #888;
+  line-height: 1;
 }
-.light-device-status-item svg { flex-shrink: 0; }
-.light-device-status-item label {
+.light-device-icons .btn-fw-trigger {
   display: inline-flex;
   align-items: center;
-  gap: .3rem;
-  margin: 0;
-  color: inherit;
-  font-size: inherit;
-  cursor: pointer;
 }
-.light-device-status-item input[type=checkbox] {
+.light-device-icons input[type=checkbox] {
   width: auto;
   margin: 0;
   accent-color: #4af;
   cursor: pointer;
-}
-.light-device-status-item .btn-fw-trigger {
-  display: inline-flex;
-  align-items: center;
 }
 .light-device-lights {
   display: grid;
@@ -1269,6 +1251,9 @@ function renderLights(self, peers) {
     const wifiColor = wifiOn ? '#4c4' : '#555';
     const wifiTitle = wifiOn ? 'WiFi connected' : 'WiFi not connected';
     const wifiIcon = `<span title="${wifiTitle}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
+    const signalIcon = showSignal && !p.isSelf
+      ? `<span title="Signal: ${rssiText}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
+      : '';
 
     const ver = p.version || '';
     let fwIconHtml = '–';
@@ -1332,12 +1317,12 @@ function renderLights(self, peers) {
           </div>`;
         }).join('');
 
-    const mobileStatus = [
-      `<span class="light-device-status-item">${dot}<span>${online ? 'Online' : 'Offline'}</span></span>`,
-      `<span class="light-device-status-item">${wifiIcon}<span>${wifiOn ? 'WiFi connected' : 'WiFi offline'}</span></span>`,
-      showSignal && !p.isSelf ? `<span class="light-device-status-item"><span>Signal ${rssiText}</span></span>` : '',
-      `<span class="light-device-status-item"><span>FW ${ver ? `v${esc(ver)}` : '–'}</span>${ver ? fwIconHtml : ''}</span>`,
-      `<span class="light-device-status-item"><label>${syncCell}<span>Sync</span></label></span>`
+    const mobileIcons = [
+      dot,
+      wifiIcon,
+      signalIcon,
+      ver ? fwIconHtml : '',
+      `<span title="Scene sync">${syncCell}</span>`
     ].filter(Boolean).join('');
 
     const mobileActions = pushCell
@@ -1359,10 +1344,10 @@ function renderLights(self, peers) {
           <div class="light-device-title">
             <div class="light-device-title-line">
               <span class="light-device-name">${esc(p.name)}</span>${selfTag}
+              <span class="light-device-icons">${mobileIcons}</span>
             </div>
           </div>
         </div>
-        <div class="light-device-status">${mobileStatus}</div>
         <div class="light-device-lights">${mobileLights}</div>
         ${mobileActions}
       </div>`
