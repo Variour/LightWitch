@@ -28,6 +28,11 @@ public:
         _height = h;
     }
 
+    void setMatrixLayout(MatrixStart start, MatrixDirection dir) {
+        _matrixStart = start;
+        _matrixDir   = dir;
+    }
+
     void setPeerRegistry(PeerRegistry* peers) { _proximity.setPeers(peers); }
     void setGroupId(uint8_t groupId)          { _proximity.setGroupId(groupId); }
 
@@ -53,6 +58,7 @@ public:
                               cfg.sceneId, cfg.brightness, cfg.frameDuration,
                               cfg.transitionEnabled ? "on" : "off", cfg.transitionTime);
                     _sceneMatrix.setDimensions(_width, _height);
+                    _sceneMatrix.setMatrixLayout(_matrixStart, _matrixDir);
                     _sceneMatrix.begin(*_led, cfg);
                     _current   = &_sceneMatrix;
                     _currentId = (PatternId)0xFF;
@@ -121,8 +127,10 @@ private:
     Pattern*    _current   = nullptr;
     PatternId   _currentId = PatternId::Static;
     SceneMode   _sceneMode = SceneMode::None;
-    uint16_t    _width     = 1;
-    uint16_t    _height    = 1;
+    uint16_t        _width       = 1;
+    uint16_t        _height      = 1;
+    MatrixStart     _matrixStart = MatrixStart::TopLeft;
+    MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
 
     // ── pattern instances ─────────────────────────────────────────────────────
     StaticColor   _static;

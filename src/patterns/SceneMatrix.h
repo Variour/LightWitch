@@ -12,6 +12,7 @@ public:
     float getPeriod() const override { return 0.0f; }
 
     void setDimensions(uint16_t w, uint16_t h) { _lightW = w; _lightH = h; }
+    void setMatrixLayout(MatrixStart start, MatrixDirection dir) { _matrixStart = start; _matrixDir = dir; }
 
     void begin(LedDriver& led, const LightConfig& cfg) override {
         _led = &led;
@@ -84,7 +85,9 @@ public:
     }
 
 private:
-    uint16_t _lightW = 1, _lightH = 1;
+    uint16_t        _lightW      = 1, _lightH = 1;
+    MatrixStart     _matrixStart = MatrixStart::TopLeft;
+    MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
     uint16_t _sceneW = 0, _sceneH = 0;
     std::vector<std::vector<Color>> _frames;
     uint8_t  _frameIdx = 0, _prevFrameIdx = 0;
@@ -147,7 +150,7 @@ private:
         for (uint16_t row = 0; row < renderH; row++) {
             for (uint16_t col = 0; col < renderW; col++) {
                 uint16_t si = row * _sceneW + col;
-                uint16_t li = row * _lightW + col;
+                uint16_t li = _ledIndex(row, col);
                 if (si >= fa.size()) continue;
                 Color ca = fa[si];
                 Color out = ca;
@@ -162,6 +165,16 @@ private:
             }
         }
         _led->show();
+    }
+
+    uint16_t _ledIndex(uint16_t row, uint16_t col) const {
+        uint16_t r = (_matrixStart == MatrixStart::BottomLeft || _matrixStart == MatrixStart::BottomRight)
+                     ? (_lightH - 1 - row) : row;
+        uint16_t c = (_matrixStart == MatrixStart::TopRight  || _matrixStart == MatrixStart::BottomRight)
+                     ? (_lightW - 1 - col) : col;
+        return (_matrixDir == MatrixDirection::Vertical)
+               ? c * _lightH + r
+               : r * _lightW + c;
     }
 
     static uint8_t _lerp(uint8_t a, uint8_t b, float t) {

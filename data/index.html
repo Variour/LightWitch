@@ -3153,7 +3153,7 @@ let _editLightIndex = null;
 
 function openAddLightModal() {
   _editLightIndex = null;
-  _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1});
+  _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0});
 }
 
 function openEditLightModal(l) {
@@ -3186,6 +3186,20 @@ function _openLightModal(l) {
     <input type="number" id="lm-width" value="${l.width}" min="1" max="1000">
     <label>Rows <small>(1 = string, >1 = matrix)</small></label>
     <input type="number" id="lm-height" value="${l.height}" min="1" max="100">
+    <div id="lm-matrix-opts" style="${l.height > 1 ? '' : 'display:none'}">
+      <label>Starting edge</label>
+      <select id="lm-matrixStart">
+        <option value="0"${(l.matrixStart||0)===0?' selected':''}>Top-left</option>
+        <option value="1"${(l.matrixStart||0)===1?' selected':''}>Top-right</option>
+        <option value="2"${(l.matrixStart||0)===2?' selected':''}>Bottom-left</option>
+        <option value="3"${(l.matrixStart||0)===3?' selected':''}>Bottom-right</option>
+      </select>
+      <label>LED direction from starting edge</label>
+      <select id="lm-matrixDir">
+        <option value="0"${(l.matrixDir||0)===0?' selected':''}>Horizontal (rows first)</option>
+        <option value="1"${(l.matrixDir||0)===1?' selected':''}>Vertical (columns first)</option>
+      </select>
+    </div>
     <button class="btn-primary" style="width:100%;margin-top:.75rem" onclick="saveLightModal()">Save &amp; Reboot</button>
   </div></div>`;
   overlay.style.display = 'block';
@@ -3202,6 +3216,12 @@ function _openLightModal(l) {
   }
   updateClockVisibility();
   lt.addEventListener('change', updateClockVisibility);
+
+  const heightInput   = overlay.querySelector('#lm-height');
+  const matrixOpts    = overlay.querySelector('#lm-matrix-opts');
+  heightInput.addEventListener('input', () => {
+    matrixOpts.style.display = parseInt(heightInput.value) > 1 ? '' : 'none';
+  });
 }
 
 async function saveLightModal() {
@@ -3210,8 +3230,10 @@ async function saveLightModal() {
     ledType:  parseInt(document.getElementById('lm-ledType').value),
     dataPin:  parseInt(document.getElementById('lm-dataPin').value),
     clockPin: parseInt(document.getElementById('lm-clockPin').value),
-    width:    parseInt(document.getElementById('lm-width').value) || 1,
-    height:   parseInt(document.getElementById('lm-height').value) || 1,
+    width:       parseInt(document.getElementById('lm-width').value) || 1,
+    height:      parseInt(document.getElementById('lm-height').value) || 1,
+    matrixStart: parseInt(document.getElementById('lm-matrixStart').value),
+    matrixDir:   parseInt(document.getElementById('lm-matrixDir').value),
   };
   const url = _editLightIndex === null ? '/api/lights/add' : '/api/lights/update';
   if (_editLightIndex !== null) body.index = _editLightIndex;

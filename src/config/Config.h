@@ -14,6 +14,18 @@ enum class LedType : uint8_t {
     WS2801  = 1,  // two-wire SPI
 };
 
+enum class MatrixStart : uint8_t {
+    TopLeft     = 0,
+    TopRight    = 1,
+    BottomLeft  = 2,
+    BottomRight = 3,
+};
+
+enum class MatrixDirection : uint8_t {
+    Horizontal = 0,  // rows first
+    Vertical   = 1,  // columns first
+};
+
 enum class PatternId : uint8_t {
     Static     = 0,
     Breathing  = 1,
@@ -74,10 +86,12 @@ struct LightHardwareConfig {
     LedType  ledType   = LedType::WS2812B;
     uint8_t  dataPin   = LED_DATA_PIN;
     uint8_t  clockPin  = LED_CLOCK_PIN;
-    uint16_t width     = 1;    // string length, or matrix columns
-    uint16_t height    = 1;    // 1 = string, >1 = matrix
-    uint8_t  groupId   = 0;    // which group's LightConfig this light follows
-    bool     exists    = false;
+    uint16_t        width       = 1;    // string length, or matrix columns
+    uint16_t        height      = 1;    // 1 = string, >1 = matrix
+    MatrixStart     matrixStart = MatrixStart::TopLeft;
+    MatrixDirection matrixDir   = MatrixDirection::Horizontal;
+    uint8_t         groupId     = 0;    // which group's LightConfig this light follows
+    bool            exists      = false;
 };
 
 struct DeviceConfig {
