@@ -44,7 +44,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
            cursor: pointer; transition: all .15s; }
 .tab.active { background: #2a6; color: #fff; border-color: #2a6; }
 
-/* Lights table */
+/* Connected lights */
 .lights-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .lights-table { width: 100%; border-collapse: collapse; font-size: .83rem; }
 .lights-table th { color: #555; font-weight: 500; text-align: left;
@@ -52,6 +52,93 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .lights-table td { padding: .4rem .4rem; border-bottom: 1px solid #1a1a1a;
                    vertical-align: middle; }
 .lights-table select { margin-bottom: 0; padding: .25rem .4rem; font-size: .8rem; }
+.lights-mobile-list { display: none; gap: .6rem; }
+.light-device-card {
+  background: #161616;
+  border: 1px solid #222;
+  border-radius: 8px;
+  padding: .8rem;
+}
+.light-device-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  margin-bottom: .65rem;
+}
+.light-device-title {
+  min-width: 0;
+  flex: 1;
+}
+.light-device-title-line {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  flex-wrap: wrap;
+}
+.light-device-name {
+  font-size: .95rem;
+  font-weight: 600;
+  color: #eee;
+  word-break: break-word;
+}
+.light-device-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: .32rem;
+  min-width: 0;
+}
+.light-device-icons > * {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  line-height: 1;
+}
+.light-device-icons .btn-fw-trigger {
+  display: inline-flex;
+  align-items: center;
+}
+.light-device-icons input[type=checkbox] {
+  width: auto;
+  margin: 0;
+  accent-color: #4af;
+  cursor: pointer;
+}
+.light-device-actions {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.light-device-actions button {
+  white-space: nowrap;
+}
+.light-device-lights {
+  display: grid;
+  gap: .45rem;
+}
+.light-device-light {
+  background: #111;
+  border: 1px solid #202020;
+  border-radius: 7px;
+  padding: .55rem;
+}
+.light-device-light-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .5rem;
+  margin-bottom: .35rem;
+}
+.light-device-light-name {
+  font-size: .75rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.light-device-light select { margin-bottom: 0; }
+.light-device-empty { color: #555; font-size: .78rem; }
+.light-device-actions { margin-top: .65rem; }
+.light-device-actions button { width: 100%; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
        margin-right: 5px; }
 .dot-on  { background: #4f4; }
@@ -94,6 +181,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   #tab-dashboard { margin-inline: -1rem; }
   #tab-dashboard .layout { gap: .5rem; }
   #tab-dashboard .card { border-radius: 0; }
+  .lights-table-wrap { display: none; }
+  .lights-mobile-list { display: grid; }
   .scene-item { flex-direction: column; align-items: stretch; }
 }
 @media (min-width: 920px) {
@@ -366,6 +455,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <tbody id="lights-body"><tr><td colspan="7" style="color:#444">Loading…</td></tr></tbody>
       </table>
     </div>
+    <div class="lights-mobile-list" id="lights-mobile-list"><div style="color:#444">Loading…</div></div>
   </div>
 
   <!-- GROUPS -->
@@ -1146,9 +1236,12 @@ function renderLights(self, peers) {
   const all = (self ? [{...self, isSelf: true}, ...peers] : peers)
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   const body = document.getElementById('lights-body');
+  const mobile = document.getElementById('lights-mobile-list');
+  const showSignal = _groups.some(g => g.mode === 2);
 
   if (!all.length) {
     body.innerHTML = '<tr><td colspan="7" style="color:#444">No lights found</td></tr>';
+    mobile.innerHTML = '<div class="light-device-empty">No lights found</div>';
     return;
   }
 
@@ -1159,7 +1252,7 @@ function renderLights(self, peers) {
 
   const fwSvg = (color) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg>`;
 
-  body.innerHTML = all.map(p => {
+  const rendered = all.map(p => {
     const online = p.online !== false;
     const dot = `<span class="dot ${online?'dot-on':'dot-off'}" title="${online?'Online':'Offline'}"></span>`;
     const selfTag = p.isSelf ? `<span class="self-tag">(this)</span>` : '';
@@ -1172,6 +1265,9 @@ function renderLights(self, peers) {
     const wifiColor = wifiOn ? '#4c4' : '#555';
     const wifiTitle = wifiOn ? 'WiFi connected' : 'WiFi not connected';
     const wifiIcon = `<span title="${wifiTitle}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
+    const signalIcon = showSignal && !p.isSelf
+      ? `<span title="Signal: ${rssiText}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
+      : '';
 
     const ver = p.version || '';
     let fwIconHtml = '–';
@@ -1221,16 +1317,59 @@ function renderLights(self, peers) {
           const label = `<span style="font-size:.72rem;color:#888;margin-right:.25rem">${lightLabel}</span>`;
           return `<div style="display:flex;align-items:center;gap:.25rem;margin-bottom:.2rem">${label}<select onchange="assignGroup('${mac}',${l.index},parseInt(this.value))">${opts}</select></div>`;
         }).join('');
-    return `<tr>
-      <td>${dot}${esc(p.name)}${selfTag}</td>
-      <td>${groupSelects}</td>
-      <td style="text-align:center">${wifiIcon}</td>
-      <td style="text-align:right;font-size:.78rem;color:#666;white-space:nowrap">${rssiText}</td>
-      <td style="text-align:center;color:#444;font-size:.78rem">${fwIconHtml}</td>
-      <td style="text-align:center">${syncCell}</td>
-      <td style="text-align:center">${pushCell}</td>
-    </tr>`;
-  }).join('');
+
+    const mobileLights = lights.length === 0
+      ? '<div class="light-device-empty">No lights exposed</div>'
+      : lights.map(l => {
+          const opts = _groups.map(g=>`<option value="${g.id}"${g.id===l.groupId?' selected':''}>${esc(g.name)}</option>`).join('');
+          const lightLabel = l.name ? esc(l.name) : `Light ${l.index}`;
+          return `<div class="light-device-light">
+            <div class="light-device-light-head">
+              <span class="light-device-light-name">${lightLabel}</span>
+            </div>
+            <select onchange="assignGroup('${mac}',${l.index},parseInt(this.value))">${opts}</select>
+          </div>`;
+        }).join('');
+
+    const mobileIcons = [
+      dot,
+      wifiIcon,
+      signalIcon,
+      ver ? fwIconHtml : '',
+      `<span title="Scene sync">${syncCell}</span>`
+    ].filter(Boolean).join('');
+
+    const mobileActions = pushCell
+      ? `<div class="light-device-actions">${pushCell}</div>`
+      : '';
+
+    return {
+      table: `<tr>
+        <td>${dot}${esc(p.name)}${selfTag}</td>
+        <td>${groupSelects}</td>
+        <td style="text-align:center">${wifiIcon}</td>
+        <td style="text-align:right;font-size:.78rem;color:#666;white-space:nowrap">${rssiText}</td>
+        <td style="text-align:center;color:#444;font-size:.78rem">${fwIconHtml}</td>
+        <td style="text-align:center">${syncCell}</td>
+        <td style="text-align:center">${pushCell}</td>
+      </tr>`,
+      mobile: `<div class="light-device-card">
+        <div class="light-device-header">
+          <div class="light-device-title">
+            <div class="light-device-title-line">
+              <span class="light-device-name">${esc(p.name)}</span>${selfTag}
+              <span class="light-device-icons">${mobileIcons}</span>
+            </div>
+          </div>
+          ${mobileActions}
+        </div>
+        <div class="light-device-lights">${mobileLights}</div>
+      </div>`
+    };
+  });
+
+  body.innerHTML = rendered.map(entry => entry.table).join('');
+  mobile.innerHTML = rendered.map(entry => entry.mobile).join('');
   _updateSignalColumn();
 }
 
