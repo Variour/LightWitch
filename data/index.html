@@ -1610,13 +1610,27 @@ async function deleteWifiNetwork(ssid) {
 }
 
 // ── Load config ───────────────────────────────────────────────────────────────
+async function _fetchSceneOptions() {
+  const res = await fetch('/api/scenes');
+  const d = await res.json();
+  return d.scenes || [];
+}
+
+function _refreshSceneOptionViews() {
+  if (_groups.length) renderGroups(_groups);
+}
+
+async function _refreshSceneOptions() {
+  _sceneOptions = await _fetchSceneOptions();
+  _refreshSceneOptionViews();
+  return _sceneOptions;
+}
+
 async function loadConfig() {
   const res = await fetch('/api/config');
   const d   = await res.json();
   _localConfig = d;
-  const scenesRes = await fetch('/api/scenes');
-  const scenesData = await scenesRes.json();
-  _sceneOptions = scenesData.scenes || [];
+  await _refreshSceneOptions();
   _selfMac  = d.mac || '';
   document.getElementById('deviceName').value = d.deviceName || '';
   document.getElementById('otaPort').value    = d.otaPort    || 3232;
@@ -1786,15 +1800,16 @@ function showSceneView(view, sceneId = null, pushHistory = true) {
 
 // ── Scene list ────────────────────────────────────────────────────────────────
 async function _loadScenes() {
-  const [scenesRes, conflictsRes] = await Promise.all([
-    fetch('/api/scenes'),
+  const [scenes, conflictsRes] = await Promise.all([
+    _fetchSceneOptions(),
     fetch('/api/scenes/sync/conflicts'),
   ]);
-  const d  = await scenesRes.json();
+  _sceneOptions = scenes;
+  _refreshSceneOptionViews();
   const cd = await conflictsRes.json();
   _syncConflicts  = cd.conflicts  || [];
   _syncPeerScenes = cd.peerScenes || [];
-  _renderSceneList(d.scenes || []);
+  _renderSceneList(scenes);
 }
 
 function _renderSceneList(scenes) {
@@ -1838,6 +1853,7 @@ async function showCreateScene() {
     body: JSON.stringify({id: d.id, name: d.id, w: 20, h: 10, fc: 1,
       frames: [Array.from({length: 200}, () => '000000')]})
   });
+  await _refreshSceneOptions();
   await _openEditor(d.id);
 }
 
@@ -2903,6 +2919,7 @@ async function saveScene() {
   });
   const d = await res.json();
   if (d.ok) {
+    await _refreshSceneOptions();
     _modified = false;
     clearTimeout(_autoSaveTimer);
     _setSaveBtnState(false);
