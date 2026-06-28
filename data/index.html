@@ -799,14 +799,27 @@ const PATTERNS = [
 ];
 
 // ── Tab navigation ────────────────────────────────────────────────────────────
-function switchTab(tab, pushHistory = true) {
+const TAB_PATHS = {
+  dashboard: '/dashboard',
+  scenes: '/scenes',
+  settings: '/settings',
+};
+
+function _showTab(tab) {
   document.getElementById('tab-dashboard').style.display = tab === 'dashboard' ? '' : 'none';
   document.getElementById('tab-scenes').style.display    = tab === 'scenes'    ? '' : 'none';
   document.getElementById('tab-settings').style.display  = tab === 'settings'  ? '' : 'none';
   document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-btn-' + tab).classList.add('active');
-  if (tab === 'dashboard' && pushHistory) history.pushState(null, '', '/');
-  if (tab === 'scenes') showSceneView('list', null, pushHistory);
+}
+
+function switchTab(tab, pushHistory = true) {
+  _showTab(tab);
+  if (tab === 'scenes') {
+    showSceneView('list', null, pushHistory);
+    return;
+  }
+  if (pushHistory) history.pushState(null, '', TAB_PATHS[tab] || '/dashboard');
 }
 
 // ── Groups UI ─────────────────────────────────────────────────────────────────
@@ -2909,37 +2922,29 @@ function backToSceneList() {
 // ── Routing ───────────────────────────────────────────────────────────────────
 function _routeFromPath(path) {
   if (path === '/' || path === '') {
-    // show dashboard without pushing a new history entry
-    document.getElementById('tab-dashboard').style.display = '';
-    document.getElementById('tab-scenes').style.display    = 'none';
-    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-    document.getElementById('tab-btn-dashboard').classList.add('active');
+    history.replaceState(null, '', '/dashboard');
+    _routeFromPath('/dashboard');
+  } else if (path === '/dashboard') {
+    _showTab('dashboard');
+  } else if (path === '/settings') {
+    _showTab('settings');
   } else if (path === '/scenes') {
-    document.getElementById('tab-dashboard').style.display = 'none';
-    document.getElementById('tab-scenes').style.display    = '';
-    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-    document.getElementById('tab-btn-scenes').classList.add('active');
+    _showTab('scenes');
     showSceneView('list', null, false);
   } else if (path === '/scenes/create') {
-    document.getElementById('tab-dashboard').style.display = 'none';
-    document.getElementById('tab-scenes').style.display    = '';
-    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-    document.getElementById('tab-btn-scenes').classList.add('active');
+    _showTab('scenes');
     showSceneView('create', null, false);
   } else if (path.startsWith('/scenes/') && path !== '/scenes/create') {
     const id = decodeURIComponent(path.slice('/scenes/'.length));
     if (id) {
-      document.getElementById('tab-dashboard').style.display = 'none';
-      document.getElementById('tab-scenes').style.display    = '';
-      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-      document.getElementById('tab-btn-scenes').classList.add('active');
+      _showTab('scenes');
       _openEditor(id, false);
     } else {
       _routeFromPath('/scenes');
     }
   } else {
-    history.replaceState(null, '', '/');
-    _routeFromPath('/');
+    history.replaceState(null, '', '/dashboard');
+    _routeFromPath('/dashboard');
   }
 }
 
