@@ -45,6 +45,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .tab.active { background: #2a6; color: #fff; border-color: #2a6; }
 
 /* Lights table */
+.lights-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .lights-table { width: 100%; border-collapse: collapse; font-size: .83rem; }
 .lights-table th { color: #555; font-weight: 500; text-align: left;
                    padding: .3rem .4rem; border-bottom: 1px solid #222; }
@@ -89,6 +90,12 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
 /* Responsive two-column layout for larger screens */
 .layout { display: grid; grid-template-columns: 1fr; gap: .75rem; }
+@media (max-width: 640px) {
+  #tab-dashboard { margin-inline: -1rem; }
+  #tab-dashboard .layout { gap: .5rem; }
+  #tab-dashboard .card { border-radius: 0; }
+  .scene-item { flex-direction: column; align-items: stretch; }
+}
 @media (min-width: 920px) {
   body  { max-width: 1160px; }
   .layout { grid-template-columns: 1fr 1fr; align-items: start; }
@@ -96,9 +103,13 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
 /* ── Scenes ─────────────────────────────────────────────────── */
 .scene-item { display: flex; justify-content: space-between; align-items: center;
-              padding: .5rem 0; border-bottom: 1px solid #1a1a1a; }
+              gap: .75rem; padding: .5rem 0; border-bottom: 1px solid #1a1a1a; }
 .scene-item:last-child { border-bottom: none; }
+.scene-main { min-width: 0; }
 .scene-meta { font-size: .78rem; color: #555; margin-left: .5rem; }
+.scene-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+.scene-editor-meta { font-size: .72rem; color: #666; margin-bottom: .5rem; word-break: break-all; }
+.scene-editor-meta code { font-family: monospace; color: #aaa; }
 .conflict-badge { display:inline-block; background:#933; color:#fff;
                   font-size:.65rem; font-weight:700; padding:.1rem .35rem;
                   border-radius:4px; vertical-align:middle; margin-left:.4rem; }
@@ -305,17 +316,19 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
   <!-- CONNECTED LIGHTS -->
   <div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem;gap:.5rem;flex-wrap:wrap">
       <h2 style="margin:0">Connected Lights</h2>
-      <div style="display:flex;gap:.5rem">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
         <button class="btn-ghost btn-sm" onclick="meshSearch()" title="Search for mesh peers on other channels">Search channel</button>
         <button class="btn-ghost btn-sm" onclick="openPushModal(null)" title="Push settings to all peers">Push config to all</button>
       </div>
     </div>
-    <table class="lights-table">
-      <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
-      <tbody id="lights-body"><tr><td colspan="7" style="color:#444">Loading…</td></tr></tbody>
-    </table>
+    <div class="lights-table-wrap">
+      <table class="lights-table">
+        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
+        <tbody id="lights-body"><tr><td colspan="7" style="color:#444">Loading…</td></tr></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- GROUPS -->
@@ -446,6 +459,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <button id="se-save-btn" class="btn-ghost btn-sm" onclick="saveScene()" disabled>Save</button>
       </div>
     </div>
+    <div class="scene-editor-meta">Scene ID: <code id="se-scene-id"></code></div>
 
     <!-- Editor body -->
 
@@ -1840,11 +1854,11 @@ function _renderSceneList(scenes) {
       : '';
     return `
     <div class="scene-item">
-      <div>
+      <div class="scene-main">
         <strong>${esc(s.name)}</strong>${badge}
-        <span class="scene-meta">ID: ${esc(s.id)} · ${s.w}×${s.h} · ${s.fc} frame${s.fc!==1?'s':''}</span>
+        <span class="scene-meta">${s.w}×${s.h} · ${s.fc} frame${s.fc!==1?'s':''}</span>
       </div>
-      <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+      <div class="scene-actions">
         ${resolveBtn}
         <button class="btn-ghost btn-sm" onclick="downloadSceneFromList('${s.id}')">⬇ JSON</button>
         <button class="btn-ghost btn-sm" onclick="openEditor('${s.id}')">Edit</button>
@@ -2062,6 +2076,7 @@ function _frameToHex(cells) {
 // ── Render editor ─────────────────────────────────────────────────────────────
 function _renderEditor() {
   document.getElementById('se-name').value = _editScene.name;
+  document.getElementById('se-scene-id').textContent = _editScene.id || '';
   document.getElementById('se-width').value = _editScene.w;
   document.getElementById('se-height').value = _editScene.h;
   // Ensure swatch reflects current paint color
