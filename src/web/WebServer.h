@@ -314,6 +314,17 @@ public:
         // fall through serveStatic's default-file fallback and generate log noise.
         _server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest* r){ r->send(204); });
 
+        // Client-side tab routes must serve the SPA shell so direct browser
+        // navigation to /dashboard, /settings, /scenes, or /scenes/<id>
+        // does not 404 before the frontend router takes over.
+        auto sendIndex = [](AsyncWebServerRequest* r) {
+            r->send(LittleFS, "/index.html", "text/html");
+        };
+        _server.on(AsyncURIMatcher::exact("/dashboard"), HTTP_GET, sendIndex);
+        _server.on(AsyncURIMatcher::exact("/settings"), HTTP_GET, sendIndex);
+        _server.on(AsyncURIMatcher::exact("/scenes"), HTTP_GET, sendIndex);
+        _server.on(AsyncURIMatcher::dir("/scenes"), HTTP_GET, sendIndex);
+
         // Static files last — catches everything not matched above
         _server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
 
