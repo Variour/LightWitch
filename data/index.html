@@ -2120,7 +2120,7 @@ function _renderFrameList() {
   _refreshWrapFrameSelect();
 }
 
-async function addFrame() {
+function addFrame() {
   const w = parseInt(_editScene?.w, 10);
   const h = parseInt(_editScene?.h, 10);
   const size = Number.isFinite(w) && Number.isFinite(h) ? w * h : 0;
@@ -2132,10 +2132,9 @@ async function addFrame() {
 
   _pushHistory();
   _editScene.frames.push(Array.from({ length: size }, () => '#000000'));
-  _modified = true;
   _renderFrameList();
   _renderGrid();
-  await saveScene();
+  _markModified();
 }
 
 function deleteFrame(index) {
