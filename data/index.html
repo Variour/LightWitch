@@ -108,8 +108,45 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .scene-main { min-width: 0; }
 .scene-meta { font-size: .78rem; color: #555; margin-left: .5rem; }
 .scene-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+.scene-editor-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas:
+    "back back"
+    "title title"
+    "undo save";
+  gap: .5rem;
+  margin-bottom: .5rem;
+  align-items: stretch;
+}
+.scene-editor-header .card {
+  margin-bottom: 0;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.scene-editor-header button {
+  width: 100%;
+}
+.scene-editor-header input {
+  margin-bottom: 0;
+}
+.scene-editor-back-card { grid-area: back; }
+.scene-editor-title-card { grid-area: title; }
+.scene-editor-title-card input { flex: 1; min-width: 0; }
+.scene-editor-undo-card { grid-area: undo; }
+.scene-editor-save-card { grid-area: save; }
 .scene-editor-meta { font-size: .72rem; color: #666; margin-bottom: .5rem; word-break: break-all; }
 .scene-editor-meta code { font-family: monospace; color: #aaa; }
+@media (min-width: 700px) {
+  .scene-editor-header {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "back title undo save";
+  }
+  .scene-editor-header button {
+    width: auto;
+  }
+}
 .conflict-badge { display:inline-block; background:#933; color:#fff;
                   font-size:.65rem; font-weight:700; padding:.1rem .35rem;
                   border-radius:4px; vertical-align:middle; margin-left:.4rem; }
@@ -445,17 +482,17 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   <div id="scene-view-editor" style="display:none">
 
     <!-- Editor header -->
-    <div style="display:flex;gap:.5rem;align-items:stretch;margin-bottom:.5rem">
-      <div class="card" style="margin-bottom:0;display:flex;align-items:center">
+    <div class="scene-editor-header">
+      <div class="card scene-editor-back-card">
         <button class="btn-ghost btn-sm" onclick="backToSceneList()">← Scenes</button>
       </div>
-      <div class="card" style="margin-bottom:0;flex:1;display:flex;align-items:center">
-        <input type="text" id="se-name" style="flex:1;margin-bottom:0" placeholder="Scene name" oninput="_markModified()">
+      <div class="card scene-editor-title-card">
+        <input type="text" id="se-name" placeholder="Scene name" oninput="_markModified()">
       </div>
-      <div class="card" style="margin-bottom:0;display:flex;align-items:center">
+      <div class="card scene-editor-undo-card">
         <button id="se-undo-btn" class="btn-ghost btn-sm" onclick="undoScene()" disabled title="Undo (Ctrl+Z)">↩ Undo <span id="se-undo-count" style="opacity:.5"></span></button>
       </div>
-      <div class="card" style="margin-bottom:0;display:flex;align-items:center">
+      <div class="card scene-editor-save-card">
         <button id="se-save-btn" class="btn-ghost btn-sm" onclick="saveScene()" disabled>Save</button>
       </div>
     </div>
