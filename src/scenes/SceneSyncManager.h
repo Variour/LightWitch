@@ -65,7 +65,7 @@ public:
     void onSceneEditPush(const uint8_t* mac, const char* id, uint32_t prevHash) {
         if (!Config::get().sceneSyncEnabled) return;
 
-        // If already receiving this scene, treat the second push as a conflict
+        // If already receiving this scene, a second push while in-flight is a conflict
         if (_findRecv(id)) {
             Logger::w("[sync] SceneEditPush for %s already in-flight, treating as conflict", id);
             uint32_t localHash = SceneManager::crc32(id);
