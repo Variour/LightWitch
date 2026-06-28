@@ -24,8 +24,10 @@ private:
 
     static void _vlog(LogLevel level, const char* fmt, va_list args) {
         if (level < _minLevel) return;
-        char buf[256];
-        vsnprintf(buf, sizeof(buf), fmt, args);
+        char msg[256];
+        vsnprintf(msg, sizeof(msg), fmt, args);
+        char buf[272];
+        snprintf(buf, sizeof(buf), "[%lu] %s", millis(), msg);
         for (auto& s : _sinks) s(level, buf);
     }
 };
