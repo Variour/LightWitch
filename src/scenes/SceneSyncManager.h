@@ -65,8 +65,13 @@ public:
     void onSceneEditPush(const uint8_t* mac, const char* id, uint32_t prevHash) {
         if (!Config::get().sceneSyncEnabled) return;
 
-        // If already receiving this scene, ignore the duplicate push (sender retransmits for reliability)
-        if (_findRecv(id)) return;
+        // If already receiving this scene, a second push while in-flight is a conflict
+        if (_findRecv(id)) {
+            Logger::w("[sync] SceneEditPush for %s already in-flight, treating as conflict", id);
+            uint32_t localHash = SceneManager::crc32(id);
+            _registerConflict(id, localHash, mac, 0);
+            return;
+        }
 
         uint32_t localHash = SceneManager::crc32(id);
         bool tombstoned = SceneManager::isTombstone(id);

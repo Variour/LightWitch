@@ -757,7 +757,6 @@ private:
             auto e = _makeErr("create failed"); _sendJson(r, 500, e); return;
         }
         Logger::i("[scene] create: ok id=%s", id.c_str());
-        if (_sceneSync) _sceneSync->onSceneChanged(id.c_str(), 0);
         JsonDocument resp;
         resp["ok"] = true;
         resp["id"] = id;
