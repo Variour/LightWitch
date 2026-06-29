@@ -66,6 +66,30 @@ const mockUpdate = {
   error: null,
 };
 
+let _rebooting = false;
+
+// Simulate a device reboot: drop WS connections, block API for ~4 s, then
+// come back online with the new version.
+//
+// Delayed 1.5 s before going offline so the browser's next 1-s poll can still
+// see state='done' and set _otaRebooting before requests start returning 503.
+// WS reconnects are also rejected while rebooting (see wss.on('connection')).
+function simulateReboot(newVersion) {
+  setTimeout(() => {
+    _rebooting = true;
+    wss.clients.forEach(c => c.terminate());
+    setTimeout(() => {
+      MOCK_CONFIG.version       = newVersion;
+      MOCK_SELF.version         = newVersion;
+      mockUpdate.currentVersion = newVersion;
+      mockUpdate.latestVersion  = newVersion;
+      mockUpdate.hasUpdate      = false;
+      mockUpdate.state          = 'idle';
+      _rebooting = false;
+    }, 4000);
+  }, 1500);
+}
+
 // Resolve the simulated boot check after 3 s — exercises the poll-while-checking
 // path and causes the update badge to appear without any user action.
 setTimeout(() => {
@@ -80,6 +104,11 @@ app.use(express.json());
 app.use('/auth', authRouter);
 app.use(requireAuth);
 app.use(express.static(DATA_DIR));
+
+app.use('/api', (req, res, next) => {
+  if (_rebooting) return res.status(503).json({ error: 'device rebooting' });
+  next();
+});
 
 app.get('/api/config', (_req, res) => res.json(MOCK_CONFIG));
 app.post('/api/config', (_req, res) => res.json({ ok: true }));
@@ -226,6 +255,7 @@ app.post('/api/update/apply', (_req, res) => {
     if (p >= 100) {
       clearInterval(iv);
       mockUpdate.state = 'done';
+      simulateReboot(mockUpdate.latestVersion);
     }
   }, 500);
 });
@@ -259,6 +289,7 @@ const server = http.createServer(app);
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 wss.on('connection', ws => {
+  if (_rebooting) { ws.terminate(); return; }
   const send = data => ws.send(JSON.stringify(data));
   send({ t: 'log', l: 'I', m: 'Mock server connected' });
   send({ t: 'log', l: 'I', m: 'This is a development mock — no hardware attached' });
