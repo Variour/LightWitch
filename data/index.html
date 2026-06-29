@@ -3392,6 +3392,9 @@ function renderLightsHw(lights) {
       ? `data GPIO${l.dataPin}, clock GPIO${l.clockPin}`
       : `data GPIO${l.dataPin}`;
     const label = l.name ? l.name : `Light ${l.index}`;
+    const testBtn = l.height > 1
+      ? `<button class="btn-ghost btn-sm" onclick="testLight(${l.index})" title="Flash a test pattern to verify matrix orientation">Test</button>`
+      : '';
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div>
@@ -3399,6 +3402,7 @@ function renderLightsHw(lights) {
           <span style="color:#888;font-size:.82rem;margin-left:.5rem">${LED_TYPE_NAMES[l.ledType] || 'Unknown'}</span>
         </div>
         <div style="display:flex;gap:.4rem">
+          ${testBtn}
           <button class="btn-ghost btn-sm" onclick="openEditLightModal(${JSON.stringify(l).replace(/"/g,'&quot;')})">Edit</button>
           <button class="btn-ghost btn-sm" style="color:#c44" onclick="deleteLight(${l.index})">Delete</button>
         </div>
@@ -3410,14 +3414,22 @@ function renderLightsHw(lights) {
 
 // Light add/edit modal (reused for both)
 let _editLightIndex = null;
+let _originalLight  = null;
+
+async function testLight(index) {
+  const res = await fetch('/api/lights/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
+  if (!res.ok) { const d = await res.json().catch(()=>({})); alert('Error: ' + (d.error || res.status)); }
+}
 
 function openAddLightModal() {
   _editLightIndex = null;
+  _originalLight  = null;
   _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0});
 }
 
 function openEditLightModal(l) {
   _editLightIndex = l.index;
+  _originalLight  = l;
   _openLightModal(l);
 }
 
@@ -3460,7 +3472,7 @@ function _openLightModal(l) {
         <option value="1"${(l.matrixDir||0)===1?' selected':''}>Vertical (columns first)</option>
       </select>
     </div>
-    <button class="btn-primary" style="width:100%;margin-top:.75rem" onclick="saveLightModal()">Save &amp; Reboot</button>
+    <button id="lm-save-btn" class="btn-primary" style="width:100%;margin-top:.75rem" onclick="saveLightModal()">Save &amp; Reboot</button>
   </div></div>`;
   overlay.style.display = 'block';
   document.body.appendChild(overlay);
@@ -3481,7 +3493,27 @@ function _openLightModal(l) {
   const matrixOpts    = overlay.querySelector('#lm-matrix-opts');
   heightInput.addEventListener('input', () => {
     matrixOpts.style.display = parseInt(heightInput.value) > 1 ? '' : 'none';
+    _updateSaveBtn(overlay);
   });
+
+  // Dynamic save button label: "Save & Reboot" if hardware fields changed, "Save" otherwise
+  function _updateSaveBtn(ov) {
+    if (_editLightIndex === null || !_originalLight) return; // add modal always reboots
+    const o = _originalLight;
+    const needsReboot =
+      parseInt(ov.querySelector('#lm-ledType').value)  !== o.ledType  ||
+      parseInt(ov.querySelector('#lm-dataPin').value)   !== o.dataPin  ||
+      parseInt(ov.querySelector('#lm-clockPin').value)  !== o.clockPin ||
+      parseInt(ov.querySelector('#lm-width').value)     !== o.width    ||
+      parseInt(ov.querySelector('#lm-height').value)    !== o.height;
+    const btn = ov.querySelector('#lm-save-btn');
+    if (btn) btn.textContent = needsReboot ? 'Save & Reboot' : 'Save';
+  }
+  ['lm-ledType','lm-dataPin','lm-clockPin','lm-width','lm-height'].forEach(id => {
+    const el = overlay.querySelector('#' + id);
+    if (el) { el.addEventListener('change', () => _updateSaveBtn(overlay)); el.addEventListener('input', () => _updateSaveBtn(overlay)); }
+  });
+  _updateSaveBtn(overlay);
 }
 
 async function saveLightModal() {

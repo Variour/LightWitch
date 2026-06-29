@@ -387,6 +387,16 @@ void setup() {
             if (_leds[i]) _runners[i].notifySceneUpdated(id);
     };
     webServer.setOnSceneSaved(notifySceneUpdated);
+
+    webServer.setOnTestLight([](uint8_t idx) {
+        if (idx < MAX_LIGHTS && _leds[idx]) _runners[idx].showTest(5000);
+    });
+    webServer.setOnOrientationChange([](uint8_t idx) {
+        if (idx < MAX_LIGHTS && _leds[idx]) {
+            auto& l = Config::get().lights[idx];
+            _runners[idx].setMatrixLayout(l.matrixStart, l.matrixDir);
+        }
+    });
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
     Logger::i("[sys] ready");
