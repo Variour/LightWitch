@@ -1877,11 +1877,17 @@ function appendLog(level, msg) {
   log.scrollTop = log.scrollHeight;
 }
 
+let _wsEverConnected = false;
+
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws  = new WebSocket(proto + '//' + location.host + '/ws');
   const st  = document.getElementById('ws-status');
-  ws.onopen  = () => { st.textContent = 'WebSocket: connected'; st.style.color='#4af'; };
+  ws.onopen  = () => {
+    st.textContent = 'WebSocket: connected'; st.style.color='#4af';
+    if (_wsEverConnected) loadConfig();
+    _wsEverConnected = true;
+  };
   ws.onclose = () => { st.textContent = 'WebSocket: disconnected — retrying…'; st.style.color='#933'; setTimeout(connectWs, 3000); };
   ws.onmessage = ev => {
     try {
