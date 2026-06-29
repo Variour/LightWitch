@@ -1687,6 +1687,7 @@ async function factoryReset() {
 let _updPollTimer = null;
 let _selfHasUpdate = false;
 let _selfLatestVersion = '';
+let _otaRebooting = false;
 
 function _updSetStatus(text, color) {
   const el = document.getElementById('upd-status');
@@ -1751,6 +1752,7 @@ function _updApplyStatus(data) {
     _updSetStatus('Update complete. Rebooting…', '#4f4');
     progressWrap.style.display = 'none';
     applyBtn.style.display     = 'none';
+    _otaRebooting = true;
   } else if (data.state === 'error') {
     _updSetStatus('Error: ' + (data.error || 'unknown'), '#f66');
     progressWrap.style.display = 'none';
@@ -1885,7 +1887,17 @@ function connectWs() {
   const st  = document.getElementById('ws-status');
   ws.onopen  = () => {
     st.textContent = 'WebSocket: connected'; st.style.color='#4af';
-    if (_wsEverConnected) loadConfig();
+    if (_wsEverConnected) {
+      if (_otaRebooting) {
+        _otaRebooting = false;
+        loadConfig().then(() => {
+          const ver = document.getElementById('upd-current').textContent;
+          _updSetStatus(ver ? `Firmware updated — now running v${ver}` : 'Firmware updated — device back online', '#4f4');
+        });
+      } else {
+        loadConfig();
+      }
+    }
     _wsEverConnected = true;
   };
   ws.onclose = () => { st.textContent = 'WebSocket: disconnected — retrying…'; st.style.color='#933'; setTimeout(connectWs, 3000); };
