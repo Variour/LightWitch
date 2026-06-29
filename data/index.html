@@ -1401,6 +1401,7 @@ function triggerSelfUpdate(btn, mac) {
   _fwTriggered.add(mac);
   fetch('/api/update/trigger', {method:'POST'}).catch(() => {});
   renderLights(_self, _peers);
+  _updPollStatus();
 }
 
 async function checkPeerUpdate(btn, mac) {
@@ -1421,7 +1422,7 @@ async function checkPeerUpdate(btn, mac) {
 function checkSelfUpdate(btn) {
   btn.disabled = true;
   fetch('/api/update/check', {method:'POST'}).catch(() => {});
-  setTimeout(() => { btn.disabled = false; }, 2000);
+  _updPollStatus();
 }
 
 function assignGroup(mac, lightIndex, groupId) {

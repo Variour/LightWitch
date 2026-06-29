@@ -33,7 +33,7 @@ const MOCK_CONFIG = {
   ],
 };
 
-const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', lights: [{ index: 0, name: 'Living room', groupId: 0, ledType: 0, width: 1, height: 1 }, { index: 1, name: 'Bedroom', groupId: 1, ledType: 1, width: 8, height: 8 }], online: true,  sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  };
+const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', lights: [{ index: 0, name: 'Living room', groupId: 0, ledType: 0, width: 1, height: 1 }, { index: 1, name: 'Bedroom', groupId: 1, ledType: 1, width: 8, height: 8 }], online: true,  sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'checking' };
 const MOCK_PEERS = [
   { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.01.01.0', fwState: 'idle'  },
   { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, version: '2026.01.01.0', fwState: 'idle'  },
@@ -68,6 +68,12 @@ const mockUpdate = {
 
 let _rebooting = false;
 
+// Broadcast current self+peers state to all connected WS clients.
+function broadcastPeers() {
+  const msg = JSON.stringify({ t: 'peers', self: MOCK_SELF, peers: MOCK_PEERS });
+  wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
+}
+
 // Simulate a device reboot: drop WS connections, block API for ~4 s, then
 // come back online with the new version.
 //
@@ -75,12 +81,15 @@ let _rebooting = false;
 // see state='done' and set _otaRebooting before requests start returning 503.
 // WS reconnects are also rejected while rebooting (see wss.on('connection')).
 function simulateReboot(newVersion) {
+  MOCK_SELF.fwState = 'done';
+  broadcastPeers();
   setTimeout(() => {
     _rebooting = true;
     wss.clients.forEach(c => c.terminate());
     setTimeout(() => {
       MOCK_CONFIG.version       = newVersion;
       MOCK_SELF.version         = newVersion;
+      MOCK_SELF.fwState         = 'idle';
       mockUpdate.currentVersion = newVersion;
       mockUpdate.latestVersion  = newVersion;
       mockUpdate.hasUpdate      = false;
@@ -90,12 +99,44 @@ function simulateReboot(newVersion) {
   }, 1500);
 }
 
+// Simulate a peer running through the full OTA update cycle.
+function simulatePeerUpdateCycle(peer) {
+  const newVersion = MOCK_SELF.version;
+  peer.fwState = 'checking';
+  broadcastPeers();
+  setTimeout(() => {
+    peer.fwState = 'downloading';
+    broadcastPeers();
+    setTimeout(() => {
+      peer.fwState = 'done';
+      peer.version = newVersion;
+      broadcastPeers();
+      setTimeout(() => {
+        peer.fwState = 'idle';
+        broadcastPeers();
+      }, 3000);
+    }, 5000);
+  }, 2000);
+}
+
+// Simulate a peer checking for updates (no install).
+function simulatePeerCheckCycle(peer) {
+  peer.fwState = 'checking';
+  broadcastPeers();
+  setTimeout(() => {
+    peer.fwState = 'idle';
+    broadcastPeers();
+  }, 2000);
+}
+
 // Resolve the simulated boot check after 3 s — exercises the poll-while-checking
 // path and causes the update badge to appear without any user action.
 setTimeout(() => {
-  mockUpdate.state = 'idle';
+  mockUpdate.state         = 'idle';
   mockUpdate.latestVersion = '9999.99.99.0';
-  mockUpdate.hasUpdate = true;
+  mockUpdate.hasUpdate     = true;
+  MOCK_SELF.fwState        = 'idle';
+  broadcastPeers();
 }, 3000);
 
 const app = express();
@@ -144,12 +185,14 @@ app.post('/api/peers/triggerupdate', (req, res) => {
   const peer = MOCK_PEERS.find(p => p.mac === mac);
   if (peer && !peer.wifiConnected) return res.status(409).json({ error: 'peer not connected to WiFi' });
   res.json({ ok: true });
+  if (peer) simulatePeerUpdateCycle(peer);
 });
 app.post('/api/peers/checkupdate', (req, res) => {
   const { mac } = req.body || {};
   const peer = MOCK_PEERS.find(p => p.mac === mac);
   if (peer && !peer.wifiConnected) return res.status(409).json({ error: 'peer not connected to WiFi' });
   res.json({ ok: true });
+  if (peer) simulatePeerCheckCycle(peer);
 });
 
 app.get('/api/scenes', (_req, res) => {
@@ -238,13 +281,17 @@ app.get('/api/update/status', (_req, res) => {
 });
 
 app.post('/api/update/check', (_req, res) => {
-  mockUpdate.state = 'checking';
-  mockUpdate.error = null;
+  mockUpdate.state  = 'checking';
+  mockUpdate.error  = null;
+  MOCK_SELF.fwState = 'checking';
+  broadcastPeers();
   res.json({ ok: true });
   setTimeout(() => {
-    mockUpdate.state = 'idle';
+    mockUpdate.state         = 'idle';
     mockUpdate.latestVersion = '1.2.0';
-    mockUpdate.hasUpdate = true;
+    mockUpdate.hasUpdate     = true;
+    MOCK_SELF.fwState        = 'idle';
+    broadcastPeers();
   }, 2000);
 });
 
@@ -252,8 +299,10 @@ app.post('/api/update/apply', (_req, res) => {
   if (!mockUpdate.hasUpdate) {
     return res.status(400).json({ error: 'no update available' });
   }
-  mockUpdate.state = 'downloading';
+  mockUpdate.state    = 'downloading';
   mockUpdate.progress = 0;
+  MOCK_SELF.fwState   = 'downloading';
+  broadcastPeers();
   res.json({ ok: true });
   let p = 0;
   const iv = setInterval(() => {
@@ -271,21 +320,31 @@ app.post('/api/update/trigger', (_req, res) => {
   res.json({ ok: true });
   if (mockUpdate.hasUpdate) {
     // Simulate the apply flow
-    mockUpdate.state = 'downloading';
+    mockUpdate.state    = 'downloading';
     mockUpdate.progress = 0;
+    MOCK_SELF.fwState   = 'downloading';
+    broadcastPeers();
     let p = 0;
     const iv = setInterval(() => {
       p += 10;
       mockUpdate.progress = p;
-      if (p >= 100) { clearInterval(iv); mockUpdate.state = 'done'; }
+      if (p >= 100) {
+        clearInterval(iv);
+        mockUpdate.state = 'done';
+        simulateReboot(mockUpdate.latestVersion);
+      }
     }, 500);
   } else {
     // Simulate check then apply
-    mockUpdate.state = 'checking';
+    mockUpdate.state  = 'checking';
+    MOCK_SELF.fwState = 'checking';
+    broadcastPeers();
     setTimeout(() => {
-      mockUpdate.state = 'idle';
+      mockUpdate.state         = 'idle';
       mockUpdate.latestVersion = '9999.99.99.0';
-      mockUpdate.hasUpdate = true;
+      mockUpdate.hasUpdate     = true;
+      MOCK_SELF.fwState        = 'idle';
+      broadcastPeers();
     }, 2000);
   }
 });
