@@ -33,6 +33,10 @@ using CheckPeerUpdateCb   = std::function<void(const uint8_t* mac)>;
 using MeshSearchCb        = std::function<void()>;
 // Called after a scene file is successfully written (locally or via mesh)
 using SceneSavedCb        = std::function<void(const char* sceneId)>;
+// Called to run a test pattern on a specific light index
+using TestLightCb         = std::function<void(uint8_t)>;
+// Called when matrix orientation (matrixStart/matrixDir) changes without reboot
+using OrientationChangeCb = std::function<void(uint8_t)>;
 
 class BatteryWebServer {
 private:
@@ -124,6 +128,8 @@ public:
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _updateLight(r,d,l); });
         _server.on("/api/lights/delete", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _deleteLight(r,d,l); });
+        _server.on("/api/lights/test", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _testLight(r,d,l); });
 
         // ── Scene API ─────────────────────────────────────────────────────────
         // Specific routes must be registered before /api/scenes because
@@ -339,7 +345,9 @@ public:
     // Called from main when peer list changes (via mesh callback)
     void pushPeers()  { _pushPeers(); }
     void pushGroups() { _pushGroups(); }
-    void setOnSceneSaved(SceneSavedCb cb) { _onSceneSaved = cb; }
+    void setOnSceneSaved(SceneSavedCb cb)           { _onSceneSaved          = cb; }
+    void setOnTestLight(TestLightCb cb)              { _onTestLight           = cb; }
+    void setOnOrientationChange(OrientationChangeCb cb) { _onOrientationChange = cb; }
 
 private:
     AsyncWebServer   _server{80};
@@ -359,6 +367,8 @@ private:
     MeshSearchCb        _onMeshSearch;
     SceneSyncManager*   _sceneSync = nullptr;
     SceneSavedCb        _onSceneSaved;
+    TestLightCb         _onTestLight;
+    OrientationChangeCb _onOrientationChange;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -1158,8 +1168,9 @@ private:
         if (!doc["clockPin"].isNull()) { l.clockPin = doc["clockPin"]; hwChanged = true; }
         if (!doc["width"].isNull())       { l.width       = max((uint16_t)1, (uint16_t)doc["width"]);                      hwChanged = true; }
         if (!doc["height"].isNull())      { l.height      = max((uint16_t)1, (uint16_t)doc["height"]);                     hwChanged = true; }
-        if (!doc["matrixStart"].isNull()) { l.matrixStart = (MatrixStart)(uint8_t)doc["matrixStart"];                      hwChanged = true; }
-        if (!doc["matrixDir"].isNull())   { l.matrixDir   = (MatrixDirection)(uint8_t)doc["matrixDir"];                    hwChanged = true; }
+        bool orientationChanged = false;
+        if (!doc["matrixStart"].isNull()) { l.matrixStart = (MatrixStart)(uint8_t)doc["matrixStart"];       orientationChanged = true; }
+        if (!doc["matrixDir"].isNull())   { l.matrixDir   = (MatrixDirection)(uint8_t)doc["matrixDir"];     orientationChanged = true; }
         // groupId change: soft config, no restart needed
         if (!doc["groupId"].isNull()) {
             uint8_t gid = doc["groupId"];
@@ -1171,6 +1182,25 @@ private:
         Config::save();
         auto ok = _makeOk(); _sendJson(r, 200, ok);
         if (hwChanged) { delay(200); ESP.restart(); }
+        else if (orientationChanged && _onOrientationChange) _onOrientationChange(idx);
+    }
+
+    // ── POST /api/lights/test ─────────────────────────────────────────────────
+    // Body: {index}
+    void _testLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len)) {
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
+        }
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
+            auto e = _makeErr("not found"); _sendJson(r, 404, e); return;
+        }
+        if (Config::get().lights[idx].height < 2) {
+            auto e = _makeErr("not a matrix"); _sendJson(r, 400, e); return;
+        }
+        if (_onTestLight) _onTestLight(idx);
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
     }
 
     // ── POST /api/lights/delete ───────────────────────────────────────────────

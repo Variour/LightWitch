@@ -31,12 +31,23 @@ public:
     void setMatrixLayout(MatrixStart start, MatrixDirection dir) {
         _matrixStart = start;
         _matrixDir   = dir;
+        _sceneMatrix.setMatrixLayout(start, dir);
     }
 
     void setPeerRegistry(PeerRegistry* peers) { _proximity.setPeers(peers); }
     void setGroupId(uint8_t groupId)          { _proximity.setGroupId(groupId); }
 
+    void showTest(uint32_t durationMs) {
+        if (!_led || _height < 2) return;
+        _testStart    = millis();
+        _testDuration = durationMs;
+        _testActive   = true;
+        _renderTest();
+    }
+
     void applyConfig(const LightConfig& cfg) {
+        _savedConfig = cfg;
+        if (_testActive) return;
         if (cfg.mode == GroupMode::Proximity) {
             _sceneMode = SceneMode::None;
             if (_current != &_proximity) {
@@ -105,6 +116,13 @@ public:
     }
 
     void tick() {
+        if (_testActive) {
+            if (millis() - _testStart >= _testDuration) {
+                _testActive = false;
+                applyConfig(_savedConfig);
+            }
+            return;
+        }
         if (_current) _current->tick(millis());
     }
 
@@ -132,6 +150,11 @@ private:
     MatrixStart     _matrixStart = MatrixStart::TopLeft;
     MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
 
+    LightConfig  _savedConfig;
+    bool         _testActive   = false;
+    uint32_t     _testStart    = 0;
+    uint32_t     _testDuration = 0;
+
     // ── pattern instances ─────────────────────────────────────────────────────
     StaticColor   _static;
     Breathing     _breathing;
@@ -141,4 +164,15 @@ private:
     SceneMatrix   _sceneMatrix;
     SceneString   _sceneString;
     Proximity     _proximity;
+
+    void _renderTest() {
+        uint16_t n    = _width * _height;
+        uint16_t show = (_width < _height) ? _width : _height;
+        for (uint16_t i = 0; i < n; i++) {
+            if      (i == 0)    _led->setPixel(i, 255, 0,   0);
+            else if (i < show)  _led->setPixel(i, 0,   200, 0);
+            else                _led->setPixel(i, 0,   0,   0);
+        }
+        _led->show();
+    }
 };

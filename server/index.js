@@ -211,6 +211,13 @@ app.post('/api/lights/delete', (req, res) => {
   mockLights.splice(idx, 1);
   res.json({ ok: true });
 });
+app.post('/api/lights/test', (req, res) => {
+  const { index } = req.body || {};
+  const light = mockLights.find(l => l.index === index);
+  if (!light) return res.status(404).json({ error: 'not found' });
+  if (light.height < 2) return res.status(400).json({ error: 'not a matrix' });
+  res.json({ ok: true });
+});
 
 app.post('/api/groups/create',  (_req, res) => res.json({ ok: true }));
 app.post('/api/groups/update',  (_req, res) => res.json({ ok: true }));
