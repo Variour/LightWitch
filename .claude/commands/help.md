@@ -4,7 +4,7 @@ Explain the development workflow and what to do next based on the current state 
 
 1. `/issue <id>` — start work on an issue: reads it, creates a branch, confirms approach
 2. *(implement the changes)*
-3. `/validate-ui` — validate the UI with Playwright if `data/` or `server/` was touched
+3. `/validate-ui` — run a targeted Playwright check if `data/` or `server/` was touched
 4. `/feature-checklist` — verify API/config/WS/mock parity for any feature or API change
 5. `/open-pr` — open a pull request with the correct label and test checklist
 

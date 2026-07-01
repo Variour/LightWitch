@@ -6,6 +6,6 @@ Verify all of the following before marking a feature or API change complete:
 4. **Peer/self field parity** — if `_buildPeersJson` adds or changes a field, update `MOCK_SELF` and `MOCK_PEERS` in `server/index.js` accordingly
 5. **Mock data breadth** — mock data must exercise whatever the new feature depends on (e.g. add a second group to `MOCK_CONFIG` if the feature involves group switching or peer assignment)
 
-Run `/validate-ui` after completing the checklist if any `data/` or `server/` files were changed.
+Run `/validate-ui` after completing the checklist if any `data/` or `server/` files were changed, keeping the check focused on the affected UI flow.
 
 Use `/grill-me` to stress-test the implementation before opening a PR.
