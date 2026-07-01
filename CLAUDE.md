@@ -22,7 +22,7 @@ Use `/issue <id>` to start work on an issue and `/open-pr` when ready to open a 
 
 ## UI Validation
 
-After any change to `data/` or `server/`, run `/validate-ui`.
+After any change to `data/` or `server/`, run `/validate-ui` with a targeted check of the affected UI flow only.
 
 ## Feature Implementation
 

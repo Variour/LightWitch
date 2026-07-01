@@ -3,45 +3,46 @@ name: run
 description: Launch the batterylight mock server and use Playwright to validate the UI. Use after implementing any change that touches data/ or server/.
 ---
 
-Validate the UI after a change. The server requires `DEV_NO_AUTH=true` or it will exit immediately.
+Validate only the UI behavior affected by the current change.
+
+## Principles
+
+- Do the lightest useful check, not a full UI tour.
+- Focus on the changed flow(s), usually 1–2 happy-path interactions.
+- Reuse the repo helpers in `scripts/ui/helpers.mjs`.
+- Prefer assertions over screenshots; capture screenshots only when they help explain the result.
 
 ## Start the mock server
 
 ```bash
-cd /home/user/batteryLight
-npm install --silent 2>/dev/null
-DEV_NO_AUTH=true node server/index.js &
+npm run dev:no-auth > /tmp/batterylight-ui.log 2>&1 &
 SERVER_PID=$!
-# Poll until ready (up to 10 s)
-for i in $(seq 1 20); do curl -sf http://localhost:8080/ > /dev/null && break; sleep 0.5; done
+for i in $(seq 1 20); do curl -sf http://127.0.0.1:8080/ > /dev/null && break; sleep 0.5; done
 ```
 
 ## Validate with Playwright
 
-Write a script to the scratchpad directory and run it with `node --input-type=module`:
+Run a tiny inline script with `node --input-type=module` and import the repo helper:
 
 ```js
-import { chromium } from 'playwright';
-const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium',
-  headless: true,
-});
-const page = await (await browser.newContext()).newPage();
-await page.goto('http://localhost:8080/');
-// Navigate to whatever pages are relevant to the current change.
-// Take screenshots with page.screenshot({ path: '...', fullPage: true }).
-// Interact with the UI to exercise the changed feature.
+import { launchUi, saveScreenshot } from './scripts/ui/helpers.mjs';
+
+const { browser, page } = await launchUi();
+
+// Navigate only to the area changed by this work.
+// Add a couple of assertions or interactions for that flow.
+// Call saveScreenshot(page, 'name') only when useful.
+
 await browser.close();
 ```
 
-If `playwright` is not resolvable, run `npm install playwright` first (it uses the pre-installed browser — no download needed).
-
-Decide what to navigate to and what to check **based on what was just changed** — do not run through a fixed list.
+Do not run a fixed regression checklist. Stop once the changed behavior has been exercised with enough confidence.
 
 ## Clean up
 
 ```bash
-kill $SERVER_PID 2>/dev/null; pkill -f "node server/index.js" 2>/dev/null
+kill $SERVER_PID 2>/dev/null
+pkill -f "node server/index.js" 2>/dev/null
 ```
 
-Report findings with screenshots. Flag anything that looks wrong.
+Report what you checked, what you skipped, and any issues you noticed.

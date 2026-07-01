@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node server/index.js"
+    "dev": "node server/index.js",
+    "dev:no-auth": "DEV_NO_AUTH=true node server/index.js"
   },
   "dependencies": {
     "express": "^5",
