@@ -1,3 +1,8 @@
+---
+name: feature-checklist
+description: Verify device, mock-server, and UI parity for any feature or API change before opening a PR.
+---
+
 Verify all of the following before marking a feature or API change complete:
 
 1. **API parity** — every new or changed endpoint in `src/web/WebServer.h` must have a matching route in `server/index.js` with the same HTTP method, path, request body shape, and response shape

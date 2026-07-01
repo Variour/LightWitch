@@ -17,14 +17,3 @@ If a commit spans multiple scopes, use a more general scope, list both separated
 - Never assume default states
 - When starting work and the worktree is clean, automatically switch to `main` and fast-forward from `origin/main` without asking. Only stop to ask if the worktree is dirty or the switch/update cannot be done safely.
 
-## Working on Issues
-
-Use `/issue <id>` to start work on an issue and `/open-pr` when ready to open a pull request.
-
-## UI Validation
-
-After any change to `data/` or `server/`, run `/validate-ui` with a targeted check of the affected UI flow only.
-
-## Feature Implementation
-
-After implementing a feature or API change, run `/feature-checklist`.
