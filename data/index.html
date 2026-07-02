@@ -1059,10 +1059,13 @@ function renderGroups(groups) {
             <input type="range" id="gbrs-${g.id}" min="0" max="255" value="${g.brightness||255}"
                    oninput="onGroupControl(${g.id})">
           </div>
-          <div class="sync-row" style="margin-top:.3rem">
-            <input type="checkbox" id="gsceneuniform-${g.id}" ${sceneUniformColor?'checked':''}
-                   onchange="onGroupControl(${g.id})">
-            <label for="gsceneuniform-${g.id}" style="margin:0;color:inherit;font-size:inherit">String lights: use one random color for the whole string</label>
+          <div style="margin-top:.3rem">
+            <label>String color mode</label>
+            <input type="hidden" id="gsceneuniform-${g.id}" value="${sceneUniformColor ? 'uniform' : 'per-led'}">
+            <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+              <button type="button" id="gsceneuniform-perled-${g.id}" class="btn-sm ${sceneUniformColor ? 'btn-ghost' : 'btn-primary'}" onclick="setGroupSceneColorMode(${g.id}, 'per-led')">Per LED</button>
+              <button type="button" id="gsceneuniform-uniform-${g.id}" class="btn-sm ${sceneUniformColor ? 'btn-primary' : 'btn-ghost'}" onclick="setGroupSceneColorMode(${g.id}, 'uniform')">Whole string</button>
+            </div>
           </div>
           <p class="pattern-desc" style="margin-top:.2rem">Only affects string lights. Matrix lights still render the full scene image.</p>
           <div class="sync-row" style="margin-top:.3rem">
@@ -1118,6 +1121,16 @@ function onProxLabel(id) {
   document.getElementById(`gproxlabel-${id}`).textContent = v + '×';
 }
 
+function setGroupSceneColorMode(id, mode) {
+  const input = document.getElementById(`gsceneuniform-${id}`);
+  if (input) input.value = mode;
+  document.getElementById(`gsceneuniform-perled-${id}`)?.classList.toggle('btn-primary', mode === 'per-led');
+  document.getElementById(`gsceneuniform-perled-${id}`)?.classList.toggle('btn-ghost', mode !== 'per-led');
+  document.getElementById(`gsceneuniform-uniform-${id}`)?.classList.toggle('btn-primary', mode === 'uniform');
+  document.getElementById(`gsceneuniform-uniform-${id}`)?.classList.toggle('btn-ghost', mode !== 'uniform');
+  onGroupControl(id);
+}
+
 function onGroupControl(id) {
   const mode = parseInt(document.getElementById(`gmode-${id}`)?.value || 0);
   const pat = parseInt(document.getElementById(`gp-${id}`)?.value || 0);
@@ -1171,7 +1184,7 @@ function applyGroupControl(id) {
       brightness:        parseInt(brEl?.value || 255),
       speed:             parseFloat(document.getElementById(`gsp-${id}`)?.value || 1),
       transitionEnabled: document.getElementById(`gtrans-${id}`)?.checked || false,
-      sceneUniformColor: document.getElementById(`gsceneuniform-${id}`)?.checked || false,
+      sceneUniformColor: (document.getElementById(`gsceneuniform-${id}`)?.value || 'per-led') === 'uniform',
       transitionTime:    parseFloat(document.getElementById(`gtt-${id}`)?.value || 2),
       frameDuration:     document.getElementById(`ganim-${id}`)?.checked
                            ? parseFloat(document.getElementById(`gfd-${id}`)?.value || 1)
