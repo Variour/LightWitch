@@ -49,7 +49,7 @@ struct Color {
 };
 
 struct LightConfig {
-    GroupMode mode               = GroupMode::Pattern;
+    GroupMode mode              = GroupMode::Pattern;
     char      sceneId[33]       = {};
     PatternId pattern           = PatternId::Static;
     Color     color             = Color{255, 255, 255};
@@ -57,6 +57,7 @@ struct LightConfig {
     float     speed             = 1.0f;
     uint32_t  seq               = 0;
     bool      transitionEnabled = false;
+    bool      sceneUniformColor = false;  // string lights: whole string shares one random scene color
     float     transitionTime    = 2.0f;
     float     frameDuration     = 1.0f;
     float     proximityScale    = 1.0f;

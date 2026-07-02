@@ -993,6 +993,7 @@ function renderGroups(groups) {
     const noSync      = PATTERNS[pat]?.syncable === false;
     const sceneId = String(g.sceneId || '');
     const transitionEnabled = Boolean(g.transitionEnabled);
+    const sceneUniformColor = Boolean(g.sceneUniformColor);
     const transitionTime = Number.isFinite(g.transitionTime) && g.transitionTime >= 0.1 ? g.transitionTime : 2;
     const frameDuration = Number.isFinite(g.frameDuration) && g.frameDuration >= 0 ? g.frameDuration : 0;
     const animEnabled = frameDuration > 0;
@@ -1051,13 +1052,22 @@ function renderGroups(groups) {
               <option value=""${!sceneId?' selected':''}>Choose a scene…</option>
               ${_sceneOptions.map(s=>`<option value="${esc(s.id)}"${sceneId===String(s.id)?' selected':''}>${esc(s.name)} (${s.w}×${s.h})</option>`).join('')}
             </select>
-            <p class="pattern-desc">Matrix lights display the scene image pixel-by-pixel. String lights assign each LED a random color from the scene palette.</p>
+            <p class="pattern-desc">Matrix lights display the scene image pixel-by-pixel. String lights can either give each LED its own random scene color or keep the whole string on one random scene color.</p>
           </div>
           <div>
             <label>Brightness</label>
             <input type="range" id="gbrs-${g.id}" min="0" max="255" value="${g.brightness||255}"
                    oninput="onGroupControl(${g.id})">
           </div>
+          <div style="margin-top:.3rem">
+            <label>String color mode</label>
+            <input type="hidden" id="gsceneuniform-${g.id}" value="${sceneUniformColor ? 'uniform' : 'per-led'}">
+            <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+              <button type="button" id="gsceneuniform-perled-${g.id}" class="btn-sm ${sceneUniformColor ? 'btn-ghost' : 'btn-primary'}" onclick="setGroupSceneColorMode(${g.id}, 'per-led')">Per LED</button>
+              <button type="button" id="gsceneuniform-uniform-${g.id}" class="btn-sm ${sceneUniformColor ? 'btn-primary' : 'btn-ghost'}" onclick="setGroupSceneColorMode(${g.id}, 'uniform')">Whole string</button>
+            </div>
+          </div>
+          <p class="pattern-desc" style="margin-top:.2rem">Only affects string lights. Matrix lights still render the full scene image.</p>
           <div class="sync-row" style="margin-top:.3rem">
             <input type="checkbox" id="ganim-${g.id}" ${animEnabled?'checked':''}
                    onchange="document.getElementById('ganimdur-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
@@ -1074,7 +1084,7 @@ function renderGroups(groups) {
                      onchange="document.getElementById('gtranstime-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
               <label for="gtrans-${g.id}" style="margin:0;color:inherit;font-size:inherit">Blend / cycle colors</label>
             </div>
-            <p class="pattern-desc" style="margin-top:.2rem">Matrix: blends between frames. String: each LED independently cycles through colors.</p>
+            <p class="pattern-desc" style="margin-top:.2rem">Matrix: blends between frames. String: cycles scene colors, either per LED or for the whole string depending on the option above.</p>
             <div id="gtranstime-wrap-${g.id}" style="${transitionEnabled?'':'display:none'}">
               <label style="margin-top:.4rem">Transition time <span id="gtt-label-${g.id}">${transitionTime}s</span></label>
               <input type="range" id="gtt-${g.id}" min="0.1" max="30" step="0.1" value="${transitionTime}"
@@ -1109,6 +1119,16 @@ function onSpeedLabel(id) {
 function onProxLabel(id) {
   const v = parseFloat(document.getElementById(`gprox-${id}`).value).toFixed(1);
   document.getElementById(`gproxlabel-${id}`).textContent = v + '×';
+}
+
+function setGroupSceneColorMode(id, mode) {
+  const input = document.getElementById(`gsceneuniform-${id}`);
+  if (input) input.value = mode;
+  document.getElementById(`gsceneuniform-perled-${id}`)?.classList.toggle('btn-primary', mode === 'per-led');
+  document.getElementById(`gsceneuniform-perled-${id}`)?.classList.toggle('btn-ghost', mode !== 'per-led');
+  document.getElementById(`gsceneuniform-uniform-${id}`)?.classList.toggle('btn-primary', mode === 'uniform');
+  document.getElementById(`gsceneuniform-uniform-${id}`)?.classList.toggle('btn-ghost', mode !== 'uniform');
+  onGroupControl(id);
 }
 
 function onGroupControl(id) {
@@ -1164,6 +1184,7 @@ function applyGroupControl(id) {
       brightness:        parseInt(brEl?.value || 255),
       speed:             parseFloat(document.getElementById(`gsp-${id}`)?.value || 1),
       transitionEnabled: document.getElementById(`gtrans-${id}`)?.checked || false,
+      sceneUniformColor: (document.getElementById(`gsceneuniform-${id}`)?.value || 'per-led') === 'uniform',
       transitionTime:    parseFloat(document.getElementById(`gtt-${id}`)?.value || 2),
       frameDuration:     document.getElementById(`ganim-${id}`)?.checked
                            ? parseFloat(document.getElementById(`gfd-${id}`)?.value || 1)
