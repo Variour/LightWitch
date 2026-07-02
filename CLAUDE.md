@@ -15,5 +15,6 @@ If a commit spans multiple scopes, use a more general scope, list both separated
 - Never make assumptions, ask to clarify
 - Challenge requests if necessary, be critical
 - Never assume default states
+- Surface all missing tools, dependencies, commands, or capabilities you encounter. Do not silently work around them, and do not stop after reporting only the first missing item when more are known.
 - When starting work and the worktree is clean, automatically switch to `main` and fast-forward from `origin/main` without asking. Only stop to ask if the worktree is dirty or the switch/update cannot be done safely.
 
