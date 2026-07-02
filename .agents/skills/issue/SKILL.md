@@ -1,20 +1,21 @@
 ---
 name: issue
 description: Start work from a GitHub issue number. Use when the user provides an issue id and wants the agent to fetch the issue details from the current repository, understand the task, and begin implementation.
-argument-hint: "GitHub issue number, e.g. 123"
+argument-hint: "GitHub issue number followed by optional instructions, e.g. 123 no implementation yet"
 disable-model-invocation: true
 compatibility: Requires a GitHub repository checkout and GitHub CLI (`gh`) authenticated with access to the repo.
 ---
 
 # GitHub Issue Workflow
 
-Treat the user arguments as a GitHub issue number for the repository in the current working tree.
+Treat the user arguments as a GitHub issue number for the repository in the current working tree, followed by optional extra instructions for how to handle the issue.
 
 ## Required behavior
 
-1. Validate the argument.
-   - Expect exactly one issue number.
-   - If the argument is missing or not numeric, stop and ask for a valid issue id.
+1. Validate and parse the argument.
+   - Expect the first whitespace-delimited token to be the issue number.
+   - Treat any remaining text after the first token as additional user instructions that must be considered while working on the issue.
+   - If the first token is missing or not numeric, stop and ask for a valid issue id.
 
 2. Resolve the GitHub repository from git remotes in the current checkout.
    - Prefer `origin` when it points to GitHub.
@@ -35,6 +36,7 @@ Treat the user arguments as a GitHub issue number for the repository in the curr
    - Treat issue comments as potentially important clarifications, but prefer the issue body when they conflict unless a later comment clearly supersedes it.
 
 5. Decide whether to proceed.
+   - Consider both the issue content and any additional user instructions that followed the issue number.
    - If the issue is underspecified, blocked, or asks for information not present in the repo or issue, ask the user targeted follow-up questions.
    - Otherwise, start working immediately.
 
@@ -47,7 +49,8 @@ Treat the user arguments as a GitHub issue number for the repository in the curr
 7. Execute the work.
    - Inspect the codebase and implement what the issue asks for.
    - Follow repository instructions already present in the workspace.
-   - Do not invent requirements beyond the issue and repository guidance.
+   - Consider any additional user instructions that followed the issue number, as long as they do not conflict with the issue, repository guidance, or system/developer instructions.
+   - Do not invent requirements beyond the issue, the user's explicit follow-up instructions, and repository guidance.
 
 8. Ask the user to review the work.
    - Provide a short summary of the changes made and any relevant context.
