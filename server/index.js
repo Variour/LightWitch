@@ -28,8 +28,8 @@ const MOCK_CONFIG = {
   githubRepo: 'Variour/batterylight',
   lights: mockLights,
   groups: [
-    { id: 0, name: 'Default',     exists: true, mode: 0, sceneId: '',          pattern: 0, r: 255, g: 200, b: 80,  brightness: 200, speed: 1, syncEnabled: true,  transitionEnabled: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0 },
-    { id: 1, name: 'Scene Group', exists: true, mode: 1, sceneId: '0002ee38f7ce6ab7acd6a859', pattern: 0, r: 255, g: 100, b: 50, brightness: 180, speed: 1, syncEnabled: false, transitionEnabled: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0 },
+    { id: 0, name: 'Default',     exists: true, mode: 0, sceneId: '',          pattern: 0, r: 255, g: 200, b: 80,  brightness: 200, speed: 1, syncEnabled: true,  transitionEnabled: false, sceneUniformColor: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0 },
+    { id: 1, name: 'Scene Group', exists: true, mode: 1, sceneId: '0002ee38f7ce6ab7acd6a859', pattern: 0, r: 255, g: 100, b: 50, brightness: 180, speed: 1, syncEnabled: false, transitionEnabled: false, sceneUniformColor: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0 },
   ],
 };
 
@@ -263,7 +263,13 @@ app.post('/api/lights/test', (req, res) => {
 });
 
 app.post('/api/groups/create',  (_req, res) => res.json({ ok: true }));
-app.post('/api/groups/update',  (_req, res) => res.json({ ok: true }));
+app.post('/api/groups/update',  (req, res) => {
+  const { id, ...fields } = req.body || {};
+  const group = MOCK_CONFIG.groups.find(g => g.id === id);
+  if (!group) return res.status(404).json({ error: 'not found' });
+  Object.assign(group, fields);
+  res.json({ ok: true });
+});
 app.post('/api/groups/delete',  (_req, res) => res.json({ ok: true }));
 app.post('/api/reset',          (_req, res) => res.json({ ok: true }));
 app.post('/api/mesh/search',    (_req, res) => res.json({ ok: true }));

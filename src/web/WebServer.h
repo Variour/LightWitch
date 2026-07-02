@@ -394,6 +394,7 @@ private:
         o["brightness"]        = g.light.brightness;
         o["speed"]             = g.light.speed;
         o["transitionEnabled"] = g.light.transitionEnabled;
+        o["sceneUniformColor"] = g.light.sceneUniformColor;
         o["transitionTime"]    = g.light.transitionTime;
         o["frameDuration"]     = g.light.frameDuration;
         o["proximityScale"]    = g.light.proximityScale;
@@ -410,6 +411,7 @@ private:
         if (!j["brightness"].isNull())        l.brightness        = j["brightness"];
         if (!j["speed"].isNull())             l.speed             = j["speed"];
         if (!j["transitionEnabled"].isNull()) l.transitionEnabled = (bool)j["transitionEnabled"];
+        if (!j["sceneUniformColor"].isNull()) l.sceneUniformColor = (bool)j["sceneUniformColor"];
         if (!j["transitionTime"].isNull())    l.transitionTime    = (float)j["transitionTime"];
         if (!j["frameDuration"].isNull())     l.frameDuration     = (float)j["frameDuration"];
         if (!j["proximityScale"].isNull())    l.proximityScale    = (float)j["proximityScale"];
@@ -612,8 +614,9 @@ private:
                          || !doc["pattern"].isNull() || !doc["r"].isNull()
                          || !doc["g"].isNull()       || !doc["b"].isNull()
                          || !doc["brightness"].isNull() || !doc["speed"].isNull()
-                         || !doc["transitionEnabled"].isNull() || !doc["transitionTime"].isNull()
-                         || !doc["frameDuration"].isNull()    || !doc["proximityScale"].isNull();
+                         || !doc["transitionEnabled"].isNull() || !doc["sceneUniformColor"].isNull()
+                         || !doc["transitionTime"].isNull() || !doc["frameDuration"].isNull()
+                         || !doc["proximityScale"].isNull();
         if (lightChanged) {
             auto& l = g->light;
             if (!doc["mode"].isNull())             l.mode              = (GroupMode)(uint8_t)doc["mode"];
@@ -625,6 +628,7 @@ private:
             if (!doc["brightness"].isNull())       l.brightness        = doc["brightness"];
             if (!doc["speed"].isNull())            l.speed             = doc["speed"];
             if (!doc["transitionEnabled"].isNull()) l.transitionEnabled = (bool)doc["transitionEnabled"];
+            if (!doc["sceneUniformColor"].isNull()) l.sceneUniformColor = (bool)doc["sceneUniformColor"];
             if (!doc["transitionTime"].isNull())   l.transitionTime    = (float)doc["transitionTime"];
             if (!doc["frameDuration"].isNull())    l.frameDuration     = (float)doc["frameDuration"];
             if (!doc["proximityScale"].isNull())   l.proximityScale    = (float)doc["proximityScale"];
