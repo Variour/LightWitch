@@ -40,8 +40,9 @@ Treat the user arguments as a GitHub issue number for the repository in the curr
 
 6. Prepare the repository for implementation.
    - Check that the worktree is clean before starting. If there are local changes, stop and ask the user what to do.
-   - ALWAYS start from `main`.
-   - Make sure local `main` is current with `origin/main` before implementation begins.
+   - If the worktree is clean, automatically switch to `main` without asking the user.
+   - Fast-forward local `main` from `origin/main` before implementation begins.
+   - Only stop and ask if checkout, fetch, or fast-forward cannot be done safely.
 
 7. Execute the work.
    - Inspect the codebase and implement what the issue asks for.
