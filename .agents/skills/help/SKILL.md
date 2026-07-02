@@ -1,7 +1,13 @@
+---
+name: help
+description: Explain the repository workflow and recommend the next step based on the current git state.
+---
+
 Explain the development workflow and what to do next based on the current state of the repository.
 
 ## Workflow overview
 
+0. Start from `main`
 1. `/issue <id>` — start work on an issue: reads it, creates a branch, confirms approach
 2. *(implement the changes)*
 3. `/validate-ui` — run a targeted Playwright check if `data/` or `server/` was touched
@@ -14,7 +20,8 @@ Use `/grill-me` at any point to stress-test a plan or implementation.
 
 Look at the current git state and working directory, then tell the user which step they are at and what to do next:
 
-- No branch / on main → suggest `/issue <id>`
+- No branch / on `main` → suggest `/issue <id>`
+- Not on `main` and not actively working from an issue branch → switch to `main` before starting new work
 - On a feature branch with uncommitted changes → suggest committing, then `/validate-ui` or `/feature-checklist` depending on what changed
 - On a feature branch, changes committed, no open PR → suggest `/validate-ui` and `/feature-checklist` if not yet done, then `/open-pr`
 - Open PR exists → remind about the test checklist and suggest pushing any remaining fixes
