@@ -98,6 +98,8 @@ static void applyDoc(JsonDocument& doc) {
             l.clockPin = v["clockPin"] | (uint8_t)LED_CLOCK_PIN;
             l.width    = v["width"]    | (uint16_t)1;
             l.height   = v["height"]   | (uint16_t)1;
+            l.wrapWidth  = v["wrapWidth"]  | false;
+            l.wrapHeight = v["wrapHeight"] | false;
             l.groupId  = v["groupId"]  | (uint8_t)0;
             if (!v["name"].isNull()) strlcpy(l.name, v["name"] | "", sizeof(l.name));
         }
@@ -182,9 +184,11 @@ bool Config::save() {
         o["ledType"] = (uint8_t)l.ledType;
         o["dataPin"] = l.dataPin;
         o["clockPin"]= l.clockPin;
-        o["width"]   = l.width;
-        o["height"]  = l.height;
-        o["groupId"] = l.groupId;
+        o["width"]      = l.width;
+        o["height"]     = l.height;
+        o["wrapWidth"]  = l.wrapWidth;
+        o["wrapHeight"] = l.wrapHeight;
+        o["groupId"]    = l.groupId;
     }
 
     JsonArray arr = doc["groups"].to<JsonArray>();

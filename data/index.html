@@ -3458,7 +3458,7 @@ async function testLight(index) {
 function openAddLightModal() {
   _editLightIndex = null;
   _originalLight  = null;
-  _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0});
+  _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0, wrapWidth: false, wrapHeight: false});
 }
 
 function openEditLightModal(l) {
@@ -3492,6 +3492,10 @@ function _openLightModal(l) {
     <input type="number" id="lm-width" value="${l.width}" min="1" max="1000">
     <label>Rows <small>(1 = string, >1 = matrix)</small></label>
     <input type="number" id="lm-height" value="${l.height}" min="1" max="100">
+    <label style="display:flex;align-items:center;gap:.5rem">
+      <input type="checkbox" id="lm-wrapWidth" style="width:auto" ${l.wrapWidth?'checked':''}>
+      <span>Wrap around <small>(last LED of a row connects back to the first — ring)</small></span>
+    </label>
     <div id="lm-matrix-opts" style="${l.height > 1 ? '' : 'display:none'}">
       <label>Starting edge</label>
       <select id="lm-matrixStart">
@@ -3505,6 +3509,10 @@ function _openLightModal(l) {
         <option value="0"${(l.matrixDir||0)===0?' selected':''}>Horizontal (rows first)</option>
         <option value="1"${(l.matrixDir||0)===1?' selected':''}>Vertical (columns first)</option>
       </select>
+      <label style="display:flex;align-items:center;gap:.5rem">
+        <input type="checkbox" id="lm-wrapHeight" style="width:auto" ${l.wrapHeight?'checked':''}>
+        <span>Wrap vertically <small>(last row connects back to the first)</small></span>
+      </label>
     </div>
     <button id="lm-save-btn" class="btn-primary" style="width:100%;margin-top:.75rem" onclick="saveLightModal()">Save &amp; Reboot</button>
   </div></div>`;
@@ -3560,6 +3568,8 @@ async function saveLightModal() {
     height:      parseInt(document.getElementById('lm-height').value) || 1,
     matrixStart: parseInt(document.getElementById('lm-matrixStart').value),
     matrixDir:   parseInt(document.getElementById('lm-matrixDir').value),
+    wrapWidth:   document.getElementById('lm-wrapWidth').checked,
+    wrapHeight:  document.getElementById('lm-wrapHeight').checked,
   };
   const url = _editLightIndex === null ? '/api/lights/add' : '/api/lights/update';
   if (_editLightIndex !== null) body.index = _editLightIndex;

@@ -35,7 +35,7 @@ using MeshSearchCb        = std::function<void()>;
 using SceneSavedCb        = std::function<void(const char* sceneId)>;
 // Called to run a test pattern on a specific light index
 using TestLightCb         = std::function<void(uint8_t)>;
-// Called when matrix orientation (matrixStart/matrixDir) changes without reboot
+// Called when matrix orientation (matrixStart/matrixDir) or wrap topology changes without reboot
 using OrientationChangeCb = std::function<void(uint8_t)>;
 
 class BatteryWebServer {
@@ -450,6 +450,8 @@ private:
             lo["height"]      = l.height;
             lo["matrixStart"] = (uint8_t)l.matrixStart;
             lo["matrixDir"]   = (uint8_t)l.matrixDir;
+            lo["wrapWidth"]   = l.wrapWidth;
+            lo["wrapHeight"]  = l.wrapHeight;
             lo["groupId"]     = l.groupId;
         }
 
@@ -1111,13 +1113,15 @@ private:
             o["height"]      = l.height;
             o["matrixStart"] = (uint8_t)l.matrixStart;
             o["matrixDir"]   = (uint8_t)l.matrixDir;
+            o["wrapWidth"]   = l.wrapWidth;
+            o["wrapHeight"]  = l.wrapHeight;
             o["groupId"]     = l.groupId;
         }
         _sendJson(r, 200, doc);
     }
 
     // ── POST /api/lights/add ──────────────────────────────────────────────────
-    // Body: {ledType, dataPin, clockPin, width, height, matrixStart, matrixDir, groupId}
+    // Body: {ledType, dataPin, clockPin, width, height, matrixStart, matrixDir, wrapWidth, wrapHeight, groupId}
     void _addLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) {
@@ -1141,6 +1145,8 @@ private:
         l.height      = doc["height"]      | (uint16_t)1;
         l.matrixStart = (MatrixStart)(uint8_t)(doc["matrixStart"] | (uint8_t)0);
         l.matrixDir   = (MatrixDirection)(uint8_t)(doc["matrixDir"] | (uint8_t)0);
+        l.wrapWidth   = doc["wrapWidth"]   | false;
+        l.wrapHeight  = doc["wrapHeight"]  | false;
         l.groupId     = doc["groupId"]     | (uint8_t)0;
         if (l.width == 0) l.width = 1;
         if (l.height == 0) l.height = 1;
@@ -1154,7 +1160,7 @@ private:
     }
 
     // ── POST /api/lights/update ───────────────────────────────────────────────
-    // Body: {index, ledType?, dataPin?, clockPin?, width?, height?, matrixStart?, matrixDir?, groupId?}
+    // Body: {index, ledType?, dataPin?, clockPin?, width?, height?, matrixStart?, matrixDir?, wrapWidth?, wrapHeight?, groupId?}
     void _updateLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) {
@@ -1175,6 +1181,8 @@ private:
         bool orientationChanged = false;
         if (!doc["matrixStart"].isNull()) { l.matrixStart = (MatrixStart)(uint8_t)doc["matrixStart"];       orientationChanged = true; }
         if (!doc["matrixDir"].isNull())   { l.matrixDir   = (MatrixDirection)(uint8_t)doc["matrixDir"];     orientationChanged = true; }
+        if (!doc["wrapWidth"].isNull())   { l.wrapWidth   = (bool)doc["wrapWidth"];                         orientationChanged = true; }
+        if (!doc["wrapHeight"].isNull())  { l.wrapHeight  = (bool)doc["wrapHeight"];                        orientationChanged = true; }
         // groupId change: soft config, no restart needed
         if (!doc["groupId"].isNull()) {
             uint8_t gid = doc["groupId"];
