@@ -34,6 +34,16 @@ public:
         _sceneMatrix.setMatrixLayout(start, dir);
     }
 
+    // Topology: whether the last LED on an axis wraps back to the first (ring/cylinder/torus).
+    // Not yet consumed by any pattern — stored here so position-aware modes can query it.
+    void setWrap(bool wrapWidth, bool wrapHeight) {
+        _wrapWidth  = wrapWidth;
+        _wrapHeight = wrapHeight;
+    }
+
+    bool wrapWidth()  const { return _wrapWidth; }
+    bool wrapHeight() const { return _wrapHeight; }
+
     void setPeerRegistry(PeerRegistry* peers) { _proximity.setPeers(peers); }
     void setGroupId(uint8_t groupId)          { _proximity.setGroupId(groupId); }
 
@@ -149,6 +159,8 @@ private:
     uint16_t        _height      = 1;
     MatrixStart     _matrixStart = MatrixStart::TopLeft;
     MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
+    bool            _wrapWidth   = false;
+    bool            _wrapHeight  = false;
 
     LightConfig  _savedConfig;
     bool         _testActive   = false;

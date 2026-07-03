@@ -167,6 +167,7 @@ void setup() {
         _runners[i].begin(*drv);
         _runners[i].setDimensions(l.width, l.height);
         _runners[i].setMatrixLayout(l.matrixStart, l.matrixDir);
+        _runners[i].setWrap(l.wrapWidth, l.wrapHeight);
         _runners[i].setPeerRegistry(&mesh.peers);
         _runners[i].setGroupId(l.groupId);
         auto* g = Config::group(l.groupId);
@@ -395,6 +396,7 @@ void setup() {
         if (idx < MAX_LIGHTS && _leds[idx]) {
             auto& l = Config::get().lights[idx];
             _runners[idx].setMatrixLayout(l.matrixStart, l.matrixDir);
+            _runners[idx].setWrap(l.wrapWidth, l.wrapHeight);
         }
     });
     sceneSync.setOnSceneSaved(notifySceneUpdated);
