@@ -62,7 +62,7 @@ struct LightConfig {
     float     transitionTime    = 2.0f;
     float     frameDuration     = 1.0f;
     float     proximityScale    = 1.0f;
-    bool      scrollEnabled     = false;  // gradient mode: scroll the gradient along the light over time
+    bool      morphEnabled      = false;  // gradient mode: sparse per-LED color shimmer while holding the gradient shape
 };
 
 static constexpr uint8_t MAX_GROUPS        = 8;

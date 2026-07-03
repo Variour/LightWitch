@@ -111,8 +111,8 @@ public:
         if (cfg.mode == GroupMode::Gradient) {
             if (_height > 1) {
                 if (_sceneMode != SceneMode::GradientMatrix) {
-                    Logger::i("[pattern] → GradientMatrix  scene=%s br=%u scroll=%s spd=%.1f",
-                              cfg.sceneId, cfg.brightness, cfg.scrollEnabled ? "on" : "off", cfg.speed);
+                    Logger::i("[pattern] → GradientMatrix  scene=%s br=%u morph=%s spd=%.1f",
+                              cfg.sceneId, cfg.brightness, cfg.morphEnabled ? "on" : "off", cfg.speed);
                     _gradientMatrix.setDimensions(_width, _height);
                     _gradientMatrix.setMatrixLayout(_matrixStart, _matrixDir);
                     _gradientMatrix.setWrap(_wrapWidth);
@@ -125,8 +125,8 @@ public:
                 }
             } else {
                 if (_sceneMode != SceneMode::GradientString) {
-                    Logger::i("[pattern] → GradientString  scene=%s br=%u scroll=%s spd=%.1f",
-                              cfg.sceneId, cfg.brightness, cfg.scrollEnabled ? "on" : "off", cfg.speed);
+                    Logger::i("[pattern] → GradientString  scene=%s br=%u morph=%s spd=%.1f",
+                              cfg.sceneId, cfg.brightness, cfg.morphEnabled ? "on" : "off", cfg.speed);
                     _gradientString.setNumLeds(_width);
                     _gradientString.setWrap(_wrapWidth);
                     _gradientString.begin(*_led, cfg);
