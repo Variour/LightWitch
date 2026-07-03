@@ -398,6 +398,7 @@ private:
         o["transitionTime"]    = g.light.transitionTime;
         o["frameDuration"]     = g.light.frameDuration;
         o["proximityScale"]    = g.light.proximityScale;
+        o["scrollEnabled"]     = g.light.scrollEnabled;
     }
 
     static LightConfig _lightFromJson(JsonVariant j) {
@@ -415,6 +416,7 @@ private:
         if (!j["transitionTime"].isNull())    l.transitionTime    = (float)j["transitionTime"];
         if (!j["frameDuration"].isNull())     l.frameDuration     = (float)j["frameDuration"];
         if (!j["proximityScale"].isNull())    l.proximityScale    = (float)j["proximityScale"];
+        if (!j["scrollEnabled"].isNull())     l.scrollEnabled     = (bool)j["scrollEnabled"];
         return l;
     }
 
@@ -618,7 +620,7 @@ private:
                          || !doc["brightness"].isNull() || !doc["speed"].isNull()
                          || !doc["transitionEnabled"].isNull() || !doc["sceneUniformColor"].isNull()
                          || !doc["transitionTime"].isNull() || !doc["frameDuration"].isNull()
-                         || !doc["proximityScale"].isNull();
+                         || !doc["proximityScale"].isNull() || !doc["scrollEnabled"].isNull();
         if (lightChanged) {
             auto& l = g->light;
             if (!doc["mode"].isNull())             l.mode              = (GroupMode)(uint8_t)doc["mode"];
@@ -634,6 +636,7 @@ private:
             if (!doc["transitionTime"].isNull())   l.transitionTime    = (float)doc["transitionTime"];
             if (!doc["frameDuration"].isNull())    l.frameDuration     = (float)doc["frameDuration"];
             if (!doc["proximityScale"].isNull())   l.proximityScale    = (float)doc["proximityScale"];
+            if (!doc["scrollEnabled"].isNull())    l.scrollEnabled     = (bool)doc["scrollEnabled"];
             l.seq++;
             if (_onGroupLight) _onGroupLight(id, l);
         }

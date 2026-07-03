@@ -998,6 +998,7 @@ function renderGroups(groups) {
     const frameDuration = Number.isFinite(g.frameDuration) && g.frameDuration >= 0 ? g.frameDuration : 0;
     const animEnabled = frameDuration > 0;
     const proximityScale = Number.isFinite(g.proximityScale) ? g.proximityScale : 1.0;
+    const scrollEnabled = Boolean(g.scrollEnabled);
     card.innerHTML = `
       <div class="group-header">
         <input type="text" value="${esc(g.name)}" onchange="renameGroup(${g.id}, this.value)"
@@ -1011,8 +1012,9 @@ function renderGroups(groups) {
             <option value="0"${mode===0?' selected':''}>Pattern</option>
             <option value="1"${mode===1?' selected':''}>Scene</option>
             <option value="2"${mode===2?' selected':''}>Proximity</option>
+            <option value="3"${mode===3?' selected':''}>Gradient</option>
           </select>
-          <p class="pattern-desc">Pattern runs the chosen animation. Scene picks a color from a saved scene. Proximity shifts color from red to green based on the nearest same-group node's signal.</p>
+          <p class="pattern-desc">Pattern runs the chosen animation. Scene picks a color from a saved scene. Proximity shifts color from red to green based on the nearest same-group node's signal. Gradient blends across a scene's colors along the light.</p>
         </div>
 
         <div id="gpattern-wrap-${g.id}" style="display:${mode===0?'':'none'}">
@@ -1106,6 +1108,32 @@ function renderGroups(groups) {
                    oninput="onProxLabel(${g.id}); onGroupControl(${g.id})">
           </div>
         </div>
+
+        <div id="ggrad-wrap-${g.id}" style="display:${mode===3?'':'none'}">
+          <div>
+            <label>Scene (color source)</label>
+            <select id="ggscene-${g.id}" onchange="onGroupControl(${g.id})">
+              <option value=""${!sceneId?' selected':''}>Choose a scene…</option>
+              ${_sceneOptions.map(s=>`<option value="${esc(s.id)}"${sceneId===String(s.id)?' selected':''}>${esc(s.name)} (${s.w}×${s.h})</option>`).join('')}
+            </select>
+            <p class="pattern-desc">Gradient stops are the distinct colors found in the scene, in the order they appear. Matrix lights blend the gradient left-to-right on every row.</p>
+          </div>
+          <div>
+            <label>Brightness</label>
+            <input type="range" id="ggbr-${g.id}" min="0" max="255" value="${g.brightness||255}"
+                   oninput="onGroupControl(${g.id})">
+          </div>
+          <div class="sync-row" style="margin-top:.3rem">
+            <input type="checkbox" id="ggscroll-${g.id}" ${scrollEnabled?'checked':''}
+                   onchange="document.getElementById('ggspeed-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
+            <label for="ggscroll-${g.id}" style="margin:0;color:inherit;font-size:inherit">Scroll gradient</label>
+          </div>
+          <div id="ggspeed-wrap-${g.id}" style="${scrollEnabled?'':'display:none'}">
+            <label style="margin-top:.4rem">Speed <span id="ggspeed-label-${g.id}">${(g.speed||1).toFixed(1)}×</span></label>
+            <input type="range" id="ggsp-${g.id}" min="0.1" max="5" step="0.1" value="${g.speed||1}"
+                   oninput="document.getElementById('ggspeed-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'×'; onGroupControl(${g.id})">
+          </div>
+        </div>
       </div>`;
     el.appendChild(card);
   }
@@ -1136,9 +1164,11 @@ function onGroupControl(id) {
   const pat = parseInt(document.getElementById(`gp-${id}`)?.value || 0);
   const patternWrap = document.getElementById(`gpattern-wrap-${id}`);
   const sceneWrap   = document.getElementById(`gscene-wrap-${id}`);
+  const gradWrap    = document.getElementById(`ggrad-wrap-${id}`);
 
   if (patternWrap) patternWrap.style.display = mode === 0 ? '' : 'none';
   if (sceneWrap) sceneWrap.style.display = mode === 1 ? '' : 'none';
+  if (gradWrap) gradWrap.style.display = mode === 3 ? '' : 'none';
 
   const desc = document.getElementById(`gdesc-${id}`);
   if (desc) desc.textContent = PATTERNS[pat]?.desc || '';
@@ -1153,6 +1183,10 @@ function onGroupControl(id) {
 
   const proxModeWrap = document.getElementById(`gprox-mode-wrap-${id}`);
   if (proxModeWrap) proxModeWrap.style.display = mode === 2 ? '' : 'none';
+
+  const gradSpeedWrap = document.getElementById(`ggspeed-wrap-${id}`);
+  const gradScroll    = document.getElementById(`ggscroll-${id}`)?.checked;
+  if (gradSpeedWrap) gradSpeedWrap.style.display = gradScroll ? '' : 'none';
 
   const grp = _groups.find(g => g.id === id);
   if (grp) { grp.mode = mode; _updateSignalColumn(); }
@@ -1171,18 +1205,23 @@ function applyGroupControl(id) {
   const [r,g,b] = hexToRgb(hex);
   const brEl = mode === 2 ? document.getElementById(`gprox-br-${id}`)
              : mode === 1 ? document.getElementById(`gbrs-${id}`)
+             : mode === 3 ? document.getElementById(`ggbr-${id}`)
              :               document.getElementById(`gbr-${id}`);
+  const speedEl = mode === 3 ? document.getElementById(`ggsp-${id}`)
+                 :              document.getElementById(`gsp-${id}`);
   fetch('/api/groups/update', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
       id,
       mode,
-      sceneId:           mode === 1 ? (document.getElementById(`gscene-${id}`)?.value || '') : '',
+      sceneId:           mode === 1 ? (document.getElementById(`gscene-${id}`)?.value || '')
+                        : mode === 3 ? (document.getElementById(`ggscene-${id}`)?.value || '')
+                        : '',
       pattern:           parseInt(document.getElementById(`gp-${id}`)?.value || 0),
       r, g, b,
       brightness:        parseInt(brEl?.value || 255),
-      speed:             parseFloat(document.getElementById(`gsp-${id}`)?.value || 1),
+      speed:             parseFloat(speedEl?.value || 1),
       transitionEnabled: document.getElementById(`gtrans-${id}`)?.checked || false,
       sceneUniformColor: (document.getElementById(`gsceneuniform-${id}`)?.value || 'per-led') === 'uniform',
       transitionTime:    parseFloat(document.getElementById(`gtt-${id}`)?.value || 2),
@@ -1190,6 +1229,7 @@ function applyGroupControl(id) {
                            ? parseFloat(document.getElementById(`gfd-${id}`)?.value || 1)
                            : 0,
       proximityScale:    parseFloat(document.getElementById(`gprox-${id}`)?.value || 1),
+      scrollEnabled:     document.getElementById(`ggscroll-${id}`)?.checked || false,
     })
   });
 }
