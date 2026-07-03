@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "node server/index.js",
-    "dev:no-auth": "DEV_NO_AUTH=true node server/index.js"
+    "dev:no-auth": "DEV_NO_AUTH=true node server/index.js",
+    "cleanup-branches": "bash scripts/cleanup-branches.sh"
   },
   "dependencies": {
     "express": "^5",
