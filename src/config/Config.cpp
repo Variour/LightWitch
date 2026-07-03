@@ -36,6 +36,7 @@ static void serializeGroup(JsonArray arr, const GroupConfig& g) {
     o["transitionTime"]    = g.light.transitionTime;
     o["frameDuration"]     = g.light.frameDuration;
     o["proximityScale"]    = g.light.proximityScale;
+    o["morphEnabled"]     = g.light.morphEnabled;
 }
 
 static void deserializeGroup(JsonVariant o, GroupConfig& g) {
@@ -57,6 +58,7 @@ static void deserializeGroup(JsonVariant o, GroupConfig& g) {
     g.light.transitionTime     = o["transitionTime"]    | 2.0f;
     g.light.frameDuration      = o["frameDuration"]     | 1.0f;
     g.light.proximityScale     = o["proximityScale"]    | 1.0f;
+    g.light.morphEnabled      = o["morphEnabled"]     | false;
 }
 
 static bool migrateDoc(JsonDocument& doc) {

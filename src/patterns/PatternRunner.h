@@ -9,6 +9,8 @@
 #include "Candle.h"
 #include "SceneMatrix.h"
 #include "SceneString.h"
+#include "GradientMatrix.h"
+#include "GradientString.h"
 #include "Proximity.h"
 #include "../led/LedDriver.h"
 #include "../config/Config.h"
@@ -39,6 +41,8 @@ public:
     void setWrap(bool wrapWidth, bool wrapHeight) {
         _wrapWidth  = wrapWidth;
         _wrapHeight = wrapHeight;
+        _gradientString.setWrap(wrapWidth);
+        _gradientMatrix.setWrap(wrapWidth);
     }
 
     bool wrapWidth()  const { return _wrapWidth; }
@@ -104,6 +108,38 @@ public:
             return;
         }
 
+        if (cfg.mode == GroupMode::Gradient) {
+            if (_height > 1) {
+                if (_sceneMode != SceneMode::GradientMatrix) {
+                    Logger::i("[pattern] → GradientMatrix  scene=%s br=%u morph=%s spd=%.1f",
+                              cfg.sceneId, cfg.brightness, cfg.morphEnabled ? "on" : "off", cfg.speed);
+                    _gradientMatrix.setDimensions(_width, _height);
+                    _gradientMatrix.setMatrixLayout(_matrixStart, _matrixDir);
+                    _gradientMatrix.setWrap(_wrapWidth);
+                    _gradientMatrix.begin(*_led, cfg);
+                    _current   = &_gradientMatrix;
+                    _currentId = (PatternId)0xFF;
+                    _sceneMode = SceneMode::GradientMatrix;
+                } else {
+                    _gradientMatrix.applyConfig(cfg);
+                }
+            } else {
+                if (_sceneMode != SceneMode::GradientString) {
+                    Logger::i("[pattern] → GradientString  scene=%s br=%u morph=%s spd=%.1f",
+                              cfg.sceneId, cfg.brightness, cfg.morphEnabled ? "on" : "off", cfg.speed);
+                    _gradientString.setNumLeds(_width);
+                    _gradientString.setWrap(_wrapWidth);
+                    _gradientString.begin(*_led, cfg);
+                    _current   = &_gradientString;
+                    _currentId = (PatternId)0xFF;
+                    _sceneMode = SceneMode::GradientString;
+                } else {
+                    _gradientString.applyConfig(cfg);
+                }
+            }
+            return;
+        }
+
         _sceneMode = SceneMode::None;
 
         if (_current == nullptr || cfg.pattern != _currentId) {
@@ -141,6 +177,10 @@ public:
             _sceneMatrix.reloadIfCurrent(sceneId);
         else if (_sceneMode == SceneMode::String)
             _sceneString.reloadIfCurrent(sceneId);
+        else if (_sceneMode == SceneMode::GradientMatrix)
+            _gradientMatrix.reloadIfCurrent(sceneId);
+        else if (_sceneMode == SceneMode::GradientString)
+            _gradientString.reloadIfCurrent(sceneId);
     }
 
     float getPhase()        const { return _current ? _current->getPhase()    : 0.0f; }
@@ -148,7 +188,7 @@ public:
     void  resetPhase()            { if (_current) _current->resetPhase(); }
 
 private:
-    enum class SceneMode { None, Matrix, String };
+    enum class SceneMode { None, Matrix, String, GradientMatrix, GradientString };
 
     // ── state ────────────────────────────────────────────────────────────────
     LedDriver*  _led       = nullptr;
@@ -175,6 +215,8 @@ private:
     CandlePattern _candle;
     SceneMatrix   _sceneMatrix;
     SceneString   _sceneString;
+    GradientMatrix _gradientMatrix;
+    GradientString _gradientString;
     Proximity     _proximity;
 
     void _renderTest() {

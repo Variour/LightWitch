@@ -38,6 +38,7 @@ enum class GroupMode : uint8_t {
     Pattern   = 0,
     Scene     = 1,
     Proximity = 2,
+    Gradient  = 3,
 };
 
 struct Color {
@@ -61,6 +62,7 @@ struct LightConfig {
     float     transitionTime    = 2.0f;
     float     frameDuration     = 1.0f;
     float     proximityScale    = 1.0f;
+    bool      morphEnabled      = false;  // gradient mode: sparse per-LED color shimmer while holding the gradient shape
 };
 
 static constexpr uint8_t MAX_GROUPS        = 8;
