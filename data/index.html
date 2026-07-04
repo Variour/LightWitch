@@ -727,10 +727,12 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
         <div class="card">
           <h2>Preview on light(s)</h2>
+          <div style="display:flex;gap:.4rem;margin-bottom:.5rem">
+            <button type="button" id="se-preview-mode-scene" class="btn-sm btn-primary" onclick="setScenePreviewMode('scene')">Scene mode</button>
+            <button type="button" id="se-preview-mode-gradient" class="btn-sm btn-ghost" onclick="setScenePreviewMode('gradient')">Gradient mode</button>
+          </div>
           <div id="se-preview-list"></div>
-          <small style="display:block;margin-top:.35rem;color:#666">
-            Shows how frame 1 looks on each of this device's lights currently assigned to this scene — stretched to fill matrix lights in Scene mode, or blended into a gradient for lights in Gradient mode.
-          </small>
+          <small style="display:block;margin-top:.35rem;color:#666" id="se-preview-desc"></small>
         </div>
 
         <div class="card">
@@ -2254,28 +2256,6 @@ function _nearestIdx(dst, dstSize, srcSize) {
   return Math.min(Math.floor(((dst * 2 + 1) * srcSize) / (dstSize * 2)), srcSize - 1);
 }
 
-// Lights on this device whose group currently renders the given scene in matrix mode.
-// Peer devices aren't included: the mesh protocol doesn't report their matrix dimensions.
-function _scenePreviewLights(sceneId) {
-  if (!sceneId || !_self || !Array.isArray(_self.lights)) return [];
-  return _self.lights.filter(l => {
-    if ((l.height || 1) <= 1) return false; // string lights use a palette, not this pixel mapping
-    const g = _groups.find(g => g.id === l.groupId);
-    return g && g.mode === 1 && String(g.sceneId || '') === String(sceneId);
-  });
-}
-
-// Lights on this device whose group currently renders the given scene as a
-// Gradient-mode color source (both string and matrix lights use this mode).
-// Peer devices aren't included, same as _scenePreviewLights above.
-function _gradientPreviewLights(sceneId) {
-  if (!sceneId || !_self || !Array.isArray(_self.lights)) return [];
-  return _self.lights.filter(l => {
-    const g = _groups.find(g => g.id === l.groupId);
-    return g && g.mode === 3 && String(g.sceneId || '') === String(sceneId);
-  });
-}
-
 function _drawSceneStretched(canvas, scene, lightW, lightH) {
   canvas.width  = lightW;
   canvas.height = lightH;
@@ -2296,32 +2276,57 @@ function _drawSceneStretched(canvas, scene, lightW, lightH) {
   }
 }
 
+// Which pattern mode's rendering the "Preview on light(s)" card shows.
+// Sticky across scenes for the rest of the session, not persisted.
+let _scenePreviewMode = 'scene'; // 'scene' | 'gradient'
+
+const SCENE_PREVIEW_DESC = {
+  scene:    "Shows how frame 1 would look stretched onto each of this device's matrix lights, as in Scene mode. String lights aren't shown — Scene mode gives them a random per-LED scene color instead of this pixel mapping.",
+  gradient: "Shows this scene's colors reduced to gradient stops and blended across each of this device's lights, as in Gradient mode.",
+};
+
+function setScenePreviewMode(mode) {
+  _scenePreviewMode = mode;
+  document.getElementById('se-preview-mode-scene').className    = mode === 'scene'    ? 'btn-sm btn-primary' : 'btn-sm btn-ghost';
+  document.getElementById('se-preview-mode-gradient').className = mode === 'gradient' ? 'btn-sm btn-primary' : 'btn-sm btn-ghost';
+  const desc = document.getElementById('se-preview-desc');
+  if (desc) desc.textContent = SCENE_PREVIEW_DESC[mode];
+  _renderScenePreview();
+}
+
 function _renderScenePreview() {
   const el = document.getElementById('se-preview-list');
   if (!el || !_editScene) return;
-  // A light's group has exactly one mode, so a light can only ever show up
-  // in one of these two lists — no id collisions between them.
-  const stretchLights = _scenePreviewLights(_editScene.id);
-  const gradLights = _gradientPreviewLights(_editScene.id);
-  if (!stretchLights.length && !gradLights.length) {
-    el.innerHTML = '<p style="color:#555;font-size:.8rem;margin:0">Not assigned to any light on this device yet.</p>';
+  document.getElementById('se-preview-desc').textContent = SCENE_PREVIEW_DESC[_scenePreviewMode];
+
+  const allLights = (_self && Array.isArray(_self.lights)) ? _self.lights : [];
+  const isGradient = _scenePreviewMode === 'gradient';
+  // Scene mode only stretch-maps matrix lights; string lights get a random
+  // per-LED scene color instead, so there's nothing meaningful to draw.
+  // Gradient mode applies to both string and matrix lights.
+  const lights = isGradient ? allLights : allLights.filter(l => (l.height || 1) > 1);
+
+  if (!lights.length) {
+    el.innerHTML = `<p style="color:#555;font-size:.8rem;margin:0">No${isGradient ? '' : ' matrix'} lights on this device yet.</p>`;
     return;
   }
-  el.innerHTML = [...stretchLights, ...gradLights].map(l => `
+  el.innerHTML = lights.map(l => `
     <div class="light-preview-item">
       <canvas id="se-preview-${l.index}"></canvas>
       <span class="light-preview-item-label">${l.name ? esc(l.name) : `Light ${l.index}`}</span>
       <span class="light-preview-item-meta">${l.width}×${l.height}</span>
     </div>`).join('');
-  for (const l of stretchLights) {
-    const canvas = document.getElementById(`se-preview-${l.index}`);
-    if (canvas) _drawSceneStretched(canvas, _editScene, l.width, l.height);
-  }
-  if (gradLights.length) {
+
+  if (isGradient) {
     const palette = _gradPaletteFromFrame(_editScene.frames[0] || []);
-    for (const l of gradLights) {
+    for (const l of lights) {
       const canvas = document.getElementById(`se-preview-${l.index}`);
       if (canvas) _drawGradientPreview(canvas, palette, l.width || 1, l.height || 1, Boolean(l.wrapWidth));
+    }
+  } else {
+    for (const l of lights) {
+      const canvas = document.getElementById(`se-preview-${l.index}`);
+      if (canvas) _drawSceneStretched(canvas, _editScene, l.width, l.height);
     }
   }
 }
