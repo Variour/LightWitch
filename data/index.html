@@ -2282,7 +2282,7 @@ let _scenePreviewMode = 'scene'; // 'scene' | 'gradient'
 
 const SCENE_PREVIEW_DESC = {
   scene:    "Shows how frame 1 would look stretched onto each of this device's matrix lights, as in Scene mode. String lights aren't shown — Scene mode gives them a random per-LED scene color instead of this pixel mapping.",
-  gradient: "Shows this scene's colors reduced to gradient stops and blended across each of this device's lights, as in Gradient mode. The white ticks below each preview mark pixels sampled directly from the scene — everything else is a calculated blend between them.",
+  gradient: "Shows this scene's colors reduced to gradient stops and blended across each of this device's lights, as in Gradient mode. The white underline below each preview marks pixels sampled directly from the scene — everything else is a calculated blend between them.",
 };
 
 function setScenePreviewMode(mode) {
@@ -2461,12 +2461,16 @@ function _gradStopColumns(n, w, circular) {
   return new Set(bestCol.filter(c => c >= 0));
 }
 
-// Draws the gradient into rows [0, h), then a 1px tick-mark row beneath it:
-// a white pixel under each column sampled directly from the scene, and the
+// Thickness, in pixels, of the underline marking stop columns beneath the
+// gradient — thick enough to read clearly once the canvas is scaled up.
+const GRAD_STOP_UNDERLINE_H = 2;
+
+// Draws the gradient into rows [0, h), then a thick underline beneath it:
+// a white bar under each column sampled directly from the scene, and the
 // canvas's own black background left showing through everywhere else.
 function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
   canvas.width  = w;
-  canvas.height = h + 1;
+  canvas.height = h + GRAD_STOP_UNDERLINE_H;
   const ctx = canvas.getContext('2d');
   if (!fullPalette.length) {
     ctx.fillStyle = '#000';
@@ -2480,7 +2484,7 @@ function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
     ctx.fillRect(col, 0, 1, h);
   }
   ctx.fillStyle = '#fff';
-  for (const col of _gradStopColumns(stops.length, w, wrap)) ctx.fillRect(col, h, 1, 1);
+  for (const col of _gradStopColumns(stops.length, w, wrap)) ctx.fillRect(col, h, 1, GRAD_STOP_UNDERLINE_H);
 }
 
 async function resolveConflict(sceneId, sourceMac) {
