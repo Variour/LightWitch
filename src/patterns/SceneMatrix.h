@@ -35,6 +35,10 @@ public:
             _blending     = false;
             _frameStartMs = millis();
             _render(_frameIdx, _frameIdx, 0.0f);
+        } else {
+            // Re-render the current frame so config-only changes (e.g. brightness)
+            // take effect immediately instead of waiting for the next frame advance.
+            _renderCurrentBlendState(millis());
         }
     }
 
@@ -63,9 +67,7 @@ public:
                 _frameStartMs = now;
                 _render(_frameIdx, _frameIdx, 0.0f);
             } else {
-                float t = (float)elapsed / (float)blendMs;
-                float s = t * t * (3.0f - 2.0f * t);  // smoothstep
-                _render(_prevFrameIdx, _frameIdx, s);
+                _renderCurrentBlendState(now);
             }
             return;
         }
@@ -131,6 +133,24 @@ private:
             }
             _frames.push_back(std::move(pixels));
         }
+    }
+
+    // Render the frame(s) that should currently be on screen, given the
+    // in-progress blend state (if any), without advancing that state.
+    void _renderCurrentBlendState(uint32_t now) {
+        if (!_blending) {
+            _render(_frameIdx, _frameIdx, 0.0f);
+            return;
+        }
+        uint32_t blendMs = _blendMs();
+        uint32_t elapsed = now - _blendStartMs;
+        if (blendMs == 0 || elapsed >= blendMs) {
+            _render(_frameIdx, _frameIdx, 0.0f);
+            return;
+        }
+        float t = (float)elapsed / (float)blendMs;
+        float s = t * t * (3.0f - 2.0f * t);  // smoothstep
+        _render(_prevFrameIdx, _frameIdx, s);
     }
 
     // Render a blend between frameA (t=0) and frameB (t=1).
