@@ -227,11 +227,13 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .scene-editor-save-card { grid-area: save; }
 .scene-editor-meta { font-size: .72rem; color: #666; margin-bottom: .5rem; word-break: break-all; }
 .scene-editor-meta code { font-family: monospace; color: #aaa; }
-.se-preview-item { padding: .4rem 0; }
-.se-preview-item canvas { image-rendering: pixelated; border: 1px solid #333; border-radius: 2px;
+.light-preview-item { padding: .4rem 0; }
+.light-preview-item canvas { image-rendering: pixelated; border: 1px solid #333; border-radius: 2px;
                            background: #000; display: block; width: 100%; height: auto; }
-.se-preview-item-label { font-size: .78rem; color: #aaa; display: block; margin-top: .35rem; }
-.se-preview-item-meta { display: block; font-size: .72rem; color: #666; }
+.light-preview-item-label { font-size: .78rem; color: #aaa; display: block; margin-top: .35rem; }
+.light-preview-item-meta { display: block; font-size: .72rem; color: #666; }
+.grad-stop-underline { display: flex; height: 2px; margin-top: 2px; }
+.grad-stop-underline span { flex: 1; height: 100%; }
 @media (min-width: 700px) {
   .scene-editor-header {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -727,10 +729,12 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
         <div class="card">
           <h2>Preview on light(s)</h2>
+          <div style="display:flex;gap:.4rem;margin-bottom:.5rem">
+            <button type="button" id="se-preview-mode-scene" class="btn-sm btn-primary" onclick="setScenePreviewMode('scene')">Scene mode</button>
+            <button type="button" id="se-preview-mode-gradient" class="btn-sm btn-ghost" onclick="setScenePreviewMode('gradient')">Gradient mode</button>
+          </div>
           <div id="se-preview-list"></div>
-          <small style="display:block;margin-top:.35rem;color:#666">
-            Shows how frame 1 looks stretched onto each of this device's matrix lights currently assigned to this scene.
-          </small>
+          <small style="display:block;margin-top:.35rem;color:#666" id="se-preview-desc"></small>
         </div>
 
         <div class="card">
@@ -2254,17 +2258,6 @@ function _nearestIdx(dst, dstSize, srcSize) {
   return Math.min(Math.floor(((dst * 2 + 1) * srcSize) / (dstSize * 2)), srcSize - 1);
 }
 
-// Lights on this device whose group currently renders the given scene in matrix mode.
-// Peer devices aren't included: the mesh protocol doesn't report their matrix dimensions.
-function _scenePreviewLights(sceneId) {
-  if (!sceneId || !_self || !Array.isArray(_self.lights)) return [];
-  return _self.lights.filter(l => {
-    if ((l.height || 1) <= 1) return false; // string lights use a palette, not this pixel mapping
-    const g = _groups.find(g => g.id === l.groupId);
-    return g && g.mode === 1 && String(g.sceneId || '') === String(sceneId);
-  });
-}
-
 function _drawSceneStretched(canvas, scene, lightW, lightH) {
   canvas.width  = lightW;
   canvas.height = lightH;
@@ -2285,24 +2278,220 @@ function _drawSceneStretched(canvas, scene, lightW, lightH) {
   }
 }
 
+// Which pattern mode's rendering the "Preview on light(s)" card shows.
+// Sticky across scenes for the rest of the session, not persisted.
+let _scenePreviewMode = 'scene'; // 'scene' | 'gradient'
+
+const SCENE_PREVIEW_DESC = {
+  scene:    "Shows how frame 1 would look stretched onto each of this device's matrix lights, as in Scene mode. String lights aren't shown — Scene mode gives them a random per-LED scene color instead of this pixel mapping.",
+  gradient: "Shows this scene's colors reduced to gradient stops and blended across each of this device's lights, as in Gradient mode. The white underline below each preview marks pixels sampled directly from the scene — everything else is a calculated blend between them.",
+};
+
+function setScenePreviewMode(mode) {
+  _scenePreviewMode = mode;
+  document.getElementById('se-preview-mode-scene').className    = mode === 'scene'    ? 'btn-sm btn-primary' : 'btn-sm btn-ghost';
+  document.getElementById('se-preview-mode-gradient').className = mode === 'gradient' ? 'btn-sm btn-primary' : 'btn-sm btn-ghost';
+  const desc = document.getElementById('se-preview-desc');
+  if (desc) desc.textContent = SCENE_PREVIEW_DESC[mode];
+  _renderScenePreview();
+}
+
 function _renderScenePreview() {
   const el = document.getElementById('se-preview-list');
   if (!el || !_editScene) return;
-  const lights = _scenePreviewLights(_editScene.id);
+  document.getElementById('se-preview-desc').textContent = SCENE_PREVIEW_DESC[_scenePreviewMode];
+
+  const allLights = (_self && Array.isArray(_self.lights)) ? _self.lights : [];
+  const isGradient = _scenePreviewMode === 'gradient';
+  // Scene mode only stretch-maps matrix lights; string lights get a random
+  // per-LED scene color instead, so there's nothing meaningful to draw.
+  // Gradient mode applies to both string and matrix lights.
+  const lights = isGradient ? allLights : allLights.filter(l => (l.height || 1) > 1);
+
   if (!lights.length) {
-    el.innerHTML = '<p style="color:#555;font-size:.8rem;margin:0">Not assigned to any matrix light on this device yet.</p>';
+    el.innerHTML = `<p style="color:#555;font-size:.8rem;margin:0">No${isGradient ? '' : ' matrix'} lights on this device yet.</p>`;
     return;
   }
+  const palette = isGradient ? _gradPaletteFromFrame(_editScene.frames[0] || []) : null;
   el.innerHTML = lights.map(l => `
-    <div class="se-preview-item">
+    <div class="light-preview-item">
       <canvas id="se-preview-${l.index}"></canvas>
-      <span class="se-preview-item-label">${l.name ? esc(l.name) : `Light ${l.index}`}</span>
-      <span class="se-preview-item-meta">${l.width}×${l.height}</span>
+      ${isGradient ? _gradStopUnderlineHtml(palette, l.width || 1, Boolean(l.wrapWidth)) : ''}
+      <span class="light-preview-item-label">${l.name ? esc(l.name) : `Light ${l.index}`}</span>
+      <span class="light-preview-item-meta">${l.width}×${l.height}</span>
     </div>`).join('');
-  for (const l of lights) {
-    const canvas = document.getElementById(`se-preview-${l.index}`);
-    if (canvas) _drawSceneStretched(canvas, _editScene, l.width, l.height);
+
+  if (isGradient) {
+    for (const l of lights) {
+      const canvas = document.getElementById(`se-preview-${l.index}`);
+      if (canvas) _drawGradientPreview(canvas, palette, l.width || 1, l.height || 1, Boolean(l.wrapWidth));
+    }
+  } else {
+    for (const l of lights) {
+      const canvas = document.getElementById(`se-preview-${l.index}`);
+      if (canvas) _drawSceneStretched(canvas, _editScene, l.width, l.height);
+    }
   }
+}
+
+// ── Gradient mode preview ────────────────────────────────────────────────────
+// Mirrors src/patterns/GradientCommon.h so this preview matches what the
+// device renders: distinct colors from the scene's first frame (first-seen
+// order), reduced to a per-light stop count, then sampled into a smooth ramp
+// that either loops (wrapWidth) or mirrors back on itself at the ends.
+
+// Distinct colors from a scene frame in first-seen order — mirrors
+// GradientCommon::loadPalette (src/patterns/GradientCommon.h).
+function _gradPaletteFromFrame(frame) {
+  const out = [];
+  for (const raw of frame) {
+    const hex = String(raw || '').replace(/^#/, '');
+    if (hex.length < 6) continue;
+    const rgb = parseInt(hex.slice(0, 6), 16);
+    const c = [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255];
+    if (!out.some(p => p[0] === c[0] && p[1] === c[1] && p[2] === c[2])) out.push(c);
+  }
+  return out;
+}
+
+function _gradDistSq(a, b) {
+  const dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
+  return dr * dr + dg * dg + db * db;
+}
+
+// Mirrors GradientCommon::targetStopCount.
+function _gradTargetStopCount(numLeds, paletteSize) {
+  if (paletteSize < 2) return paletteSize;
+  let target = Math.round(numLeds * 0.10);
+  if (target < 2) target = 2;
+  if (target > 8) target = 8;
+  if (target > paletteSize) target = paletteSize;
+  return target;
+}
+
+// Greedy farthest-point sampling down to the target stop count, returned in
+// original first-seen order — mirrors GradientCommon::reduceToStops.
+function _gradReduceToStops(full, numLeds) {
+  const target = _gradTargetStopCount(numLeds, full.length);
+  const n = full.length;
+  if (target >= n) return full.slice();
+
+  const picked  = new Array(n).fill(false);
+  const minDist = new Array(n);
+  picked[0] = true;
+  for (let i = 0; i < n; i++) minDist[i] = _gradDistSq(full[i], full[0]);
+
+  for (let k = 1; k < target; k++) {
+    let best = -1, bestDist = -1;
+    for (let i = 0; i < n; i++) {
+      if (!picked[i] && minDist[i] > bestDist) { bestDist = minDist[i]; best = i; }
+    }
+    if (best === -1) break;
+    picked[best] = true;
+    for (let i = 0; i < n; i++) {
+      if (picked[i]) continue;
+      const d = _gradDistSq(full[i], full[best]);
+      if (d < minDist[i]) minDist[i] = d;
+    }
+  }
+  return full.filter((_, i) => picked[i]);
+}
+
+// Continuous position in "stop space" for x along [0, length) — e.g. 1.35
+// means 35% of the way from stop 1 to stop 2. Shared by _gradSample (color
+// interpolation) and _gradStopColumns (which pixels are literal stops).
+// circular=true loops back to the first stop; otherwise the position mirrors
+// back on itself past the (inset) end stops — mirrors GradientCommon::sample.
+function _gradSeg(n, x, length, circular) {
+  if (circular) {
+    let xm = x % length;
+    if (xm < 0) xm += length;
+    return xm / length * n;
+  }
+  const spacing = length / n;
+  const lo   = spacing * 0.5;
+  const span = length - spacing;
+  const period = 2 * span;
+  let r = (x - lo) % period;
+  if (r < 0) r += period;
+  if (r > span) r = period - r;
+  return r / span * (n - 1);
+}
+
+// Samples a color at continuous position x along [0, length) — mirrors
+// GradientCommon::sample.
+function _gradSample(stops, x, length, circular) {
+  const n = stops.length;
+  if (n === 0) return [0, 0, 0];
+  if (n === 1 || length <= 0) return stops[0];
+
+  const seg = _gradSeg(n, x, length, circular);
+  let i0, i1;
+  if (circular) {
+    i0 = Math.floor(seg) % n;
+    i1 = (i0 + 1) % n;
+  } else {
+    i0 = Math.floor(seg);
+    if (i0 > n - 2) i0 = n - 2;
+    i1 = i0 + 1;
+  }
+  const t = seg - Math.floor(seg);
+  const a = stops[i0], b = stops[i1];
+  return [
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t,
+  ];
+}
+
+// Which of the w integer pixel columns are literal scene colors ("stops")
+// rather than calculated blends between them: for each stop index, whichever
+// column's continuous position lands closest to that stop exactly. With a
+// single stop the whole strip is that one color, not a blend of anything.
+function _gradStopColumns(n, w, circular) {
+  if (n <= 0) return new Set();
+  if (n === 1) return new Set(Array.from({ length: w }, (_, x) => x));
+
+  const bestCol  = new Array(n).fill(-1);
+  const bestDist = new Array(n).fill(Infinity);
+  for (let x = 0; x < w; x++) {
+    const seg = _gradSeg(n, x, w, circular);
+    const rounded = Math.round(seg);
+    const idx = circular ? ((rounded % n) + n) % n : Math.min(rounded, n - 1);
+    const dist = Math.abs(seg - rounded);
+    if (dist < bestDist[idx]) { bestDist[idx] = dist; bestCol[idx] = x; }
+  }
+  return new Set(bestCol.filter(c => c >= 0));
+}
+
+function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
+  canvas.width  = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!fullPalette.length) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, h);
+    return;
+  }
+  const stops = _gradReduceToStops(fullPalette, w);
+  for (let col = 0; col < w; col++) {
+    const c = _gradSample(stops, col, w, wrap);
+    ctx.fillStyle = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+    ctx.fillRect(col, 0, 1, h);
+  }
+}
+
+// A thin CSS-pixel underline marking which columns are literal scene colors
+// ("stops") vs. calculated blends — kept out of the canvas raster so its
+// thickness stays fixed and subtle instead of scaling with the light's
+// pixel count and the canvas's pixelated upscaling.
+function _gradStopUnderlineHtml(fullPalette, w, wrap) {
+  if (!fullPalette.length) return '<div class="grad-stop-underline"></div>';
+  const stops = _gradReduceToStops(fullPalette, w);
+  const stopCols = _gradStopColumns(stops.length, w, wrap);
+  const cells = Array.from({ length: w }, (_, x) =>
+    `<span style="${stopCols.has(x) ? 'background:#fff' : ''}"></span>`).join('');
+  return `<div class="grad-stop-underline">${cells}</div>`;
 }
 
 async function resolveConflict(sceneId, sourceMac) {
