@@ -232,6 +232,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
                            background: #000; display: block; width: 100%; height: auto; }
 .light-preview-item-label { font-size: .78rem; color: #aaa; display: block; margin-top: .35rem; }
 .light-preview-item-meta { display: block; font-size: .72rem; color: #666; }
+.grad-stop-underline { display: flex; height: 2px; margin-top: 2px; }
+.grad-stop-underline span { flex: 1; height: 100%; }
 @media (min-width: 700px) {
   .scene-editor-header {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -2310,15 +2312,16 @@ function _renderScenePreview() {
     el.innerHTML = `<p style="color:#555;font-size:.8rem;margin:0">No${isGradient ? '' : ' matrix'} lights on this device yet.</p>`;
     return;
   }
+  const palette = isGradient ? _gradPaletteFromFrame(_editScene.frames[0] || []) : null;
   el.innerHTML = lights.map(l => `
     <div class="light-preview-item">
       <canvas id="se-preview-${l.index}"></canvas>
+      ${isGradient ? _gradStopUnderlineHtml(palette, l.width || 1, Boolean(l.wrapWidth)) : ''}
       <span class="light-preview-item-label">${l.name ? esc(l.name) : `Light ${l.index}`}</span>
       <span class="light-preview-item-meta">${l.width}×${l.height}</span>
     </div>`).join('');
 
   if (isGradient) {
-    const palette = _gradPaletteFromFrame(_editScene.frames[0] || []);
     for (const l of lights) {
       const canvas = document.getElementById(`se-preview-${l.index}`);
       if (canvas) _drawGradientPreview(canvas, palette, l.width || 1, l.height || 1, Boolean(l.wrapWidth));
@@ -2461,20 +2464,13 @@ function _gradStopColumns(n, w, circular) {
   return new Set(bestCol.filter(c => c >= 0));
 }
 
-// Thickness, in pixels, of the underline marking stop columns beneath the
-// gradient — thick enough to read clearly once the canvas is scaled up.
-const GRAD_STOP_UNDERLINE_H = 2;
-
-// Draws the gradient into rows [0, h), then a thick underline beneath it:
-// a white bar under each column sampled directly from the scene, and the
-// canvas's own black background left showing through everywhere else.
 function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
   canvas.width  = w;
-  canvas.height = h + GRAD_STOP_UNDERLINE_H;
+  canvas.height = h;
   const ctx = canvas.getContext('2d');
   if (!fullPalette.length) {
     ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, w, canvas.height);
+    ctx.fillRect(0, 0, w, h);
     return;
   }
   const stops = _gradReduceToStops(fullPalette, w);
@@ -2483,8 +2479,19 @@ function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
     ctx.fillStyle = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
     ctx.fillRect(col, 0, 1, h);
   }
-  ctx.fillStyle = '#fff';
-  for (const col of _gradStopColumns(stops.length, w, wrap)) ctx.fillRect(col, h, 1, GRAD_STOP_UNDERLINE_H);
+}
+
+// A thin CSS-pixel underline marking which columns are literal scene colors
+// ("stops") vs. calculated blends — kept out of the canvas raster so its
+// thickness stays fixed and subtle instead of scaling with the light's
+// pixel count and the canvas's pixelated upscaling.
+function _gradStopUnderlineHtml(fullPalette, w, wrap) {
+  if (!fullPalette.length) return '<div class="grad-stop-underline"></div>';
+  const stops = _gradReduceToStops(fullPalette, w);
+  const stopCols = _gradStopColumns(stops.length, w, wrap);
+  const cells = Array.from({ length: w }, (_, x) =>
+    `<span style="${stopCols.has(x) ? 'background:#fff' : ''}"></span>`).join('');
+  return `<div class="grad-stop-underline">${cells}</div>`;
 }
 
 async function resolveConflict(sceneId, sourceMac) {
