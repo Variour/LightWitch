@@ -6,6 +6,8 @@
 #include "../scenes/SceneManager.h"
 
 // Renders a scene as a pixel image on a matrix light.
+// The scene's own w/h can differ from the light's physical w/h: it is
+// stretched (nearest-neighbor, aspect ratio ignored) to fill the light exactly.
 // Supports multi-frame animation with optional blending between frames.
 class SceneMatrix : public Pattern {
 public:
@@ -156,22 +158,18 @@ private:
     // Render a blend between frameA (t=0) and frameB (t=1).
     // Pass same index for both to render a single frame.
     void _render(uint8_t frameA, uint8_t frameB, float t) {
-        if (_frames.empty()) return;
+        if (_frames.empty() || _sceneW == 0 || _sceneH == 0) return;
         const auto& fa = _frames[frameA < _frames.size() ? frameA : 0];
         const auto& fb = _frames[frameB < _frames.size() ? frameB : 0];
         bool blend = (t > 0.0f && frameA != frameB);
 
-        uint16_t renderW = min(_lightW, _sceneW);
-        uint16_t renderH = min(_lightH, _sceneH);
-        uint16_t total   = (uint16_t)_lightW * _lightH;
-
-        for (uint16_t i = 0; i < total; i++) _led->setPixel(i, 0, 0, 0);
-
-        for (uint16_t row = 0; row < renderH; row++) {
-            for (uint16_t col = 0; col < renderW; col++) {
-                uint16_t si = row * _sceneW + col;
+        for (uint16_t row = 0; row < _lightH; row++) {
+            uint16_t srcRow = _nearest(row, _lightH, _sceneH);
+            for (uint16_t col = 0; col < _lightW; col++) {
+                uint16_t srcCol = _nearest(col, _lightW, _sceneW);
+                uint16_t si = srcRow * _sceneW + srcCol;
                 uint16_t li = _ledIndex(row, col);
-                if (si >= fa.size()) continue;
+                if (si >= fa.size()) { _led->setPixel(li, 0, 0, 0); continue; }
                 Color ca = fa[si];
                 Color out = ca;
                 if (blend && si < fb.size()) {
@@ -185,6 +183,13 @@ private:
             }
         }
         _led->show();
+    }
+
+    // Maps a destination coordinate (0..dstSize) to the nearest source coordinate
+    // (0..srcSize) for stretch scaling, sampling at the center of each destination cell.
+    static uint16_t _nearest(uint16_t dst, uint16_t dstSize, uint16_t srcSize) {
+        uint32_t src = ((uint32_t)dst * 2 + 1) * srcSize / ((uint32_t)dstSize * 2);
+        return (src >= srcSize) ? (uint16_t)(srcSize - 1) : (uint16_t)src;
     }
 
     uint16_t _ledIndex(uint16_t row, uint16_t col) const {

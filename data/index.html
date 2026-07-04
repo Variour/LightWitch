@@ -227,6 +227,11 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .scene-editor-save-card { grid-area: save; }
 .scene-editor-meta { font-size: .72rem; color: #666; margin-bottom: .5rem; word-break: break-all; }
 .scene-editor-meta code { font-family: monospace; color: #aaa; }
+.se-preview-item { display: flex; align-items: center; gap: .6rem; padding: .3rem 0; }
+.se-preview-item canvas { image-rendering: pixelated; border: 1px solid #333; border-radius: 2px;
+                           width: 64px; height: 64px; background: #000; flex-shrink: 0; }
+.se-preview-item-label { font-size: .78rem; color: #aaa; }
+.se-preview-item-meta { display: block; font-size: .72rem; color: #666; }
 @media (min-width: 700px) {
   .scene-editor-header {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -718,6 +723,14 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
           </div>
           <button class="btn-primary btn-sm" style="width:100%" onclick="resizeCanvas()">Resize canvas</button>
           <small style="display:block;margin-top:.35rem;color:#666">Smaller sizes discard extra cells. New rows and columns are filled with black.</small>
+        </div>
+
+        <div class="card">
+          <h2>Preview on light(s)</h2>
+          <div id="se-preview-list"></div>
+          <small style="display:block;margin-top:.35rem;color:#666">
+            Shows how frame 1 looks stretched onto each of this device's matrix lights currently assigned to this scene. Only lights on this device are shown — peer devices don't report their matrix size.
+          </small>
         </div>
 
         <div class="card">
@@ -1294,6 +1307,7 @@ function renderLights(self, peers) {
   _self  = self;
   _peers = peers;
   if (self) _selfMac = self.mac;
+  _renderScenePreview();
 
   const all = (self ? [{...self, isSelf: true}, ...peers] : peers)
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -2234,6 +2248,65 @@ function _drawScenePreview(canvas, scene) {
   }
 }
 
+// Nearest-neighbor stretch mapping — mirrors SceneMatrix::_nearest in firmware
+// (src/patterns/SceneMatrix.h), so this preview matches what the device renders.
+function _nearestIdx(dst, dstSize, srcSize) {
+  return Math.min(Math.floor(((dst * 2 + 1) * srcSize) / (dstSize * 2)), srcSize - 1);
+}
+
+// Lights on this device whose group currently renders the given scene in matrix mode.
+// Peer devices aren't included: the mesh protocol doesn't report their matrix dimensions.
+function _scenePreviewLights(sceneId) {
+  if (!sceneId || !_self || !Array.isArray(_self.lights)) return [];
+  return _self.lights.filter(l => {
+    if ((l.height || 1) <= 1) return false; // string lights use a palette, not this pixel mapping
+    const g = _groups.find(g => g.id === l.groupId);
+    return g && g.mode === 1 && String(g.sceneId || '') === String(sceneId);
+  });
+}
+
+function _drawSceneStretched(canvas, scene, lightW, lightH) {
+  canvas.width  = lightW;
+  canvas.height = lightH;
+  const ctx = canvas.getContext('2d');
+  const frame = scene.frames && scene.frames[0];
+  if (!frame || !scene.w || !scene.h) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, lightW, lightH);
+    return;
+  }
+  for (let row = 0; row < lightH; row++) {
+    const sr = _nearestIdx(row, lightH, scene.h);
+    for (let col = 0; col < lightW; col++) {
+      const sc = _nearestIdx(col, lightW, scene.w);
+      ctx.fillStyle = frame[sr * scene.w + sc] || '#000000';
+      ctx.fillRect(col, row, 1, 1);
+    }
+  }
+}
+
+function _renderScenePreview() {
+  const el = document.getElementById('se-preview-list');
+  if (!el || !_editScene) return;
+  const lights = _scenePreviewLights(_editScene.id);
+  if (!lights.length) {
+    el.innerHTML = '<p style="color:#555;font-size:.8rem;margin:0">Not assigned to any matrix light on this device yet.</p>';
+    return;
+  }
+  el.innerHTML = lights.map(l => `
+    <div class="se-preview-item">
+      <canvas id="se-preview-${l.index}"></canvas>
+      <div>
+        <span class="se-preview-item-label">${l.name ? esc(l.name) : `Light ${l.index}`}</span>
+        <span class="se-preview-item-meta">${l.width}×${l.height}</span>
+      </div>
+    </div>`).join('');
+  for (const l of lights) {
+    const canvas = document.getElementById(`se-preview-${l.index}`);
+    if (canvas) _drawSceneStretched(canvas, _editScene, l.width, l.height);
+  }
+}
+
 async function resolveConflict(sceneId, sourceMac) {
   const body = { id: sceneId };
   // omit sourceMac when using local copy (server interprets missing/self as "use local")
@@ -2352,6 +2425,7 @@ function _renderEditor() {
   _updateModeUI();
   _renderFrameList();
   _renderGrid();
+  _renderScenePreview();
 }
 
 function _applyZoom() {
@@ -3201,6 +3275,7 @@ function _markModified() {
   _modified = true;
   _setSaveBtnState(true);
   _scheduleAutoSave();
+  _renderScenePreview();
 }
 
 async function saveScene() {
