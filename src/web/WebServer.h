@@ -529,11 +529,12 @@ private:
             for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
                 if (!c.lights[i].exists) continue;
                 JsonObject lo = la.add<JsonObject>();
-                lo["index"]   = i;
-                lo["groupId"] = c.lights[i].groupId;
-                lo["ledType"] = (uint8_t)c.lights[i].ledType;
-                lo["width"]   = c.lights[i].width;
-                lo["height"]  = c.lights[i].height;
+                lo["index"]     = i;
+                lo["groupId"]   = c.lights[i].groupId;
+                lo["ledType"]   = (uint8_t)c.lights[i].ledType;
+                lo["width"]     = c.lights[i].width;
+                lo["height"]    = c.lights[i].height;
+                lo["wrapWidth"] = c.lights[i].wrapWidth;
             }
         }
 

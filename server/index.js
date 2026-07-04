@@ -17,8 +17,8 @@ const mockLights = [
 // hardware config on every request (see WebServer.h::_buildPeersJson), so it
 // can never drift. Mirror that here instead of keeping a second static copy.
 function mockSelfLights() {
-  return mockLights.map(({ index, name, groupId, ledType, width, height }) =>
-    ({ index, name, groupId, ledType, width, height }));
+  return mockLights.map(({ index, name, groupId, ledType, width, height, wrapWidth }) =>
+    ({ index, name, groupId, ledType, width, height, wrapWidth }));
 }
 
 const MOCK_CONFIG = {
