@@ -13,6 +13,14 @@ const mockLights = [
   { index: 1, name: 'Bedroom',     ledType: 1, dataPin: 25, clockPin: 26, width: 8,  height: 8, matrixStart: 2, matrixDir: 1, wrapWidth: false, wrapHeight: false, groupId: 1 },
 ];
 
+// The real device derives self.lights in /api/peers straight from the live
+// hardware config on every request (see WebServer.h::_buildPeersJson), so it
+// can never drift. Mirror that here instead of keeping a second static copy.
+function mockSelfLights() {
+  return mockLights.map(({ index, name, groupId, ledType, width, height }) =>
+    ({ index, name, groupId, ledType, width, height }));
+}
+
 const MOCK_CONFIG = {
   deviceName: 'Mock Device',
   otaPort: 3232,
@@ -34,7 +42,7 @@ const MOCK_CONFIG = {
   ],
 };
 
-const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', lights: [{ index: 0, name: 'Living room', groupId: 0, ledType: 0, width: 1, height: 1 }, { index: 1, name: 'Bedroom', groupId: 1, ledType: 1, width: 8, height: 8 }], online: true,  sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'checking' };
+const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'checking' };
 const MOCK_PEERS = [
   { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.01.01.0', fwState: 'idle'  },
   { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, version: '2026.01.01.0', fwState: 'idle'  },
@@ -69,9 +77,13 @@ const mockUpdate = {
 
 let _rebooting = false;
 
+function selfWithLights() {
+  return { ...MOCK_SELF, lights: mockSelfLights() };
+}
+
 // Broadcast current self+peers state to all connected WS clients.
 function broadcastPeers() {
-  const msg = JSON.stringify({ t: 'peers', self: MOCK_SELF, peers: MOCK_PEERS });
+  const msg = JSON.stringify({ t: 'peers', self: selfWithLights(), peers: MOCK_PEERS });
   wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
 }
 
@@ -177,8 +189,18 @@ app.post('/api/wifi/delete', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/peers', (_req, res) => res.json({ self: MOCK_SELF, peers: MOCK_PEERS }));
-app.post('/api/peers/setgroup',     (_req, res) => res.json({ ok: true }));
+app.get('/api/peers', (_req, res) => res.json({ self: selfWithLights(), peers: MOCK_PEERS }));
+app.post('/api/peers/setgroup', (req, res) => {
+  const { mac, lightIndex, groupId } = req.body || {};
+  // Mirrors WebServer.h::_setRemoteGroup: only self-mac assignments are
+  // persisted locally; remote peers would relay over the mesh on real hardware.
+  if (mac === MOCK_SELF.mac) {
+    const light = mockLights.find(l => l.index === lightIndex);
+    if (light) light.groupId = groupId;
+    broadcastPeers();
+  }
+  res.json({ ok: true });
+});
 app.post('/api/peers/setscenesync', (_req, res) => res.json({ ok: true }));
 app.post('/api/peers/pushconfig',      (_req, res) => res.json({ ok: true }));
 app.post('/api/peers/triggerupdate', (req, res) => {
@@ -366,7 +388,7 @@ wss.on('connection', ws => {
   const send = data => ws.send(JSON.stringify(data));
   send({ t: 'log', l: 'I', m: 'Mock server connected' });
   send({ t: 'log', l: 'I', m: 'This is a development mock — no hardware attached' });
-  send({ t: 'peers', self: MOCK_SELF, peers: MOCK_PEERS });
+  send({ t: 'peers', self: selfWithLights(), peers: MOCK_PEERS });
   send({ t: 'groups', list: MOCK_CONFIG.groups });
 });
 
