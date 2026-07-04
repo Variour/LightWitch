@@ -229,7 +229,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .scene-editor-meta code { font-family: monospace; color: #aaa; }
 .se-preview-item { display: flex; align-items: center; gap: .6rem; padding: .3rem 0; }
 .se-preview-item canvas { image-rendering: pixelated; border: 1px solid #333; border-radius: 2px;
-                           width: 64px; height: 64px; background: #000; flex-shrink: 0; }
+                           background: #000; flex-shrink: 0; }
 .se-preview-item-label { font-size: .78rem; color: #aaa; }
 .se-preview-item-meta { display: block; font-size: .72rem; color: #666; }
 @media (min-width: 700px) {
@@ -2268,6 +2268,11 @@ function _scenePreviewLights(sceneId) {
 function _drawSceneStretched(canvas, scene, lightW, lightH) {
   canvas.width  = lightW;
   canvas.height = lightH;
+  // Displayed size must keep the light's real aspect ratio, or a wide/tall
+  // matrix would visually read as square. Fit the longer side to 64px.
+  const displayScale = 64 / Math.max(lightW, lightH);
+  canvas.style.width  = Math.round(lightW * displayScale) + 'px';
+  canvas.style.height = Math.round(lightH * displayScale) + 'px';
   const ctx = canvas.getContext('2d');
   const frame = scene.frames && scene.frames[0];
   if (!frame || !scene.w || !scene.h) {
