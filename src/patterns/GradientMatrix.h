@@ -59,7 +59,7 @@ public:
 
         const std::vector<Color>* colors = &_base;
         if (_cfg.morphEnabled) {
-            _morph.tick(now, _base, _palette, _cfg.speed, _out);
+            _morph.tick(now, _base, _stops, _cfg.speed, _out);
             colors = &_out;
         }
 
@@ -78,17 +78,19 @@ private:
     MatrixStart     _matrixStart = MatrixStart::TopLeft;
     MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
     bool                 _wrap    = false;
-    std::vector<Color>   _palette;
+    std::vector<Color>   _palette;  // full distinct-color list from the scene
+    std::vector<Color>   _stops;    // reduced set actually used as gradient stops
     std::vector<Color>   _base;
     std::vector<Color>   _out;
     GradientCommon::Morph _morph;
 
     void _computeBase() {
+        GradientCommon::reduceToStops(_palette, _width, _stops);
         uint32_t total = (uint32_t)_width * _height;
         _base.resize(total);
         for (uint16_t row = 0; row < _height; row++)
             for (uint16_t col = 0; col < _width; col++)
-                _base[row * _width + col] = GradientCommon::sample(_palette, (float)col, (float)_width, _wrap);
+                _base[row * _width + col] = GradientCommon::sample(_stops, (float)col, (float)_width, _wrap);
     }
 
     uint16_t _ledIndex(uint16_t row, uint16_t col) const {

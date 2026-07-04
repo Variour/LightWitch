@@ -37,7 +37,10 @@ inline void loadPalette(const char* sceneId, std::vector<Color>& out) {
 
 // Sample a color at continuous position x along [0, length).
 // circular=true loops the palette seamlessly back to its first stop
-// (ring topology).
+// (ring topology). When not circular, the outermost stops are inset by
+// half a stop-spacing rather than pinned to the physical ends, and the
+// ramp mirrors back on itself beyond them — each end folds back toward
+// its neighboring stop instead of holding a flat block of solid color.
 inline Color sample(const std::vector<Color>& palette, float x, float length, bool circular) {
     size_t n = palette.size();
     if (n == 0) return Color{0, 0, 0};
@@ -52,8 +55,14 @@ inline Color sample(const std::vector<Color>& palette, float x, float length, bo
         i0  = (size_t)seg % n;
         i1  = (i0 + 1) % n;
     } else {
-        float xc = x < 0 ? 0 : (x > length - 1 ? length - 1 : x);
-        seg = (length > 1) ? xc / (length - 1) * (float)(n - 1) : 0.0f;
+        float spacing = length / (float)n;
+        float lo       = spacing * 0.5f;
+        float span      = length - spacing;
+        float period    = 2.0f * span;
+        float r = fmodf(x - lo, period);
+        if (r < 0) r += period;
+        if (r > span) r = period - r;
+        seg = r / span * (float)(n - 1);
         i0  = (size_t)seg;
         if (i0 > n - 2) i0 = n - 2;
         i1  = i0 + 1;
@@ -66,6 +75,64 @@ inline Color sample(const std::vector<Color>& palette, float x, float length, bo
         (uint8_t)((float)a.g + ((float)b.g - (float)a.g) * t),
         (uint8_t)((float)a.b + ((float)b.b - (float)a.b) * t),
     };
+}
+
+// How many of a scene's distinct colors to actually use as gradient stops:
+// a slice of the strip's LED count (so longer strips get more stops), but
+// never invented beyond how many genuinely distinct colors the scene has,
+// and never fewer than 2 (a gradient needs at least two ends) unless the
+// scene itself has fewer than that.
+inline size_t targetStopCount(size_t numLeds, size_t paletteSize) {
+    if (paletteSize < 2) return paletteSize;
+    const float  kFraction = 0.10f;
+    const size_t kMin      = 2;
+    const size_t kMax      = 8;
+    size_t target = (size_t)roundf((float)numLeds * kFraction);
+    if (target < kMin) target = kMin;
+    if (target > kMax) target = kMax;
+    if (target > paletteSize) target = paletteSize;
+    return target;
+}
+
+inline int colorDistSq(const Color& a, const Color& b) {
+    int dr = (int)a.r - (int)b.r;
+    int dg = (int)a.g - (int)b.g;
+    int db = (int)a.b - (int)b.b;
+    return dr * dr + dg * dg + db * db;
+}
+
+// Reduce a scene's full distinct-color palette down to targetStopCount()
+// stops, picked so the survivors are as different from each other as
+// possible (greedy farthest-point sampling by RGB distance), then returned
+// in their original first-seen order so the ramp still reads the way the
+// scene laid its colors out.
+inline void reduceToStops(const std::vector<Color>& full, size_t numLeds, std::vector<Color>& out) {
+    size_t target = targetStopCount(numLeds, full.size());
+    size_t n = full.size();
+    if (target >= n) { out = full; return; }
+
+    std::vector<bool> picked(n, false);
+    std::vector<int>  minDist(n, 0);
+    picked[0] = true;
+    for (size_t i = 0; i < n; i++) minDist[i] = colorDistSq(full[i], full[0]);
+
+    for (size_t k = 1; k < target; k++) {
+        size_t best = n;
+        int bestDist = -1;
+        for (size_t i = 0; i < n; i++) {
+            if (!picked[i] && minDist[i] > bestDist) { bestDist = minDist[i]; best = i; }
+        }
+        if (best == n) break;
+        picked[best] = true;
+        for (size_t i = 0; i < n; i++) {
+            if (picked[i]) continue;
+            int d = colorDistSq(full[i], full[best]);
+            if (d < minDist[i]) minDist[i] = d;
+        }
+    }
+
+    out.clear();
+    for (size_t i = 0; i < n; i++) if (picked[i]) out.push_back(full[i]);
 }
 
 // Animates a sparse, ever-changing subset of cells away from their base
