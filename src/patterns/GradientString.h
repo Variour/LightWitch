@@ -56,7 +56,7 @@ public:
         if (_base.size() != _numLeds) _computeBase();
 
         if (_cfg.morphEnabled) {
-            _morph.tick(now, _base, _palette, _cfg.speed, _out);
+            _morph.tick(now, _base, _stops, _cfg.speed, _out);
             for (uint16_t i = 0; i < _numLeds; i++) {
                 const Color& c = _out[i];
                 _led->setPixel(i, applyBrightness(c.r), applyBrightness(c.g), applyBrightness(c.b));
@@ -73,14 +73,16 @@ public:
 private:
     uint16_t            _numLeds = 1;
     bool                 _wrap    = false;
-    std::vector<Color>   _palette;
+    std::vector<Color>   _palette;  // full distinct-color list from the scene
+    std::vector<Color>   _stops;    // reduced set actually used as gradient stops
     std::vector<Color>   _base;
     std::vector<Color>   _out;
     GradientCommon::Morph _morph;
 
     void _computeBase() {
+        GradientCommon::reduceToStops(_palette, _numLeds, _stops);
         _base.resize(_numLeds);
         for (uint16_t i = 0; i < _numLeds; i++)
-            _base[i] = GradientCommon::sample(_palette, (float)i, (float)_numLeds, _wrap);
+            _base[i] = GradientCommon::sample(_stops, (float)i, (float)_numLeds, _wrap);
     }
 };
