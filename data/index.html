@@ -2282,7 +2282,7 @@ let _scenePreviewMode = 'scene'; // 'scene' | 'gradient'
 
 const SCENE_PREVIEW_DESC = {
   scene:    "Shows how frame 1 would look stretched onto each of this device's matrix lights, as in Scene mode. String lights aren't shown — Scene mode gives them a random per-LED scene color instead of this pixel mapping.",
-  gradient: "Shows this scene's colors reduced to gradient stops and blended across each of this device's lights, as in Gradient mode.",
+  gradient: "Shows this scene's colors reduced to gradient stops and blended across each of this device's lights, as in Gradient mode. The white ticks below each preview mark pixels sampled directly from the scene — everything else is a calculated blend between them.",
 };
 
 function setScenePreviewMode(mode) {
@@ -2394,30 +2394,40 @@ function _gradReduceToStops(full, numLeds) {
   return full.filter((_, i) => picked[i]);
 }
 
+// Continuous position in "stop space" for x along [0, length) — e.g. 1.35
+// means 35% of the way from stop 1 to stop 2. Shared by _gradSample (color
+// interpolation) and _gradStopColumns (which pixels are literal stops).
+// circular=true loops back to the first stop; otherwise the position mirrors
+// back on itself past the (inset) end stops — mirrors GradientCommon::sample.
+function _gradSeg(n, x, length, circular) {
+  if (circular) {
+    let xm = x % length;
+    if (xm < 0) xm += length;
+    return xm / length * n;
+  }
+  const spacing = length / n;
+  const lo   = spacing * 0.5;
+  const span = length - spacing;
+  const period = 2 * span;
+  let r = (x - lo) % period;
+  if (r < 0) r += period;
+  if (r > span) r = period - r;
+  return r / span * (n - 1);
+}
+
 // Samples a color at continuous position x along [0, length) — mirrors
-// GradientCommon::sample. circular=true loops back to the first stop;
-// otherwise the ramp mirrors back on itself past the (inset) end stops.
+// GradientCommon::sample.
 function _gradSample(stops, x, length, circular) {
   const n = stops.length;
   if (n === 0) return [0, 0, 0];
   if (n === 1 || length <= 0) return stops[0];
 
-  let seg, i0, i1;
+  const seg = _gradSeg(n, x, length, circular);
+  let i0, i1;
   if (circular) {
-    let xm = x % length;
-    if (xm < 0) xm += length;
-    seg = xm / length * n;
     i0 = Math.floor(seg) % n;
     i1 = (i0 + 1) % n;
   } else {
-    const spacing = length / n;
-    const lo   = spacing * 0.5;
-    const span = length - spacing;
-    const period = 2 * span;
-    let r = (x - lo) % period;
-    if (r < 0) r += period;
-    if (r > span) r = period - r;
-    seg = r / span * (n - 1);
     i0 = Math.floor(seg);
     if (i0 > n - 2) i0 = n - 2;
     i1 = i0 + 1;
@@ -2431,13 +2441,36 @@ function _gradSample(stops, x, length, circular) {
   ];
 }
 
+// Which of the w integer pixel columns are literal scene colors ("stops")
+// rather than calculated blends between them: for each stop index, whichever
+// column's continuous position lands closest to that stop exactly. With a
+// single stop the whole strip is that one color, not a blend of anything.
+function _gradStopColumns(n, w, circular) {
+  if (n <= 0) return new Set();
+  if (n === 1) return new Set(Array.from({ length: w }, (_, x) => x));
+
+  const bestCol  = new Array(n).fill(-1);
+  const bestDist = new Array(n).fill(Infinity);
+  for (let x = 0; x < w; x++) {
+    const seg = _gradSeg(n, x, w, circular);
+    const rounded = Math.round(seg);
+    const idx = circular ? ((rounded % n) + n) % n : Math.min(rounded, n - 1);
+    const dist = Math.abs(seg - rounded);
+    if (dist < bestDist[idx]) { bestDist[idx] = dist; bestCol[idx] = x; }
+  }
+  return new Set(bestCol.filter(c => c >= 0));
+}
+
+// Draws the gradient into rows [0, h), then a 1px tick-mark row beneath it:
+// a white pixel under each column sampled directly from the scene, and the
+// canvas's own black background left showing through everywhere else.
 function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
   canvas.width  = w;
-  canvas.height = h;
+  canvas.height = h + 1;
   const ctx = canvas.getContext('2d');
   if (!fullPalette.length) {
     ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, 0, w, canvas.height);
     return;
   }
   const stops = _gradReduceToStops(fullPalette, w);
@@ -2446,6 +2479,8 @@ function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
     ctx.fillStyle = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
     ctx.fillRect(col, 0, 1, h);
   }
+  ctx.fillStyle = '#fff';
+  for (const col of _gradStopColumns(stops.length, w, wrap)) ctx.fillRect(col, h, 1, 1);
 }
 
 async function resolveConflict(sceneId, sourceMac) {
