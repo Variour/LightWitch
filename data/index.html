@@ -227,11 +227,11 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .scene-editor-save-card { grid-area: save; }
 .scene-editor-meta { font-size: .72rem; color: #666; margin-bottom: .5rem; word-break: break-all; }
 .scene-editor-meta code { font-family: monospace; color: #aaa; }
-.se-preview-item { padding: .4rem 0; }
-.se-preview-item canvas { image-rendering: pixelated; border: 1px solid #333; border-radius: 2px;
+.light-preview-item { padding: .4rem 0; }
+.light-preview-item canvas { image-rendering: pixelated; border: 1px solid #333; border-radius: 2px;
                            background: #000; display: block; width: 100%; height: auto; }
-.se-preview-item-label { font-size: .78rem; color: #aaa; display: block; margin-top: .35rem; }
-.se-preview-item-meta { display: block; font-size: .72rem; color: #666; }
+.light-preview-item-label { font-size: .78rem; color: #aaa; display: block; margin-top: .35rem; }
+.light-preview-item-meta { display: block; font-size: .72rem; color: #666; }
 @media (min-width: 700px) {
   .scene-editor-header {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -942,6 +942,7 @@ let _selfMac = '';
 let _sceneOptions = [];
 let _debounce = {};
 let _syncConflicts  = [];
+let _gradPreviewOpen = new Set(); // group ids with the live gradient preview expanded
 let _syncPeerScenes = [];
 
 const PATTERNS = [
@@ -1147,10 +1148,22 @@ function renderGroups(groups) {
             <input type="range" id="ggsp-${g.id}" min="0.1" max="5" step="0.1" value="${g.speed||1}"
                    oninput="document.getElementById('ggspeed-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'×'; onGroupControl(${g.id})">
           </div>
+          <div class="sync-row" style="margin-top:.3rem">
+            <input type="checkbox" id="ggpreview-${g.id}" ${_gradPreviewOpen.has(g.id)?'checked':''}
+                   onchange="toggleGradPreview(${g.id}, this.checked)">
+            <label for="ggpreview-${g.id}" style="margin:0;color:inherit;font-size:inherit">Show live preview</label>
+          </div>
+          <div id="ggpreview-wrap-${g.id}" style="${_gradPreviewOpen.has(g.id)?'':'display:none'};margin-top:.3rem">
+            <div id="ggpreview-list-${g.id}"></div>
+            <small style="display:block;margin-top:.35rem;color:#666">
+              Shows the gradient blended across this device's lights currently assigned to this group. Off by default — turn on one group at a time to avoid cluttering the page with previews.
+            </small>
+          </div>
         </div>
       </div>`;
     el.appendChild(card);
   }
+  _refreshOpenGradientPreviews();
 }
 
 function onSpeedLabel(id) {
@@ -1208,6 +1221,8 @@ function onGroupControl(id) {
   const transTimeWrap = document.getElementById(`gtranstime-wrap-${id}`);
   const transEnabled  = document.getElementById(`gtrans-${id}`)?.checked;
   if (transTimeWrap) transTimeWrap.style.display = transEnabled ? '' : 'none';
+
+  if (mode === 3 && _gradPreviewOpen.has(id)) _renderGradientPreview(id);
 
   clearTimeout(_debounce[id]);
   _debounce[id] = setTimeout(() => applyGroupControl(id), 300);
@@ -1308,6 +1323,7 @@ function renderLights(self, peers) {
   _peers = peers;
   if (self) _selfMac = self.mac;
   _renderScenePreview();
+  _refreshOpenGradientPreviews();
 
   const all = (self ? [{...self, isSelf: true}, ...peers] : peers)
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -2294,14 +2310,186 @@ function _renderScenePreview() {
     return;
   }
   el.innerHTML = lights.map(l => `
-    <div class="se-preview-item">
+    <div class="light-preview-item">
       <canvas id="se-preview-${l.index}"></canvas>
-      <span class="se-preview-item-label">${l.name ? esc(l.name) : `Light ${l.index}`}</span>
-      <span class="se-preview-item-meta">${l.width}×${l.height}</span>
+      <span class="light-preview-item-label">${l.name ? esc(l.name) : `Light ${l.index}`}</span>
+      <span class="light-preview-item-meta">${l.width}×${l.height}</span>
     </div>`).join('');
   for (const l of lights) {
     const canvas = document.getElementById(`se-preview-${l.index}`);
     if (canvas) _drawSceneStretched(canvas, _editScene, l.width, l.height);
+  }
+}
+
+// ── Gradient mode preview ────────────────────────────────────────────────────
+// Mirrors src/patterns/GradientCommon.h so this preview matches what the
+// device renders: distinct colors from the scene's first frame (first-seen
+// order), reduced to a per-light stop count, then sampled into a smooth ramp
+// that either loops (wrapWidth) or mirrors back on itself at the ends.
+
+function toggleGradPreview(id, show) {
+  if (show) _gradPreviewOpen.add(id); else _gradPreviewOpen.delete(id);
+  const wrap = document.getElementById(`ggpreview-wrap-${id}`);
+  if (wrap) wrap.style.display = show ? '' : 'none';
+  if (show) _renderGradientPreview(id);
+}
+
+function _refreshOpenGradientPreviews() {
+  for (const id of _gradPreviewOpen) {
+    if (document.getElementById(`ggpreview-wrap-${id}`)) _renderGradientPreview(id);
+  }
+}
+
+// Distinct colors from a scene frame in first-seen order — mirrors
+// GradientCommon::loadPalette (src/patterns/GradientCommon.h).
+function _gradPaletteFromFrame(frame) {
+  const out = [];
+  for (const raw of frame) {
+    const hex = String(raw || '').replace(/^#/, '');
+    if (hex.length < 6) continue;
+    const rgb = parseInt(hex.slice(0, 6), 16);
+    const c = [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255];
+    if (!out.some(p => p[0] === c[0] && p[1] === c[1] && p[2] === c[2])) out.push(c);
+  }
+  return out;
+}
+
+function _gradDistSq(a, b) {
+  const dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
+  return dr * dr + dg * dg + db * db;
+}
+
+// Mirrors GradientCommon::targetStopCount.
+function _gradTargetStopCount(numLeds, paletteSize) {
+  if (paletteSize < 2) return paletteSize;
+  let target = Math.round(numLeds * 0.10);
+  if (target < 2) target = 2;
+  if (target > 8) target = 8;
+  if (target > paletteSize) target = paletteSize;
+  return target;
+}
+
+// Greedy farthest-point sampling down to the target stop count, returned in
+// original first-seen order — mirrors GradientCommon::reduceToStops.
+function _gradReduceToStops(full, numLeds) {
+  const target = _gradTargetStopCount(numLeds, full.length);
+  const n = full.length;
+  if (target >= n) return full.slice();
+
+  const picked  = new Array(n).fill(false);
+  const minDist = new Array(n);
+  picked[0] = true;
+  for (let i = 0; i < n; i++) minDist[i] = _gradDistSq(full[i], full[0]);
+
+  for (let k = 1; k < target; k++) {
+    let best = -1, bestDist = -1;
+    for (let i = 0; i < n; i++) {
+      if (!picked[i] && minDist[i] > bestDist) { bestDist = minDist[i]; best = i; }
+    }
+    if (best === -1) break;
+    picked[best] = true;
+    for (let i = 0; i < n; i++) {
+      if (picked[i]) continue;
+      const d = _gradDistSq(full[i], full[best]);
+      if (d < minDist[i]) minDist[i] = d;
+    }
+  }
+  return full.filter((_, i) => picked[i]);
+}
+
+// Samples a color at continuous position x along [0, length) — mirrors
+// GradientCommon::sample. circular=true loops back to the first stop;
+// otherwise the ramp mirrors back on itself past the (inset) end stops.
+function _gradSample(stops, x, length, circular) {
+  const n = stops.length;
+  if (n === 0) return [0, 0, 0];
+  if (n === 1 || length <= 0) return stops[0];
+
+  let seg, i0, i1;
+  if (circular) {
+    let xm = x % length;
+    if (xm < 0) xm += length;
+    seg = xm / length * n;
+    i0 = Math.floor(seg) % n;
+    i1 = (i0 + 1) % n;
+  } else {
+    const spacing = length / n;
+    const lo   = spacing * 0.5;
+    const span = length - spacing;
+    const period = 2 * span;
+    let r = (x - lo) % period;
+    if (r < 0) r += period;
+    if (r > span) r = period - r;
+    seg = r / span * (n - 1);
+    i0 = Math.floor(seg);
+    if (i0 > n - 2) i0 = n - 2;
+    i1 = i0 + 1;
+  }
+  const t = seg - Math.floor(seg);
+  const a = stops[i0], b = stops[i1];
+  return [
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t,
+  ];
+}
+
+function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
+  canvas.width  = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!fullPalette.length) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, h);
+    return;
+  }
+  const stops = _gradReduceToStops(fullPalette, w);
+  for (let col = 0; col < w; col++) {
+    const c = _gradSample(stops, col, w, wrap);
+    ctx.fillStyle = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+    ctx.fillRect(col, 0, 1, h);
+  }
+}
+
+async function _renderGradientPreview(id) {
+  const el = document.getElementById(`ggpreview-list-${id}`);
+  if (!el) return;
+
+  const sceneId = document.getElementById(`ggscene-${id}`)?.value || '';
+  if (!sceneId) {
+    el.innerHTML = '<p style="color:#555;font-size:.8rem;margin:0">Choose a scene to preview.</p>';
+    return;
+  }
+
+  const lights = (_self && Array.isArray(_self.lights)) ? _self.lights.filter(l => l.groupId === id) : [];
+  if (!lights.length) {
+    el.innerHTML = '<p style="color:#555;font-size:.8rem;margin:0">Not assigned to any light on this device yet.</p>';
+    return;
+  }
+
+  let scene;
+  try {
+    const res = await fetch('/api/scenes/get?id=' + encodeURIComponent(sceneId));
+    scene = await res.json();
+  } catch { scene = null; }
+  if (!scene || scene.error || !Array.isArray(scene.frames) || !scene.frames[0]) {
+    el.innerHTML = '<p style="color:#555;font-size:.8rem;margin:0">Scene data unavailable.</p>';
+    return;
+  }
+
+  // Bail if the scene selection changed while the fetch was in flight.
+  if ((document.getElementById(`ggscene-${id}`)?.value || '') !== sceneId) return;
+
+  const palette = _gradPaletteFromFrame(scene.frames[0]);
+  el.innerHTML = lights.map(l => `
+    <div class="light-preview-item">
+      <canvas id="ggpreview-${id}-${l.index}"></canvas>
+      <span class="light-preview-item-label">${l.name ? esc(l.name) : `Light ${l.index}`}</span>
+      <span class="light-preview-item-meta">${l.width}×${l.height}</span>
+    </div>`).join('');
+  for (const l of lights) {
+    const canvas = document.getElementById(`ggpreview-${id}-${l.index}`);
+    if (canvas) _drawGradientPreview(canvas, palette, l.width || 1, l.height || 1, Boolean(l.wrapWidth));
   }
 }
 
