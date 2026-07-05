@@ -59,6 +59,30 @@ Continue with [First boot](#first-boot) below.
 
 ---
 
+## Initial installation (USB, from source)
+
+Alternative to the release flash above — use this if you're building from source with PlatformIO installed.
+
+Do this once per device, with a USB cable connected.
+
+**1. Flash firmware**
+```bash
+pio run -e esp32c3 -t upload    # For ESP32-C3 devices (e.g., batterylight1)
+pio run -e esp32dev -t upload   # For ESP32-WROOM-32 devices
+```
+
+**2. Flash the web UI filesystem**
+```bash
+pio run -e esp32c3 -t uploadfs    # For ESP32-C3 devices (e.g., batterylight1)
+pio run -e esp32dev -t uploadfs   # For ESP32-WROOM-32 devices
+```
+
+Both steps are required on a fresh device. Use the environment matching your device type. After this, all further updates can be done over WiFi.
+
+Continue with [First boot](#first-boot) below.
+
+---
+
 ## First boot
 
 Each device starts as a WiFi access point named after its MAC address (e.g. `light-a1b2c3`).

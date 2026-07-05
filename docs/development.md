@@ -1,26 +1,8 @@
 # Development
 
-For building from source and updating devices over WiFi with PlatformIO installed.
+For updating devices over WiFi and running the web UI locally with PlatformIO / Node.js installed.
 
----
-
-## Initial installation (USB)
-
-Do this once per device, with a USB cable connected.
-
-**1. Flash firmware**
-```bash
-pio run -e esp32c3 -t upload    # For ESP32-C3 devices (e.g., batterylight1)
-pio run -e esp32dev -t upload   # For ESP32-WROOM-32 devices
-```
-
-**2. Flash the web UI filesystem**
-```bash
-pio run -e esp32c3 -t uploadfs    # For ESP32-C3 devices (e.g., batterylight1)
-pio run -e esp32dev -t uploadfs   # For ESP32-WROOM-32 devices
-```
-
-Both steps are required on a fresh device. Use the environment matching your device type. After this, all further updates can be done over WiFi.
+> For the initial USB flash of a fresh device, see [Initial installation (USB, from source)](../README.md#initial-installation-usb-from-source) in the README.
 
 ---
 
