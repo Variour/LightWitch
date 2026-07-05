@@ -400,6 +400,8 @@ private:
         o["proximityScale"]    = g.light.proximityScale;
         o["morphEnabled"]     = g.light.morphEnabled;
         o["gradientStopCount"] = g.light.gradientStopCount;
+        o["text"]             = g.light.text;
+        o["textAnimation"]    = (uint8_t)g.light.textAnimation;
     }
 
     static LightConfig _lightFromJson(JsonVariant j) {
@@ -419,6 +421,8 @@ private:
         if (!j["proximityScale"].isNull())    l.proximityScale    = (float)j["proximityScale"];
         if (!j["morphEnabled"].isNull())     l.morphEnabled     = (bool)j["morphEnabled"];
         if (!j["gradientStopCount"].isNull()) l.gradientStopCount = (uint8_t)j["gradientStopCount"];
+        if (!j["text"].isNull())          strlcpy(l.text, j["text"], sizeof(l.text));
+        if (!j["textAnimation"].isNull()) l.textAnimation = (TextAnimation)(uint8_t)j["textAnimation"];
         return l;
     }
 
@@ -625,7 +629,8 @@ private:
                          || !doc["transitionEnabled"].isNull() || !doc["sceneUniformColor"].isNull()
                          || !doc["transitionTime"].isNull() || !doc["frameDuration"].isNull()
                          || !doc["proximityScale"].isNull() || !doc["morphEnabled"].isNull()
-                         || !doc["gradientStopCount"].isNull();
+                         || !doc["gradientStopCount"].isNull() || !doc["text"].isNull()
+                         || !doc["textAnimation"].isNull();
         if (lightChanged) {
             auto& l = g->light;
             if (!doc["mode"].isNull())             l.mode              = (GroupMode)(uint8_t)doc["mode"];
@@ -643,6 +648,8 @@ private:
             if (!doc["proximityScale"].isNull())   l.proximityScale    = (float)doc["proximityScale"];
             if (!doc["morphEnabled"].isNull())    l.morphEnabled     = (bool)doc["morphEnabled"];
             if (!doc["gradientStopCount"].isNull()) l.gradientStopCount = (uint8_t)doc["gradientStopCount"];
+            if (!doc["text"].isNull())          strlcpy(l.text, doc["text"], sizeof(l.text));
+            if (!doc["textAnimation"].isNull()) l.textAnimation = (TextAnimation)(uint8_t)doc["textAnimation"];
             l.seq++;
             if (_onGroupLight) _onGroupLight(id, l);
         }
