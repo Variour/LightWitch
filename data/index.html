@@ -2457,49 +2457,70 @@ function _gradReduceToStops(full, numLeds, stopCountOverride) {
   return full.filter((_, i) => picked[i]);
 }
 
-// Continuous position in "stop space" for x along [0, length) — e.g. 1.35
-// means 35% of the way from stop 1 to stop 2. Shared by _gradSample (color
-// interpolation) and _gradStopColumns (which pixels are literal stops).
-// circular=true loops back to the first stop; otherwise the position mirrors
-// back on itself past the (inset) end stops — mirrors GradientCommon::sample.
-function _gradSeg(n, x, length, circular) {
-  if (circular) {
-    let xm = x % length;
-    if (xm < 0) xm += length;
-    return xm / length * n;
-  }
-  const spacing = length / n;
-  const lo   = spacing * 0.5;
-  const span = length - spacing;
-  const period = 2 * span;
-  let r = (x - lo) % period;
-  if (r < 0) r += period;
-  if (r > span) r = period - r;
-  return r / span * (n - 1);
+// Deterministic pseudo-random value in [-1, 1] for a stop, seeded from its
+// index and its own color so a given scene's stops always jitter the same
+// way on the device and in this preview — mirrors GradientCommon::stopJitter
+// (a murmur3-style bit mixer; Math.imul keeps the multiplies 32-bit exact).
+function _gradStopJitter(i, c) {
+  let h = Math.imul(i, 374761393) >>> 0;
+  h = (h + ((c[0] << 16) | (c[1] << 8) | c[2])) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 2246822519) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 3266489917) >>> 0;
+  h = (h ^ (h >>> 16)) >>> 0;
+  return (h & 0xFFFFFF) / 0xFFFFFF * 2 - 1;
 }
 
-// Samples a color at continuous position x along [0, length) — mirrors
+// Mirrors GradientCommon::kStopJitterFraction.
+const GRAD_STOP_JITTER_FRACTION = 0.3;
+
+// Physical positions of each stop along [0, length), off the perfectly even
+// grid by a deterministic jitter instead of sitting at exact multiples of
+// the even spacing — mirrors GradientCommon::computeStopPositions.
+function _gradStopPositions(stops, length, circular) {
+  const n = stops.length;
+  if (n === 0 || length <= 0) return [];
+  const spacing   = length / n;
+  const amplitude = spacing * GRAD_STOP_JITTER_FRACTION;
+  const lo        = circular ? 0 : spacing * 0.5;
+  return stops.map((c, i) => lo + i * spacing + _gradStopJitter(i, c) * amplitude);
+}
+
+// Samples a color at continuous position x along [0, length), using the
+// (possibly jittered) stop positions from _gradStopPositions — mirrors
 // GradientCommon::sample.
-function _gradSample(stops, x, length, circular) {
+function _gradSample(stops, positions, x, length, circular) {
   const n = stops.length;
   if (n === 0) return [0, 0, 0];
   if (n === 1 || length <= 0) return stops[0];
 
-  const seg = _gradSeg(n, x, length, circular);
   let i0, i1, t;
   if (circular) {
-    i0 = Math.floor(seg) % n;
+    let xm = (x - positions[0]) % length;
+    if (xm < 0) xm += length;
+    i0 = n - 1;
+    for (let i = 0; i < n; i++) {
+      const upper = (i + 1 < n) ? (positions[i + 1] - positions[0]) : length;
+      if (xm < upper) { i0 = i; break; }
+    }
     i1 = (i0 + 1) % n;
-    t = seg - Math.floor(seg);
+    const lo2 = (i0 === 0) ? 0 : positions[i0] - positions[0];
+    const hi2 = (i0 + 1 < n) ? positions[i0 + 1] - positions[0] : length;
+    t = (hi2 > lo2) ? (xm - lo2) / (hi2 - lo2) : 0;
   } else {
-    i0 = Math.floor(seg);
-    if (i0 > n - 2) i0 = n - 2;
+    const lo2  = positions[0];
+    const span = positions[n - 1] - positions[0];
+    if (span <= 0) return stops[0];
+    const period = 2 * span;
+    let r = (x - lo2) % period;
+    if (r < 0) r += period;
+    if (r > span) r = period - r;
+    i0 = 0;
+    for (let i = 0; i + 2 < n; i++) {
+      if (r >= positions[i + 1] - lo2) i0 = i + 1;
+    }
     i1 = i0 + 1;
-    // t must be relative to the clamped i0, not floor(seg): when seg lands
-    // exactly on the last stop, floor(seg) == n-1 gets clamped down to n-2,
-    // but floor(seg)-based t would still read 0 and pin the color to the
-    // wrong (clamped) stop instead of blending fully into i1.
-    t = seg - i0;
+    const a = positions[i0] - lo2, b = positions[i1] - lo2;
+    t = (b > a) ? (r - a) / (b - a) : 0;
   }
   const a = stops[i0], b = stops[i1];
   return [
@@ -2510,23 +2531,22 @@ function _gradSample(stops, x, length, circular) {
 }
 
 // Which of the w integer pixel columns are literal scene colors ("stops")
-// rather than calculated blends between them: for each stop index, whichever
-// column's continuous position lands closest to that stop exactly. With a
-// single stop the whole strip is that one color, not a blend of anything.
-function _gradStopColumns(n, w, circular) {
+// rather than calculated blends between them: the column nearest to each
+// stop's (possibly jittered) position. With a single stop the whole strip
+// is that one color, not a blend of anything.
+function _gradStopColumns(positions, w, circular) {
+  const n = positions.length;
   if (n <= 0) return new Set();
   if (n === 1) return new Set(Array.from({ length: w }, (_, x) => x));
 
-  const bestCol  = new Array(n).fill(-1);
-  const bestDist = new Array(n).fill(Infinity);
-  for (let x = 0; x < w; x++) {
-    const seg = _gradSeg(n, x, w, circular);
-    const rounded = Math.round(seg);
-    const idx = circular ? ((rounded % n) + n) % n : Math.min(rounded, n - 1);
-    const dist = Math.abs(seg - rounded);
-    if (dist < bestDist[idx]) { bestDist[idx] = dist; bestCol[idx] = x; }
+  const cols = new Set();
+  for (let i = 0; i < n; i++) {
+    const p = circular
+      ? (((positions[i] % w) + w) % w)
+      : Math.min(Math.max(positions[i], 0), w - 1);
+    cols.add(Math.round(p) % w);
   }
-  return new Set(bestCol.filter(c => c >= 0));
+  return cols;
 }
 
 function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
@@ -2539,8 +2559,9 @@ function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
     return;
   }
   const stops = _gradReduceToStops(fullPalette, w, _scenePreviewStopOverride);
+  const positions = _gradStopPositions(stops, w, wrap);
   for (let col = 0; col < w; col++) {
-    const c = _gradSample(stops, col, w, wrap);
+    const c = _gradSample(stops, positions, col, w, wrap);
     ctx.fillStyle = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
     ctx.fillRect(col, 0, 1, h);
   }
@@ -2553,7 +2574,8 @@ function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
 function _gradStopUnderlineHtml(fullPalette, w, wrap) {
   if (!fullPalette.length) return '<div class="grad-stop-underline"></div>';
   const stops = _gradReduceToStops(fullPalette, w, _scenePreviewStopOverride);
-  const stopCols = _gradStopColumns(stops.length, w, wrap);
+  const positions = _gradStopPositions(stops, w, wrap);
+  const stopCols = _gradStopColumns(positions, w, wrap);
   const cells = Array.from({ length: w }, (_, x) =>
     `<span style="${stopCols.has(x) ? 'background:#fff' : ''}"></span>`).join('');
   return `<div class="grad-stop-underline">${cells}</div>`;

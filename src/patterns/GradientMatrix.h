@@ -85,19 +85,21 @@ private:
     MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
     bool            _matrixSerpentine = false;
     bool                 _wrap    = false;
-    std::vector<Color>   _palette;  // full distinct-color list from the scene
-    std::vector<Color>   _stops;    // reduced set actually used as gradient stops
+    std::vector<Color>   _palette;   // full distinct-color list from the scene
+    std::vector<Color>   _stops;     // reduced set actually used as gradient stops
+    std::vector<float>   _positions; // jittered physical position of each stop
     std::vector<Color>   _base;
     std::vector<Color>   _out;
     GradientCommon::Morph _morph;
 
     void _computeBase() {
         GradientCommon::reduceToStops(_palette, _width, _stops, _cfg.gradientStopCount);
+        GradientCommon::computeStopPositions(_stops, (float)_width, _wrap, _positions);
         uint32_t total = (uint32_t)_width * _height;
         _base.resize(total);
         for (uint16_t row = 0; row < _height; row++)
             for (uint16_t col = 0; col < _width; col++)
-                _base[row * _width + col] = GradientCommon::sample(_stops, (float)col, (float)_width, _wrap);
+                _base[row * _width + col] = GradientCommon::sample(_stops, _positions, (float)col, (float)_width, _wrap);
     }
 
     // Serpentine (zig-zag/boustrophedon) wiring: the physical strip reverses

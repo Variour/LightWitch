@@ -77,16 +77,18 @@ public:
 private:
     uint16_t            _numLeds = 1;
     bool                 _wrap    = false;
-    std::vector<Color>   _palette;  // full distinct-color list from the scene
-    std::vector<Color>   _stops;    // reduced set actually used as gradient stops
+    std::vector<Color>   _palette;   // full distinct-color list from the scene
+    std::vector<Color>   _stops;     // reduced set actually used as gradient stops
+    std::vector<float>   _positions; // jittered physical position of each stop
     std::vector<Color>   _base;
     std::vector<Color>   _out;
     GradientCommon::Morph _morph;
 
     void _computeBase() {
         GradientCommon::reduceToStops(_palette, _numLeds, _stops, _cfg.gradientStopCount);
+        GradientCommon::computeStopPositions(_stops, (float)_numLeds, _wrap, _positions);
         _base.resize(_numLeds);
         for (uint16_t i = 0; i < _numLeds; i++)
-            _base[i] = GradientCommon::sample(_stops, (float)i, (float)_numLeds, _wrap);
+            _base[i] = GradientCommon::sample(_stops, _positions, (float)i, (float)_numLeds, _wrap);
     }
 };

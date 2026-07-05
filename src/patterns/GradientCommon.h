@@ -35,45 +35,81 @@ inline void loadPalette(const char* sceneId, std::vector<Color>& out) {
     }
 }
 
-// Sample a color at continuous position x along [0, length).
+// Deterministic pseudo-random value in [-1, 1] for a stop, seeded from its
+// index and its own color so a given scene's stops always jitter the same
+// way on every device and in the web preview (a murmur3-style bit mixer).
+inline float stopJitter(size_t i, const Color& c) {
+    uint32_t h = (uint32_t)i * 374761393u;
+    h += ((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | c.b;
+    h = (h ^ (h >> 15)) * 2246822519u;
+    h = (h ^ (h >> 13)) * 3266489917u;
+    h ^= h >> 16;
+    return (float)(h & 0xFFFFFFu) / (float)0xFFFFFFu * 2.0f - 1.0f;
+}
+
+// How far a stop may drift from its perfectly-even grid position, as a
+// fraction of the even spacing between stops. Bounded well under 0.5 so
+// adjacent stops can never cross regardless of jitter direction.
+constexpr float kStopJitterFraction = 0.3f;
+
+// Physical positions of each stop along [0, length), off the perfectly even
+// grid by a deterministic jitter (see stopJitter) instead of sitting at
+// exact multiples of the even spacing. circular=true lays stops around a
+// closed ring; otherwise stops sit inset by roughly half a spacing unit
+// from the physical ends, as before, with the same jitter applied to those
+// end stops too.
+inline void computeStopPositions(const std::vector<Color>& stops, float length, bool circular, std::vector<float>& out) {
+    size_t n = stops.size();
+    out.assign(n, 0.0f);
+    if (n == 0 || length <= 0) return;
+    float spacing   = length / (float)n;
+    float amplitude = spacing * kStopJitterFraction;
+    float lo        = circular ? 0.0f : spacing * 0.5f;
+    for (size_t i = 0; i < n; i++)
+        out[i] = lo + (float)i * spacing + stopJitter(i, stops[i]) * amplitude;
+}
+
+// Sample a color at continuous position x along [0, length), using the
+// (possibly jittered) stop positions computed by computeStopPositions.
 // circular=true loops the palette seamlessly back to its first stop
-// (ring topology). When not circular, the outermost stops are inset by
-// half a stop-spacing rather than pinned to the physical ends, and the
-// ramp mirrors back on itself beyond them — each end folds back toward
-// its neighboring stop instead of holding a flat block of solid color.
-inline Color sample(const std::vector<Color>& palette, float x, float length, bool circular) {
+// (ring topology). When not circular, the ramp mirrors back on itself
+// beyond the outermost stops — each end folds back toward its neighboring
+// stop instead of holding a flat block of solid color.
+inline Color sample(const std::vector<Color>& palette, const std::vector<float>& positions, float x, float length, bool circular) {
     size_t n = palette.size();
     if (n == 0) return Color{0, 0, 0};
     if (n == 1 || length <= 0) return palette[0];
 
-    float seg;
     size_t i0, i1;
     float t;
     if (circular) {
-        float xm = fmodf(x, length);
+        float xm = fmodf(x - positions[0], length);
         if (xm < 0) xm += length;
-        seg = xm / length * (float)n;
-        i0  = (size_t)seg % n;
-        i1  = (i0 + 1) % n;
-        t = seg - floorf(seg);
+        i0 = n - 1;
+        for (size_t i = 0; i < n; i++) {
+            float upper = (i + 1 < n) ? (positions[i + 1] - positions[0]) : length;
+            if (xm < upper) { i0 = i; break; }
+        }
+        i1 = (i0 + 1) % n;
+        float lo2 = (i0 == 0) ? 0.0f : positions[i0] - positions[0];
+        float hi2 = (i0 + 1 < n) ? positions[i0 + 1] - positions[0] : length;
+        t = (hi2 > lo2) ? (xm - lo2) / (hi2 - lo2) : 0.0f;
     } else {
-        float spacing = length / (float)n;
-        float lo       = spacing * 0.5f;
-        float span      = length - spacing;
-        float period    = 2.0f * span;
-        float r = fmodf(x - lo, period);
+        float lo2  = positions[0];
+        float span = positions[n - 1] - positions[0];
+        if (span <= 0.0f) return palette[0];
+        float period = 2.0f * span;
+        float r = fmodf(x - lo2, period);
         if (r < 0) r += period;
         if (r > span) r = period - r;
-        seg = r / span * (float)(n - 1);
-        i0  = (size_t)seg;
-        if (i0 > n - 2) i0 = n - 2;
-        i1  = i0 + 1;
-        // t must be relative to the clamped i0, not floor(seg): when seg
-        // lands exactly on the last stop, floor(seg) == n-1 gets clamped
-        // down to n-2, but floor(seg)-based t would still read 0 and pin
-        // the color to the wrong (clamped) stop instead of blending fully
-        // into i1.
-        t = seg - (float)i0;
+        i0 = 0;
+        for (size_t i = 0; i + 2 < n; i++) {
+            if (r >= positions[i + 1] - lo2) i0 = i + 1;
+        }
+        i1 = i0 + 1;
+        float a = positions[i0] - lo2;
+        float b = positions[i1] - lo2;
+        t = (b > a) ? (r - a) / (b - a) : 0.0f;
     }
     const Color& a = palette[i0];
     const Color& b = palette[i1];
