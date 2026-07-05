@@ -102,7 +102,7 @@ struct LightHardwareConfig {
 
 struct DeviceConfig {
     char        deviceName[32]   = "light";
-    char        apPassword[64]   = "bl-9f4a2c81";
+    char        apPassword[64]   = "batterylight";
     uint16_t    otaPort          = 3232;
     bool        otaEnabled       = true;
     uint8_t     logLevel         = 0;
