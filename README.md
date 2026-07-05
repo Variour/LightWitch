@@ -109,7 +109,9 @@ Devices can check for and install new firmware directly from GitHub releases wit
 
 ## Hardware
 
-Supported LED types: **WS2812B** (default) and **WS2801**.
+Supported LED types:
+- WS2812B
+- WS2801
 
 LED type and data/clock GPIO pins are configured per light in the web UI.
 
