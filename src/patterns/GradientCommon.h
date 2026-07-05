@@ -48,12 +48,14 @@ inline Color sample(const std::vector<Color>& palette, float x, float length, bo
 
     float seg;
     size_t i0, i1;
+    float t;
     if (circular) {
         float xm = fmodf(x, length);
         if (xm < 0) xm += length;
         seg = xm / length * (float)n;
         i0  = (size_t)seg % n;
         i1  = (i0 + 1) % n;
+        t = seg - floorf(seg);
     } else {
         float spacing = length / (float)n;
         float lo       = spacing * 0.5f;
@@ -66,8 +68,13 @@ inline Color sample(const std::vector<Color>& palette, float x, float length, bo
         i0  = (size_t)seg;
         if (i0 > n - 2) i0 = n - 2;
         i1  = i0 + 1;
+        // t must be relative to the clamped i0, not floor(seg): when seg
+        // lands exactly on the last stop, floor(seg) == n-1 gets clamped
+        // down to n-2, but floor(seg)-based t would still read 0 and pin
+        // the color to the wrong (clamped) stop instead of blending fully
+        // into i1.
+        t = seg - (float)i0;
     }
-    float t = seg - floorf(seg);
     const Color& a = palette[i0];
     const Color& b = palette[i1];
     return Color{
