@@ -1,6 +1,6 @@
 # Online hosting (Azure Container Apps)
 
-The web UI runs as a Docker container on Azure Container Apps, with a permanent `latest` deployment and per-PR preview environments.
+This hosts the **mock web UI** (the same `server/index.js` used for [local development](development.md#local-web-ui-development)) as a Docker container on Azure Container Apps — not a connection to real hardware. It exists so PR reviewers and testers can click through the UI without running anything locally. There's a permanent `latest` deployment plus per-PR preview environments.
 
 ## Authentication
 
