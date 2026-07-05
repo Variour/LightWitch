@@ -39,6 +39,12 @@ enum class GroupMode : uint8_t {
     Scene     = 1,
     Proximity = 2,
     Gradient  = 3,
+    Text      = 4,  // matrix lights only
+};
+
+enum class TextAnimation : uint8_t {
+    Scroll = 0,
+    Bounce = 1,
 };
 
 struct Color {
@@ -64,6 +70,8 @@ struct LightConfig {
     float     proximityScale    = 1.0f;
     bool      morphEnabled      = false;  // gradient mode: stops continuously wander to new random palette colors
     uint8_t   gradientStopCount = 0;      // gradient mode: manual stop count override; 0 = auto (GradientCommon::targetStopCount)
+    char          text[64]      = {};     // text mode: message to display
+    TextAnimation textAnimation = TextAnimation::Scroll;  // text mode: how overflowing text moves
 };
 
 static constexpr uint8_t MAX_GROUPS        = 8;

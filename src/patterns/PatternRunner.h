@@ -12,6 +12,7 @@
 #include "GradientMatrix.h"
 #include "GradientString.h"
 #include "Proximity.h"
+#include "TextMatrix.h"
 #include "../led/LedDriver.h"
 #include "../config/Config.h"
 #include "../logging/Logger.h"
@@ -141,8 +142,28 @@ public:
             return;
         }
 
+        if (cfg.mode == GroupMode::Text && _height > 1) {
+            _sceneMode = SceneMode::None;
+            if (_current != &_textMatrix) {
+                Logger::i("[pattern] → TextMatrix  \"%s\" rgb(%u,%u,%u) br=%u anim=%s spd=%.1f",
+                          cfg.text, cfg.color.r, cfg.color.g, cfg.color.b, cfg.brightness,
+                          cfg.textAnimation == TextAnimation::Bounce ? "bounce" : "scroll", cfg.speed);
+                _textMatrix.setDimensions(_width, _height);
+                _textMatrix.setMatrixLayout(_matrixStart, _matrixDir, _matrixSerpentine);
+                _textMatrix.begin(*_led, cfg);
+                _current   = &_textMatrix;
+                _currentId = (PatternId)0xFF;
+            } else {
+                _textMatrix.applyConfig(cfg);
+            }
+            return;
+        }
+
         _sceneMode = SceneMode::None;
 
+        // GroupMode::Text on a string light (height == 1) has no supported
+        // rendering — falls through to the Pattern-mode switch below and
+        // just shows whatever cfg.pattern last held (defaults to Static).
         if (_current == nullptr || cfg.pattern != _currentId) {
             static const char* const _names[] = { "Static", "Breathing", "ColorCycle", "Strobe", "Candle" };
             const char* name = (uint8_t)cfg.pattern < 5 ? _names[(uint8_t)cfg.pattern] : "?";
@@ -220,6 +241,7 @@ private:
     GradientMatrix _gradientMatrix;
     GradientString _gradientString;
     Proximity     _proximity;
+    TextMatrix    _textMatrix;
 
     void _renderTest() {
         uint16_t n    = _width * _height;

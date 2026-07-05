@@ -38,6 +38,8 @@ static void serializeGroup(JsonArray arr, const GroupConfig& g) {
     o["proximityScale"]    = g.light.proximityScale;
     o["morphEnabled"]     = g.light.morphEnabled;
     o["gradientStopCount"] = g.light.gradientStopCount;
+    o["text"]             = g.light.text;
+    o["textAnimation"]    = (uint8_t)g.light.textAnimation;
 }
 
 static void deserializeGroup(JsonVariant o, GroupConfig& g) {
@@ -61,6 +63,8 @@ static void deserializeGroup(JsonVariant o, GroupConfig& g) {
     g.light.proximityScale     = o["proximityScale"]    | 1.0f;
     g.light.morphEnabled      = o["morphEnabled"]     | false;
     g.light.gradientStopCount = o["gradientStopCount"] | (uint8_t)0;
+    strlcpy(g.light.text, o["text"] | "", sizeof(g.light.text));
+    g.light.textAnimation = (TextAnimation)(uint8_t)(o["textAnimation"] | (uint8_t)TextAnimation::Scroll);
 }
 
 static bool migrateDoc(JsonDocument& doc) {
