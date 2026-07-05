@@ -109,14 +109,9 @@ Devices can check for and install new firmware directly from GitHub releases wit
 
 ## Hardware
 
-Supported LED types:
+Supported LED types: **WS2812B** (default) and **WS2801**.
 
-| LED type | ESP32-WROOM-32 | ESP32-C3 |
-|----------|----------------|----------|
-| WS2812B (default) | Data: GPIO 25 | Data: GPIO 20 |
-| WS2801 | Data: GPIO 25, Clock: GPIO 26 | Data: GPIO 20, Clock: GPIO 21 |
-
-The LED type is configured per device in the web UI under **Network → LED Type**.
+LED type and data/clock GPIO pins are configured per light in the web UI.
 
 ---
 
