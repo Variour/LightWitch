@@ -166,7 +166,7 @@ void setup() {
         _leds[i] = drv;
         _runners[i].begin(*drv);
         _runners[i].setDimensions(l.width, l.height);
-        _runners[i].setMatrixLayout(l.matrixStart, l.matrixDir);
+        _runners[i].setMatrixLayout(l.matrixStart, l.matrixDir, l.matrixSerpentine);
         _runners[i].setWrap(l.wrapWidth, l.wrapHeight);
         _runners[i].setPeerRegistry(&mesh.peers);
         _runners[i].setGroupId(l.groupId);
@@ -395,7 +395,7 @@ void setup() {
     webServer.setOnOrientationChange([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx]) {
             auto& l = Config::get().lights[idx];
-            _runners[idx].setMatrixLayout(l.matrixStart, l.matrixDir);
+            _runners[idx].setMatrixLayout(l.matrixStart, l.matrixDir, l.matrixSerpentine);
             _runners[idx].setWrap(l.wrapWidth, l.wrapHeight);
         }
     });

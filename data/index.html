@@ -3761,7 +3761,7 @@ async function testLight(index) {
 function openAddLightModal() {
   _editLightIndex = null;
   _originalLight  = null;
-  _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0, wrapWidth: false, wrapHeight: false});
+  _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false});
 }
 
 function openEditLightModal(l) {
@@ -3812,6 +3812,10 @@ function _openLightModal(l) {
         <option value="0"${(l.matrixDir||0)===0?' selected':''}>Horizontal (rows first)</option>
         <option value="1"${(l.matrixDir||0)===1?' selected':''}>Vertical (columns first)</option>
       </select>
+      <label style="display:flex;align-items:center;gap:.5rem">
+        <input type="checkbox" id="lm-matrixSerpentine" style="width:auto" ${l.matrixSerpentine?'checked':''}>
+        <span>Serpentine wiring <small>(zig-zag — every other row/column runs in reverse, common on continuous-strip matrix panels)</small></span>
+      </label>
       <label style="display:flex;align-items:center;gap:.5rem">
         <input type="checkbox" id="lm-wrapHeight" style="width:auto" ${l.wrapHeight?'checked':''}>
         <span>Wrap vertically <small>(last row connects back to the first)</small></span>
@@ -3871,6 +3875,7 @@ async function saveLightModal() {
     height:      parseInt(document.getElementById('lm-height').value) || 1,
     matrixStart: parseInt(document.getElementById('lm-matrixStart').value),
     matrixDir:   parseInt(document.getElementById('lm-matrixDir').value),
+    matrixSerpentine: document.getElementById('lm-matrixSerpentine').checked,
     wrapWidth:   document.getElementById('lm-wrapWidth').checked,
     wrapHeight:  document.getElementById('lm-wrapHeight').checked,
   };

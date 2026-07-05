@@ -102,6 +102,7 @@ static void applyDoc(JsonDocument& doc) {
             l.height   = v["height"]   | (uint16_t)1;
             l.matrixStart = (MatrixStart)(uint8_t)(v["matrixStart"] | (uint8_t)MatrixStart::TopLeft);
             l.matrixDir   = (MatrixDirection)(uint8_t)(v["matrixDir"] | (uint8_t)MatrixDirection::Horizontal);
+            l.matrixSerpentine = v["matrixSerpentine"] | false;
             l.wrapWidth  = v["wrapWidth"]  | false;
             l.wrapHeight = v["wrapHeight"] | false;
             l.groupId  = v["groupId"]  | (uint8_t)0;
@@ -192,6 +193,7 @@ bool Config::save() {
         o["height"]     = l.height;
         o["matrixStart"]= (uint8_t)l.matrixStart;
         o["matrixDir"]  = (uint8_t)l.matrixDir;
+        o["matrixSerpentine"] = l.matrixSerpentine;
         o["wrapWidth"]  = l.wrapWidth;
         o["wrapHeight"] = l.wrapHeight;
         o["groupId"]    = l.groupId;
