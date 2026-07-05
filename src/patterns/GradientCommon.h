@@ -82,14 +82,21 @@ inline Color sample(const std::vector<Color>& palette, float x, float length, bo
 // never invented beyond how many genuinely distinct colors the scene has,
 // and never fewer than 2 (a gradient needs at least two ends) unless the
 // scene itself has fewer than that.
-inline size_t targetStopCount(size_t numLeds, size_t paletteSize) {
+// stopCountOverride, if >= 2, replaces the auto-calculated count outright
+// (still clamped to the scene's palette size below).
+inline size_t targetStopCount(size_t numLeds, size_t paletteSize, uint8_t stopCountOverride = 0) {
     if (paletteSize < 2) return paletteSize;
-    const float  kFraction = 0.10f;
-    const size_t kMin      = 2;
-    const size_t kMax      = 8;
-    size_t target = (size_t)roundf((float)numLeds * kFraction);
-    if (target < kMin) target = kMin;
-    if (target > kMax) target = kMax;
+    size_t target;
+    if (stopCountOverride >= 2) {
+        target = stopCountOverride;
+    } else {
+        const float  kFraction = 0.10f;
+        const size_t kMin      = 2;
+        const size_t kMax      = 8;
+        target = (size_t)roundf((float)numLeds * kFraction);
+        if (target < kMin) target = kMin;
+        if (target > kMax) target = kMax;
+    }
     if (target > paletteSize) target = paletteSize;
     return target;
 }
@@ -106,8 +113,9 @@ inline int colorDistSq(const Color& a, const Color& b) {
 // possible (greedy farthest-point sampling by RGB distance), then returned
 // in their original first-seen order so the ramp still reads the way the
 // scene laid its colors out.
-inline void reduceToStops(const std::vector<Color>& full, size_t numLeds, std::vector<Color>& out) {
-    size_t target = targetStopCount(numLeds, full.size());
+inline void reduceToStops(const std::vector<Color>& full, size_t numLeds, std::vector<Color>& out,
+                           uint8_t stopCountOverride = 0) {
+    size_t target = targetStopCount(numLeds, full.size(), stopCountOverride);
     size_t n = full.size();
     if (target >= n) { out = full; return; }
 

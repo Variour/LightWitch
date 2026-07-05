@@ -399,6 +399,7 @@ private:
         o["frameDuration"]     = g.light.frameDuration;
         o["proximityScale"]    = g.light.proximityScale;
         o["morphEnabled"]     = g.light.morphEnabled;
+        o["gradientStopCount"] = g.light.gradientStopCount;
     }
 
     static LightConfig _lightFromJson(JsonVariant j) {
@@ -417,6 +418,7 @@ private:
         if (!j["frameDuration"].isNull())     l.frameDuration     = (float)j["frameDuration"];
         if (!j["proximityScale"].isNull())    l.proximityScale    = (float)j["proximityScale"];
         if (!j["morphEnabled"].isNull())     l.morphEnabled     = (bool)j["morphEnabled"];
+        if (!j["gradientStopCount"].isNull()) l.gradientStopCount = (uint8_t)j["gradientStopCount"];
         return l;
     }
 
@@ -622,7 +624,8 @@ private:
                          || !doc["brightness"].isNull() || !doc["speed"].isNull()
                          || !doc["transitionEnabled"].isNull() || !doc["sceneUniformColor"].isNull()
                          || !doc["transitionTime"].isNull() || !doc["frameDuration"].isNull()
-                         || !doc["proximityScale"].isNull() || !doc["morphEnabled"].isNull();
+                         || !doc["proximityScale"].isNull() || !doc["morphEnabled"].isNull()
+                         || !doc["gradientStopCount"].isNull();
         if (lightChanged) {
             auto& l = g->light;
             if (!doc["mode"].isNull())             l.mode              = (GroupMode)(uint8_t)doc["mode"];
@@ -639,6 +642,7 @@ private:
             if (!doc["frameDuration"].isNull())    l.frameDuration     = (float)doc["frameDuration"];
             if (!doc["proximityScale"].isNull())   l.proximityScale    = (float)doc["proximityScale"];
             if (!doc["morphEnabled"].isNull())    l.morphEnabled     = (bool)doc["morphEnabled"];
+            if (!doc["gradientStopCount"].isNull()) l.gradientStopCount = (uint8_t)doc["gradientStopCount"];
             l.seq++;
             if (_onGroupLight) _onGroupLight(id, l);
         }

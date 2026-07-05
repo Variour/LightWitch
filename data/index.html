@@ -733,6 +733,14 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
             <button type="button" id="se-preview-mode-scene" class="btn-sm btn-primary" onclick="setScenePreviewMode('scene')">Scene mode</button>
             <button type="button" id="se-preview-mode-gradient" class="btn-sm btn-ghost" onclick="setScenePreviewMode('gradient')">Gradient mode</button>
           </div>
+          <div id="se-preview-stops-wrap" style="display:none;margin-bottom:.5rem">
+            <label style="margin:0">
+              <input type="checkbox" id="se-preview-stops-custom" onchange="onScenePreviewStopsToggle()">
+              Custom stop count <span id="se-preview-stops-label"></span>
+            </label>
+            <input type="range" id="se-preview-stops" min="2" max="32" step="1" value="4"
+                   style="display:none" oninput="onScenePreviewStopsInput()">
+          </div>
           <div id="se-preview-list"></div>
           <small style="display:block;margin-top:.35rem;color:#666" id="se-preview-desc"></small>
         </div>
@@ -1016,6 +1024,7 @@ function renderGroups(groups) {
     const animEnabled = frameDuration > 0;
     const proximityScale = Number.isFinite(g.proximityScale) ? g.proximityScale : 1.0;
     const morphEnabled = Boolean(g.morphEnabled);
+    const gradientStopCount = Number(g.gradientStopCount) || 0;
     card.innerHTML = `
       <div class="group-header">
         <input type="text" value="${esc(g.name)}" onchange="renameGroup(${g.id}, this.value)"
@@ -1135,6 +1144,17 @@ function renderGroups(groups) {
             </select>
             <p class="pattern-desc">Gradient stops are the distinct colors found in the scene, in the order they appear. Matrix lights blend the gradient left-to-right on every row.</p>
           </div>
+          <div class="sync-row" style="margin-top:.3rem">
+            <input type="checkbox" id="ggstopscustom-${g.id}" ${gradientStopCount>0?'checked':''}
+                   onchange="document.getElementById('ggstops-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
+            <label for="ggstopscustom-${g.id}" style="margin:0;color:inherit;font-size:inherit">Custom stop count</label>
+          </div>
+          <p class="pattern-desc" style="margin-top:.2rem">By default, the number of gradient stops is calculated automatically from the light's length. Enable this to set it yourself.</p>
+          <div id="ggstops-wrap-${g.id}" style="${gradientStopCount>0?'':'display:none'}">
+            <label style="margin-top:.4rem">Stops <span id="ggstops-label-${g.id}">${gradientStopCount>0?gradientStopCount:4}</span></label>
+            <input type="range" id="ggstops-${g.id}" min="2" max="32" step="1" value="${gradientStopCount>0?gradientStopCount:4}"
+                   oninput="document.getElementById('ggstops-label-${g.id}').textContent=this.value; onGroupControl(${g.id})">
+          </div>
           <div>
             <label>Brightness</label>
             <input type="range" id="ggbr-${g.id}" min="0" max="255" value="${g.brightness||255}"
@@ -1206,6 +1226,10 @@ function onGroupControl(id) {
   const gradMorph     = document.getElementById(`ggmorph-${id}`)?.checked;
   if (gradSpeedWrap) gradSpeedWrap.style.display = gradMorph ? '' : 'none';
 
+  const gradStopsWrap   = document.getElementById(`ggstops-wrap-${id}`);
+  const gradStopsCustom = document.getElementById(`ggstopscustom-${id}`)?.checked;
+  if (gradStopsWrap) gradStopsWrap.style.display = gradStopsCustom ? '' : 'none';
+
   const grp = _groups.find(g => g.id === id);
   if (grp) { grp.mode = mode; _updateSignalColumn(); }
 
@@ -1248,6 +1272,9 @@ function applyGroupControl(id) {
                            : 0,
       proximityScale:    parseFloat(document.getElementById(`gprox-${id}`)?.value || 1),
       morphEnabled:      document.getElementById(`ggmorph-${id}`)?.checked || false,
+      gradientStopCount: document.getElementById(`ggstopscustom-${id}`)?.checked
+                           ? parseInt(document.getElementById(`ggstops-${id}`)?.value || 4)
+                           : 0,
     })
   });
 }
@@ -2288,6 +2315,9 @@ function _drawSceneStretched(canvas, scene, lightW, lightH) {
 // Which pattern mode's rendering the "Preview on light(s)" card shows.
 // Sticky across scenes for the rest of the session, not persisted.
 let _scenePreviewMode = 'scene'; // 'scene' | 'gradient'
+// 0 = auto (matches GradientCommon::targetStopCount); >=2 previews an override,
+// purely local to this preview panel — not tied to any group's saved setting.
+let _scenePreviewStopOverride = 0;
 
 const SCENE_PREVIEW_DESC = {
   scene:    "Shows how frame 1 would look stretched onto each of this device's matrix lights, as in Scene mode. String lights aren't shown — Scene mode gives them a random per-LED scene color instead of this pixel mapping.",
@@ -2298,8 +2328,25 @@ function setScenePreviewMode(mode) {
   _scenePreviewMode = mode;
   document.getElementById('se-preview-mode-scene').className    = mode === 'scene'    ? 'btn-sm btn-primary' : 'btn-sm btn-ghost';
   document.getElementById('se-preview-mode-gradient').className = mode === 'gradient' ? 'btn-sm btn-primary' : 'btn-sm btn-ghost';
+  document.getElementById('se-preview-stops-wrap').style.display = mode === 'gradient' ? '' : 'none';
   const desc = document.getElementById('se-preview-desc');
   if (desc) desc.textContent = SCENE_PREVIEW_DESC[mode];
+  _renderScenePreview();
+}
+
+function onScenePreviewStopsToggle() {
+  const checked = document.getElementById('se-preview-stops-custom').checked;
+  const slider = document.getElementById('se-preview-stops');
+  slider.style.display = checked ? '' : 'none';
+  _scenePreviewStopOverride = checked ? parseInt(slider.value || 4) : 0;
+  document.getElementById('se-preview-stops-label').textContent = checked ? slider.value : '';
+  _renderScenePreview();
+}
+
+function onScenePreviewStopsInput() {
+  const slider = document.getElementById('se-preview-stops');
+  _scenePreviewStopOverride = parseInt(slider.value);
+  document.getElementById('se-preview-stops-label').textContent = slider.value;
   _renderScenePreview();
 }
 
@@ -2366,20 +2413,26 @@ function _gradDistSq(a, b) {
   return dr * dr + dg * dg + db * db;
 }
 
-// Mirrors GradientCommon::targetStopCount.
-function _gradTargetStopCount(numLeds, paletteSize) {
+// Mirrors GradientCommon::targetStopCount. stopCountOverride, if >= 2,
+// replaces the auto-calculated count outright (still clamped to paletteSize).
+function _gradTargetStopCount(numLeds, paletteSize, stopCountOverride) {
   if (paletteSize < 2) return paletteSize;
-  let target = Math.round(numLeds * 0.10);
-  if (target < 2) target = 2;
-  if (target > 8) target = 8;
+  let target;
+  if (stopCountOverride >= 2) {
+    target = stopCountOverride;
+  } else {
+    target = Math.round(numLeds * 0.10);
+    if (target < 2) target = 2;
+    if (target > 8) target = 8;
+  }
   if (target > paletteSize) target = paletteSize;
   return target;
 }
 
 // Greedy farthest-point sampling down to the target stop count, returned in
 // original first-seen order — mirrors GradientCommon::reduceToStops.
-function _gradReduceToStops(full, numLeds) {
-  const target = _gradTargetStopCount(numLeds, full.length);
+function _gradReduceToStops(full, numLeds, stopCountOverride) {
+  const target = _gradTargetStopCount(numLeds, full.length, stopCountOverride || 0);
   const n = full.length;
   if (target >= n) return full.slice();
 
@@ -2480,7 +2533,7 @@ function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
     ctx.fillRect(0, 0, w, h);
     return;
   }
-  const stops = _gradReduceToStops(fullPalette, w);
+  const stops = _gradReduceToStops(fullPalette, w, _scenePreviewStopOverride);
   for (let col = 0; col < w; col++) {
     const c = _gradSample(stops, col, w, wrap);
     ctx.fillStyle = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
@@ -2494,7 +2547,7 @@ function _drawGradientPreview(canvas, fullPalette, w, h, wrap) {
 // pixel count and the canvas's pixelated upscaling.
 function _gradStopUnderlineHtml(fullPalette, w, wrap) {
   if (!fullPalette.length) return '<div class="grad-stop-underline"></div>';
-  const stops = _gradReduceToStops(fullPalette, w);
+  const stops = _gradReduceToStops(fullPalette, w, _scenePreviewStopOverride);
   const stopCols = _gradStopColumns(stops.length, w, wrap);
   const cells = Array.from({ length: w }, (_, x) =>
     `<span style="${stopCols.has(x) ? 'background:#fff' : ''}"></span>`).join('');
