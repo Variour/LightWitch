@@ -59,25 +59,6 @@ Continue with [First boot](#first-boot) below.
 
 ---
 
-## Initial installation (USB)
-
-Do this once per device, with a USB cable connected.
-
-**1. Flash firmware**
-```bash
-pio run -e esp32c3 -t upload    # For ESP32-C3 devices (e.g., batterylight1)
-pio run -e esp32dev -t upload   # For ESP32-WROOM-32 devices
-```
-
-**2. Flash the web UI filesystem**
-```bash
-pio run -e esp32c3 -t uploadfs    # For ESP32-C3 devices (e.g., batterylight1)
-pio run -e esp32dev -t uploadfs   # For ESP32-WROOM-32 devices
-```
-
-Both steps are required on a fresh device. Use the environment matching your device type. After this, all further updates can be done over WiFi.
----
-
 ## First boot
 
 Each device starts as a WiFi access point named after its MAC address (e.g. `light-a1b2c3`).
@@ -95,98 +76,6 @@ Each device starts as a WiFi access point named after its MAC address (e.g. `lig
 After reboot the device joins your WiFi and is reachable at **http://\<devicename\>.local** (e.g. http://batterylight1.local). The AP turns off automatically once connected.
 
 > If WiFi is unreachable the device falls back to AP mode so you can always reach it at http://192.168.4.1.
-
----
-
-## Updating all devices (OTA)
-
-Use this for routine updates once all devices are on WiFi.
-
-**Firmware + filesystem (most common):**
-```bash
-pio run -t upload_all
-```
-Uploads firmware to all devices in parallel, waits 15 s for reboots, then uploads the filesystem in parallel. Settings are preserved automatically.
-
-**Filesystem only** (when only `data/` files changed):
-```bash
-pio run -t upload_all_fs
-```
-
----
-
-## Updating a specific device (OTA)
-
-Replace `batterylight1` with the target device name configured in the web UI.
-
-**Firmware only:**
-```bash
-pio run -e batterylight1_ota -t upload
-```
-
-**Filesystem only:**
-```bash
-pio run -e batterylight1_ota -t uploadfs
-```
-
-**Firmware + filesystem:**
-```bash
-pio run -e batterylight1_ota -t upload && pio run -e batterylight1_ota -t uploadfs
-```
-
-> Settings (`config.json`) are never affected by firmware updates. Filesystem updates preserve settings automatically via NVS backup.
-
----
-
-## Local web UI development
-
-Run the web interface locally without hardware:
-
-```bash
-npm install
-npm run dev
-```
-
-Open **http://localhost:8080** in a browser. The mock server (`server/index.js`) handles all REST endpoints and WebSocket, with scenes stored in memory for the duration of the process. Auth is skipped entirely when no environment variables are configured.
-
-> Requires Node.js.
-
----
-
-## Online hosting (Azure Container Apps)
-
-The web UI runs as a Docker container on Azure Container Apps, with a permanent `latest` deployment and per-PR preview environments.
-
-### Authentication
-
-Access is restricted to specific GitHub accounts via OAuth. The production container handles the OAuth flow; PR preview containers delegate to it, so only one OAuth App registration is needed regardless of how many PR environments exist.
-
-**One-time setup:**
-
-1. **Register a GitHub OAuth App** at github.com/settings/developers
-   - Authorization callback URL: `https://<prod-fqdn>/auth/callback`
-
-2. **Add GitHub Actions secrets** (repo → Settings → Secrets → Actions):
-
-   | Secret | Where used | Value |
-   |---|---|---|
-   | `GITHUB_OAUTH_CLIENT_ID` | Prod container | Client ID from the OAuth App |
-   | `GITHUB_OAUTH_CLIENT_SECRET` | Prod container | Client Secret from the OAuth App |
-   | `ALLOWED_GITHUB_USERS` | All containers | Comma-separated GitHub usernames, e.g. `alice,bob,charlie` |
-   | `AUTH_TOKEN_SECRET` | All containers | Random secret shared across all containers — `openssl rand -base64 32` |
-   | `AUTH_SESSION_SECRET` | All containers | Random secret for session cookies — `openssl rand -base64 32` |
-
-   Existing secrets (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `GHCR_PASSWORD_B64`) are unchanged.
-
-3. **Deploy infrastructure** by running the *Deploy infrastructure* workflow manually (or pushing a change to `infra/`).
-
-### Deployments
-
-| Event | Result |
-|---|---|
-| Push to `main` | Updates the permanent `batterylight-latest` container app |
-| Open / push to a PR | Creates or updates a `batterylight-pr-<N>` container app; URL posted as a PR comment |
-| PR closed / merged | PR container app and its registry image are cleaned up on next push to `main` |
 
 ---
 
@@ -218,26 +107,23 @@ Devices can check for and install new firmware directly from GitHub releases wit
 
 ---
 
+## Hardware
 
+Supported LED types:
+- WS2812B
+- WS2801
 
-Every push to `main` and every pull request builds a Docker image pushed to the GitHub Container Registry. Run any image locally:
-
-```sh
-docker run --rm -p 8080:8080 ghcr.io/<owner>/batterylight:latest      # main branch
-docker run --rm -p 8080:8080 ghcr.io/<owner>/batterylight:pr-<N>      # specific PR
-```
-
-Auth is disabled when running locally (no environment variables set).
+LED type and data/clock GPIO pins are configured per light in the web UI.
 
 ---
 
-## Hardware
+## Known issues
 
-See [WIRING.md](WIRING.md) for wiring diagrams for both supported LED types.
+See [docs/known-issues.md](docs/known-issues.md).
 
-| LED type | ESP32-WROOM-32 | ESP32-C3 |
-|----------|----------------|----------|
-| WS2812B (default) | Data: GPIO 25 | Data: GPIO 20 |
-| WS2801 | Data: GPIO 25, Clock: GPIO 26 | Data: GPIO 20, Clock: GPIO 21 |
+---
 
-The LED type is configured per device in the web UI under **Network → LED Type**.
+## Development & hosting
+
+- [docs/development.md](docs/development.md) — building from source, OTA via PlatformIO, running the web UI locally
+- [docs/hosting.md](docs/hosting.md) — deploying the web UI to Azure Container Apps

@@ -9,4 +9,3 @@ scripts/
 *.md
 .gitignore
 platformio.ini
-WIRING.md
