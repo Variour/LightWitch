@@ -93,6 +93,7 @@ struct LightHardwareConfig {
     uint16_t        height      = 1;    // 1 = string, >1 = matrix
     MatrixStart     matrixStart = MatrixStart::TopLeft;
     MatrixDirection matrixDir   = MatrixDirection::Horizontal;
+    bool            matrixSerpentine = false; // true = alternate rows/columns (per matrixDir) run in reverse, i.e. zig-zag/boustrophedon wiring
     bool            wrapWidth   = false; // true = last LED on a row/string connects back to the first (ring)
     bool            wrapHeight  = false; // true = last row wraps to the first (matrix only, height > 1)
     uint8_t         groupId     = 0;    // which group's LightConfig this light follows

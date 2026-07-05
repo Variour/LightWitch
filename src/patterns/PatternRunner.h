@@ -30,10 +30,11 @@ public:
         _height = h;
     }
 
-    void setMatrixLayout(MatrixStart start, MatrixDirection dir) {
+    void setMatrixLayout(MatrixStart start, MatrixDirection dir, bool serpentine) {
         _matrixStart = start;
         _matrixDir   = dir;
-        _sceneMatrix.setMatrixLayout(start, dir);
+        _matrixSerpentine = serpentine;
+        _sceneMatrix.setMatrixLayout(start, dir, serpentine);
     }
 
     // Topology: whether the last LED on an axis wraps back to the first (ring/cylinder/torus).
@@ -83,7 +84,7 @@ public:
                               cfg.sceneId, cfg.brightness, cfg.frameDuration,
                               cfg.transitionEnabled ? "on" : "off", cfg.transitionTime);
                     _sceneMatrix.setDimensions(_width, _height);
-                    _sceneMatrix.setMatrixLayout(_matrixStart, _matrixDir);
+                    _sceneMatrix.setMatrixLayout(_matrixStart, _matrixDir, _matrixSerpentine);
                     _sceneMatrix.begin(*_led, cfg);
                     _current   = &_sceneMatrix;
                     _currentId = (PatternId)0xFF;
@@ -114,7 +115,7 @@ public:
                     Logger::i("[pattern] → GradientMatrix  scene=%s br=%u morph=%s spd=%.1f",
                               cfg.sceneId, cfg.brightness, cfg.morphEnabled ? "on" : "off", cfg.speed);
                     _gradientMatrix.setDimensions(_width, _height);
-                    _gradientMatrix.setMatrixLayout(_matrixStart, _matrixDir);
+                    _gradientMatrix.setMatrixLayout(_matrixStart, _matrixDir, _matrixSerpentine);
                     _gradientMatrix.setWrap(_wrapWidth);
                     _gradientMatrix.begin(*_led, cfg);
                     _current   = &_gradientMatrix;
@@ -199,6 +200,7 @@ private:
     uint16_t        _height      = 1;
     MatrixStart     _matrixStart = MatrixStart::TopLeft;
     MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
+    bool            _matrixSerpentine = false;
     bool            _wrapWidth   = false;
     bool            _wrapHeight  = false;
 

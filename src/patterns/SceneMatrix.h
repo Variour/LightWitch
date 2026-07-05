@@ -14,7 +14,9 @@ public:
     float getPeriod() const override { return 0.0f; }
 
     void setDimensions(uint16_t w, uint16_t h) { _lightW = w; _lightH = h; }
-    void setMatrixLayout(MatrixStart start, MatrixDirection dir) { _matrixStart = start; _matrixDir = dir; }
+    void setMatrixLayout(MatrixStart start, MatrixDirection dir, bool serpentine) {
+        _matrixStart = start; _matrixDir = dir; _matrixSerpentine = serpentine;
+    }
 
     void begin(LedDriver& led, const LightConfig& cfg) override {
         _led = &led;
@@ -92,6 +94,7 @@ private:
     uint16_t        _lightW      = 1, _lightH = 1;
     MatrixStart     _matrixStart = MatrixStart::TopLeft;
     MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
+    bool            _matrixSerpentine = false;
     uint16_t _sceneW = 0, _sceneH = 0;
     std::vector<std::vector<Color>> _frames;
     uint8_t  _frameIdx = 0, _prevFrameIdx = 0;
@@ -192,14 +195,21 @@ private:
         return (src >= srcSize) ? (uint16_t)(srcSize - 1) : (uint16_t)src;
     }
 
+    // Serpentine (zig-zag/boustrophedon) wiring: the physical strip reverses
+    // direction on every other line along the primary axis (the one named by
+    // matrixDir), since it's one continuous strip folded back and forth.
     uint16_t _ledIndex(uint16_t row, uint16_t col) const {
         uint16_t r = (_matrixStart == MatrixStart::BottomLeft || _matrixStart == MatrixStart::BottomRight)
                      ? (_lightH - 1 - row) : row;
         uint16_t c = (_matrixStart == MatrixStart::TopRight  || _matrixStart == MatrixStart::BottomRight)
                      ? (_lightW - 1 - col) : col;
-        return (_matrixDir == MatrixDirection::Vertical)
-               ? c * _lightH + r
-               : r * _lightW + c;
+        if (_matrixDir == MatrixDirection::Vertical) {
+            if (_matrixSerpentine && (c & 1)) r = _lightH - 1 - r;
+            return c * _lightH + r;
+        } else {
+            if (_matrixSerpentine && (r & 1)) c = _lightW - 1 - c;
+            return r * _lightW + c;
+        }
     }
 
     static uint8_t _lerp(uint8_t a, uint8_t b, float t) {

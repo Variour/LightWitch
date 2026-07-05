@@ -16,7 +16,9 @@ public:
     float getPeriod() const override { return 0.0f; }
 
     void setDimensions(uint16_t w, uint16_t h) { _width = w; _height = h; }
-    void setMatrixLayout(MatrixStart start, MatrixDirection dir) { _matrixStart = start; _matrixDir = dir; }
+    void setMatrixLayout(MatrixStart start, MatrixDirection dir, bool serpentine) {
+        _matrixStart = start; _matrixDir = dir; _matrixSerpentine = serpentine;
+    }
 
     void setWrap(bool wrap) {
         if (wrap == _wrap) return;
@@ -77,6 +79,7 @@ private:
     uint16_t        _width       = 1, _height = 1;
     MatrixStart     _matrixStart = MatrixStart::TopLeft;
     MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
+    bool            _matrixSerpentine = false;
     bool                 _wrap    = false;
     std::vector<Color>   _palette;  // full distinct-color list from the scene
     std::vector<Color>   _stops;    // reduced set actually used as gradient stops
@@ -93,13 +96,20 @@ private:
                 _base[row * _width + col] = GradientCommon::sample(_stops, (float)col, (float)_width, _wrap);
     }
 
+    // Serpentine (zig-zag/boustrophedon) wiring: the physical strip reverses
+    // direction on every other line along the primary axis (the one named by
+    // matrixDir), since it's one continuous strip folded back and forth.
     uint16_t _ledIndex(uint16_t row, uint16_t col) const {
         uint16_t r = (_matrixStart == MatrixStart::BottomLeft || _matrixStart == MatrixStart::BottomRight)
                      ? (_height - 1 - row) : row;
         uint16_t c = (_matrixStart == MatrixStart::TopRight  || _matrixStart == MatrixStart::BottomRight)
                      ? (_width - 1 - col) : col;
-        return (_matrixDir == MatrixDirection::Vertical)
-               ? c * _height + r
-               : r * _width + c;
+        if (_matrixDir == MatrixDirection::Vertical) {
+            if (_matrixSerpentine && (c & 1)) r = _height - 1 - r;
+            return c * _height + r;
+        } else {
+            if (_matrixSerpentine && (r & 1)) c = _width - 1 - c;
+            return r * _width + c;
+        }
     }
 };
