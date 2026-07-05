@@ -1732,30 +1732,37 @@ async function saveSettings() {
   status.style.color = '#888';
   status.textContent = 'Waiting for device…';
 
-  // Poll until device responds again, then switch to dashboard
-  const deadline = Date.now() + 60_000;
-  await new Promise(r => setTimeout(r, 3000)); // let device start rebooting
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch('/api/config', {signal: AbortSignal.timeout(2000)});
-      if (r.ok) {
-        status.style.color = '#4f4';
-        status.textContent = 'Device is back online!';
-        await new Promise(r => setTimeout(r, 800));
-        switchTab('dashboard');
-        btn.disabled    = false;
-        btn.textContent = 'Save & Reboot';
-        status.textContent = '';
-        return;
-      }
-    } catch(_) { /* device still rebooting */ }
-    await new Promise(r => setTimeout(r, 2000));
+  const online = await _waitForDeviceOnline();
+  if (online) {
+    status.style.color = '#4f4';
+    status.textContent = 'Device is back online!';
+    await new Promise(r => setTimeout(r, 800));
+    switchTab('dashboard');
+    btn.disabled    = false;
+    btn.textContent = 'Save & Reboot';
+    status.textContent = '';
+    return;
   }
 
   status.style.color = '#f66';
   status.textContent = 'Device not responding — check your connection.';
   btn.disabled    = false;
   btn.textContent = 'Save & Reboot';
+}
+
+// Poll /api/config until the device responds again after a reboot-triggering change.
+// Returns true once the device is back online, or false after timeoutMs with no response.
+async function _waitForDeviceOnline(timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  await new Promise(r => setTimeout(r, 3000)); // let device start rebooting
+  while (Date.now() < deadline) {
+    try {
+      const r = await fetch('/api/config', {signal: AbortSignal.timeout(2000)});
+      if (r.ok) return true;
+    } catch(_) { /* device still rebooting */ }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  return false;
 }
 
 async function factoryReset() {
@@ -3879,13 +3886,24 @@ async function saveLightModal() {
     wrapWidth:   document.getElementById('lm-wrapWidth').checked,
     wrapHeight:  document.getElementById('lm-wrapHeight').checked,
   };
+  // Add always reboots; edit only reboots when a hardware field actually changed (mirrors _updateSaveBtn).
+  const needsReboot = _editLightIndex === null || !_originalLight ? true :
+    body.ledType  !== _originalLight.ledType  ||
+    body.dataPin  !== _originalLight.dataPin  ||
+    body.clockPin !== _originalLight.clockPin ||
+    body.width    !== _originalLight.width    ||
+    body.height   !== _originalLight.height;
   const url = _editLightIndex === null ? '/api/lights/add' : '/api/lights/update';
   if (_editLightIndex !== null) body.index = _editLightIndex;
   const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   const d = await res.json();
   if (!res.ok) { alert('Error: ' + (d.error || res.status)); return; }
   document.getElementById('light-modal-overlay')?.remove();
-  loadConfig();
+  if (!needsReboot) { loadConfig(); return; }
+  // Device is restarting: wait for it to come back before refreshing, otherwise
+  // loadConfig() races the reboot and the UI is left showing stale data.
+  await _waitForDeviceOnline();
+  loadConfig().catch(() => {});
 }
 
 async function deleteLight(index) {
@@ -3893,7 +3911,10 @@ async function deleteLight(index) {
   const res = await fetch('/api/lights/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
   const d = await res.json();
   if (!res.ok) { alert('Error: ' + (d.error || res.status)); return; }
-  loadConfig();
+  // Delete always triggers a restart: wait for it to come back before refreshing,
+  // otherwise loadConfig() races the reboot and the UI is left showing stale data.
+  await _waitForDeviceOnline();
+  loadConfig().catch(() => {});
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
