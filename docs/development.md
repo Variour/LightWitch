@@ -76,3 +76,5 @@ npm run dev
 Open **http://localhost:8080** in a browser. The mock server (`server/index.js`) handles all REST endpoints and WebSocket, with scenes stored in memory for the duration of the process. Auth is skipped entirely when no environment variables are configured.
 
 > Requires Node.js.
+
+> Every pull request also gets its own preview deployment automatically — no local setup needed to share a running instance. The URL is posted as a PR comment. See [docs/hosting.md](hosting.md#deployments) for details.
