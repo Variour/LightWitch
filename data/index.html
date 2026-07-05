@@ -2486,16 +2486,21 @@ function _gradSample(stops, x, length, circular) {
   if (n === 1 || length <= 0) return stops[0];
 
   const seg = _gradSeg(n, x, length, circular);
-  let i0, i1;
+  let i0, i1, t;
   if (circular) {
     i0 = Math.floor(seg) % n;
     i1 = (i0 + 1) % n;
+    t = seg - Math.floor(seg);
   } else {
     i0 = Math.floor(seg);
     if (i0 > n - 2) i0 = n - 2;
     i1 = i0 + 1;
+    // t must be relative to the clamped i0, not floor(seg): when seg lands
+    // exactly on the last stop, floor(seg) == n-1 gets clamped down to n-2,
+    // but floor(seg)-based t would still read 0 and pin the color to the
+    // wrong (clamped) stop instead of blending fully into i1.
+    t = seg - i0;
   }
-  const t = seg - Math.floor(seg);
   const a = stops[i0], b = stops[i1];
   return [
     a[0] + (b[0] - a[0]) * t,
