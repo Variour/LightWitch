@@ -62,7 +62,7 @@ struct LightConfig {
     float     transitionTime    = 2.0f;
     float     frameDuration     = 1.0f;
     float     proximityScale    = 1.0f;
-    bool      morphEnabled      = false;  // gradient mode: sparse per-LED color shimmer while holding the gradient shape
+    bool      morphEnabled      = false;  // gradient mode: stops continuously wander to new random palette colors
     uint8_t   gradientStopCount = 0;      // gradient mode: manual stop count override; 0 = auto (GradientCommon::targetStopCount)
 };
 

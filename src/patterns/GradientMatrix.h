@@ -8,9 +8,10 @@
 // palette (first-seen distinct colors in the scene's first frame).
 // When the light's wrapWidth topology is set, the gradient loops seamlessly
 // back to its first stop at the end of each row.
-// With morphEnabled, a sparse, ever-changing subset of individual LEDs
-// shimmer to another palette color and back while the rest hold their base
-// gradient color, so the overall ramp stays recognizable.
+// With morphEnabled, each gradient stop continuously wanders to a freshly
+// chosen random palette color, and the whole ramp is resampled from the
+// stops' live colors every tick — so entire columns (the ones spanning each
+// stop) move together in real time, rather than individual LEDs shimmering.
 class GradientMatrix : public Pattern {
 public:
     float getPeriod() const override { return 0.0f; }
@@ -64,8 +65,9 @@ public:
         if (_base.size() != total) _computeBase();
 
         const std::vector<Color>* colors = &_base;
-        if (_cfg.morphEnabled) {
-            _morph.tick(now, _base, _stops, _cfg.speed, _out);
+        if (_cfg.morphEnabled && _stops.size() > 1) {
+            _morph.tick(now, _stops, _palette, _cfg.speed, _liveStops);
+            _resample(_liveStops, _out);
             colors = &_out;
         }
 
@@ -88,18 +90,23 @@ private:
     std::vector<Color>   _palette;   // full distinct-color list from the scene
     std::vector<Color>   _stops;     // reduced set actually used as gradient stops
     std::vector<float>   _positions; // jittered physical position of each stop
+    std::vector<Color>   _liveStops; // _stops after live morph interpolation
     std::vector<Color>   _base;
     std::vector<Color>   _out;
-    GradientCommon::Morph _morph;
+    GradientCommon::StopMorph _morph;
 
     void _computeBase() {
         GradientCommon::reduceToStops(_palette, _width, _stops, _cfg.gradientStopCount);
         GradientCommon::computeStopPositions(_stops, (float)_width, _wrap, _positions);
+        _resample(_stops, _base);
+    }
+
+    void _resample(const std::vector<Color>& stops, std::vector<Color>& out) {
         uint32_t total = (uint32_t)_width * _height;
-        _base.resize(total);
+        out.resize(total);
         for (uint16_t row = 0; row < _height; row++)
             for (uint16_t col = 0; col < _width; col++)
-                _base[row * _width + col] = GradientCommon::sample(_stops, _positions, (float)col, (float)_width, _wrap);
+                out[row * _width + col] = GradientCommon::sample(stops, _positions, (float)col, (float)_width, _wrap);
     }
 
     // Serpentine (zig-zag/boustrophedon) wiring: the physical strip reverses
