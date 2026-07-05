@@ -109,7 +109,7 @@ Devices can check for and install new firmware directly from GitHub releases wit
 
 ## Hardware
 
-See [docs/wiring.md](docs/wiring.md) for wiring diagrams for both supported LED types.
+Supported LED types:
 
 | LED type | ESP32-WROOM-32 | ESP32-C3 |
 |----------|----------------|----------|
