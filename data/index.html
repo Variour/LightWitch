@@ -3911,7 +3911,10 @@ async function deleteLight(index) {
   const res = await fetch('/api/lights/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
   const d = await res.json();
   if (!res.ok) { alert('Error: ' + (d.error || res.status)); return; }
-  loadConfig();
+  // Delete always triggers a restart: wait for it to come back before refreshing,
+  // otherwise loadConfig() races the reboot and the UI is left showing stale data.
+  await _waitForDeviceOnline();
+  loadConfig().catch(() => {});
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
