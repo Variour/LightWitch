@@ -85,7 +85,7 @@ Each device starts as a WiFi access point named after its MAC address (e.g. `lig
 | Setting | Value |
 |---------|-------|
 | Network | `light-a1b2c3` (unique per device) |
-| Password | `bl-9f4a2c81` |
+| Password | `batterylight` |
 | Web interface | http://192.168.4.1 |
 
 1. Connect to the device's WiFi network.

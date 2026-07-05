@@ -76,7 +76,7 @@ static bool migrateDoc(JsonDocument& doc) {
 
 static void applyDoc(JsonDocument& doc) {
     strlcpy(Config::get().deviceName,   doc["deviceName"]   | "batterylight", sizeof(Config::get().deviceName));
-    strlcpy(Config::get().apPassword,   doc["apPassword"]   | "bl-9f4a2c81", sizeof(Config::get().apPassword));
+    strlcpy(Config::get().apPassword,   doc["apPassword"]   | "batterylight", sizeof(Config::get().apPassword));
     Config::get().otaPort        = doc["otaPort"]        | 3232;
     Config::get().otaEnabled     = doc["otaEnabled"]     | true;
     Config::get().sceneSyncEnabled     = doc["sceneSyncEnabled"]     | true;
