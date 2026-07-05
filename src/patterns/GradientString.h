@@ -8,9 +8,9 @@
 // frame) rather than being picked directly.
 // When the light's wrapWidth topology is set, the gradient loops seamlessly
 // back to its first stop instead of running linearly from end to end.
-// With morphEnabled, a sparse, ever-changing subset of LEDs shimmer to
-// another palette color and back while the rest hold their base gradient
-// color, so the overall ramp stays recognizable.
+// With morphEnabled, each gradient stop continuously wanders to a freshly
+// chosen random palette color, and the whole ramp is resampled from the
+// stops' live colors every tick, so the gradient updates in real time.
 class GradientString : public Pattern {
 public:
     float getPeriod() const override { return 0.0f; }
@@ -59,17 +59,16 @@ public:
         if (!_led) return;
         if (_base.size() != _numLeds) _computeBase();
 
-        if (_cfg.morphEnabled) {
-            _morph.tick(now, _base, _stops, _cfg.speed, _out);
-            for (uint16_t i = 0; i < _numLeds; i++) {
-                const Color& c = _out[i];
-                _led->setPixel(i, applyBrightness(c.r), applyBrightness(c.g), applyBrightness(c.b));
-            }
-        } else {
-            for (uint16_t i = 0; i < _numLeds; i++) {
-                const Color& c = _base[i];
-                _led->setPixel(i, applyBrightness(c.r), applyBrightness(c.g), applyBrightness(c.b));
-            }
+        const std::vector<Color>* colors = &_base;
+        if (_cfg.morphEnabled && _stops.size() > 1) {
+            _morph.tick(now, _stops, _palette, _cfg.speed, _liveStops);
+            _resample(_liveStops, _out);
+            colors = &_out;
+        }
+
+        for (uint16_t i = 0; i < _numLeds; i++) {
+            const Color& c = (*colors)[i];
+            _led->setPixel(i, applyBrightness(c.r), applyBrightness(c.g), applyBrightness(c.b));
         }
         _led->show();
     }
@@ -80,15 +79,20 @@ private:
     std::vector<Color>   _palette;   // full distinct-color list from the scene
     std::vector<Color>   _stops;     // reduced set actually used as gradient stops
     std::vector<float>   _positions; // jittered physical position of each stop
+    std::vector<Color>   _liveStops; // _stops after live morph interpolation
     std::vector<Color>   _base;
     std::vector<Color>   _out;
-    GradientCommon::Morph _morph;
+    GradientCommon::StopMorph _morph;
 
     void _computeBase() {
         GradientCommon::reduceToStops(_palette, _numLeds, _stops, _cfg.gradientStopCount);
         GradientCommon::computeStopPositions(_stops, (float)_numLeds, _wrap, _positions);
-        _base.resize(_numLeds);
+        _resample(_stops, _base);
+    }
+
+    void _resample(const std::vector<Color>& stops, std::vector<Color>& out) {
+        out.resize(_numLeds);
         for (uint16_t i = 0; i < _numLeds; i++)
-            _base[i] = GradientCommon::sample(_stops, _positions, (float)i, (float)_numLeds, _wrap);
+            out[i] = GradientCommon::sample(stops, _positions, (float)i, (float)_numLeds, _wrap);
     }
 };

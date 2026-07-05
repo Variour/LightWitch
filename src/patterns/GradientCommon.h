@@ -186,113 +186,84 @@ inline void reduceToStops(const std::vector<Color>& full, size_t numLeds, std::v
     for (size_t i = 0; i < n; i++) if (picked[i]) out.push_back(full[i]);
 }
 
-// Animates a sparse, ever-changing subset of cells away from their base
-// gradient color to another palette color and back, so the light reads as
-// a shimmering variation on the gradient rather than a static ramp.
-// Cells not currently morphing simply show their base color.
-class Morph {
+// Continuously morphs each gradient stop toward a freshly chosen random
+// palette color. On arrival it doesn't ease back to where it came from —
+// it immediately picks another random target — so every stop endlessly
+// wanders the palette instead of oscillating between two fixed colors.
+// Callers resample the gradient ramp from the morphed stop colors every
+// tick, so the whole ramp (and every column/position it covers) updates
+// in real time rather than only a cached, mostly-static base.
+class StopMorph {
 public:
-    // out.size() must equal base.size(); called every tick.
-    void tick(uint32_t now, const std::vector<Color>& base, const std::vector<Color>& palette,
+    // out.size() ends up equal to stops.size(); called every tick.
+    void tick(uint32_t now, const std::vector<Color>& stops, const std::vector<Color>& palette,
               float speed, std::vector<Color>& out) {
-        size_t n = base.size();
-        if (_cells.size() != n) _cells.assign(n, Cell{});
+        size_t n = stops.size();
+        if (_cells.size() != n) {
+            _cells.assign(n, Cell{});
+            for (size_t i = 0; i < n; i++) _cells[i].current = stops[i];
+        }
         out.resize(n);
         float spd = speed > 0.05f ? speed : 0.05f;
 
-        if (palette.size() > 1 && now >= _nextActivationMs) {
-            size_t activeCount = 0;
-            for (const auto& c : _cells) if (c.phase != Idle) activeCount++;
-            size_t target = _jitteredTargetCount(n);
-            if (activeCount < target) _activateRandomIdle(now, base, palette, spd);
-            _nextActivationMs = now + 200 + (uint32_t)random(0, 400);
-        }
-
         for (size_t i = 0; i < n; i++) {
             Cell& c = _cells[i];
-            if (c.phase == Idle) { out[i] = base[i]; continue; }
+            if (c.durationMs == 0) _startLeg(c, now, palette, spd);
 
             uint32_t elapsed = now - c.startMs;
             if (elapsed >= c.durationMs) {
-                switch (c.phase) {
-                    case ToTarget:
-                        c.phase      = Hold;
-                        c.startMs    = now;
-                        c.durationMs = _jitterMs(800, 2500, 1.0f);
-                        break;
-                    case Hold:
-                        c.phase      = ToBase;
-                        c.from       = c.to;
-                        c.to         = base[i];
-                        c.startMs    = now;
-                        c.durationMs = _jitterMs(1500, 4000, spd);
-                        break;
-                    default:  // ToBase
-                        c.phase = Idle;
-                        break;
-                }
+                c.current = c.to;
+                _startLeg(c, now, palette, spd);
                 elapsed = 0;
             }
 
-            if (c.phase == Idle)      out[i] = base[i];
-            else if (c.phase == Hold) out[i] = c.to;
-            else {
-                float t = c.durationMs > 0 ? (float)elapsed / (float)c.durationMs : 1.0f;
-                if (t > 1.0f) t = 1.0f;
-                float s = t * t * (3.0f - 2.0f * t);
-                out[i] = Color{
-                    (uint8_t)((float)c.from.r + ((float)c.to.r - (float)c.from.r) * s),
-                    (uint8_t)((float)c.from.g + ((float)c.to.g - (float)c.from.g) * s),
-                    (uint8_t)((float)c.from.b + ((float)c.to.b - (float)c.from.b) * s),
-                };
-            }
+            float t = c.durationMs > 0 ? (float)elapsed / (float)c.durationMs : 1.0f;
+            if (t > 1.0f) t = 1.0f;
+            float s = t * t * (3.0f - 2.0f * t);
+            out[i] = Color{
+                (uint8_t)((float)c.from.r + ((float)c.to.r - (float)c.from.r) * s),
+                (uint8_t)((float)c.from.g + ((float)c.to.g - (float)c.from.g) * s),
+                (uint8_t)((float)c.from.b + ((float)c.to.b - (float)c.from.b) * s),
+            };
         }
     }
 
-    void reset() { _cells.clear(); _nextActivationMs = 0; }
+    void reset() { _cells.clear(); }
 
 private:
-    enum Phase : uint8_t { Idle, ToTarget, Hold, ToBase };
     struct Cell {
-        Phase    phase      = Idle;
+        Color    current;          // color at the start of the current leg
         Color    from, to;
         uint32_t startMs    = 0;
         uint32_t durationMs = 0;
     };
 
     std::vector<Cell> _cells;
-    uint32_t          _nextActivationMs = 0;
 
     static uint32_t _jitterMs(uint32_t lo, uint32_t hi, float speed) {
         uint32_t base = lo + (uint32_t)random(0, hi - lo + 1);
         return (uint32_t)((float)base / speed);
     }
 
-    // ~12% of cells, jittered ±40%, recomputed on every activation check
-    // so the pool size drifts organically over time.
-    static size_t _jitteredTargetCount(size_t n) {
-        float base   = (float)n * 0.12f;
-        if (base < 1.0f) base = 1.0f;
-        float jitter = 0.6f + ((float)random(0, 801) / 1000.0f);  // 0.6x .. 1.4x
-        size_t t = (size_t)(base * jitter);
-        return t < 1 ? 1 : t;
+    static void _startLeg(Cell& c, uint32_t now, const std::vector<Color>& palette, float speed) {
+        c.from       = c.current;
+        c.to         = _pickDifferent(palette, c.current);
+        c.startMs    = now;
+        c.durationMs = _jitterMs(1500, 4000, speed);
     }
 
-    void _activateRandomIdle(uint32_t now, const std::vector<Color>& base,
-                              const std::vector<Color>& palette, float speed) {
-        size_t n = _cells.size();
-        size_t start = random(0, n);
-        for (size_t k = 0; k < n; k++) {
-            size_t i = (start + k) % n;
-            if (_cells[i].phase != Idle) continue;
-            Cell& c      = _cells[i];
-            c.phase      = ToTarget;
-            c.from       = base[i];
-            c.to         = palette[random(0, palette.size())];
-            c.startMs    = now;
-            c.durationMs = _jitterMs(1500, 4000, speed);
-            return;
+    // Picks a random palette color, retrying a few times to avoid landing
+    // back on the color it's already morphing from (not guaranteed if the
+    // palette is tiny or full of near-duplicates, but good enough in
+    // practice since it's purely cosmetic).
+    static Color _pickDifferent(const std::vector<Color>& palette, const Color& current) {
+        if (palette.empty()) return current;
+        if (palette.size() == 1) return palette[0];
+        for (int attempt = 0; attempt < 8; attempt++) {
+            const Color& c = palette[random(0, palette.size())];
+            if (c.r != current.r || c.g != current.g || c.b != current.b) return c;
         }
+        return palette[random(0, palette.size())];
     }
 };
 
