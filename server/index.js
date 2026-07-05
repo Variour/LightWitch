@@ -37,9 +37,9 @@ const MOCK_CONFIG = {
   githubRepo: 'Variour/batterylight',
   lights: mockLights,
   groups: [
-    { id: 0, name: 'Default',     exists: true, mode: 0, sceneId: '',          pattern: 0, r: 255, g: 200, b: 80,  brightness: 200, speed: 1, syncEnabled: true,  transitionEnabled: false, sceneUniformColor: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0, morphEnabled: false },
-    { id: 1, name: 'Scene Group', exists: true, mode: 1, sceneId: '0002ee38f7ce6ab7acd6a859', pattern: 0, r: 255, g: 100, b: 50, brightness: 180, speed: 1, syncEnabled: false, transitionEnabled: false, sceneUniformColor: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0, morphEnabled: false },
-    { id: 2, name: 'Gradient Group', exists: true, mode: 3, sceneId: '0002ee38f7ce6ab7acd6a859', pattern: 0, r: 255, g: 255, b: 255, brightness: 220, speed: 1, syncEnabled: true, transitionEnabled: false, sceneUniformColor: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0, morphEnabled: true },
+    { id: 0, name: 'Default',     exists: true, mode: 0, sceneId: '',          pattern: 0, r: 255, g: 200, b: 80,  brightness: 200, speed: 1, syncEnabled: true,  transitionEnabled: false, sceneUniformColor: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0, morphEnabled: false, gradientStopCount: 0 },
+    { id: 1, name: 'Scene Group', exists: true, mode: 1, sceneId: '0002ee38f7ce6ab7acd6a859', pattern: 0, r: 255, g: 100, b: 50, brightness: 180, speed: 1, syncEnabled: false, transitionEnabled: false, sceneUniformColor: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0, morphEnabled: false, gradientStopCount: 0 },
+    { id: 2, name: 'Gradient Group', exists: true, mode: 3, sceneId: '0002ee38f7ce6ab7acd6a859', pattern: 0, r: 255, g: 255, b: 255, brightness: 220, speed: 1, syncEnabled: true, transitionEnabled: false, sceneUniformColor: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0, morphEnabled: true, gradientStopCount: 5 },
   ],
 };
 

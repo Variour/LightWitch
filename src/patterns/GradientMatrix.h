@@ -37,10 +37,14 @@ public:
     }
 
     void applyConfig(const LightConfig& cfg) override {
-        bool sceneChanged = strncmp(cfg.sceneId, _cfg.sceneId, sizeof(cfg.sceneId)) != 0;
+        bool sceneChanged      = strncmp(cfg.sceneId, _cfg.sceneId, sizeof(cfg.sceneId)) != 0;
+        bool stopCountChanged  = cfg.gradientStopCount != _cfg.gradientStopCount;
         _cfg = cfg;
         if (sceneChanged) {
             GradientCommon::loadPalette(cfg.sceneId, _palette);
+            _computeBase();
+            _morph.reset();
+        } else if (stopCountChanged) {
             _computeBase();
             _morph.reset();
         }
@@ -88,7 +92,7 @@ private:
     GradientCommon::Morph _morph;
 
     void _computeBase() {
-        GradientCommon::reduceToStops(_palette, _width, _stops);
+        GradientCommon::reduceToStops(_palette, _width, _stops, _cfg.gradientStopCount);
         uint32_t total = (uint32_t)_width * _height;
         _base.resize(total);
         for (uint16_t row = 0; row < _height; row++)
