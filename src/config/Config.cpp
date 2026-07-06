@@ -40,6 +40,7 @@ static void serializeGroup(JsonArray arr, const GroupConfig& g) {
     o["gradientStopCount"] = g.light.gradientStopCount;
     o["text"]             = g.light.text;
     o["textAnimation"]    = (uint8_t)g.light.textAnimation;
+    o["time24h"]          = g.light.time24h;
 }
 
 static void deserializeGroup(JsonVariant o, GroupConfig& g) {
@@ -65,6 +66,7 @@ static void deserializeGroup(JsonVariant o, GroupConfig& g) {
     g.light.gradientStopCount = o["gradientStopCount"] | (uint8_t)0;
     strlcpy(g.light.text, o["text"] | "", sizeof(g.light.text));
     g.light.textAnimation = (TextAnimation)(uint8_t)(o["textAnimation"] | (uint8_t)TextAnimation::Scroll);
+    g.light.time24h       = o["time24h"] | true;
 }
 
 static bool migrateDoc(JsonDocument& doc) {
@@ -94,6 +96,7 @@ static void applyDoc(JsonDocument& doc) {
     strlcpy(Config::get().mqttPassword, doc["mqttPassword"] | "",    sizeof(Config::get().mqttPassword));
     strlcpy(Config::get().githubToken,  doc["githubToken"]  | "",    sizeof(Config::get().githubToken));
     strlcpy(Config::get().githubRepo,   doc["githubRepo"]   | "variour/batterylight", sizeof(Config::get().githubRepo));
+    strlcpy(Config::get().timezone,     doc["timezone"]     | "UTC0", sizeof(Config::get().timezone));
 
     if (doc["lights"].is<JsonArray>()) {
         for (JsonVariant v : doc["lights"].as<JsonArray>()) {
@@ -183,6 +186,7 @@ bool Config::save() {
     doc["mqttPassword"] = _cfg.mqttPassword;
     doc["githubToken"]  = _cfg.githubToken;
     doc["githubRepo"]   = _cfg.githubRepo;
+    doc["timezone"]     = _cfg.timezone;
 
     JsonArray lightsArr = doc["lights"].to<JsonArray>();
     for (uint8_t i = 0; i < MAX_LIGHTS; i++) {

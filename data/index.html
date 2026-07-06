@@ -792,6 +792,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
       <option value="2">Warn</option>
       <option value="3">Error</option>
     </select>
+    <label>Timezone <small>(POSIX TZ string, used by Time mode)</small></label>
+    <input type="text" id="timezone" placeholder="UTC0">
 
     <hr class="section-divider">
     <h3>Lights</h3>
@@ -964,6 +966,11 @@ const PATTERNS = [
   { name:'Candle',        desc:'Warm flickering candle light. Speed controls flicker rate.', hasColor: false, syncable: false },
 ];
 
+// Mirrors TimeMatrix::BASE_W / BASE_H (src/patterns/TimeMatrix.h) — the
+// minimum matrix size that can legibly show HH:MM.
+const TIME_MIN_W = 17;
+const TIME_MIN_H = 5;
+
 // ── Tab navigation ────────────────────────────────────────────────────────────
 const TAB_PATHS = {
   dashboard: '/dashboard',
@@ -1003,9 +1010,10 @@ function switchTab(tab, pushHistory = true) {
 }
 
 // ── Groups UI ─────────────────────────────────────────────────────────────────
-// Text mode only makes sense on a matrix; only this device's own lights carry
-// width/height today (see _getPeers in WebServer.h), so a group fed only by
-// peer lights won't show the option even if those peer lights are matrices.
+// Text and Time modes only make sense on a matrix; only this device's own
+// lights carry width/height today (see _getPeers in WebServer.h), so a group
+// fed only by peer lights won't show either option even if those peer lights
+// are matrices.
 function groupHasMatrixLight(id) {
   return Boolean(_self?.lights?.some(l => l.groupId === id && l.height > 1));
 }
@@ -1035,6 +1043,8 @@ function renderGroups(groups) {
     const text = String(g.text || '');
     const textAnimation = Number(g.textAnimation) || 0;
     const showText = groupHasMatrixLight(g.id) || mode === 4;
+    const time24h = g.time24h !== false;
+    const showTime = groupHasMatrixLight(g.id) || mode === 5;
     card.innerHTML = `
       <div class="group-header">
         <input type="text" value="${esc(g.name)}" onchange="renameGroup(${g.id}, this.value)"
@@ -1050,8 +1060,9 @@ function renderGroups(groups) {
             <option value="2"${mode===2?' selected':''}>Proximity</option>
             <option value="3"${mode===3?' selected':''}>Gradient</option>
             ${showText ? `<option value="4"${mode===4?' selected':''}>Text</option>` : ''}
+            ${showTime ? `<option value="5"${mode===5?' selected':''}>Time</option>` : ''}
           </select>
-          <p class="pattern-desc">Pattern runs the chosen animation. Scene picks a color from a saved scene. Proximity shifts color from red to green based on the nearest same-group node's signal. Gradient blends across a scene's colors along the light. Text scrolls or bounces a message across a matrix light.</p>
+          <p class="pattern-desc">Pattern runs the chosen animation. Scene picks a color from a saved scene. Proximity shifts color from red to green based on the nearest same-group node's signal. Gradient blends across a scene's colors along the light. Text scrolls or bounces a message across a matrix light. Time shows the current clock on a matrix light.</p>
         </div>
 
         <div id="gpattern-wrap-${g.id}" style="display:${mode===0?'':'none'}">
@@ -1215,6 +1226,27 @@ function renderGroups(groups) {
                    oninput="document.getElementById('gtxspeed-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'×'; onGroupControl(${g.id})">
           </div>
         </div>
+
+        <div id="gtime-wrap-${g.id}" style="display:${mode===5?'':'none'}">
+          <p class="pattern-desc">Shows HH:MM on a matrix light at least ${TIME_MIN_W}×${TIME_MIN_H}. Blinks red if no clock is available yet (no WiFi/NTP and no synced peer) or the matrix is too small.</p>
+          <div>
+            <label>Color</label>
+            <input type="color" id="gtc-${g.id}" value="${toHex(g.r,g.g,g.b)}"
+                   oninput="onGroupControl(${g.id})">
+          </div>
+          <div>
+            <label>Brightness</label>
+            <input type="range" id="gtbr-${g.id}" min="0" max="255" value="${g.brightness||255}"
+                   oninput="onGroupControl(${g.id})">
+          </div>
+          <div class="sync-row">
+            <input type="hidden" id="gtime24h-${g.id}" value="${time24h ? '24' : '12'}">
+            <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+              <button type="button" id="gtime24-${g.id}" class="btn-sm ${time24h ? 'btn-primary' : 'btn-ghost'}" onclick="setGroupTimeFormat(${g.id}, '24')">24h</button>
+              <button type="button" id="gtime12-${g.id}" class="btn-sm ${time24h ? 'btn-ghost' : 'btn-primary'}" onclick="setGroupTimeFormat(${g.id}, '12')">12h</button>
+            </div>
+          </div>
+        </div>
       </div>`;
     el.appendChild(card);
   }
@@ -1250,6 +1282,16 @@ function setGroupTextAnimation(id, anim) {
   onGroupControl(id);
 }
 
+function setGroupTimeFormat(id, format) {
+  const input = document.getElementById(`gtime24h-${id}`);
+  if (input) input.value = format;
+  document.getElementById(`gtime24-${id}`)?.classList.toggle('btn-primary', format === '24');
+  document.getElementById(`gtime24-${id}`)?.classList.toggle('btn-ghost', format !== '24');
+  document.getElementById(`gtime12-${id}`)?.classList.toggle('btn-primary', format === '12');
+  document.getElementById(`gtime12-${id}`)?.classList.toggle('btn-ghost', format !== '12');
+  onGroupControl(id);
+}
+
 function onGroupControl(id) {
   const mode = parseInt(document.getElementById(`gmode-${id}`)?.value || 0);
   const pat = parseInt(document.getElementById(`gp-${id}`)?.value || 0);
@@ -1257,11 +1299,13 @@ function onGroupControl(id) {
   const sceneWrap   = document.getElementById(`gscene-wrap-${id}`);
   const gradWrap    = document.getElementById(`ggrad-wrap-${id}`);
   const textWrap    = document.getElementById(`gtext-wrap-${id}`);
+  const timeWrap    = document.getElementById(`gtime-wrap-${id}`);
 
   if (patternWrap) patternWrap.style.display = mode === 0 ? '' : 'none';
   if (sceneWrap) sceneWrap.style.display = mode === 1 ? '' : 'none';
   if (gradWrap) gradWrap.style.display = mode === 3 ? '' : 'none';
   if (textWrap) textWrap.style.display = mode === 4 ? '' : 'none';
+  if (timeWrap) timeWrap.style.display = mode === 5 ? '' : 'none';
 
   const desc = document.getElementById(`gdesc-${id}`);
   if (desc) desc.textContent = PATTERNS[pat]?.desc || '';
@@ -1299,12 +1343,14 @@ function onGroupControl(id) {
 function applyGroupControl(id) {
   const mode = parseInt(document.getElementById(`gmode-${id}`)?.value || 0);
   const hex = mode === 4 ? (document.getElementById(`gtxc-${id}`)?.value || '#ffffff')
+            : mode === 5 ? (document.getElementById(`gtc-${id}`)?.value  || '#ffffff')
                           : (document.getElementById(`gc2-${id}`)?.value || '#ffffff');
   const [r,g,b] = hexToRgb(hex);
   const brEl = mode === 2 ? document.getElementById(`gprox-br-${id}`)
              : mode === 1 ? document.getElementById(`gbrs-${id}`)
              : mode === 3 ? document.getElementById(`ggbr-${id}`)
              : mode === 4 ? document.getElementById(`gtxbr-${id}`)
+             : mode === 5 ? document.getElementById(`gtbr-${id}`)
              :               document.getElementById(`gbr-${id}`);
   const speedEl = mode === 3 ? document.getElementById(`ggsp-${id}`)
                  : mode === 4 ? document.getElementById(`gtxsp-${id}`)
@@ -1335,6 +1381,7 @@ function applyGroupControl(id) {
                            : 0,
       text:              document.getElementById(`gtxt-${id}`)?.value || '',
       textAnimation:     parseInt(document.getElementById(`gtxanim-${id}`)?.value || 0),
+      time24h:           (document.getElementById(`gtime24h-${id}`)?.value || '24') === '24',
     })
   });
 }
@@ -1794,6 +1841,7 @@ async function saveSettings() {
     mqttHost:   document.getElementById('mqttHost').value,
     mqttPort:   parseInt(document.getElementById('mqttPort').value) || 1883,
     mqttUser:   document.getElementById('mqttUser').value,
+    timezone:   document.getElementById('timezone').value || 'UTC0',
   };
   const apPw   = document.getElementById('apPassword').value;
   const mqttPw = document.getElementById('mqttPassword').value;
@@ -2022,6 +2070,7 @@ async function loadConfig() {
   if (d.mqttPort   !== undefined) document.getElementById('mqttPort').value   = d.mqttPort;
   if (d.mqttUser   !== undefined) document.getElementById('mqttUser').value   = d.mqttUser;
   if (d.githubRepo !== undefined) document.getElementById('githubRepo').value = d.githubRepo;
+  if (d.timezone   !== undefined) document.getElementById('timezone').value   = d.timezone;
   document.getElementById('checkUpdateOnStartup').checked = d.checkUpdateOnStartup === true;
   if (d.version) {
     document.getElementById('fw-version').textContent = 'v' + d.version;

@@ -402,6 +402,7 @@ private:
         o["gradientStopCount"] = g.light.gradientStopCount;
         o["text"]             = g.light.text;
         o["textAnimation"]    = (uint8_t)g.light.textAnimation;
+        o["time24h"]          = g.light.time24h;
     }
 
     static LightConfig _lightFromJson(JsonVariant j) {
@@ -423,6 +424,7 @@ private:
         if (!j["gradientStopCount"].isNull()) l.gradientStopCount = (uint8_t)j["gradientStopCount"];
         if (!j["text"].isNull())          strlcpy(l.text, j["text"], sizeof(l.text));
         if (!j["textAnimation"].isNull()) l.textAnimation = (TextAnimation)(uint8_t)j["textAnimation"];
+        if (!j["time24h"].isNull())       l.time24h       = (bool)j["time24h"];
         return l;
     }
 
@@ -444,6 +446,7 @@ private:
         // mqttPassword intentionally omitted — write-only from UI
         doc["githubRepo"] = c.githubRepo;
         // githubToken intentionally omitted — write-only from UI
+        doc["timezone"]   = c.timezone;
 
         JsonArray lightsArr = doc["lights"].to<JsonArray>();
         for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
@@ -502,6 +505,7 @@ private:
         if (!doc["githubRepo"].isNull())  strlcpy(c.githubRepo, doc["githubRepo"], sizeof(c.githubRepo));
         if (!doc["githubToken"].isNull() && strlen(doc["githubToken"]) > 0)
             strlcpy(c.githubToken, doc["githubToken"], sizeof(c.githubToken));
+        if (!doc["timezone"].isNull())     strlcpy(c.timezone, doc["timezone"], sizeof(c.timezone));
 
         Config::save();
         auto ok = _makeOk(); _sendJson(r, 200, ok);
@@ -630,7 +634,7 @@ private:
                          || !doc["transitionTime"].isNull() || !doc["frameDuration"].isNull()
                          || !doc["proximityScale"].isNull() || !doc["morphEnabled"].isNull()
                          || !doc["gradientStopCount"].isNull() || !doc["text"].isNull()
-                         || !doc["textAnimation"].isNull();
+                         || !doc["textAnimation"].isNull() || !doc["time24h"].isNull();
         if (lightChanged) {
             auto& l = g->light;
             if (!doc["mode"].isNull())             l.mode              = (GroupMode)(uint8_t)doc["mode"];
@@ -650,6 +654,7 @@ private:
             if (!doc["gradientStopCount"].isNull()) l.gradientStopCount = (uint8_t)doc["gradientStopCount"];
             if (!doc["text"].isNull())          strlcpy(l.text, doc["text"], sizeof(l.text));
             if (!doc["textAnimation"].isNull()) l.textAnimation = (TextAnimation)(uint8_t)doc["textAnimation"];
+            if (!doc["time24h"].isNull())       l.time24h       = (bool)doc["time24h"];
             l.seq++;
             if (_onGroupLight) _onGroupLight(id, l);
         }

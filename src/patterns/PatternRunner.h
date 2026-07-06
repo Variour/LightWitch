@@ -13,6 +13,7 @@
 #include "GradientString.h"
 #include "Proximity.h"
 #include "TextMatrix.h"
+#include "TimeMatrix.h"
 #include "../led/LedDriver.h"
 #include "../config/Config.h"
 #include "../logging/Logger.h"
@@ -106,6 +107,21 @@ public:
                 } else {
                     _sceneString.applyConfig(cfg);
                 }
+            }
+            return;
+        }
+
+        if (cfg.mode == GroupMode::Time) {
+            if (_sceneMode != SceneMode::Time) {
+                Logger::i("[pattern] → Time  24h=%s br=%u", cfg.time24h ? "on" : "off", cfg.brightness);
+                _time.setDimensions(_width, _height);
+                _time.setMatrixLayout(_matrixStart, _matrixDir, _matrixSerpentine);
+                _time.begin(*_led, cfg);
+                _current   = &_time;
+                _currentId = (PatternId)0xFF;
+                _sceneMode = SceneMode::Time;
+            } else {
+                _time.applyConfig(cfg);
             }
             return;
         }
@@ -210,7 +226,7 @@ public:
     void  resetPhase()            { if (_current) _current->resetPhase(); }
 
 private:
-    enum class SceneMode { None, Matrix, String, GradientMatrix, GradientString };
+    enum class SceneMode { None, Matrix, String, GradientMatrix, GradientString, Time };
 
     // ── state ────────────────────────────────────────────────────────────────
     LedDriver*  _led       = nullptr;
@@ -242,6 +258,7 @@ private:
     GradientString _gradientString;
     Proximity     _proximity;
     TextMatrix    _textMatrix;
+    TimeMatrix    _time;
 
     void _renderTest() {
         uint16_t n    = _width * _height;
