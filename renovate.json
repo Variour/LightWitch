@@ -1,0 +1,70 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["before 6am on monday"],
+  "timezone": "UTC",
+  "labels": ["ci"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^platformio\\.ini$"],
+      "matchStrings": ["platform\\s*=\\s*espressif32\\s*@\\s*(?<currentValue>[\\d.]+)"],
+      "depNameTemplate": "espressif32",
+      "packageNameTemplate": "platformio/platform-espressif32",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^platformio\\.ini$"],
+      "matchStrings": ["esp32async/ESPAsyncWebServer\\s*@\\s*(?<currentValue>[\\d.]+)"],
+      "depNameTemplate": "esp32async/ESPAsyncWebServer",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^platformio\\.ini$"],
+      "matchStrings": ["esp32async/AsyncTCP\\s*@\\s*(?<currentValue>[\\d.]+)"],
+      "depNameTemplate": "esp32async/AsyncTCP",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^platformio\\.ini$"],
+      "matchStrings": ["\\bArduinoJson\\s*@\\s*(?<currentValue>[\\d.]+)"],
+      "depNameTemplate": "ArduinoJson",
+      "packageNameTemplate": "bblanchon/ArduinoJson",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^platformio\\.ini$"],
+      "matchStrings": ["adafruit/Adafruit NeoPixel\\s*@\\s*(?<currentValue>[\\d.]+)"],
+      "depNameTemplate": "adafruit/Adafruit NeoPixel",
+      "packageNameTemplate": "adafruit/Adafruit_NeoPixel",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^platformio\\.ini$"],
+      "matchStrings": ["adafruit/Adafruit WS2801 Library\\s*@\\s*(?<currentValue>[\\d.]+)"],
+      "depNameTemplate": "adafruit/Adafruit WS2801 Library",
+      "packageNameTemplate": "adafruit/Adafruit-WS2801-Library",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^platformio\\.ini$"],
+      "matchStrings": ["knolleary/PubSubClient\\s*@\\s*(?<currentValue>[\\d.]+)"],
+      "depNameTemplate": "knolleary/PubSubClient",
+      "packageNameTemplate": "knolleary/pubsubclient",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver-coerced"
+    }
+  ]
+}
