@@ -171,9 +171,9 @@ private:
                     float t = (float)(elapsed - cycleMs) / (float)cycleMs;
                     if (t > 1.0f) t = 1.0f;
                     float smooth = t * t * (3.0f - 2.0f * t);
-                    r = applyBrightness(_lerp(s.from.r, s.to.r, smooth));
-                    g = applyBrightness(_lerp(s.from.g, s.to.g, smooth));
-                    b = applyBrightness(_lerp(s.from.b, s.to.b, smooth));
+                    r = applyBrightness(Color::lerp(s.from.r, s.to.r, smooth));
+                    g = applyBrightness(Color::lerp(s.from.g, s.to.g, smooth));
+                    b = applyBrightness(Color::lerp(s.from.b, s.to.b, smooth));
                 }
             }
             _led->setPixel(i, r, g, b);
@@ -184,9 +184,5 @@ private:
     Color _pick() const {
         if (_palette.empty()) return _cfg.color;
         return _palette[random(0, _palette.size())];
-    }
-
-    static uint8_t _lerp(uint8_t a, uint8_t b, float t) {
-        return (uint8_t)((float)a + ((float)b - (float)a) * t);
     }
 };

@@ -1,5 +1,6 @@
 #pragma once
 #include "Pattern.h"
+#include "MatrixLayout.h"
 #include "../timesync/TimeSync.h"
 #include "../logging/Logger.h"
 
@@ -18,9 +19,9 @@ public:
 
     float getPeriod() const override { return 0.0f; }
 
-    void setDimensions(uint16_t w, uint16_t h) { _lightW = w; _lightH = h; }
+    void setDimensions(uint16_t w, uint16_t h) { _layout.setDimensions(w, h); }
     void setMatrixLayout(MatrixStart start, MatrixDirection dir, bool serpentine) {
-        _matrixStart = start; _matrixDir = dir; _matrixSerpentine = serpentine;
+        _layout.setWiring(start, dir, serpentine);
     }
 
     void begin(LedDriver& led, const LightConfig& cfg) override {
@@ -39,10 +40,10 @@ public:
     void tick(uint32_t now) override {
         if (!_led) return;
 
-        bool tooSmall = _lightW < BASE_W || _lightH < BASE_H;
+        bool tooSmall = _layout.width() < BASE_W || _layout.height() < BASE_H;
         if (tooSmall && !_loggedTooSmall) {
             Logger::w("[time] matrix %ux%u smaller than required %ux%u — time mode unavailable",
-                      _lightW, _lightH, BASE_W, BASE_H);
+                      _layout.width(), _layout.height(), BASE_W, BASE_H);
             _loggedTooSmall = true;
         }
 
@@ -76,10 +77,7 @@ public:
     }
 
 private:
-    uint16_t        _lightW = 1, _lightH = 1;
-    MatrixStart     _matrixStart = MatrixStart::TopLeft;
-    MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
-    bool            _matrixSerpentine = false;
+    MatrixLayout    _layout;
     int             _lastMinuteKey = -1;
     bool            _loggedTooSmall = false;
     bool            _showingIndicator = true;
@@ -130,11 +128,11 @@ private:
     // error state even when Time mode's brightness is turned down or to 0.
     void _blit(bool base[BASE_H][BASE_W], bool dim = false) {
         Color c = dim ? Color{40, 0, 0} : _cfg.color;
-        for (uint16_t row = 0; row < _lightH; row++) {
-            uint16_t srcRow = _nearest(row, _lightH, BASE_H);
-            for (uint16_t col = 0; col < _lightW; col++) {
-                uint16_t srcCol = _nearest(col, _lightW, BASE_W);
-                uint16_t li = _ledIndex(row, col);
+        for (uint16_t row = 0; row < _layout.height(); row++) {
+            uint16_t srcRow = MatrixLayout::nearest(row, _layout.height(), BASE_H);
+            for (uint16_t col = 0; col < _layout.width(); col++) {
+                uint16_t srcCol = MatrixLayout::nearest(col, _layout.width(), BASE_W);
+                uint16_t li = _layout.ledIndex(row, col);
                 if (!base[srcRow][srcCol]) {
                     _led->setPixel(li, 0, 0, 0);
                 } else if (dim) {
@@ -145,24 +143,5 @@ private:
             }
         }
         _led->show();
-    }
-
-    static uint16_t _nearest(uint16_t dst, uint16_t dstSize, uint16_t srcSize) {
-        uint32_t src = ((uint32_t)dst * 2 + 1) * srcSize / ((uint32_t)dstSize * 2);
-        return (src >= srcSize) ? (uint16_t)(srcSize - 1) : (uint16_t)src;
-    }
-
-    uint16_t _ledIndex(uint16_t row, uint16_t col) const {
-        uint16_t r = (_matrixStart == MatrixStart::BottomLeft || _matrixStart == MatrixStart::BottomRight)
-                     ? (_lightH - 1 - row) : row;
-        uint16_t c = (_matrixStart == MatrixStart::TopRight  || _matrixStart == MatrixStart::BottomRight)
-                     ? (_lightW - 1 - col) : col;
-        if (_matrixDir == MatrixDirection::Vertical) {
-            if (_matrixSerpentine && (c & 1)) r = _lightH - 1 - r;
-            return c * _lightH + r;
-        } else {
-            if (_matrixSerpentine && (r & 1)) c = _lightW - 1 - c;
-            return r * _lightW + c;
-        }
     }
 };
