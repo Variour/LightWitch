@@ -2134,7 +2134,7 @@ function renderWifiList(networks, connected) {
     const isConn = ssid === connected;
     return `<div class="flex-between" style="padding:.3rem 0;border-bottom:1px solid #222">
       <span style="font-size:.9rem">${esc(ssid)}${isConn ? ' <small style="color:#4c4">(connected)</small>' : ''}</span>
-      <button class="btn-ghost btn-sm" onclick="deleteWifiNetwork(${JSON.stringify(ssid)})">Delete</button>
+      <button class="btn-ghost btn-sm" onclick="deleteWifiNetwork(${JSON.stringify(ssid).replace(/"/g,'&quot;')})">Delete</button>
     </div>`;
   }).join('');
 }
