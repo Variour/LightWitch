@@ -1,8 +1,9 @@
 name: Refresh CA bundle
 
 on:
-  schedule:
-    - cron: '0 6 1 * *'
+  push:
+    branches: [main]
+    paths: ['requirements.txt']
   workflow_dispatch:
 
 permissions:
@@ -19,8 +20,8 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install generator dependencies
-        run: pip install cryptography certifi
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
       - name: Regenerate CA bundle
         run: python3 scripts/gen_ca_bundle.py src/update/CaBundle.h
