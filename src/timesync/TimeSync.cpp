@@ -8,11 +8,13 @@ TimeSync::Source      TimeSync::_source        = TimeSync::Source::None;
 bool                   TimeSync::_ntpStarted    = false;
 uint32_t               TimeSync::_lastBroadcast = 0;
 TimeSync::BroadcastFn  TimeSync::_broadcastFn;
+char                   TimeSync::_timezone[64]  = "UTC0";
 
 static constexpr uint32_t BROADCAST_INTERVAL_MS = 10000;
 
 void TimeSync::begin(const char* timezone) {
-    setenv("TZ", (timezone && timezone[0]) ? timezone : "UTC0", 1);
+    strlcpy(_timezone, (timezone && timezone[0]) ? timezone : "UTC0", sizeof(_timezone));
+    setenv("TZ", _timezone, 1);
     tzset();
 }
 
@@ -21,10 +23,14 @@ void TimeSync::tick() {
 
     if (wifiUp && !_ntpStarted) {
         _ntpStarted = true;
-        configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+        // configTzTime (not configTime) so SNTP's own TZ handling applies our
+        // configured zone rather than clobbering it back to UTC — configTime's
+        // gmtOffset_sec/daylightOffset_sec form always overwrites TZ, which
+        // undid the timezone begin() set and made Time mode display UTC.
+        configTzTime(_timezone, "pool.ntp.org", "time.nist.gov");
         Logger::i("[time] NTP sync started");
     }
-    if (!wifiUp) _ntpStarted = false;  // retry configTime on reconnect
+    if (!wifiUp) _ntpStarted = false;  // retry NTP config on reconnect
 
     // Checked against the SNTP library's own completion status rather than
     // "is the system clock plausible", since a peer-adopted clock (settimeofday
