@@ -275,7 +275,6 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
               background: #111; border: 1px solid #222; cursor: pointer;
               font-size: .82rem; }
 .frame-item:hover { border-color: #333; }
-.frame-active { border-color: #4af !important; color: #4af; }
 .frame-btns { display: flex; gap: .25rem; }
 
 /* Scene grid */
@@ -3375,12 +3374,6 @@ function _renderGradUI() {
   const b = document.getElementById('grad-swatch-b');
   if (a) a.style.background = _gradColorA;
   if (b) b.style.background = _gradColorB;
-
-  // Update frame-level gradient fill button previews
-  const gradH = `linear-gradient(to right, ${_gradColorA}, ${_gradColorB})`;
-  const gradV = `linear-gradient(to bottom, ${_gradColorA}, ${_gradColorB})`;
-  document.querySelectorAll('.fill-btn[onclick*="gradFillFrameFor"][onclick*="\'h\'"]').forEach(el => { el.style.background = gradH; el.style.color = '#fff'; });
-  document.querySelectorAll('.fill-btn[onclick*="gradFillFrameFor"][onclick*="\'v\'"]').forEach(el => { el.style.background = gradV; el.style.color = '#fff'; });
 }
 
 function _setGradColor(which) {
@@ -3581,22 +3574,6 @@ function _pickColorFromCell(frameIndex, idx) {
   _updateModeUI();
   setPaintColor(color);
   _renderGrid();
-}
-
-function _scenePayloadFromEditor() {
-  return {
-    id: _editScene.id,
-    name: document.getElementById('se-name').value.trim() || (_editScene.name || 'Unnamed'),
-    w: parseInt(_editScene.w, 10) || 20,
-    h: parseInt(_editScene.h, 10) || 10,
-    fc: _editScene.frames.length,
-    frames: _editScene.frames.map(_frameToHex)
-  };
-}
-
-function downloadSceneJson() {
-  const payload = _scenePayloadFromEditor();
-  downloadScenePayload(payload);
 }
 
 function downloadSceneFromList(sceneId) {
