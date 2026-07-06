@@ -1028,11 +1028,21 @@ function renderGroups(groups) {
   _groups = groups;
   if (_self) renderLights(_self, _peers);
   const el = document.getElementById('groups-list');
-  el.innerHTML = '';
+  const activeCard = document.activeElement?.closest('.group-card');
+  const activeGroupId = (activeCard && el.contains(activeCard)) ? Number(activeCard.dataset.groupId) : null;
+  const existing = new Map([...el.children].map(c => [Number(c.dataset.groupId), c]));
+  const seen = new Set();
+  let index = 0;
   for (const g of groups) {
-    const card = document.createElement('div');
-    card.className = 'group-card';
-    card.id = `gc-${g.id}`;
+    seen.add(g.id);
+    let card = existing.get(g.id);
+    const skip = card && g.id === activeGroupId;
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'group-card';
+      card.id = `gc-${g.id}`;
+      card.dataset.groupId = g.id;
+    }
     const mode = Number(g.mode ?? 0);
     const pat = Number(g.pattern ?? 0);
     const colorHidden = PATTERNS[pat]?.hasColor === false;
@@ -1051,7 +1061,7 @@ function renderGroups(groups) {
     const showText = groupHasMatrixLight(g.id) || mode === 4;
     const time24h = g.time24h !== false;
     const showTime = groupHasMatrixLight(g.id) || mode === 5;
-    card.innerHTML = `
+    if (!skip) card.innerHTML = `
       <div class="group-header">
         <input type="text" value="${esc(g.name)}" onchange="renameGroup(${g.id}, this.value)"
                ${g.id === 0 ? 'readonly style="color:#666"' : ''}>
@@ -1254,7 +1264,13 @@ function renderGroups(groups) {
           </div>
         </div>
       </div>`;
-    el.appendChild(card);
+    // Only move the node if its position actually changed: appendChild/insertBefore
+    // detach-and-reattach even a no-op move, which blurs a focused descendant.
+    if (el.children[index] !== card) el.insertBefore(card, el.children[index] || null);
+    index++;
+  }
+  for (const [id, card] of existing) {
+    if (!seen.has(id)) card.remove();
   }
 }
 
@@ -1564,16 +1580,16 @@ function renderLights(self, peers) {
       : '';
 
     return {
-      table: `<tr>
+      mac,
+      table: `
         <td>${dot}${esc(p.name)}${selfTag}</td>
         <td>${groupSelects}</td>
         <td style="text-align:center">${wifiIcon}</td>
         <td style="text-align:right;font-size:.78rem;color:#666;white-space:nowrap">${rssiText}</td>
         <td style="text-align:center;color:#444;font-size:.78rem">${fwIconHtml}</td>
         <td style="text-align:center">${syncCell}</td>
-        <td style="text-align:center">${pushCell}</td>
-      </tr>`,
-      mobile: `<div class="light-device-card">
+        <td style="text-align:center">${pushCell}</td>`,
+      mobile: `
         <div class="light-device-header">
           <div class="light-device-title">
             <div class="light-device-title-line">
@@ -1583,14 +1599,50 @@ function renderLights(self, peers) {
           </div>
           ${mobileActions}
         </div>
-        <div class="light-device-lights">${mobileLights}</div>
-      </div>`
+        <div class="light-device-lights">${mobileLights}</div>`
     };
   });
 
-  body.innerHTML = rendered.map(entry => entry.table).join('');
-  mobile.innerHTML = rendered.map(entry => entry.mobile).join('');
+  const activeTr = document.activeElement?.closest('tr[data-mac]');
+  const activeTableMac = (activeTr && body.contains(activeTr)) ? activeTr.dataset.mac : null;
+  const activeMobileCard = document.activeElement?.closest('.light-device-card[data-mac]');
+  const activeMobileMac = (activeMobileCard && mobile.contains(activeMobileCard)) ? activeMobileCard.dataset.mac : null;
+
+  _patchKeyedChildren(body, rendered, 'table', activeTableMac, () => document.createElement('tr'));
+  _patchKeyedChildren(mobile, rendered, 'mobile', activeMobileMac, () => {
+    const div = document.createElement('div');
+    div.className = 'light-device-card';
+    return div;
+  });
+
   _updateSignalColumn();
+}
+
+// Updates container's children to match `items` (each `{mac, [field]: innerHtml}`),
+// keyed by data-mac, reusing existing nodes so a broadcast-triggered re-render
+// doesn't destroy unrelated DOM. The node currently holding focus is skipped
+// entirely so an in-progress interaction (e.g. a dragged slider, an open
+// select) isn't interrupted.
+function _patchKeyedChildren(container, items, field, activeMac, createNode) {
+  const existing = new Map([...container.children].map(c => [c.dataset.mac, c]));
+  const seen = new Set();
+  let index = 0;
+  for (const item of items) {
+    seen.add(item.mac);
+    let node = existing.get(item.mac);
+    if (!node) {
+      node = createNode();
+      node.dataset.mac = item.mac;
+    }
+    if (item.mac !== activeMac) node.innerHTML = item[field];
+    // Only move the node if its position actually changed: appendChild/insertBefore
+    // detach-and-reattach even a no-op move, which blurs a focused descendant.
+    if (container.children[index] !== node) container.insertBefore(node, container.children[index] || null);
+    index++;
+  }
+  for (const [mac, node] of existing) {
+    if (!seen.has(mac)) node.remove();
+  }
 }
 
 const _fwTriggered = new Set();
