@@ -62,6 +62,28 @@ public:
         _renderTest();
     }
 
+    // Renders firmware-update progress as an orange fill proportional to percent
+    // (0-100), overriding whatever pattern is currently configured. Called
+    // directly from the main loop while an update is in progress.
+    void showUpdateProgress(uint8_t percent) {
+        if (!_led) return;
+        uint16_t n   = _width * _height;
+        uint16_t lit = (uint16_t)((uint32_t)n * min(percent, (uint8_t)100) / 100);
+        for (uint16_t i = 0; i < n; i++) {
+            if (i < lit) _led->setPixel(i, 255, 80, 0);
+            else         _led->setPixel(i, 0,   0,  0);
+        }
+        _led->show();
+    }
+
+    // Solid green — shown briefly once the update has finished, just before reboot.
+    void showUpdateDone() {
+        if (!_led) return;
+        uint16_t n = _width * _height;
+        for (uint16_t i = 0; i < n; i++) _led->setPixel(i, 0, 200, 0);
+        _led->show();
+    }
+
     void applyConfig(const LightConfig& cfg) {
         _savedConfig = cfg;
         if (_testActive) return;
