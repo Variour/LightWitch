@@ -37,6 +37,12 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .btn-fw-trigger:hover { background: #2a2a2a; }
 .btn-fw-trigger:disabled { cursor: default; pointer-events: none; }
 
+.toast { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
+         background: #222; color: #eee; padding: .6rem 1rem; border-radius: 8px;
+         font-size: .82rem; box-shadow: 0 2px 10px rgba(0,0,0,.4); z-index: 999;
+         display: none; max-width: 90%; text-align: center; }
+.toast-error { background: #522; color: #fbb; border: 1px solid #833; }
+
 /* Tab bar */
 .tab-bar { display: flex; gap: .4rem; margin-bottom: .75rem; }
 .tab     { flex: 1; padding: .45rem; border-radius: 7px; border: 1px solid #222;
@@ -1340,7 +1346,7 @@ function onGroupControl(id) {
   _debounce[id] = setTimeout(() => applyGroupControl(id), 300);
 }
 
-function applyGroupControl(id) {
+async function applyGroupControl(id) {
   const mode = parseInt(document.getElementById(`gmode-${id}`)?.value || 0);
   const hex = mode === 4 ? (document.getElementById(`gtxc-${id}`)?.value || '#ffffff')
             : mode === 5 ? (document.getElementById(`gtc-${id}`)?.value  || '#ffffff')
@@ -1355,7 +1361,7 @@ function applyGroupControl(id) {
   const speedEl = mode === 3 ? document.getElementById(`ggsp-${id}`)
                  : mode === 4 ? document.getElementById(`gtxsp-${id}`)
                  :              document.getElementById(`gsp-${id}`);
-  fetch('/api/groups/update', {
+  await _fetchOrToast('/api/groups/update', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
@@ -1383,22 +1389,22 @@ function applyGroupControl(id) {
       textAnimation:     parseInt(document.getElementById(`gtxanim-${id}`)?.value || 0),
       time24h:           (document.getElementById(`gtime24h-${id}`)?.value || '24') === '24',
     })
-  });
+  }, 'Failed to apply group settings');
 }
 
-function setSyncEnabled(id, enabled) {
-  fetch('/api/groups/update', {
+async function setSyncEnabled(id, enabled) {
+  await _fetchOrToast('/api/groups/update', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({id, syncEnabled: enabled})
-  });
+  }, 'Failed to update sync setting');
 }
 
-function renameGroup(id, name) {
+async function renameGroup(id, name) {
   if (!name.trim()) return;
-  fetch('/api/groups/update', {
+  await _fetchOrToast('/api/groups/update', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({id, name: name.trim()})
-  });
+  }, 'Failed to rename group');
 }
 
 async function createGroup() {
@@ -1639,18 +1645,18 @@ function checkSelfUpdate(btn) {
   _updPollStatus();
 }
 
-function assignGroup(mac, lightIndex, groupId) {
-  fetch('/api/peers/setgroup', {
+async function assignGroup(mac, lightIndex, groupId) {
+  await _fetchOrToast('/api/peers/setgroup', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({mac, lightIndex, groupId})
-  });
+  }, 'Failed to assign group');
 }
 
-function setSceneSync(mac, enabled) {
-  fetch('/api/peers/setscenesync', {
+async function setSceneSync(mac, enabled) {
+  await _fetchOrToast('/api/peers/setscenesync', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({mac, enabled})
-  });
+  }, 'Failed to update scene sync');
 }
 
 function meshSearch() {
@@ -2145,6 +2151,35 @@ function hexToRgb(hex) {
 }
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(message, isError = true) {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.className = 'toast' + (isError ? ' toast-error' : '');
+  el.style.display = 'block';
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+async function _fetchOrToast(url, options, errorPrefix) {
+  try {
+    const res = await fetch(url, options);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showToast(`${errorPrefix}: ${data.error || res.status}`);
+      return null;
+    }
+    return res;
+  } catch (e) {
+    showToast(`${errorPrefix}: ${e.message}`);
+    return null;
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
