@@ -23,16 +23,21 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: (temp) verify build with pinned versions
+        run: pio run -e esp32dev -e esp32c3
+
       - name: Regenerate CA bundle
+        if: false
         run: python3 scripts/gen_ca_bundle.py src/update/CaBundle.h
 
       - name: Check for changes
+        if: false
         id: diff
         run: |
           git diff --quiet -- src/update/CaBundle.h && echo "changed=false" >> "$GITHUB_OUTPUT" || echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Open pull request
-        if: steps.diff.outputs.changed == 'true'
+        if: false && steps.diff.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
