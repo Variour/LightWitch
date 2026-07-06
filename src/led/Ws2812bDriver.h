@@ -1,6 +1,7 @@
 #pragma once
 #include "LedDriver.h"
 #include <Adafruit_NeoPixel.h>
+#include <memory>
 
 class Ws2812bDriver : public LedDriver {
 public:
@@ -10,7 +11,7 @@ public:
     }
 
     void begin() override {
-        _neo = new Adafruit_NeoPixel(_numLeds, _pin, NEO_GRB + NEO_KHZ800);
+        _neo = std::make_unique<Adafruit_NeoPixel>(_numLeds, _pin, NEO_GRB + NEO_KHZ800);
         _neo->begin();
         _neo->clear();
         _neo->show();
@@ -34,7 +35,7 @@ public:
     }
 
 private:
-    uint8_t            _pin     = 25;
-    uint16_t           _numLeds = 1;
-    Adafruit_NeoPixel* _neo     = nullptr;
+    uint8_t                            _pin     = 25;
+    uint16_t                           _numLeds = 1;
+    std::unique_ptr<Adafruit_NeoPixel> _neo;
 };

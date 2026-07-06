@@ -77,7 +77,7 @@ struct ProximityPingMsg {
 // ── Scene sync messages ───────────────────────────────────────────────────────
 
 struct SceneManifestEntry {
-    char     id[33];
+    char     id[SCENE_ID_LEN];
     uint32_t hash;
 };
 
@@ -93,7 +93,7 @@ struct SceneManifestMsg {
 
 struct SceneRequestMsg {
     MsgType type = MsgType::SceneRequest;
-    char    id[33];
+    char    id[SCENE_ID_LEN];
 };
 
 static constexpr uint16_t CHUNK_DATA_SIZE = 208;
@@ -104,13 +104,13 @@ struct SceneChunkMsg {
     uint16_t chunkIndex;
     uint16_t totalChunks;
     uint16_t dataLen;
-    char     id[33];
+    char     id[SCENE_ID_LEN];
     uint8_t  data[CHUNK_DATA_SIZE];
 };
 
 struct SceneForceSetMsg {
     MsgType  type = MsgType::SceneForceSet;
-    char     id[33];
+    char     id[SCENE_ID_LEN];
     uint32_t hash;
 };
 
@@ -118,7 +118,7 @@ struct SceneForceSetMsg {
 // prevHash=0 means new scene; prevHash=crc32 of scene before save otherwise.
 struct SceneEditPushMsg {
     MsgType  type = MsgType::SceneEditPush;
-    char     id[33];
+    char     id[SCENE_ID_LEN];
     uint32_t prevHash;
 };
 

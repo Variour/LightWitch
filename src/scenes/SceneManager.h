@@ -6,6 +6,7 @@
 #include <esp_random.h>
 #include <set>
 #include "../logging/Logger.h"
+#include "../config/Config.h"
 
 class SceneManager {
 public:
@@ -156,27 +157,14 @@ public:
         uint8_t  buf[256];
         while (f.available()) {
             size_t n = f.read(buf, sizeof(buf));
-            for (size_t i = 0; i < n; i++) {
-                crc ^= buf[i];
-                for (int b = 0; b < 8; b++)
-                    crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
-            }
+            crc = _crc32Update(crc, buf, n);
         }
         f.close();
-        uint32_t result = ~crc;
-        // Map 0 to 1 so 0 remains exclusively the deletion sentinel
-        return result == 0 ? 1 : result;
+        return _crc32Finalize(crc);
     }
 
     static uint32_t crc32OfData(const uint8_t* data, size_t len) {
-        uint32_t crc = 0xFFFFFFFF;
-        for (size_t i = 0; i < len; i++) {
-            crc ^= data[i];
-            for (int b = 0; b < 8; b++)
-                crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
-        }
-        uint32_t result = ~crc;
-        return result == 0 ? 1 : result;
+        return _crc32Finalize(_crc32Update(0xFFFFFFFF, data, len));
     }
 
     // ── Tombstones (in-memory only, cleared on reboot) ───────────────────────
@@ -196,7 +184,7 @@ public:
 
     // Fill entries array with {id, hash} for all local scenes + tombstones.
     // Returns total count of entries written.
-    struct ManifestEntry { char id[33]; uint32_t hash; };
+    struct ManifestEntry { char id[SCENE_ID_LEN]; uint32_t hash; };
 
     static uint8_t buildManifestEntries(ManifestEntry* entries, uint8_t maxEntries) {
         uint8_t count = 0;
@@ -213,7 +201,7 @@ public:
                         DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
                         if (!err && !doc["id"].isNull()) {
                             const char* id = doc["id"];
-                            strlcpy(entries[count].id, id, 33);
+                            strlcpy(entries[count].id, id, SCENE_ID_LEN);
                             entries[count].hash = crc32(id);
                             count++;
                         }
@@ -227,7 +215,7 @@ public:
         // Tombstones (in-memory)
         for (const String& tid : _tombstones()) {
             if (count >= maxEntries) break;
-            strlcpy(entries[count].id, tid.c_str(), 33);
+            strlcpy(entries[count].id, tid.c_str(), SCENE_ID_LEN);
             entries[count].hash = 0;
             count++;
         }
@@ -235,6 +223,21 @@ public:
     }
 
 private:
+    static uint32_t _crc32Update(uint32_t crc, const uint8_t* data, size_t len) {
+        for (size_t i = 0; i < len; i++) {
+            crc ^= data[i];
+            for (int b = 0; b < 8; b++)
+                crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
+        }
+        return crc;
+    }
+
+    // Map 0 to 1 so 0 remains exclusively the deletion sentinel
+    static uint32_t _crc32Finalize(uint32_t crc) {
+        uint32_t result = ~crc;
+        return result == 0 ? 1 : result;
+    }
+
     static bool _extractId(const char* json, size_t len, String& out) {
         const char* end = json + len;
         const char* key = strstr(json, "\"id\"");

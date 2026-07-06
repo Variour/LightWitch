@@ -158,7 +158,7 @@ public:
         if (!_ready) return;
         SceneRequestMsg msg;
         msg.type = MsgType::SceneRequest;
-        strlcpy(msg.id, id, 33);
+        strlcpy(msg.id, id, SCENE_ID_LEN);
         _send(&msg, sizeof(msg));
     }
 
@@ -170,7 +170,7 @@ public:
     void broadcastSceneEditPush(const char* id, uint32_t prevHash) {
         if (!_ready) return;
         SceneEditPushMsg msg;
-        strlcpy(msg.id, id, 33);
+        strlcpy(msg.id, id, SCENE_ID_LEN);
         msg.prevHash = prevHash;
         _send(&msg, sizeof(msg));
     }
@@ -185,7 +185,7 @@ public:
         if (!_ready) return;
         SceneForceSetMsg msg;
         msg.type = MsgType::SceneForceSet;
-        strlcpy(msg.id, id, 33);
+        strlcpy(msg.id, id, SCENE_ID_LEN);
         msg.hash = hash;
         _send(&msg, sizeof(msg));
     }

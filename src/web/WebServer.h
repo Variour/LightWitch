@@ -380,6 +380,18 @@ private:
         r->send(code, "application/json", s);
     }
 
+    // Parses the request body into doc, sending a 400 "bad json" response on failure.
+    // logCtx, if given, logs "[scene] <logCtx>: bad json" before responding.
+    static bool _parseJson(AsyncWebServerRequest* r, JsonDocument& doc, uint8_t* data, size_t len,
+                            const char* logCtx = nullptr) {
+        if (deserializeJson(doc, data, len)) {
+            if (logCtx) Logger::e("[scene] %s: bad json", logCtx);
+            auto e = _makeErr("bad json"); _sendJson(r, 400, e);
+            return false;
+        }
+        return true;
+    }
+
     static void _serializeGroup(JsonObject o, const GroupConfig& g) {
         o["id"]          = g.id;
         o["name"]        = g.name;
@@ -478,9 +490,7 @@ private:
     // ── POST /api/config ─────────────────────────────────────────────────────
     void _postConfig(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         auto& c = Config::get();
         if (!doc["deviceName"].isNull())   strlcpy(c.deviceName,   doc["deviceName"],   sizeof(c.deviceName));
         if (!doc["apPassword"].isNull())   strlcpy(c.apPassword,   doc["apPassword"],   sizeof(c.apPassword));
@@ -581,9 +591,7 @@ private:
     // ── POST /api/groups/create ──────────────────────────────────────────────
     void _createGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         const char* name = doc["name"] | "New Group";
         uint8_t id = Config::createGroup(name);
         if (id == 0xFF) {
@@ -604,9 +612,7 @@ private:
     // Body: {id, name?, pattern?, r?, g?, b?, brightness?, speed?}
     void _updateGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         uint8_t id = doc["id"] | (uint8_t)0;
         GroupConfig* g = Config::group(id);
         if (!g) { auto e = _makeErr("not found"); _sendJson(r, 404, e); return; }
@@ -670,9 +676,7 @@ private:
     // ── POST /api/groups/delete ──────────────────────────────────────────────
     void _deleteGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         uint8_t id = doc["id"] | (uint8_t)0;
         if (id == 0) { auto e = _makeErr("cannot delete Default"); _sendJson(r, 400, e); return; }
         GroupConfig* g = Config::group(id);
@@ -700,9 +704,7 @@ private:
     // Body: {mac, lightIndex, groupId}
     void _setRemoteGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         uint8_t lightIndex = doc["lightIndex"] | (uint8_t)0;
         uint8_t groupId    = doc["groupId"]    | (uint8_t)0;
         const char* macStr = doc["mac"] | "";
@@ -793,10 +795,7 @@ private:
 
     void _createScene(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            Logger::e("[scene] create: bad json");
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len, "create")) return;
         const char* name = doc["name"] | "Unnamed";
         uint16_t w = doc["w"] | 20;
         uint16_t h = doc["h"] | 10;
@@ -815,10 +814,7 @@ private:
 
     void _deleteScene(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            Logger::e("[scene] delete: bad json");
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len, "delete")) return;
         const char* id = doc["id"] | "";
         if (!id[0]) {
             Logger::w("[scene] delete: missing id");
@@ -850,9 +846,7 @@ private:
     // Use sourceMac == own MAC or omit to use local copy.
     void _resolveSyncConflict(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         const char* id      = doc["id"] | "";
         const char* macStr  = doc["sourceMac"] | "";
         if (!id[0]) { auto e = _makeErr("missing id"); _sendJson(r, 400, e); return; }
@@ -897,9 +891,7 @@ private:
     // Body: {ssid, password}
     void _addWifi(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         const char* ssid = doc["ssid"] | "";
         const char* pass = doc["password"] | "";
         if (strlen(ssid) == 0) {
@@ -915,9 +907,7 @@ private:
     // Body: {ssid}
     void _deleteWifi(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         const char* ssid = doc["ssid"] | "";
         if (strlen(ssid) == 0) {
             auto e = _makeErr("ssid required"); _sendJson(r, 400, e); return;
@@ -933,9 +923,7 @@ private:
     // deviceName and ledType require a specific target mac.
     void _pushConfig(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         const char* macStr = doc["mac"] | "";
         uint8_t targetMac[6] = {0, 0, 0, 0, 0, 0};
         bool hasTarget = macStr[0] != '\0';
@@ -1038,9 +1026,7 @@ private:
     // Body: {mac, enabled}
     void _setRemoteSceneSync(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         const char* macStr = doc["mac"] | "";
         bool enabled       = doc["enabled"] | true;
 
@@ -1065,9 +1051,7 @@ private:
     // ── POST /api/peers/triggerupdate ─────────────────────────────────────────
     void _triggerPeerUpdate(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         const char* macStr = doc["mac"] | "";
         uint8_t mac[6];
         if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
@@ -1092,9 +1076,7 @@ private:
     // ── POST /api/peers/checkupdate ───────────────────────────────────────────
     void _checkPeerUpdate(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         const char* macStr = doc["mac"] | "";
         uint8_t mac[6];
         if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
@@ -1146,9 +1128,7 @@ private:
     // Body: {ledType, dataPin, clockPin, width, height, matrixStart, matrixDir, matrixSerpentine, wrapWidth, wrapHeight, groupId}
     void _addLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         // Find first free slot
         uint8_t idx = 0xFF;
         for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
@@ -1186,9 +1166,7 @@ private:
     // Body: {index, ledType?, dataPin?, clockPin?, width?, height?, matrixStart?, matrixDir?, matrixSerpentine?, wrapWidth?, wrapHeight?, groupId?}
     void _updateLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         uint8_t idx = doc["index"] | (uint8_t)0xFF;
         if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
             auto e = _makeErr("not found"); _sendJson(r, 404, e); return;
@@ -1225,9 +1203,7 @@ private:
     // Body: {index}
     void _testLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         uint8_t idx = doc["index"] | (uint8_t)0xFF;
         if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
             auto e = _makeErr("not found"); _sendJson(r, 404, e); return;
@@ -1243,9 +1219,7 @@ private:
     // Body: {index}
     void _deleteLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
-        if (deserializeJson(doc, data, len)) {
-            auto e = _makeErr("bad json"); _sendJson(r, 400, e); return;
-        }
+        if (!_parseJson(r, doc, data, len)) return;
         uint8_t idx = doc["index"] | (uint8_t)0xFF;
         if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
             auto e = _makeErr("not found"); _sendJson(r, 404, e); return;

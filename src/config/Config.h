@@ -56,9 +56,12 @@ struct Color {
     Color(uint8_t r, uint8_t g, uint8_t b) : r(r), g(g), b(b) {}
 };
 
+// Scene id buffer size, incl. null terminator (also used for wire structs in MeshTypes.h).
+static constexpr uint8_t SCENE_ID_LEN = 33;
+
 struct LightConfig {
     GroupMode mode              = GroupMode::Pattern;
-    char      sceneId[33]       = {};
+    char      sceneId[SCENE_ID_LEN] = {};
     PatternId pattern           = PatternId::Static;
     Color     color             = Color{255, 255, 255};
     uint8_t   brightness        = 255;
