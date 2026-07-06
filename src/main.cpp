@@ -17,6 +17,8 @@
 #include "mqtt/MqttManager.h"
 #include "scenes/SceneSyncManager.h"
 #include "timesync/TimeSync.h"
+#include "actions/ActionExecutor.h"
+#include "buttons/ButtonManager.h"
 
 static Ws2812bDriver    _ws2812bPool[MAX_LIGHTS];
 static Ws2801Driver     _ws2801Pool[MAX_LIGHTS];
@@ -27,6 +29,8 @@ static ChannelManager   channelMgr;
 static BatteryWebServer webServer;
 static MqttManager      mqtt;
 static SceneSyncManager sceneSync;
+static ActionExecutor   actionExecutor;
+static ButtonManager    buttonManager;
 static bool             _otaActive = false;
 
 // Caps how often patterns recompute and push to the LED driver. Well above what
@@ -216,6 +220,14 @@ void setup() {
         });
     });
     mqtt.begin(Config::get());
+
+    // Wire the action layer: buttons (and, perspectively, other future trigger
+    // sources) execute actions through this, which funnels into the same
+    // apply/propagate + mesh-broadcast paths as web/MQTT/mesh already use.
+    actionExecutor.setApplyFn(applyAndPropagateLightConfig);
+    actionExecutor.setBroadcastGroupSyncFn([](const GroupConfig& g) { mesh.broadcastGroupSync(g); });
+    buttonManager.setExecutor(&actionExecutor);
+    buttonManager.begin();
 
     if (MDNS.begin(Config::get().deviceName))
         Logger::i("[mdns] http://%s.local", Config::get().deviceName);
@@ -414,6 +426,7 @@ void setup() {
             _runners[idx].setWrap(l.wrapWidth, l.wrapHeight);
         }
     });
+    webServer.setOnButtonsChanged([]() { buttonManager.reconfigure(); });
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
     Logger::i("[sys] ready");
@@ -446,6 +459,7 @@ void loop() {
         mesh.tick();
         TimeSync::tick();
         mqtt.loop();
+        buttonManager.tick();
         uint32_t now = millis();
         if (now - _lastPatternTickMs >= PATTERN_TICK_INTERVAL_MS) {
             _lastPatternTickMs = now;

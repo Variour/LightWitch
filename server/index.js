@@ -44,6 +44,21 @@ const MOCK_CONFIG = {
   ],
 };
 
+// Mirrors ButtonHardwareConfig/ButtonAction shape from WebServer.h::serializeButton.
+// One pre-populated button so the Buttons UI has something to show/edit by default.
+const mockButtons = [
+  { index: 0, name: 'Wall switch', pin: 4, activeLow: true, exists: true,
+    onShortPress:  { action: 1, groupId: 0, numberValue: 20, stringValue: '', r: 255, g: 255, b: 255 }, // BrightnessStep
+    onLongPress:   { action: 6, groupId: 0, numberValue: 0,  stringValue: '', r: 255, g: 255, b: 255 }, // PatternNext
+    onDoubleClick: { action: 3, groupId: 0, numberValue: 0,  stringValue: '', r: 0,   g: 150, b: 255 }, // ColorSet
+  },
+  { index: 1, name: 'Nightstand', pin: 5, activeLow: true, exists: true,
+    onShortPress:  { action: 12, groupId: 1, numberValue: 0, stringValue: '0002ee38f7ce6ab7acd6a859', r: 255, g: 255, b: 255 }, // SceneSet
+    onLongPress:   { action: 5,  groupId: 1, numberValue: 1, stringValue: '', r: 255, g: 255, b: 255 }, // ModeSet → Scene
+    onDoubleClick: { action: 0,  groupId: 1, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 }, // none
+  },
+];
+
 const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'checking' };
 const MOCK_PEERS = [
   { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.01.01.0', fwState: 'idle'  },
@@ -290,6 +305,44 @@ app.post('/api/lights/test', (req, res) => {
   const light = mockLights.find(l => l.index === index);
   if (!light) return res.status(404).json({ error: 'not found' });
   if (light.height < 2) return res.status(400).json({ error: 'not a matrix' });
+  res.json({ ok: true });
+});
+
+function isButtonPinInUse(pin, excludeIndex) {
+  if (mockLights.some(l => l.dataPin === pin || l.clockPin === pin)) return true;
+  return mockButtons.some(b => b.index !== excludeIndex && b.pin === pin);
+}
+
+app.get('/api/buttons', (_req, res) => res.json({ buttons: mockButtons, maxButtons: 4 }));
+app.post('/api/buttons/add', (req, res) => {
+  const free = [0,1,2,3].find(i => !mockButtons.find(b => b.index === i));
+  if (free === undefined) return res.status(400).json({ error: 'button limit reached' });
+  const { name = '', pin = 0, activeLow = true, onShortPress, onLongPress, onDoubleClick } = req.body || {};
+  if (isButtonPinInUse(pin, free)) return res.status(400).json({ error: 'pin already in use' });
+  const blankAction = () => ({ action: 0, groupId: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 });
+  mockButtons.push({
+    index: free, name, pin, activeLow, exists: true,
+    onShortPress:  onShortPress  || blankAction(),
+    onLongPress:   onLongPress   || blankAction(),
+    onDoubleClick: onDoubleClick || blankAction(),
+  });
+  res.json({ ok: true, index: free });
+});
+app.post('/api/buttons/update', (req, res) => {
+  const { index, ...fields } = req.body || {};
+  const button = mockButtons.find(b => b.index === index);
+  if (!button) return res.status(404).json({ error: 'not found' });
+  if (fields.pin !== undefined && isButtonPinInUse(fields.pin, index)) {
+    return res.status(400).json({ error: 'pin already in use' });
+  }
+  Object.assign(button, fields);
+  res.json({ ok: true });
+});
+app.post('/api/buttons/delete', (req, res) => {
+  const { index } = req.body || {};
+  const idx = mockButtons.findIndex(b => b.index === index);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  mockButtons.splice(idx, 1);
   res.json({ ok: true });
 });
 
