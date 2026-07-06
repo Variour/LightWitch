@@ -1411,20 +1411,20 @@ async function createGroup() {
   const inp = document.getElementById('new-group-name');
   const name = inp.value.trim();
   if (!name) return;
-  const res = await fetch('/api/groups/create', {
+  const res = await _fetchOrToast('/api/groups/create', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({name})
-  });
-  if (res.ok) { inp.value = ''; await loadConfig(); }
+  }, 'Failed to create group');
+  if (res) { inp.value = ''; await loadConfig(); }
 }
 
 async function deleteGroup(id) {
   if (!confirm(`Delete group?`)) return;
-  await fetch('/api/groups/delete', {
+  const res = await _fetchOrToast('/api/groups/delete', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({id})
-  });
-  await loadConfig();
+  }, 'Failed to delete group');
+  if (res) await loadConfig();
 }
 
 // ── Lights table ──────────────────────────────────────────────────────────────
@@ -1814,19 +1814,12 @@ async function submitPushConfig() {
   const btn = document.getElementById('push-submit-btn');
   btn.disabled = true;
   btn.textContent = 'Pushing…';
-  try {
-    const res  = await fetch('/api/peers/pushconfig', {
-      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
-    });
-    const data = await res.json();
-    if (!res.ok) { alert('Push failed: ' + (data.error || res.status)); return; }
-    closePushModal();
-  } catch(e) {
-    alert('Push failed: ' + e.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Push';
-  }
+  const res = await _fetchOrToast('/api/peers/pushconfig', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  }, 'Push failed');
+  if (res) closePushModal();
+  btn.disabled = false;
+  btn.textContent = 'Push';
 }
 
 // ── Settings save ─────────────────────────────────────────────────────────────
