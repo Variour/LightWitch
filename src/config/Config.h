@@ -102,6 +102,14 @@ struct GroupConfig {
     bool        syncEnabled = true;
 };
 
+// Shared JSON (de)serialization for LightConfig/GroupConfig fields, used by both
+// Config.cpp (full config load/save) and WebServer.h (REST API request/response),
+// so the field list only needs to be maintained in one place.
+void serializeLightConfig(JsonObject o, const LightConfig& l);
+LightConfig deserializeLightConfig(JsonVariant j, const LightConfig& def = LightConfig{});
+void serializeGroup(JsonObject o, const GroupConfig& g);
+void deserializeGroup(JsonVariant o, GroupConfig& g);
+
 // Per-light physical hardware configuration, stored in DeviceConfig.
 struct LightHardwareConfig {
     char     name[20]  = "";

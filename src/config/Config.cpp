@@ -16,57 +16,66 @@ static constexpr char NVS_NS[]      = "bl";
 static constexpr char NVS_KEY[]     = "cfg";
 static constexpr char NVS_WIFI_KEY[] = "wifi";
 
-static void serializeGroup(JsonArray arr, const GroupConfig& g) {
-    JsonObject o = arr.add<JsonObject>();
-    o["id"]                = g.id;
-    o["name"]              = g.name;
-    o["exists"]            = g.exists;
-    o["syncEnabled"]       = g.syncEnabled;
-    o["mode"]              = (uint8_t)g.light.mode;
-    o["sceneId"]           = g.light.sceneId;
-    o["pattern"]           = (uint8_t)g.light.pattern;
-    o["r"]                 = g.light.color.r;
-    o["g"]                 = g.light.color.g;
-    o["b"]                 = g.light.color.b;
-    o["brightness"]        = g.light.brightness;
-    o["speed"]             = g.light.speed;
-    o["seq"]               = g.light.seq;
-    o["transitionEnabled"] = g.light.transitionEnabled;
-    o["sceneUniformColor"] = g.light.sceneUniformColor;
-    o["transitionTime"]    = g.light.transitionTime;
-    o["frameDuration"]     = g.light.frameDuration;
-    o["proximityScale"]    = g.light.proximityScale;
-    o["morphEnabled"]     = g.light.morphEnabled;
-    o["gradientStopCount"] = g.light.gradientStopCount;
-    o["text"]             = g.light.text;
-    o["textAnimation"]    = (uint8_t)g.light.textAnimation;
-    o["time24h"]          = g.light.time24h;
+void serializeLightConfig(JsonObject o, const LightConfig& l) {
+    o["mode"]              = (uint8_t)l.mode;
+    o["sceneId"]           = l.sceneId;
+    o["pattern"]           = (uint8_t)l.pattern;
+    o["r"]                 = l.color.r;
+    o["g"]                 = l.color.g;
+    o["b"]                 = l.color.b;
+    o["brightness"]        = l.brightness;
+    o["speed"]             = l.speed;
+    o["seq"]               = l.seq;
+    o["transitionEnabled"] = l.transitionEnabled;
+    o["sceneUniformColor"] = l.sceneUniformColor;
+    o["transitionTime"]    = l.transitionTime;
+    o["frameDuration"]     = l.frameDuration;
+    o["proximityScale"]    = l.proximityScale;
+    o["morphEnabled"]      = l.morphEnabled;
+    o["gradientStopCount"] = l.gradientStopCount;
+    o["text"]              = l.text;
+    o["textAnimation"]     = (uint8_t)l.textAnimation;
+    o["time24h"]           = l.time24h;
 }
 
-static void deserializeGroup(JsonVariant o, GroupConfig& g) {
+LightConfig deserializeLightConfig(JsonVariant j, const LightConfig& def) {
+    LightConfig l = def;
+    l.mode       = (GroupMode)(uint8_t)(j["mode"] | (uint8_t)def.mode);
+    strlcpy(l.sceneId, j["sceneId"] | def.sceneId, sizeof(l.sceneId));
+    l.pattern    = (PatternId)(uint8_t)(j["pattern"] | (uint8_t)def.pattern);
+    l.color.r    = j["r"] | def.color.r;
+    l.color.g    = j["g"] | def.color.g;
+    l.color.b    = j["b"] | def.color.b;
+    l.brightness = j["brightness"] | def.brightness;
+    l.speed              = j["speed"]             | def.speed;
+    l.seq                = j["seq"]               | def.seq;
+    l.transitionEnabled  = j["transitionEnabled"] | def.transitionEnabled;
+    l.sceneUniformColor  = j["sceneUniformColor"] | def.sceneUniformColor;
+    l.transitionTime     = j["transitionTime"]    | def.transitionTime;
+    l.frameDuration      = j["frameDuration"]     | def.frameDuration;
+    l.proximityScale     = j["proximityScale"]    | def.proximityScale;
+    l.morphEnabled       = j["morphEnabled"]      | def.morphEnabled;
+    l.gradientStopCount  = j["gradientStopCount"] | def.gradientStopCount;
+    strlcpy(l.text, j["text"] | def.text, sizeof(l.text));
+    l.textAnimation = (TextAnimation)(uint8_t)(j["textAnimation"] | (uint8_t)def.textAnimation);
+    l.time24h       = j["time24h"] | def.time24h;
+    return l;
+}
+
+void serializeGroup(JsonObject o, const GroupConfig& g) {
+    o["id"]          = g.id;
+    o["name"]        = g.name;
+    o["exists"]      = g.exists;
+    o["syncEnabled"] = g.syncEnabled;
+    serializeLightConfig(o, g.light);
+}
+
+void deserializeGroup(JsonVariant o, GroupConfig& g) {
     g.id          = o["id"]          | (uint8_t)0;
     g.exists      = o["exists"]      | false;
     g.syncEnabled = o["syncEnabled"] | true;
     strlcpy(g.name, o["name"] | "Default", sizeof(g.name));
-    g.light.mode       = (GroupMode)(uint8_t)(o["mode"] | (uint8_t)GroupMode::Pattern);
-    strlcpy(g.light.sceneId, o["sceneId"] | "", sizeof(g.light.sceneId));
-    g.light.pattern    = (PatternId)(uint8_t)(o["pattern"] | 0);
-    g.light.color.r    = o["r"]          | 255;
-    g.light.color.g    = o["g"]          | 255;
-    g.light.color.b    = o["b"]          | 255;
-    g.light.brightness = o["brightness"] | 255;
-    g.light.speed              = o["speed"]             | 1.0f;
-    g.light.seq                = o["seq"]               | (uint32_t)0;
-    g.light.transitionEnabled  = o["transitionEnabled"] | false;
-    g.light.sceneUniformColor  = o["sceneUniformColor"] | false;
-    g.light.transitionTime     = o["transitionTime"]    | 2.0f;
-    g.light.frameDuration      = o["frameDuration"]     | 1.0f;
-    g.light.proximityScale     = o["proximityScale"]    | 1.0f;
-    g.light.morphEnabled      = o["morphEnabled"]     | false;
-    g.light.gradientStopCount = o["gradientStopCount"] | (uint8_t)0;
-    strlcpy(g.light.text, o["text"] | "", sizeof(g.light.text));
-    g.light.textAnimation = (TextAnimation)(uint8_t)(o["textAnimation"] | (uint8_t)TextAnimation::Scroll);
-    g.light.time24h       = o["time24h"] | true;
+    g.light = deserializeLightConfig(o, LightConfig{});
 }
 
 static bool migrateDoc(JsonDocument& doc) {
@@ -211,7 +220,7 @@ bool Config::save() {
 
     JsonArray arr = doc["groups"].to<JsonArray>();
     for (uint8_t i = 0; i < MAX_GROUPS; i++)
-        if (_cfg.groups[i].exists) serializeGroup(arr, _cfg.groups[i]);
+        if (_cfg.groups[i].exists) serializeGroup(arr.add<JsonObject>(), _cfg.groups[i]);
 
     bool fsOk = false;
     File f = LittleFS.open(_path, "w");
