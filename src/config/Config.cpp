@@ -291,7 +291,6 @@ void Config::applyConfigSync(const char* json, size_t len) {
     if (!doc["githubToken"].isNull() && strlen(doc["githubToken"]) > 0)
         strlcpy(c.githubToken, doc["githubToken"], sizeof(c.githubToken));
     if (!doc["otaEnabled"].isNull())            c.otaEnabled           = (bool)doc["otaEnabled"];
-    if (!doc["sceneSyncEnabled"].isNull())      c.sceneSyncEnabled      = (bool)doc["sceneSyncEnabled"];
     if (!doc["checkUpdateOnStartup"].isNull())  c.checkUpdateOnStartup  = (bool)doc["checkUpdateOnStartup"];
     if (!doc["deviceName"].isNull() && strlen(doc["deviceName"]) > 0)
         strlcpy(c.deviceName, doc["deviceName"], sizeof(c.deviceName));

@@ -849,7 +849,7 @@ private:
 
     // Body: {mac?, deviceName?, ledType?, addWifiNetworks?, apPassword?,
     //        mqttHost?, mqttPort?, mqttUser?, mqttPassword?, githubRepo?, githubToken?,
-    //        otaEnabled?, sceneSyncEnabled?}
+    //        otaEnabled?}
     // mac omitted or empty = push to all peers. Only present fields are pushed;
     // deviceName and ledType require a specific target mac.
     void _pushConfig(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
@@ -938,7 +938,6 @@ private:
         if (isUseLocal("githubToken")) { payload["githubToken"] = c.githubToken; any = true; }
         else addStr("githubToken", 1);
         addBool("otaEnabled");
-        addBool("sceneSyncEnabled");
 
         if (!any) {
             auto e = _makeErr("no fields to push"); _sendJson(r, 400, e); return;
