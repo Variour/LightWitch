@@ -2002,7 +2002,7 @@ function renderWifiList(networks, connected) {
   el.innerHTML = networks.map(ssid => {
     const isConn = ssid === connected;
     return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.3rem 0;border-bottom:1px solid #222">
-      <span style="font-size:.9rem">${ssid}${isConn ? ' <small style="color:#4c4">(connected)</small>' : ''}</span>
+      <span style="font-size:.9rem">${esc(ssid)}${isConn ? ' <small style="color:#4c4">(connected)</small>' : ''}</span>
       <button class="btn-ghost btn-sm" onclick="deleteWifiNetwork(${JSON.stringify(ssid)})">Delete</button>
     </div>`;
   }).join('');
@@ -3960,7 +3960,7 @@ function renderLightsHw(lights) {
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div>
-          <strong>${label}</strong>
+          <strong>${esc(label)}</strong>
           <span style="color:#888;font-size:.82rem;margin-left:.5rem">${LED_TYPE_NAMES[l.ledType] || 'Unknown'}</span>
         </div>
         <div style="display:flex;gap:.4rem">
@@ -4006,7 +4006,7 @@ function _openLightModal(l) {
       <button class="btn-ghost btn-sm" onclick="document.getElementById('light-modal-overlay').remove()">✕</button>
     </div>
     <label>Name <small>(optional)</small></label>
-    <input type="text" id="lm-name" value="${l.name||''}" maxlength="19" placeholder="e.g. Living room">
+    <input type="text" id="lm-name" value="${esc(l.name||'')}" maxlength="19" placeholder="e.g. Living room">
     <label>LED type</label>
     <select id="lm-ledType">
       <option value="0"${l.ledType===0?' selected':''}>WS2812B — single wire</option>
