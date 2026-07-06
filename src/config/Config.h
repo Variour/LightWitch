@@ -131,7 +131,7 @@ struct DeviceConfig {
     char        mqttPassword[64] = "";
     char        githubToken[128] = "";
     char        githubRepo[64]   = "variour/batterylight";
-    char        timezone[64]     = "UTC0";  // POSIX TZ string, e.g. "CET-1CEST,M3.5.0,M10.5.0/3"
+    char        timezone[64]     = "CET-1CEST,M3.5.0,M10.5.0/3";  // POSIX TZ string; default is Europe/Berlin
     bool        sceneSyncEnabled        = true;
     bool        checkUpdateOnStartup    = false;
     LightHardwareConfig lights[MAX_LIGHTS];
