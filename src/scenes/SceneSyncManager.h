@@ -158,7 +158,7 @@ public:
     // Mark a scene as "accept unconditionally on next receive" — used when the user
     // picks a remote device's copy as the winner during conflict resolution.
     void setForcedAccept(const char* id) {
-        strlcpy(_forcedAcceptId, id, 33);
+        strlcpy(_forcedAcceptId, id, SCENE_ID_LEN);
     }
 
     // Trigger a conflict-resolution force-push for scene `id` using this device's local copy.
@@ -293,7 +293,7 @@ public:
 private:
     // ── Per-peer manifest cache ───────────────────────────────────────────────
 
-    struct PeerManifestEntry { char id[33]; uint32_t hash; };
+    struct PeerManifestEntry { char id[SCENE_ID_LEN]; uint32_t hash; };
 
     struct PeerManifest {
         uint8_t           mac[6];
@@ -328,14 +328,14 @@ private:
             const SceneManifestEntry& e = msg->entries[i];
             bool found = false;
             for (uint8_t j = 0; j < pm->count; j++) {
-                if (strncmp(pm->entries[j].id, e.id, 33) == 0) {
+                if (strncmp(pm->entries[j].id, e.id, SCENE_ID_LEN) == 0) {
                     pm->entries[j].hash = e.hash;
                     found = true;
                     break;
                 }
             }
             if (!found) {
-                strlcpy(pm->entries[pm->count].id, e.id, 33);
+                strlcpy(pm->entries[pm->count].id, e.id, SCENE_ID_LEN);
                 pm->entries[pm->count].hash = e.hash;
                 pm->count++;
             }
@@ -347,7 +347,7 @@ private:
     struct PeerHash { uint8_t mac[6]; uint32_t hash; bool active; };
 
     struct Conflict {
-        char     id[33];
+        char     id[SCENE_ID_LEN];
         uint32_t localHash;
         PeerHash peerHashes[PeerRegistry::MAX_PEERS];
     };
@@ -359,7 +359,7 @@ private:
     void _registerConflict(const char* id, uint32_t localHash, const uint8_t* peerMac, uint32_t peerHash) {
         Conflict* c = nullptr;
         for (uint8_t i = 0; i < _conflictCount; i++) {
-            if (strncmp(_conflicts[i].id, id, 33) == 0) { c = &_conflicts[i]; break; }
+            if (strncmp(_conflicts[i].id, id, SCENE_ID_LEN) == 0) { c = &_conflicts[i]; break; }
         }
         if (!c) {
             if (_conflictCount >= MAX_CONFLICTS) {
@@ -367,7 +367,7 @@ private:
                 return;
             }
             c = &_conflicts[_conflictCount++];
-            strlcpy(c->id, id, 33);
+            strlcpy(c->id, id, SCENE_ID_LEN);
             memset(c->peerHashes, 0, sizeof(c->peerHashes));
             c->localHash = localHash;
         }
@@ -383,7 +383,7 @@ private:
 
     void _clearConflict(const char* id) {
         for (uint8_t i = 0; i < _conflictCount; i++) {
-            if (strncmp(_conflicts[i].id, id, 33) == 0) {
+            if (strncmp(_conflicts[i].id, id, SCENE_ID_LEN) == 0) {
                 _conflicts[i] = _conflicts[--_conflictCount];
                 return;
             }
@@ -429,7 +429,7 @@ private:
     // ── Fetch queue ───────────────────────────────────────────────────────────
 
     struct FetchEntry {
-        char     id[33];
+        char     id[SCENE_ID_LEN];
         bool     active;
         bool     autoAccept;
         uint8_t  retries;
@@ -441,7 +441,7 @@ private:
 
     void _enqueueRequest(const char* id, bool autoAccept = false) {
         for (uint8_t i = 0; i < _fetchQueueCount; i++) {
-            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 33) == 0) {
+            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, SCENE_ID_LEN) == 0) {
                 if (autoAccept) _fetchQueue[i].autoAccept = true;
                 return;
             }
@@ -451,7 +451,7 @@ private:
             return;
         }
         FetchEntry& e = _fetchQueue[_fetchQueueCount++];
-        strlcpy(e.id, id, 33);
+        strlcpy(e.id, id, SCENE_ID_LEN);
         e.active        = true;
         e.autoAccept    = autoAccept;
         e.retries       = 0;
@@ -467,20 +467,20 @@ private:
 
     void _removeFetchEntry(const char* id) {
         for (uint8_t i = 0; i < _fetchQueueCount; i++)
-            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 33) == 0)
+            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, SCENE_ID_LEN) == 0)
                 _fetchQueue[i].active = false;
     }
 
     bool _isFetchAutoAccept(const char* id) {
         for (uint8_t i = 0; i < _fetchQueueCount; i++)
-            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 33) == 0)
+            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, SCENE_ID_LEN) == 0)
                 return _fetchQueue[i].autoAccept;
         return false;
     }
 
     bool _isInFetchQueue(const char* id) {
         for (uint8_t i = 0; i < _fetchQueueCount; i++)
-            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, 33) == 0)
+            if (_fetchQueue[i].active && strncmp(_fetchQueue[i].id, id, SCENE_ID_LEN) == 0)
                 return true;
         return false;
     }
@@ -488,7 +488,7 @@ private:
     // ── Chunk send ────────────────────────────────────────────────────────────
 
     struct ChunkSendState {
-        char     id[33];
+        char     id[SCENE_ID_LEN];
         File     file;
         uint16_t totalChunks;
         uint16_t nextChunk;
@@ -500,7 +500,7 @@ private:
 
     void _startChunkSend(const char* id) {
         if (_send.active) {
-            if (strncmp(_send.id, id, 33) == 0) return;
+            if (strncmp(_send.id, id, SCENE_ID_LEN) == 0) return;
             _send.file.close();
         }
         String p = SceneManager::path(id);
@@ -508,7 +508,7 @@ private:
         if (!f) { Logger::e("[sync] chunk send: file not found %s", id); return; }
         uint32_t size = f.size();
         if (size == 0) { f.close(); return; }
-        strlcpy(_send.id, id, 33);
+        strlcpy(_send.id, id, SCENE_ID_LEN);
         _send.file        = f;
         _send.totalChunks = (uint16_t)((size + CHUNK_DATA_SIZE - 1) / CHUNK_DATA_SIZE);
         _send.nextChunk   = 0;
@@ -521,7 +521,7 @@ private:
         if (!_send.active) return;
         SceneChunkMsg msg;
         msg.type        = MsgType::SceneChunk;
-        strlcpy(msg.id, _send.id, 33);
+        strlcpy(msg.id, _send.id, SCENE_ID_LEN);
         msg.chunkIndex  = _send.nextChunk;
         msg.totalChunks = _send.totalChunks;
         msg.dataLen     = (uint16_t)_send.file.read(msg.data, CHUNK_DATA_SIZE);
@@ -544,7 +544,7 @@ private:
     // ── Chunk receive (pool of SYNC_MAX_RECV_SLOTS) ───────────────────────────
 
     struct ChunkRecvState {
-        char      id[33];
+        char      id[SCENE_ID_LEN];
         uint8_t*  buffer;
         bool*     received;
         uint16_t  totalChunks;
@@ -559,7 +559,7 @@ private:
 
     ChunkRecvState* _findRecv(const char* id) {
         for (auto& s : _recv)
-            if (s.active && strncmp(s.id, id, 33) == 0) return &s;
+            if (s.active && strncmp(s.id, id, SCENE_ID_LEN) == 0) return &s;
         return nullptr;
     }
 
@@ -568,7 +568,7 @@ private:
         for (auto& s : _recv) {
             if (!s.active) {
                 memset(&s, 0, sizeof(s));
-                strlcpy(s.id, id, 33);
+                strlcpy(s.id, id, SCENE_ID_LEN);
                 s.active      = true;
                 s.autoApply   = true;
                 s.lastChunkMs = millis();
@@ -633,13 +633,13 @@ private:
     }
 
     void _finaliseReceive(ChunkRecvState* s, const SceneChunkMsg* lastMsg) {
-        char id[33];
-        strlcpy(id, s->id, 33);
+        char id[SCENE_ID_LEN];
+        strlcpy(id, s->id, SCENE_ID_LEN);
 
         uint32_t totalSize    = (uint32_t)(s->totalChunks - 1) * CHUNK_DATA_SIZE + lastMsg->dataLen;
         uint32_t incomingHash = SceneManager::crc32OfData(s->buffer, totalSize);
         uint32_t localHash    = SceneManager::crc32(id);
-        bool forced           = strncmp(id, _forcedAcceptId, 33) == 0 && _forcedAcceptId[0] != 0;
+        bool forced           = strncmp(id, _forcedAcceptId, SCENE_ID_LEN) == 0 && _forcedAcceptId[0] != 0;
         bool autoAccept       = s->autoApply || forced;
 
         if (localHash == incomingHash) {
@@ -687,7 +687,7 @@ private:
     bool _isReferencedByGroup(const char* id) {
         for (uint8_t i = 0; i < MAX_GROUPS; i++) {
             GroupConfig* g = Config::group(i);
-            if (g && strncmp(g->light.sceneId, id, 33) == 0)
+            if (g && strncmp(g->light.sceneId, id, SCENE_ID_LEN) == 0)
                 return true;
         }
         return false;
@@ -724,7 +724,7 @@ private:
             msg.totalPages = totalPages;
             msg.count      = 0;
             while (msg.count < MANIFEST_ENTRIES_PER_MSG && idx < total) {
-                strlcpy(msg.entries[msg.count].id, allEntries[idx].id, 33);
+                strlcpy(msg.entries[msg.count].id, allEntries[idx].id, SCENE_ID_LEN);
                 msg.entries[msg.count].hash = allEntries[idx].hash;
                 msg.count++;
                 idx++;
@@ -740,7 +740,7 @@ private:
     uint32_t _jitteredManifestAt        = 0;
     bool     _followupManifestPending   = false;
     uint32_t _followupManifestMs        = 0;
-    char     _forcedAcceptId[33]        = {};
+    char     _forcedAcceptId[SCENE_ID_LEN] = {};
 
     BroadcastFn                          _broadcastForceSet;
     RequestFn                            _broadcastRequest;
