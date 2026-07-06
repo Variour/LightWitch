@@ -4,7 +4,9 @@
 #include <esp_wifi.h>
 #include <WiFi.h>
 #include <functional>
+#include <new>
 #include "MeshTypes.h"
+#include "MeshCrypto.h"
 #include "PeerRegistry.h"
 #include "../config/Config.h"
 #include "../logging/Logger.h"
@@ -74,6 +76,13 @@ public:
         if (!_ready) return;
         peers.tick();
         uint32_t now = millis();
+
+        if (_outPush.active && now - _outPush.startedAt >= HANDSHAKE_TIMEOUT_MS) {
+            Logger::w("[mesh] config push handshake timed out");
+            mbedtls_ecdh_free(&_outPush.ctx);
+            _outPush.active = false;
+            _advancePushQueue();
+        }
 
         if (now - _lastHeartbeat >= 5000) {
             _lastHeartbeat = now;
@@ -186,22 +195,64 @@ public:
         _send(&msg, sizeof(msg));
     }
 
-    void sendConfigChunks(const uint8_t* targetMac, const char* json, size_t len) {
+    // Encrypts `json` under a fresh ECDH-derived key and pushes it to a single
+    // peer (issue #252). Fire-and-forget, like the rest of the mesh API: the
+    // HTTP request that triggered this has already returned by the time the
+    // handshake and send happen.
+    void pushConfigSecure(const uint8_t* targetMac, const char* json) {
         if (!_ready) return;
-        uint16_t totalChunks = (uint16_t)((len + CONFIG_CHUNK_DATA_SIZE - 1) / CONFIG_CHUNK_DATA_SIZE);
-        for (uint16_t i = 0; i < totalChunks; i++) {
-            ConfigChunkMsg msg;
-            memcpy(msg.targetMac, targetMac, 6);
-            msg.chunkIndex  = i;
-            msg.totalChunks = totalChunks;
-            size_t offset   = (size_t)i * CONFIG_CHUNK_DATA_SIZE;
-            size_t chunkLen = min((size_t)CONFIG_CHUNK_DATA_SIZE, len - offset);
-            msg.dataLen = (uint16_t)chunkLen;
-            memcpy(msg.data, json + offset, chunkLen);
-            _send(&msg, sizeof(msg));
-            if (i < totalChunks - 1) delay(20);
+        if (_outPush.active) {
+            Logger::w("[mesh] config push already in progress, dropping request");
+            return;
         }
-        Logger::i("[mesh] config push: %u bytes in %u chunks", (unsigned)len, totalChunks);
+        memcpy(_outPush.targetMac, targetMac, 6);
+        _outPush.json = json;
+
+        KeyExchangeInitMsg msg;
+        memcpy(msg.targetMac, targetMac, 6);
+        if (!MeshCrypto::beginExchange(_outPush.ctx, msg.pubKey)) {
+            Logger::e("[mesh] ecdh keygen failed");
+            _advancePushQueue();
+            return;
+        }
+        _outPush.sessionId = esp_random();
+        msg.sessionId       = _outPush.sessionId;
+        _outPush.active     = true;
+        _outPush.startedAt  = millis();
+        _send(&msg, sizeof(msg));
+    }
+
+    // Fans out an encrypted push to every currently-online peer, one at a time
+    // (issue #252): a single pairwise ECDH key can't be shared across multiple
+    // recipients, so "push to all" becomes a separate handshake + separately
+    // keyed payload per peer instead of one plaintext broadcast.
+    void pushConfigSecureToAll(const char* json) {
+        if (!_ready) return;
+        _pushQueueCount = 0;
+        for (auto& p : peers) {
+            if (p.online() && _pushQueueCount < PeerRegistry::MAX_PEERS)
+                memcpy(_pushQueueMacs[_pushQueueCount++], p.mac, 6);
+        }
+        _pushQueueJson = json;
+        _pushQueueIdx  = 0;
+        _advancePushQueue();
+    }
+
+    // Decrypts a fully-reassembled config push received from `srcMac`, using the
+    // session key established during that push's ECDH handshake (issue #252).
+    // Returns false if there's no valid/unexpired session (no handshake happened,
+    // it expired, or the data is corrupt/tampered) — caller should drop the message.
+    // `outPlain` must be at least `len` bytes.
+    bool decryptConfigFromPeer(const uint8_t* srcMac, const uint8_t* data, size_t len,
+                                uint8_t* outPlain, size_t& outLen) {
+        for (auto& s : _inSessions) {
+            if (!s.valid || memcmp(s.mac, srcMac, 6) != 0) continue;
+            bool expired = millis() - s.establishedAt >= SESSION_KEY_TTL_MS;
+            bool ok = !expired && MeshCrypto::decrypt(s.key, data, len, outPlain, outLen);
+            s.valid = false; // one-shot: never reuse a session key across pushes
+            return ok;
+        }
+        return false;
     }
 
     void broadcastSetSceneSync(const uint8_t* targetMac, bool enabled) {
@@ -270,6 +321,37 @@ private:
     CheckUpdateCb   _onCheckUpdate;
     TimeSyncCb      _onTimeSync;
 
+    // ── Config push encryption (issue #252) ───────────────────────────────────
+    static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 3000;
+    static constexpr uint32_t SESSION_KEY_TTL_MS   = 10000;
+    static constexpr uint8_t  MAX_INBOUND_SESSIONS = 4;
+
+    // State for the config push we initiated and are waiting on a KeyExchangeResp
+    // for. Only one at a time; pushConfigSecureToAll() fans out sequentially.
+    struct OutboundPush {
+        bool                 active    = false;
+        uint8_t              targetMac[6] = {};
+        uint32_t             sessionId = 0;
+        mbedtls_ecdh_context ctx;
+        uint32_t             startedAt = 0;
+        String               json;
+    };
+    // A session key derived by responding to a peer's KeyExchangeInit, held until
+    // the matching ConfigChunk train arrives (or it expires unused).
+    struct InboundSession {
+        bool     valid = false;
+        uint8_t  mac[6] = {};
+        uint8_t  key[MeshCrypto::AES_KEY_LEN] = {};
+        uint32_t establishedAt = 0;
+    };
+
+    OutboundPush   _outPush;
+    InboundSession _inSessions[MAX_INBOUND_SESSIONS];
+    uint8_t        _pushQueueMacs[PeerRegistry::MAX_PEERS][6];
+    uint8_t        _pushQueueCount = 0;
+    uint8_t        _pushQueueIdx   = 0;
+    String         _pushQueueJson;
+
     static MeshManager* _instance;
 
     void _send(const void* data, size_t len) {
@@ -283,6 +365,97 @@ private:
         peer.channel = 0;
         peer.encrypt = false;
         esp_now_add_peer(&peer);
+    }
+
+    void _sendConfigChunks(const uint8_t* targetMac, const uint8_t* data, size_t len) {
+        uint16_t totalChunks = (uint16_t)((len + CONFIG_CHUNK_DATA_SIZE - 1) / CONFIG_CHUNK_DATA_SIZE);
+        for (uint16_t i = 0; i < totalChunks; i++) {
+            ConfigChunkMsg msg;
+            memcpy(msg.targetMac, targetMac, 6);
+            msg.chunkIndex  = i;
+            msg.totalChunks = totalChunks;
+            size_t offset   = (size_t)i * CONFIG_CHUNK_DATA_SIZE;
+            size_t chunkLen = min((size_t)CONFIG_CHUNK_DATA_SIZE, len - offset);
+            msg.dataLen = (uint16_t)chunkLen;
+            memcpy(msg.data, data + offset, chunkLen);
+            _send(&msg, sizeof(msg));
+            if (i < totalChunks - 1) delay(20);
+        }
+        Logger::i("[mesh] config push: %u bytes in %u chunks", (unsigned)len, totalChunks);
+    }
+
+    // Advances pushConfigSecureToAll()'s fan-out queue by starting the handshake
+    // with the next peer, if any remain.
+    void _advancePushQueue() {
+        if (_pushQueueIdx >= _pushQueueCount) { _pushQueueJson = ""; return; }
+        pushConfigSecure(_pushQueueMacs[_pushQueueIdx++], _pushQueueJson.c_str());
+    }
+
+    // Finds the inbound session slot for `mac`, reusing an existing entry for
+    // that peer, an empty slot, or the oldest expired one, in that order.
+    InboundSession* _findInboundSlot(const uint8_t* mac) {
+        for (auto& s : _inSessions) if (s.valid && memcmp(s.mac, mac, 6) == 0) return &s;
+        for (auto& s : _inSessions) if (!s.valid) return &s;
+        InboundSession* oldest = &_inSessions[0];
+        for (auto& s : _inSessions) if (s.establishedAt < oldest->establishedAt) oldest = &s;
+        return oldest;
+    }
+
+    // A peer wants to push us config: derive the session key immediately (we
+    // never need to wait, since we already have their public key) and reply
+    // with ours so they can derive the same key on their end.
+    void _onKeyExchangeInit(const uint8_t* srcMac, const KeyExchangeInitMsg* m) {
+        mbedtls_ecdh_context ctx;
+        uint8_t myPub[ECDH_PUBKEY_LEN];
+        if (!MeshCrypto::beginExchange(ctx, myPub)) {
+            Logger::e("[mesh] ecdh keygen failed (responder)");
+            return;
+        }
+        uint8_t key[MeshCrypto::AES_KEY_LEN];
+        if (!MeshCrypto::finishExchange(ctx, m->pubKey, key)) {
+            Logger::e("[mesh] ecdh exchange failed (responder)");
+            return;
+        }
+        InboundSession* slot = _findInboundSlot(srcMac);
+        memcpy(slot->mac, srcMac, 6);
+        memcpy(slot->key, key, sizeof(key));
+        slot->establishedAt = millis();
+        slot->valid         = true;
+        memset(key, 0, sizeof(key));
+
+        KeyExchangeRespMsg resp;
+        memcpy(resp.targetMac, srcMac, 6);
+        resp.sessionId = m->sessionId;
+        memcpy(resp.pubKey, myPub, ECDH_PUBKEY_LEN);
+        _send(&resp, sizeof(resp));
+    }
+
+    // The peer we're pushing config to replied with their public key: derive
+    // the shared key, encrypt the pending JSON payload, and send it as chunks.
+    void _onKeyExchangeResp(const KeyExchangeRespMsg* m) {
+        if (!_outPush.active || m->sessionId != _outPush.sessionId) return;
+        uint8_t key[MeshCrypto::AES_KEY_LEN];
+        bool ok = MeshCrypto::finishExchange(_outPush.ctx, m->pubKey, key);
+        _outPush.active = false; // ctx already freed by finishExchange
+        if (!ok) {
+            Logger::e("[mesh] ecdh exchange failed (initiator)");
+            _advancePushQueue();
+            return;
+        }
+        size_t   plainLen = _outPush.json.length();
+        size_t   encCap    = plainLen + MeshCrypto::NONCE_LEN + MeshCrypto::TAG_LEN;
+        uint8_t* enc       = new (std::nothrow) uint8_t[encCap];
+        size_t   encLen    = 0;
+        if (!enc) {
+            Logger::e("[mesh] config push: out of memory encrypting %u bytes", (unsigned)plainLen);
+        } else if (MeshCrypto::encrypt(key, (const uint8_t*)_outPush.json.c_str(), plainLen, enc, encLen)) {
+            _sendConfigChunks(_outPush.targetMac, enc, encLen);
+        } else {
+            Logger::e("[mesh] config encrypt failed");
+        }
+        delete[] enc;
+        memset(key, 0, sizeof(key));
+        _advancePushQueue();
     }
 
     bool _anyProximity() {
@@ -494,6 +667,22 @@ private:
                 if (len < (int)sizeof(TimeSyncMsg)) return;
                 auto* m = (TimeSyncMsg*)data;
                 if (_instance->_onTimeSync) _instance->_onTimeSync(m->epoch);
+                break;
+            }
+            case MsgType::KeyExchangeInit: {
+                if (len < (int)sizeof(KeyExchangeInitMsg)) return;
+                auto* m = (KeyExchangeInitMsg*)data;
+                uint8_t own[6];
+                WiFi.macAddress(own);
+                if (memcmp(m->targetMac, own, 6) == 0) _instance->_onKeyExchangeInit(mac, m);
+                break;
+            }
+            case MsgType::KeyExchangeResp: {
+                if (len < (int)sizeof(KeyExchangeRespMsg)) return;
+                auto* m = (KeyExchangeRespMsg*)data;
+                uint8_t own[6];
+                WiFi.macAddress(own);
+                if (memcmp(m->targetMac, own, 6) == 0) _instance->_onKeyExchangeResp(m);
                 break;
             }
             default:

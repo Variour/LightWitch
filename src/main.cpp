@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
+#include <new>
 
 #include "config/Config.h"
 #include "version.h"
@@ -274,9 +275,7 @@ void setup() {
         uint8_t own[6];
         WiFi.macAddress(own);
         if (memcmp(srcMac, own, 6) == 0) return;
-        static const uint8_t kAllZeros[6] = {};
-        bool isAll = memcmp(msg->targetMac, kAllZeros, 6) == 0;
-        if (!isAll && memcmp(msg->targetMac, own, 6) != 0) return;
+        if (memcmp(msg->targetMac, own, 6) != 0) return;
         if (msg->chunkIndex == 0) {
             _cfgSyncBuf     = "";
             _cfgSyncExpected = msg->totalChunks;
@@ -284,8 +283,18 @@ void setup() {
         if (msg->totalChunks != _cfgSyncExpected) return;
         _cfgSyncBuf.concat((const char*)msg->data, msg->dataLen);
         if (msg->chunkIndex == _cfgSyncExpected - 1) {
-            Logger::i("[cfg] config sync received (%u bytes), applying", (unsigned)_cfgSyncBuf.length());
-            Config::applyConfigSync(_cfgSyncBuf.c_str(), _cfgSyncBuf.length());
+            size_t   cipherLen = _cfgSyncBuf.length();
+            uint8_t* plain     = new (std::nothrow) uint8_t[cipherLen];
+            size_t   plainLen  = 0;
+            if (!plain) {
+                Logger::e("[cfg] config sync: out of memory decrypting %u bytes", (unsigned)cipherLen);
+            } else if (mesh.decryptConfigFromPeer(srcMac, (const uint8_t*)_cfgSyncBuf.c_str(), cipherLen, plain, plainLen)) {
+                Logger::i("[cfg] config sync received (%u bytes), applying", (unsigned)plainLen);
+                Config::applyConfigSync((const char*)plain, plainLen);
+            } else {
+                Logger::e("[cfg] config sync decrypt failed (no session key or corrupt data), dropping");
+            }
+            delete[] plain;
         }
     });
 
@@ -378,8 +387,10 @@ void setup() {
             }
         },
 
-        [](const uint8_t* targetMac, const char* json, size_t len) {
-            mesh.sendConfigChunks(targetMac, json, len);
+        [](const uint8_t* targetMac, const char* json, size_t) {
+            static const uint8_t kAllZeros[6] = {};
+            if (memcmp(targetMac, kAllZeros, 6) == 0) mesh.pushConfigSecureToAll(json);
+            else                                      mesh.pushConfigSecure(targetMac, json);
         },
 
         [](const uint8_t* mac) { mesh.broadcastTriggerUpdate(mac); },
