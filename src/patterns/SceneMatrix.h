@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <vector>
 #include "Pattern.h"
+#include "MatrixLayout.h"
 #include "../scenes/SceneManager.h"
 
 // Renders a scene as a pixel image on a matrix light.
@@ -13,9 +14,9 @@ class SceneMatrix : public Pattern {
 public:
     float getPeriod() const override { return 0.0f; }
 
-    void setDimensions(uint16_t w, uint16_t h) { _lightW = w; _lightH = h; }
+    void setDimensions(uint16_t w, uint16_t h) { _layout.setDimensions(w, h); }
     void setMatrixLayout(MatrixStart start, MatrixDirection dir, bool serpentine) {
-        _matrixStart = start; _matrixDir = dir; _matrixSerpentine = serpentine;
+        _layout.setWiring(start, dir, serpentine);
     }
 
     void begin(LedDriver& led, const LightConfig& cfg) override {
@@ -91,10 +92,7 @@ public:
     }
 
 private:
-    uint16_t        _lightW      = 1, _lightH = 1;
-    MatrixStart     _matrixStart = MatrixStart::TopLeft;
-    MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
-    bool            _matrixSerpentine = false;
+    MatrixLayout _layout;
     uint16_t _sceneW = 0, _sceneH = 0;
     std::vector<std::vector<Color>> _frames;
     uint8_t  _frameIdx = 0, _prevFrameIdx = 0;
@@ -166,18 +164,18 @@ private:
         const auto& fb = _frames[frameB < _frames.size() ? frameB : 0];
         bool blend = (t > 0.0f && frameA != frameB);
 
-        for (uint16_t row = 0; row < _lightH; row++) {
-            uint16_t srcRow = _nearest(row, _lightH, _sceneH);
-            for (uint16_t col = 0; col < _lightW; col++) {
-                uint16_t srcCol = _nearest(col, _lightW, _sceneW);
+        for (uint16_t row = 0; row < _layout.height(); row++) {
+            uint16_t srcRow = MatrixLayout::nearest(row, _layout.height(), _sceneH);
+            for (uint16_t col = 0; col < _layout.width(); col++) {
+                uint16_t srcCol = MatrixLayout::nearest(col, _layout.width(), _sceneW);
                 uint16_t si = srcRow * _sceneW + srcCol;
-                uint16_t li = _ledIndex(row, col);
+                uint16_t li = _layout.ledIndex(row, col);
                 if (si >= fa.size()) { _led->setPixel(li, 0, 0, 0); continue; }
                 Color ca = fa[si];
                 Color out = ca;
                 if (blend && si < fb.size()) {
                     Color cb = fb[si];
-                    out = {_lerp(ca.r, cb.r, t), _lerp(ca.g, cb.g, t), _lerp(ca.b, cb.b, t)};
+                    out = {Color::lerp(ca.r, cb.r, t), Color::lerp(ca.g, cb.g, t), Color::lerp(ca.b, cb.b, t)};
                 }
                 _led->setPixel(li,
                     applyBrightness(out.r),
@@ -186,33 +184,5 @@ private:
             }
         }
         _led->show();
-    }
-
-    // Maps a destination coordinate (0..dstSize) to the nearest source coordinate
-    // (0..srcSize) for stretch scaling, sampling at the center of each destination cell.
-    static uint16_t _nearest(uint16_t dst, uint16_t dstSize, uint16_t srcSize) {
-        uint32_t src = ((uint32_t)dst * 2 + 1) * srcSize / ((uint32_t)dstSize * 2);
-        return (src >= srcSize) ? (uint16_t)(srcSize - 1) : (uint16_t)src;
-    }
-
-    // Serpentine (zig-zag/boustrophedon) wiring: the physical strip reverses
-    // direction on every other line along the primary axis (the one named by
-    // matrixDir), since it's one continuous strip folded back and forth.
-    uint16_t _ledIndex(uint16_t row, uint16_t col) const {
-        uint16_t r = (_matrixStart == MatrixStart::BottomLeft || _matrixStart == MatrixStart::BottomRight)
-                     ? (_lightH - 1 - row) : row;
-        uint16_t c = (_matrixStart == MatrixStart::TopRight  || _matrixStart == MatrixStart::BottomRight)
-                     ? (_lightW - 1 - col) : col;
-        if (_matrixDir == MatrixDirection::Vertical) {
-            if (_matrixSerpentine && (c & 1)) r = _lightH - 1 - r;
-            return c * _lightH + r;
-        } else {
-            if (_matrixSerpentine && (r & 1)) c = _lightW - 1 - c;
-            return r * _lightW + c;
-        }
-    }
-
-    static uint8_t _lerp(uint8_t a, uint8_t b, float t) {
-        return (uint8_t)((float)a + ((float)b - (float)a) * t);
     }
 };

@@ -113,11 +113,7 @@ inline Color sample(const std::vector<Color>& palette, const std::vector<float>&
     }
     const Color& a = palette[i0];
     const Color& b = palette[i1];
-    return Color{
-        (uint8_t)((float)a.r + ((float)b.r - (float)a.r) * t),
-        (uint8_t)((float)a.g + ((float)b.g - (float)a.g) * t),
-        (uint8_t)((float)a.b + ((float)b.b - (float)a.b) * t),
-    };
+    return Color{Color::lerp(a.r, b.r, t), Color::lerp(a.g, b.g, t), Color::lerp(a.b, b.b, t)};
 }
 
 // How many of a scene's distinct colors to actually use as gradient stops:
@@ -220,11 +216,7 @@ public:
             float t = c.durationMs > 0 ? (float)elapsed / (float)c.durationMs : 1.0f;
             if (t > 1.0f) t = 1.0f;
             float s = t * t * (3.0f - 2.0f * t);
-            out[i] = Color{
-                (uint8_t)((float)c.from.r + ((float)c.to.r - (float)c.from.r) * s),
-                (uint8_t)((float)c.from.g + ((float)c.to.g - (float)c.from.g) * s),
-                (uint8_t)((float)c.from.b + ((float)c.to.b - (float)c.from.b) * s),
-            };
+            out[i] = Color{Color::lerp(c.from.r, c.to.r, s), Color::lerp(c.from.g, c.to.g, s), Color::lerp(c.from.b, c.to.b, s)};
         }
     }
 

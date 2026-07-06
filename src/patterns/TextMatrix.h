@@ -3,6 +3,7 @@
 #include <math.h>
 #include "Pattern.h"
 #include "Font5x7.h"
+#include "MatrixLayout.h"
 
 // Renders a text message on a matrix light using the fixed 5x7 font.
 // Message shorter than the matrix width is centered and held static
@@ -20,22 +21,21 @@ public:
         float speed   = _cfg.speed > 0.01f ? _cfg.speed : 0.01f;
         float pxPerSec = kBasePixelsPerSecond * speed;
         if (_cfg.textAnimation == TextAnimation::Bounce) {
-            float travel = (float)((int)_textWidthPx - (int)_width);
+            float travel = (float)((int)_textWidthPx - (int)_layout.width());
             return (2.0f * travel / pxPerSec) * 1000.0f;
         }
-        float dist = (float)((int)_width + (int)_textWidthPx);
+        float dist = (float)((int)_layout.width() + (int)_textWidthPx);
         return (dist / pxPerSec) * 1000.0f;
     }
 
     void setDimensions(uint16_t w, uint16_t h) {
-        if (w == _width && h == _height) return;
-        _width  = w;
-        _height = h;
+        if (w == _layout.width() && h == _layout.height()) return;
+        _layout.setDimensions(w, h);
         _recompute();
     }
 
     void setMatrixLayout(MatrixStart start, MatrixDirection dir, bool serpentine) {
-        _matrixStart = start; _matrixDir = dir; _matrixSerpentine = serpentine;
+        _layout.setWiring(start, dir, serpentine);
     }
 
     void begin(LedDriver& led, const LightConfig& cfg) override {
@@ -59,14 +59,14 @@ public:
         if (!_led) return;
         int xOffset;
         if (!_animated) {
-            xOffset = ((int)_width - (int)_textWidthPx) / 2;
+            xOffset = ((int)_layout.width() - (int)_textWidthPx) / 2;
         } else if (_cfg.textAnimation == TextAnimation::Bounce) {
             float phase = _computePhase(now);
             float t = phase < 0.5f ? phase * 2.0f : (1.0f - phase) * 2.0f;  // 0→1→0
-            xOffset = (int)roundf(t * (float)((int)_width - (int)_textWidthPx));
+            xOffset = (int)roundf(t * (float)((int)_layout.width() - (int)_textWidthPx));
         } else {
             float phase = _computePhase(now);
-            xOffset = (int)roundf((float)_width - phase * (float)((int)_width + (int)_textWidthPx));
+            xOffset = (int)roundf((float)_layout.width() - phase * (float)((int)_layout.width() + (int)_textWidthPx));
         }
         _render(xOffset);
     }
@@ -74,10 +74,7 @@ public:
 private:
     static constexpr float kBasePixelsPerSecond = 6.0f;  // scroll/bounce rate at speed=1.0
 
-    uint16_t        _width       = 1, _height = 1;
-    MatrixStart     _matrixStart = MatrixStart::TopLeft;
-    MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
-    bool            _matrixSerpentine = false;
+    MatrixLayout _layout;
 
     std::vector<uint8_t> _columns;      // one entry per pixel-column of the full message; bit r = row r lit
     uint16_t             _textWidthPx = 0;
@@ -98,38 +95,23 @@ private:
         }
         if (!_columns.empty()) _columns.pop_back();  // no trailing gap
         _textWidthPx = (uint16_t)_columns.size();
-        _animated    = _textWidthPx > _width;
+        _animated    = _textWidthPx > _layout.width();
     }
 
     void _render(int xOffset) {
-        int yOffset = ((int)_height - (int)Font5x7::GLYPH_HEIGHT) / 2;
-        for (uint16_t row = 0; row < _height; row++) {
+        int yOffset = ((int)_layout.height() - (int)Font5x7::GLYPH_HEIGHT) / 2;
+        for (uint16_t row = 0; row < _layout.height(); row++) {
             int fontRow = (int)row - yOffset;
-            for (uint16_t col = 0; col < _width; col++) {
+            for (uint16_t col = 0; col < _layout.width(); col++) {
                 int  srcCol = (int)col - xOffset;
                 bool on = fontRow >= 0 && fontRow < Font5x7::GLYPH_HEIGHT &&
                           srcCol >= 0 && srcCol < (int)_columns.size() &&
                           ((_columns[srcCol] >> fontRow) & 1);
-                uint16_t idx = _ledIndex(row, col);
+                uint16_t idx = _layout.ledIndex(row, col);
                 if (on) _led->setPixel(idx, applyBrightness(_cfg.color.r), applyBrightness(_cfg.color.g), applyBrightness(_cfg.color.b));
                 else    _led->setPixel(idx, 0, 0, 0);
             }
         }
         _led->show();
-    }
-
-    // Serpentine (zig-zag/boustrophedon) wiring: see GradientMatrix for details.
-    uint16_t _ledIndex(uint16_t row, uint16_t col) const {
-        uint16_t r = (_matrixStart == MatrixStart::BottomLeft || _matrixStart == MatrixStart::BottomRight)
-                     ? (_height - 1 - row) : row;
-        uint16_t c = (_matrixStart == MatrixStart::TopRight  || _matrixStart == MatrixStart::BottomRight)
-                     ? (_width - 1 - col) : col;
-        if (_matrixDir == MatrixDirection::Vertical) {
-            if (_matrixSerpentine && (c & 1)) r = _height - 1 - r;
-            return c * _height + r;
-        } else {
-            if (_matrixSerpentine && (r & 1)) c = _width - 1 - c;
-            return r * _width + c;
-        }
     }
 };

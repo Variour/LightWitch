@@ -54,6 +54,10 @@ struct Color {
     uint8_t b = 255;
     Color() = default;
     Color(uint8_t r, uint8_t g, uint8_t b) : r(r), g(g), b(b) {}
+
+    static uint8_t lerp(uint8_t a, uint8_t b, float t) {
+        return (uint8_t)((float)a + ((float)b - (float)a) * t);
+    }
 };
 
 // Scene id buffer size, incl. null terminator (also used for wire structs in MeshTypes.h).

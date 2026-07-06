@@ -2,6 +2,7 @@
 #include <vector>
 #include "Pattern.h"
 #include "GradientCommon.h"
+#include "MatrixLayout.h"
 
 // Renders a horizontal color gradient across a matrix light — the same
 // left-to-right ramp on every row. Stop colors are sourced from a scene's
@@ -16,9 +17,9 @@ class GradientMatrix : public Pattern {
 public:
     float getPeriod() const override { return 0.0f; }
 
-    void setDimensions(uint16_t w, uint16_t h) { _width = w; _height = h; }
+    void setDimensions(uint16_t w, uint16_t h) { _layout.setDimensions(w, h); }
     void setMatrixLayout(MatrixStart start, MatrixDirection dir, bool serpentine) {
-        _matrixStart = start; _matrixDir = dir; _matrixSerpentine = serpentine;
+        _layout.setWiring(start, dir, serpentine);
     }
 
     void setWrap(bool wrap) {
@@ -61,7 +62,7 @@ public:
 
     void tick(uint32_t now) override {
         if (!_led) return;
-        uint32_t total = (uint32_t)_width * _height;
+        uint32_t total = (uint32_t)_layout.width() * _layout.height();
         if (_base.size() != total) _computeBase();
 
         const std::vector<Color>* colors = &_base;
@@ -71,10 +72,10 @@ public:
             colors = &_out;
         }
 
-        for (uint16_t row = 0; row < _height; row++) {
-            for (uint16_t col = 0; col < _width; col++) {
-                const Color& c = (*colors)[row * _width + col];
-                uint16_t idx = _ledIndex(row, col);
+        for (uint16_t row = 0; row < _layout.height(); row++) {
+            for (uint16_t col = 0; col < _layout.width(); col++) {
+                const Color& c = (*colors)[row * _layout.width() + col];
+                uint16_t idx = _layout.ledIndex(row, col);
                 _led->setPixel(idx, applyBrightness(c.r), applyBrightness(c.g), applyBrightness(c.b));
             }
         }
@@ -82,10 +83,7 @@ public:
     }
 
 private:
-    uint16_t        _width       = 1, _height = 1;
-    MatrixStart     _matrixStart = MatrixStart::TopLeft;
-    MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
-    bool            _matrixSerpentine = false;
+    MatrixLayout         _layout;
     bool                 _wrap    = false;
     std::vector<Color>   _palette;   // full distinct-color list from the scene
     std::vector<Color>   _stops;     // reduced set actually used as gradient stops
@@ -96,33 +94,16 @@ private:
     GradientCommon::StopMorph _morph;
 
     void _computeBase() {
-        GradientCommon::reduceToStops(_palette, _width, _stops, _cfg.gradientStopCount);
-        GradientCommon::computeStopPositions(_stops, (float)_width, _wrap, _positions);
+        GradientCommon::reduceToStops(_palette, _layout.width(), _stops, _cfg.gradientStopCount);
+        GradientCommon::computeStopPositions(_stops, (float)_layout.width(), _wrap, _positions);
         _resample(_stops, _base);
     }
 
     void _resample(const std::vector<Color>& stops, std::vector<Color>& out) {
-        uint32_t total = (uint32_t)_width * _height;
+        uint32_t total = (uint32_t)_layout.width() * _layout.height();
         out.resize(total);
-        for (uint16_t row = 0; row < _height; row++)
-            for (uint16_t col = 0; col < _width; col++)
-                out[row * _width + col] = GradientCommon::sample(stops, _positions, (float)col, (float)_width, _wrap);
-    }
-
-    // Serpentine (zig-zag/boustrophedon) wiring: the physical strip reverses
-    // direction on every other line along the primary axis (the one named by
-    // matrixDir), since it's one continuous strip folded back and forth.
-    uint16_t _ledIndex(uint16_t row, uint16_t col) const {
-        uint16_t r = (_matrixStart == MatrixStart::BottomLeft || _matrixStart == MatrixStart::BottomRight)
-                     ? (_height - 1 - row) : row;
-        uint16_t c = (_matrixStart == MatrixStart::TopRight  || _matrixStart == MatrixStart::BottomRight)
-                     ? (_width - 1 - col) : col;
-        if (_matrixDir == MatrixDirection::Vertical) {
-            if (_matrixSerpentine && (c & 1)) r = _height - 1 - r;
-            return c * _height + r;
-        } else {
-            if (_matrixSerpentine && (r & 1)) c = _width - 1 - c;
-            return r * _width + c;
-        }
+        for (uint16_t row = 0; row < _layout.height(); row++)
+            for (uint16_t col = 0; col < _layout.width(); col++)
+                out[row * _layout.width() + col] = GradientCommon::sample(stops, _positions, (float)col, (float)_layout.width(), _wrap);
     }
 };
