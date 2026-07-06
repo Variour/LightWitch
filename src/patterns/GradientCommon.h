@@ -5,6 +5,7 @@
 #include <math.h>
 #include "../config/Config.h"
 #include "../scenes/SceneManager.h"
+#include "Pattern.h"
 
 // Shared helpers for gradient-mode patterns: extracting an ordered color
 // palette from a scene, and sampling a smooth ramp across that palette.
@@ -266,6 +267,103 @@ private:
             if (c.r != current.r || c.g != current.g || c.b != current.b) return c;
         }
         return palette[random(0, palette.size())];
+    }
+};
+
+// Shared Pattern implementation for gradient-mode renderers (GradientMatrix,
+// GradientString): palette load/reload, stop reduction, live morphing, and
+// per-tick resampling — everything except how gradient positions map onto
+// physical LEDs. Derived (via CRTP) supplies that geometry:
+//   _totalPixels()         number of LEDs to render this tick
+//   _gradientLength()      number of distinct positions along the ramp
+//   _gradientCoord(i)      ramp position [0, _gradientLength()) for pixel i
+//   _ledIndex(i)           physical LED index to write pixel i to
+template <typename Derived>
+class Base : public Pattern {
+public:
+    void setWrap(bool wrap) {
+        if (wrap == _wrap) return;
+        _wrap = wrap;
+        _computeBase();
+        _morph.reset();
+    }
+
+    void begin(LedDriver& led, const LightConfig& cfg) override {
+        _led = &led;
+        _cfg = cfg;
+        loadPalette(cfg.sceneId, _palette);
+        _computeBase();
+        _morph.reset();
+        tick(millis());
+    }
+
+    void applyConfig(const LightConfig& cfg) override {
+        bool sceneChanged     = strncmp(cfg.sceneId, _cfg.sceneId, sizeof(cfg.sceneId)) != 0;
+        bool stopCountChanged = cfg.gradientStopCount != _cfg.gradientStopCount;
+        _cfg = cfg;
+        if (sceneChanged) {
+            loadPalette(cfg.sceneId, _palette);
+            _computeBase();
+            _morph.reset();
+        } else if (stopCountChanged) {
+            _computeBase();
+            _morph.reset();
+        }
+    }
+
+    // Re-read the scene palette if it matches the currently loaded scene.
+    void reloadIfCurrent(const char* sceneId) {
+        if (!sceneId || strncmp(sceneId, _cfg.sceneId, sizeof(_cfg.sceneId)) != 0) return;
+        loadPalette(sceneId, _palette);
+        _computeBase();
+        _morph.reset();
+    }
+
+    void tick(uint32_t now) override {
+        if (!_led) return;
+        Derived* self  = static_cast<Derived*>(this);
+        uint32_t total = self->_totalPixels();
+        if (_base.size() != total) _computeBase();
+
+        const std::vector<Color>* colors = &_base;
+        if (_cfg.morphEnabled && _stops.size() > 1) {
+            _morph.tick(now, _stops, _palette, _cfg.speed, _liveStops);
+            _resample(_liveStops, _out);
+            colors = &_out;
+        }
+
+        for (uint32_t i = 0; i < total; i++) {
+            const Color& c = (*colors)[i];
+            _led->setPixel(self->_ledIndex(i), applyBrightness(c.r), applyBrightness(c.g), applyBrightness(c.b));
+        }
+        _led->show();
+    }
+
+protected:
+    bool               _wrap = false;
+    std::vector<Color> _palette;   // full distinct-color list from the scene
+    std::vector<Color> _stops;     // reduced set actually used as gradient stops
+    std::vector<float> _positions; // jittered physical position of each stop
+    std::vector<Color> _liveStops; // _stops after live morph interpolation
+    std::vector<Color> _base;
+    std::vector<Color> _out;
+    StopMorph          _morph;
+
+    void _computeBase() {
+        Derived* self = static_cast<Derived*>(this);
+        float    len  = (float)self->_gradientLength();
+        reduceToStops(_palette, self->_gradientLength(), _stops, _cfg.gradientStopCount);
+        computeStopPositions(_stops, len, _wrap, _positions);
+        _resample(_stops, _base);
+    }
+
+    void _resample(const std::vector<Color>& stops, std::vector<Color>& out) {
+        Derived* self  = static_cast<Derived*>(this);
+        uint32_t total = self->_totalPixels();
+        float    len   = (float)self->_gradientLength();
+        out.resize(total);
+        for (uint32_t i = 0; i < total; i++)
+            out[i] = sample(stops, _positions, self->_gradientCoord(i), len, _wrap);
     }
 };
 
