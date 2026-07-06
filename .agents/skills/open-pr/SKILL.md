@@ -30,7 +30,7 @@ Use this after the implementation has been reviewed and the user wants to ship i
    - If the related issue number is known, include a closing reference. Do not invent one.
 
 5. Apply exactly one PR label.
-   - `enhancement` — new functionality
+   - `enhancement` — new functionality, must be user facing
    - `bug` — bug fixes
    - `dependencies` — dependency updates
    - `security` — security fixes or hardening
