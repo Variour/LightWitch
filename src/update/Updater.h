@@ -87,6 +87,19 @@ private:
         return h;
     }
 
+    // Opens an authenticated GET request against the GitHub API and returns the HTTP status code.
+    // tls/http are owned by the caller and must stay alive while the response body/stream is read.
+    static int _httpGet(WiFiClientSecure& tls, HTTPClient& http, const String& url, const char* accept) {
+        tls.setInsecure();
+        http.begin(tls, url);
+        http.addHeader("Authorization", _authHeader());
+        http.addHeader("Accept", accept);
+        http.addHeader("X-GitHub-Api-Version", "2022-11-28");
+        http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+        http.setTimeout(15000);
+        return http.GET();
+    }
+
     // Returns false on transport/parse error. Fills latestVersion and _firmwareAssetId/_fsAssetId.
     static bool _fetchLatestRelease() {
         auto& c = Config::get();
@@ -100,16 +113,8 @@ private:
         url += "/releases/latest";
 
         WiFiClientSecure tls;
-        tls.setInsecure();
         HTTPClient http;
-        http.begin(tls, url);
-        http.addHeader("Authorization", _authHeader());
-        http.addHeader("Accept", "application/vnd.github+json");
-        http.addHeader("X-GitHub-Api-Version", "2022-11-28");
-        http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-
-        http.setTimeout(15000);
-        int code = http.GET();
+        int code = _httpGet(tls, http, url, "application/vnd.github+json");
         if (code != 200) {
             Logger::e("[upd] releases API returned %d", code);
             snprintf(_errorBuf, sizeof(_errorBuf), "GitHub API error (HTTP %d)", code);
@@ -179,14 +184,8 @@ private:
         url += assetId;
 
         WiFiClientSecure tls;
-        tls.setInsecure();
         HTTPClient http;
-        http.begin(tls, url);
-        http.addHeader("Authorization", _authHeader());
-        http.addHeader("Accept", "application/octet-stream");
-        http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-
-        int code = http.GET();
+        int code = _httpGet(tls, http, url, "application/octet-stream");
         if (code != 200) {
             Logger::e("[upd] asset %u GET returned %d", assetId, code);
             _status.error = "asset download error";
