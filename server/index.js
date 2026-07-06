@@ -35,7 +35,7 @@ const MOCK_CONFIG = {
   version: 'mock',
   mac: '11:22:33:44:55:66',
   githubRepo: 'Variour/batterylight',
-  timezone: 'UTC0',
+  timezone: 'CET-1CEST,M3.5.0,M10.5.0/3', // Europe/Berlin
   lights: mockLights,
   groups: [
     { id: 0, name: 'Default',     exists: true, mode: 0, sceneId: '',          pattern: 0, r: 255, g: 200, b: 80,  brightness: 200, speed: 1, syncEnabled: true,  transitionEnabled: false, sceneUniformColor: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0, morphEnabled: false, gradientStopCount: 0, text: '', textAnimation: 0, time24h: true },
@@ -167,7 +167,13 @@ app.use('/api', (req, res, next) => {
 });
 
 app.get('/api/config', (_req, res) => res.json(MOCK_CONFIG));
-app.post('/api/config', (_req, res) => res.json({ ok: true }));
+app.post('/api/config', (req, res) => {
+  // Mirrors WebServer.h::_postConfig, which never re-exposes write-only
+  // secrets (mqttPassword, githubToken) via GET /api/config.
+  const { mqttPassword, githubToken, ...rest } = req.body;
+  Object.assign(MOCK_CONFIG, rest);
+  res.json({ ok: true });
+});
 
 app.get('/api/wifi', (_req, res) => res.json({
   connected: wifiConnected,

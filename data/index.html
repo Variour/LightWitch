@@ -798,8 +798,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
       <option value="2">Warn</option>
       <option value="3">Error</option>
     </select>
-    <label>Timezone <small>(POSIX TZ string, used by Time mode)</small></label>
-    <input type="text" id="timezone" placeholder="UTC0">
+    <label>Timezone <small>(used by Time mode)</small></label>
+    <select id="timezone"></select>
 
     <hr class="section-divider">
     <h3>Lights</h3>
@@ -978,6 +978,71 @@ const PATTERNS = [
 // minimum matrix size that can legibly show HH:MM.
 const TIME_MIN_W = 17;
 const TIME_MIN_H = 5;
+
+// Friendly timezone names mapped to the POSIX TZ string the firmware expects
+// (src/timesync/TimeSync.cpp applies this via setenv("TZ", ...) + tzset()).
+// The ESP32 firmware has no IANA tzdata, so this list is a curated subset of
+// commonly used zones rather than the full IANA database. Ordered west to
+// east by UTC offset.
+const TIMEZONES = [
+  { name: 'Pacific/Honolulu',              tz: 'HST10' },
+  { name: 'America/Anchorage',             tz: 'AKST9AKDT,M3.2.0,M11.1.0' },
+  { name: 'America/Los_Angeles',           tz: 'PST8PDT,M3.2.0,M11.1.0' },
+  { name: 'America/Phoenix',               tz: 'MST7' },
+  { name: 'America/Denver',                tz: 'MST7MDT,M3.2.0,M11.1.0' },
+  { name: 'America/Mexico_City',           tz: 'CST6' },
+  { name: 'America/Chicago',               tz: 'CST6CDT,M3.2.0,M11.1.0' },
+  { name: 'America/New_York',              tz: 'EST5EDT,M3.2.0,M11.1.0' },
+  { name: 'America/Argentina/Buenos_Aires',tz: '<-03>3' },
+  { name: 'America/Sao_Paulo',             tz: '<-03>3' },
+  { name: 'America/Bogota',                tz: '<-05>5' },
+  { name: 'UTC',                           tz: 'UTC0' },
+  { name: 'Europe/Lisbon',                 tz: 'WET0WEST,M3.5.0/1,M10.5.0' },
+  { name: 'Europe/London',                 tz: 'GMT0BST,M3.5.0/1,M10.5.0' },
+  { name: 'Europe/Berlin',                 tz: 'CET-1CEST,M3.5.0,M10.5.0/3' },
+  { name: 'Europe/Paris',                  tz: 'CET-1CEST,M3.5.0,M10.5.0/3' },
+  { name: 'Europe/Madrid',                 tz: 'CET-1CEST,M3.5.0,M10.5.0/3' },
+  { name: 'Europe/Rome',                   tz: 'CET-1CEST,M3.5.0,M10.5.0/3' },
+  { name: 'Europe/Athens',                 tz: 'EET-2EEST,M3.5.0/3,M10.5.0/4' },
+  { name: 'Europe/Helsinki',               tz: 'EET-2EEST,M3.5.0/3,M10.5.0/4' },
+  { name: 'Europe/Istanbul',               tz: '<+03>-3' },
+  { name: 'Europe/Moscow',                 tz: 'MSK-3' },
+  { name: 'Africa/Lagos',                  tz: 'WAT-1' },
+  { name: 'Africa/Johannesburg',           tz: 'SAST-2' },
+  { name: 'Asia/Dubai',                    tz: '<+04>-4' },
+  { name: 'Asia/Kolkata',                  tz: 'IST-5:30' },
+  { name: 'Asia/Karachi',                  tz: 'PKT-5' },
+  { name: 'Asia/Dhaka',                    tz: '<+06>-6' },
+  { name: 'Asia/Bangkok',                  tz: '<+07>-7' },
+  { name: 'Asia/Jakarta',                  tz: 'WIB-7' },
+  { name: 'Asia/Shanghai',                 tz: '<+08>-8' },
+  { name: 'Asia/Hong_Kong',                tz: 'HKT-8' },
+  { name: 'Asia/Singapore',                tz: '<+08>-8' },
+  { name: 'Asia/Tokyo',                    tz: 'JST-9' },
+  { name: 'Asia/Seoul',                    tz: 'KST-9' },
+  { name: 'Australia/Perth',               tz: 'AWST-8' },
+  { name: 'Australia/Adelaide',            tz: 'ACST-9:30ACDT,M10.1.0,M4.1.0/3' },
+  { name: 'Australia/Sydney',              tz: 'AEST-10AEDT,M10.1.0,M4.1.0/3' },
+  { name: 'Pacific/Auckland',              tz: 'NZST-12NZDT,M9.5.0,M4.1.0/3' },
+];
+const DEFAULT_TIMEZONE = 'CET-1CEST,M3.5.0,M10.5.0/3'; // Europe/Berlin
+
+function _renderTimezoneOptions(selectedTz) {
+  const sel = $('timezone');
+  // Several zone names share an identical POSIX TZ string (e.g. Berlin,
+  // Paris, Madrid, Rome are all CET/CEST); only the first match is marked
+  // `selected` so exactly one <option> carries the attribute — otherwise the
+  // browser resolves multiple `selected` options to the last one in the list.
+  const firstMatchIdx = TIMEZONES.findIndex(z => z.tz === selectedTz);
+  let html = TIMEZONES.map((z, i) =>
+    `<option value="${z.tz}"${i === firstMatchIdx ? ' selected' : ''}>${z.name}</option>`
+  ).join('');
+  if (selectedTz && firstMatchIdx === -1) {
+    html += `<option value="${esc(selectedTz)}" selected>Custom (${esc(selectedTz)})</option>`;
+  }
+  sel.innerHTML = html;
+}
+_renderTimezoneOptions(DEFAULT_TIMEZONE);
 
 // ── Tab navigation ────────────────────────────────────────────────────────────
 const TAB_PATHS = {
@@ -1905,7 +1970,7 @@ async function saveSettings() {
     mqttHost:   $('mqttHost').value,
     mqttPort:   parseInt($('mqttPort').value) || 1883,
     mqttUser:   $('mqttUser').value,
-    timezone:   $('timezone').value || 'UTC0',
+    timezone:   $('timezone').value || DEFAULT_TIMEZONE,
   };
   const apPw   = $('apPassword').value;
   const mqttPw = $('mqttPassword').value;
@@ -2136,7 +2201,7 @@ async function loadConfig() {
   if (d.mqttPort   !== undefined) $('mqttPort').value   = d.mqttPort;
   if (d.mqttUser   !== undefined) $('mqttUser').value   = d.mqttUser;
   if (d.githubRepo !== undefined) $('githubRepo').value = d.githubRepo;
-  if (d.timezone   !== undefined) $('timezone').value   = d.timezone;
+  if (d.timezone   !== undefined) _renderTimezoneOptions(d.timezone);
   $('checkUpdateOnStartup').checked = d.checkUpdateOnStartup === true;
   if (d.version) {
     $('fw-version').textContent = 'v' + d.version;
