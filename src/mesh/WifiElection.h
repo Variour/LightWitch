@@ -130,11 +130,27 @@ private:
 // local WiFi.status()), everyone else stands down to standby (AP-only, no
 // STA attempts) until that peer drops off the mesh or loses its connection,
 // at which point the same ranked hand-off runs again automatically.
+//
+// Joining an existing, already-settled mesh: a freshly booted device hasn't
+// heard any presence yet, so without care it would see an empty peer list
+// and conclude "nobody's connected" even if a peer has been happily
+// connected for weeks — see DISCOVERY_GRACE_MS below for the mitigation.
+// This is best-effort (no central coordinator to guarantee it), and once
+// connected a device does not step down just because it later learns
+// another candidate was connected first — only an actual disconnect (on
+// either side) triggers re-election.
 class WifiElection {
 public:
     void begin(PeerRegistry* peers) {
         _peers = peers;
         _enterFreshWaiting();
+        // A freshly booted device knows nothing about the mesh yet — give it
+        // time to hear presence from an already-connected peer (channel
+        // search + at least one heartbeat cycle) before it's allowed to act
+        // on "nobody seems connected". Only applies to this first boot-time
+        // decision; later re-elections (failover) skip straight to the
+        // normal rank-based wait, since the mesh view is already populated.
+        _bootGraceStart = millis();
     }
 
     // Call whenever Config::get().wifiSingleClientMode transitions, so a
@@ -192,7 +208,7 @@ public:
                 uint32_t candidates = _countCandidates() + 1; // +self
                 uint32_t rank       = _computeRank(ownMac);
                 uint32_t threshold  = (uint32_t)(_myAttemptCount * candidates + rank) * RANK_BUDGET_MS;
-                if (millis() - _waitSince >= threshold) {
+                if (millis() - _waitSince >= threshold && millis() - _bootGraceStart >= DISCOVERY_GRACE_MS) {
                     Logger::i("[wifi-elect] my turn (rank %u/%u) — attempting to connect", rank, candidates);
                     _state = State::Connecting;
                     _attempt.start([this](bool ok) { _onAttemptDone(ok); });
@@ -230,10 +246,17 @@ private:
     // trade-off for not making every failover wait several minutes.
     static constexpr uint32_t RANK_BUDGET_MS = 60000; // 1 min per rank step
 
+    // Covers channel search (worst case a few dwell cycles) plus at least one
+    // presence heartbeat (5s) after that, so a newly booted device has a real
+    // chance to hear "someone's already connected" before deciding it's alone.
+    // Best-effort, not a guarantee — see WifiElection class comment.
+    static constexpr uint32_t DISCOVERY_GRACE_MS = 20000; // 20s, boot only
+
     PeerRegistry*      _peers = nullptr;
     State              _state = State::Waiting;
     uint32_t           _waitSince      = 0;
     uint32_t           _myAttemptCount = 0;
+    uint32_t           _bootGraceStart = 0;
     WifiConnectAttempt _attempt;
 
     bool                   _otaHold        = false;
