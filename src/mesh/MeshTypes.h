@@ -20,6 +20,8 @@ enum class MsgType : uint8_t {
     SceneEditPush  = 15,
     RequestManifest = 16,
     TimeSync       = 17,
+    KeyExchangeInit = 18,
+    KeyExchangeResp = 19,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -162,5 +164,30 @@ struct ConfigChunkMsg {
     uint16_t chunkIndex;
     uint16_t totalChunks;
     uint16_t dataLen;
-    uint8_t  data[CONFIG_CHUNK_DATA_SIZE];
+    uint8_t  data[CONFIG_CHUNK_DATA_SIZE]; // AES-256-GCM ciphertext once reassembled, see MeshCrypto.h
+};
+
+// ── Config push encryption handshake (issue #252) ─────────────────────────────
+// Ephemeral X25519 ECDH per push: the two devices involved exchange one-time
+// public keys to derive a forward-secret AES key for that single push, so no
+// pre-shared key or pairing step is needed and secrets never cross the air in
+// the clear. Sent over the same broadcast-with-targetMac-filter transport as
+// SetGroupMsg/TriggerUpdateMsg above.
+
+// mbedtls's ECDH public-key export format for Curve25519 is a 1-byte length
+// prefix (always 0x20) followed by the 32-byte point (RFC 8422 §5.4).
+static constexpr uint8_t ECDH_PUBKEY_LEN = 33;
+
+struct KeyExchangeInitMsg {
+    MsgType  type = MsgType::KeyExchangeInit;
+    uint8_t  targetMac[6];
+    uint32_t sessionId;
+    uint8_t  pubKey[ECDH_PUBKEY_LEN];
+};
+
+struct KeyExchangeRespMsg {
+    MsgType  type = MsgType::KeyExchangeResp;
+    uint8_t  targetMac[6];  // = initiator's MAC
+    uint32_t sessionId;
+    uint8_t  pubKey[ECDH_PUBKEY_LEN];
 };
