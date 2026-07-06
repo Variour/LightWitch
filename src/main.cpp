@@ -34,6 +34,11 @@ static bool             _otaActive = false;
 static constexpr uint32_t PATTERN_TICK_INTERVAL_MS = 1000 / 60;
 static uint32_t           _lastPatternTickMs        = 0;
 
+// Tracks the last-rendered firmware-update status so the progress fill is
+// only redrawn when it actually changes, not on every loop() iteration.
+static Updater::State     _lastUpdateState    = Updater::State::Idle;
+static int                _lastUpdateProgress = -1;
+
 // Reassembly buffer for incoming config push chunks
 static String   _cfgSyncBuf;
 static uint16_t _cfgSyncExpected = 0;
@@ -410,6 +415,23 @@ void setup() {
 void loop() {
     if (Config::get().otaEnabled) ArduinoOTA.handle();
     webServer.loop();
+
+    Updater::State updState = Updater::status().state;
+    if (updState == Updater::State::Downloading || updState == Updater::State::Done) {
+        int progress = Updater::status().progress;
+        if (updState != _lastUpdateState || progress != _lastUpdateProgress) {
+            _lastUpdateState    = updState;
+            _lastUpdateProgress = progress;
+            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+                if (!_leds[i]) continue;
+                if (updState == Updater::State::Done) _runners[i].showUpdateDone();
+                else                                  _runners[i].showUpdateProgress((uint8_t)progress);
+            }
+        }
+        return;
+    }
+    _lastUpdateState = updState;
+
     if (!_otaActive) {
         channelMgr.tick();
         mesh.tick();
