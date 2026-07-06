@@ -400,54 +400,6 @@ private:
     static const char* _fwStateToString(Updater::State s) { return _fwStateName((uint8_t)s); }
     static const char* _fwStateToString(FwState s)        { return _fwStateName((uint8_t)s); }
 
-    static void _serializeGroup(JsonObject o, const GroupConfig& g) {
-        o["id"]          = g.id;
-        o["name"]        = g.name;
-        o["exists"]      = g.exists;
-        o["syncEnabled"] = g.syncEnabled;
-        o["mode"]        = (uint8_t)g.light.mode;
-        o["sceneId"]     = g.light.sceneId;
-        o["pattern"]     = (uint8_t)g.light.pattern;
-        o["r"]           = g.light.color.r;
-        o["g"]           = g.light.color.g;
-        o["b"]           = g.light.color.b;
-        o["brightness"]        = g.light.brightness;
-        o["speed"]             = g.light.speed;
-        o["transitionEnabled"] = g.light.transitionEnabled;
-        o["sceneUniformColor"] = g.light.sceneUniformColor;
-        o["transitionTime"]    = g.light.transitionTime;
-        o["frameDuration"]     = g.light.frameDuration;
-        o["proximityScale"]    = g.light.proximityScale;
-        o["morphEnabled"]     = g.light.morphEnabled;
-        o["gradientStopCount"] = g.light.gradientStopCount;
-        o["text"]             = g.light.text;
-        o["textAnimation"]    = (uint8_t)g.light.textAnimation;
-        o["time24h"]          = g.light.time24h;
-    }
-
-    static LightConfig _lightFromJson(JsonVariant j) {
-        LightConfig l;
-        if (!j["mode"].isNull())        l.mode       = (GroupMode)(uint8_t)j["mode"];
-        if (!j["sceneId"].isNull())    strlcpy(l.sceneId, j["sceneId"], sizeof(l.sceneId));
-        if (!j["pattern"].isNull())    l.pattern    = (PatternId)(uint8_t)j["pattern"];
-        if (!j["r"].isNull())       l.color.r    = j["r"];
-        if (!j["g"].isNull())       l.color.g    = j["g"];
-        if (!j["b"].isNull())       l.color.b    = j["b"];
-        if (!j["brightness"].isNull())        l.brightness        = j["brightness"];
-        if (!j["speed"].isNull())             l.speed             = j["speed"];
-        if (!j["transitionEnabled"].isNull()) l.transitionEnabled = (bool)j["transitionEnabled"];
-        if (!j["sceneUniformColor"].isNull()) l.sceneUniformColor = (bool)j["sceneUniformColor"];
-        if (!j["transitionTime"].isNull())    l.transitionTime    = (float)j["transitionTime"];
-        if (!j["frameDuration"].isNull())     l.frameDuration     = (float)j["frameDuration"];
-        if (!j["proximityScale"].isNull())    l.proximityScale    = (float)j["proximityScale"];
-        if (!j["morphEnabled"].isNull())     l.morphEnabled     = (bool)j["morphEnabled"];
-        if (!j["gradientStopCount"].isNull()) l.gradientStopCount = (uint8_t)j["gradientStopCount"];
-        if (!j["text"].isNull())          strlcpy(l.text, j["text"], sizeof(l.text));
-        if (!j["textAnimation"].isNull()) l.textAnimation = (TextAnimation)(uint8_t)j["textAnimation"];
-        if (!j["time24h"].isNull())       l.time24h       = (bool)j["time24h"];
-        return l;
-    }
-
     // ── GET /api/config ──────────────────────────────────────────────────────
     void _getConfig(AsyncWebServerRequest* r) {
         auto& c = Config::get();
@@ -490,7 +442,7 @@ private:
         JsonArray arr = doc["groups"].to<JsonArray>();
         for (uint8_t i = 0; i < MAX_GROUPS; i++) {
             if (!c.groups[i].exists) continue;
-            _serializeGroup(arr.add<JsonObject>(), c.groups[i]);
+            serializeGroup(arr.add<JsonObject>(), c.groups[i]);
         }
         _sendJson(r, 200, doc);
     }
@@ -630,37 +582,20 @@ private:
             return;
         }
 
-        bool lightChanged = !doc["mode"].isNull() || !doc["sceneId"].isNull()
-                         || !doc["pattern"].isNull() || !doc["r"].isNull()
-                         || !doc["g"].isNull()       || !doc["b"].isNull()
-                         || !doc["brightness"].isNull() || !doc["speed"].isNull()
-                         || !doc["transitionEnabled"].isNull() || !doc["sceneUniformColor"].isNull()
-                         || !doc["transitionTime"].isNull() || !doc["frameDuration"].isNull()
-                         || !doc["proximityScale"].isNull() || !doc["morphEnabled"].isNull()
-                         || !doc["gradientStopCount"].isNull() || !doc["text"].isNull()
-                         || !doc["textAnimation"].isNull() || !doc["time24h"].isNull();
+        // Any key besides id/name/syncEnabled is a LightConfig field — this stays in
+        // sync with deserializeLightConfig automatically, no field list to maintain here.
+        bool lightChanged = false;
+        for (JsonPairConst kv : doc.as<JsonObjectConst>()) {
+            const char* key = kv.key().c_str();
+            if (strcmp(key, "id") && strcmp(key, "name") && strcmp(key, "syncEnabled")) {
+                lightChanged = true;
+                break;
+            }
+        }
         if (lightChanged) {
-            auto& l = g->light;
-            if (!doc["mode"].isNull())             l.mode              = (GroupMode)(uint8_t)doc["mode"];
-            if (!doc["sceneId"].isNull())          strlcpy(l.sceneId, doc["sceneId"], sizeof(l.sceneId));
-            if (!doc["pattern"].isNull())          l.pattern           = (PatternId)(uint8_t)doc["pattern"];
-            if (!doc["r"].isNull())                l.color.r           = doc["r"];
-            if (!doc["g"].isNull())                l.color.g           = doc["g"];
-            if (!doc["b"].isNull())                l.color.b           = doc["b"];
-            if (!doc["brightness"].isNull())       l.brightness        = doc["brightness"];
-            if (!doc["speed"].isNull())            l.speed             = doc["speed"];
-            if (!doc["transitionEnabled"].isNull()) l.transitionEnabled = (bool)doc["transitionEnabled"];
-            if (!doc["sceneUniformColor"].isNull()) l.sceneUniformColor = (bool)doc["sceneUniformColor"];
-            if (!doc["transitionTime"].isNull())   l.transitionTime    = (float)doc["transitionTime"];
-            if (!doc["frameDuration"].isNull())    l.frameDuration     = (float)doc["frameDuration"];
-            if (!doc["proximityScale"].isNull())   l.proximityScale    = (float)doc["proximityScale"];
-            if (!doc["morphEnabled"].isNull())    l.morphEnabled     = (bool)doc["morphEnabled"];
-            if (!doc["gradientStopCount"].isNull()) l.gradientStopCount = (uint8_t)doc["gradientStopCount"];
-            if (!doc["text"].isNull())          strlcpy(l.text, doc["text"], sizeof(l.text));
-            if (!doc["textAnimation"].isNull()) l.textAnimation = (TextAnimation)(uint8_t)doc["textAnimation"];
-            if (!doc["time24h"].isNull())       l.time24h       = (bool)doc["time24h"];
-            l.seq++;
-            if (_onGroupLight) _onGroupLight(id, l);
+            g->light = deserializeLightConfig(doc, g->light);
+            g->light.seq++;
+            if (_onGroupLight) _onGroupLight(id, g->light);
         }
         if (nameChanged) {
             if (_onGroupSync) _onGroupSync(*g);
@@ -749,7 +684,7 @@ private:
         for (uint8_t i = 0; i < MAX_GROUPS; i++) {
             auto& g = Config::get().groups[i];
             if (!g.exists) continue;
-            _serializeGroup(arr.add<JsonObject>(), g);
+            serializeGroup(arr.add<JsonObject>(), g);
         }
         String s; serializeJson(doc, s);
         _ws->textAll(s);
