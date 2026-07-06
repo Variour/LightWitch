@@ -1181,7 +1181,7 @@ function renderGroups(groups) {
         <div id="gscene-wrap-${g.id}" style="display:${mode===1?'':'none'}">
           <div>
             <label>Scene</label>
-            <select id="gscene-${g.id}" onchange="onGroupControl(${g.id})">
+            <select id="gscene-${g.id}" onchange="syncSceneSelect(${g.id}, this.value); onGroupControl(${g.id})">
               <option value=""${!sceneId?' selected':''}>Choose a scene…</option>
               ${_sceneOptions.map(s=>`<option value="${esc(s.id)}"${sceneId===String(s.id)?' selected':''}>${esc(s.name)} (${s.w}×${s.h})</option>`).join('')}
             </select>
@@ -1243,7 +1243,7 @@ function renderGroups(groups) {
         <div id="ggrad-wrap-${g.id}" style="display:${mode===3?'':'none'}">
           <div>
             <label>Scene (color source)</label>
-            <select id="ggscene-${g.id}" onchange="onGroupControl(${g.id})">
+            <select id="ggscene-${g.id}" onchange="syncSceneSelect(${g.id}, this.value); onGroupControl(${g.id})">
               <option value=""${!sceneId?' selected':''}>Choose a scene…</option>
               ${_sceneOptions.map(s=>`<option value="${esc(s.id)}"${sceneId===String(s.id)?' selected':''}>${esc(s.name)} (${s.w}×${s.h})</option>`).join('')}
             </select>
@@ -1380,6 +1380,16 @@ function setGroupTimeFormat(id, format) {
   if (input) input.value = format;
   _setActiveButton(`gtime24-${id}`, `gtime12-${id}`, format === '24');
   onGroupControl(id);
+}
+
+// Scene mode and Gradient mode each have their own scene <select>, but both
+// pick the same underlying group.sceneId. Mirror a change in one onto the
+// other so switching modes doesn't revert to whichever was last rendered.
+function syncSceneSelect(id, value) {
+  const a = $(`gscene-${id}`);
+  const b = $(`ggscene-${id}`);
+  if (a) a.value = value;
+  if (b) b.value = value;
 }
 
 function onGroupControl(id) {
