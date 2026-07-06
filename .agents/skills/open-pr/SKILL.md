@@ -33,6 +33,8 @@ Use this after the implementation has been reviewed and the user wants to ship i
    - `enhancement` — new functionality
    - `bug` — bug fixes
    - `dependencies` — dependency updates
+   - `security` — security fixes or hardening
+   - `performance` — performance improvements
    - `skip-changelog` — CI tweaks, docs, dev tooling
 
 6. Report back with the validation performed, commit, branch, and PR URL.
