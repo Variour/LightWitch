@@ -19,6 +19,7 @@ enum class MsgType : uint8_t {
     CheckUpdate    = 14,
     SceneEditPush  = 15,
     RequestManifest = 16,
+    TimeSync       = 17,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -143,6 +144,13 @@ struct CheckUpdateMsg {
     uint8_t targetMac[6];
 };
 // 7 bytes ✓
+
+// Broadcast periodically by a device with an NTP-synced clock, so peers with
+// no internet access (but mesh connectivity) can adopt a wall-clock time.
+struct TimeSyncMsg {
+    MsgType  type  = MsgType::TimeSync;
+    uint32_t epoch;  // unix time (UTC seconds) at the sender
+};
 
 // ── Config push messages ──────────────────────────────────────────────────────
 

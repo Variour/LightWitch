@@ -34,6 +34,7 @@ public:
     // Called when this device is told to check for a firmware update (no auto-install)
     using CheckUpdateCb    = std::function<void()>;
     using PeerHeardCb      = std::function<void()>;
+    using TimeSyncCb       = std::function<void(uint32_t epoch)>;
 
     void setOnPeerHeard(PeerHeardCb cb)           { _onPeerHeard      = cb; }
     void setOnLightConfig(LightConfigCb cb)       { _onLightConfig    = cb; }
@@ -52,6 +53,7 @@ public:
     void setOnConfigChunk(ConfigChunkCb cb)       { _onConfigChunk    = cb; }
     void setOnTriggerUpdate(TriggerUpdateCb cb)   { _onTriggerUpdate  = cb; }
     void setOnCheckUpdate(CheckUpdateCb cb)       { _onCheckUpdate    = cb; }
+    void setOnTimeSync(TimeSyncCb cb)             { _onTimeSync       = cb; }
 
     void begin() {
         _instance = this;
@@ -229,6 +231,13 @@ public:
         _send(&msg, sizeof(msg));
     }
 
+    void broadcastTimeSync(uint32_t epoch) {
+        if (!_ready) return;
+        TimeSyncMsg msg;
+        msg.epoch = epoch;
+        _send(&msg, sizeof(msg));
+    }
+
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
             if (Config::get().groups[i].exists)
@@ -263,6 +272,7 @@ private:
     ConfigChunkCb   _onConfigChunk;
     TriggerUpdateCb _onTriggerUpdate;
     CheckUpdateCb   _onCheckUpdate;
+    TimeSyncCb      _onTimeSync;
 
     static MeshManager* _instance;
 
@@ -484,6 +494,12 @@ private:
                     Logger::i("[mesh] check-update rx");
                     if (_instance->_onCheckUpdate) _instance->_onCheckUpdate();
                 }
+                break;
+            }
+            case MsgType::TimeSync: {
+                if (len < (int)sizeof(TimeSyncMsg)) return;
+                auto* m = (TimeSyncMsg*)data;
+                if (_instance->_onTimeSync) _instance->_onTimeSync(m->epoch);
                 break;
             }
             default:

@@ -15,6 +15,7 @@
 #include "web/WebServer.h"
 #include "mqtt/MqttManager.h"
 #include "scenes/SceneSyncManager.h"
+#include "timesync/TimeSync.h"
 
 static Ws2812bDriver    _ws2812bPool[MAX_LIGHTS];
 static Ws2801Driver     _ws2801Pool[MAX_LIGHTS];
@@ -141,6 +142,7 @@ void setup() {
     Logger::i("[sys] firmware %s  device: %s", FW_VERSION, Config::get().deviceName);
 
     setupWifi();
+    TimeSync::begin(Config::get().timezone);
     channelMgr.begin();
 
     // Initialise one driver + runner per configured light
@@ -259,6 +261,8 @@ void setup() {
 
     mesh.setOnTriggerUpdate([]() { Updater::triggerAsync(); });
     mesh.setOnCheckUpdate([]() { Updater::checkAsync(); });
+    mesh.setOnTimeSync([](uint32_t epoch) { TimeSync::onPeerTime(epoch); });
+    TimeSync::setBroadcastFn([](uint32_t epoch) { mesh.broadcastTimeSync(epoch); });
 
     mesh.setOnConfigChunk([](const uint8_t* srcMac, const ConfigChunkMsg* msg) {
         uint8_t own[6];
@@ -412,6 +416,7 @@ void loop() {
     if (!_otaActive) {
         channelMgr.tick();
         mesh.tick();
+        TimeSync::tick();
         mqtt.loop();
         for (uint8_t i = 0; i < MAX_LIGHTS; i++)
             if (_leds[i]) _runners[i].tick();

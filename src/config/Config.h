@@ -40,6 +40,7 @@ enum class GroupMode : uint8_t {
     Proximity = 2,
     Gradient  = 3,
     Text      = 4,  // matrix lights only
+    Time      = 5,  // matrix lights only
 };
 
 enum class TextAnimation : uint8_t {
@@ -72,6 +73,7 @@ struct LightConfig {
     uint8_t   gradientStopCount = 0;      // gradient mode: manual stop count override; 0 = auto (GradientCommon::targetStopCount)
     char          text[64]      = {};     // text mode: message to display
     TextAnimation textAnimation = TextAnimation::Scroll;  // text mode: how overflowing text moves
+    bool          time24h       = true;   // time mode: 24h (HH:MM) vs 12h (hh:MM) display
 };
 
 static constexpr uint8_t MAX_GROUPS        = 8;
@@ -121,6 +123,7 @@ struct DeviceConfig {
     char        mqttPassword[64] = "";
     char        githubToken[128] = "";
     char        githubRepo[64]   = "variour/batterylight";
+    char        timezone[64]     = "UTC0";  // POSIX TZ string, e.g. "CET-1CEST,M3.5.0,M10.5.0/3"
     bool        sceneSyncEnabled        = true;
     bool        checkUpdateOnStartup    = false;
     LightHardwareConfig lights[MAX_LIGHTS];
