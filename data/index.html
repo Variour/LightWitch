@@ -25,6 +25,7 @@ input[type=color]  { width: 2.2rem; height: 2.2rem; border: none; border-radius:
 .row   { display: flex; gap: .5rem; align-items: center; }
 .row > *  { flex: 1; }
 .row > input[type=color] { flex: 0; }
+.flex-between { display: flex; align-items: center; justify-content: space-between; }
 button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer;
          font-size: .88rem; font-weight: 600; }
 .btn-primary { background: #2a6; color: #fff; }
@@ -454,7 +455,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 
   <!-- CONNECTED LIGHTS -->
   <div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem;gap:.5rem;flex-wrap:wrap">
+    <div class="flex-between" style="margin-bottom:.5rem;gap:.5rem;flex-wrap:wrap">
       <h2 style="margin:0">Connected Lights</h2>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
         <button class="btn-ghost btn-sm" onclick="meshSearch()" title="Search for mesh peers on other channels">Search channel</button>
@@ -490,7 +491,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
     <h2>Log</h2>
     <div id="log"></div>
     <div id="ws-status">WebSocket: connecting…</div>
-    <button class="btn-danger btn-sm" style="margin-top:.4rem;width:100%" onclick="document.getElementById('log').innerHTML=''">Clear log</button>
+    <button class="btn-danger btn-sm" style="margin-top:.4rem;width:100%" onclick="$('log').innerHTML=''">Clear log</button>
   </div>
 
 </div><!-- /right column -->
@@ -504,10 +505,10 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   <!-- Scene list view -->
   <div id="scene-view-list">
     <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap">
+      <div class="flex-between" style="gap:.5rem;flex-wrap:wrap">
         <h2 style="margin:0">Scenes</h2>
         <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
-          <button class="btn-ghost btn-sm" onclick="document.getElementById('scene-json-upload').click()">⬆ Upload scene JSON</button>
+          <button class="btn-ghost btn-sm" onclick="$('scene-json-upload').click()">⬆ Upload scene JSON</button>
           <input type="file" id="scene-json-upload" accept="application/json,.json" style="display:none" onchange="uploadSceneJsonFromList(event)">
           <button class="btn-ghost btn-sm" onclick="showCreateSceneFromImage()">🖼 From Image</button>
           <button class="btn-primary btn-sm" onclick="showCreateScene()">+ New Scene</button>
@@ -561,7 +562,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
         <input type="text" id="sci-palette-name" placeholder="My Palette">
         <label>Number of colors <span id="sci-ncolors-label">8</span></label>
         <input type="range" id="sci-ncolors" min="2" max="32" value="8"
-               oninput="document.getElementById('sci-ncolors-label').textContent=this.value">
+               oninput="$('sci-ncolors-label').textContent=this.value">
       </div>
 
       <button class="btn-primary" style="width:100%;margin-top:.3rem" onclick="doCreateSceneFromImage()">Create Scene</button>
@@ -755,7 +756,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
           <div id="se-frames"></div>
           <div style="display:flex;gap:.4rem;margin-top:.5rem">
             <button class="btn-primary btn-sm" style="flex:1" onclick="addFrame()">+ Add Frame</button>
-            <button class="btn-ghost btn-sm" title="Import image as frame" onclick="document.getElementById('sei-file').click()">🖼 Import</button>
+            <button class="btn-ghost btn-sm" title="Import image as frame" onclick="$('sei-file').click()">🖼 Import</button>
           </div>
           <input type="file" id="sei-file" accept="image/jpeg,image/png,image/gif,image/webp"
                  style="display:none" onchange="importImageAsFrame(event)">
@@ -765,7 +766,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
       <!-- Main panel: grid canvas -->
       <div>
         <div class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+          <div class="flex-between" style="margin-bottom:.5rem">
             <h2 style="margin:0">Canvas</h2>
             <div style="display:flex;gap:.25rem">
               <button class="btn-ghost btn-sm" onclick="zoomOut()" title="Zoom out">−</button>
@@ -853,7 +854,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   <!-- FIRMWARE UPDATE -->
   <div class="card" id="fw-update-card">
     <h2>Firmware update</h2>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.5rem;flex-wrap:wrap">
+    <div class="flex-between" style="gap:.5rem;margin-bottom:.5rem;flex-wrap:wrap">
       <div>
         <div style="font-size:.82rem;color:#888">Current: <span id="upd-current" style="color:#eee">—</span></div>
         <div style="font-size:.82rem;color:#888">Latest: <span id="upd-latest" style="color:#eee">—</span></div>
@@ -880,7 +881,7 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 <div id="push-overlay" class="push-overlay" onclick="if(event.target===this)closePushModal()">
   <div class="push-modal">
     <div class="card" style="margin:0">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+      <div class="flex-between" style="margin-bottom:.5rem">
         <h2 style="margin:0" id="push-modal-title">Push config</h2>
         <button class="btn-ghost btn-sm" onclick="closePushModal()">✕</button>
       </div>
@@ -951,6 +952,8 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 </div>
 
 <script>
+const $ = id => document.getElementById(id);
+
 // ── Dashboard state ───────────────────────────────────────────────────────────
 let _groups      = [];
 let _peers       = [];
@@ -995,11 +998,11 @@ function _replacePath(path) {
 }
 
 function _showTab(tab) {
-  document.getElementById('tab-dashboard').style.display = tab === 'dashboard' ? '' : 'none';
-  document.getElementById('tab-scenes').style.display    = tab === 'scenes'    ? '' : 'none';
-  document.getElementById('tab-settings').style.display  = tab === 'settings'  ? '' : 'none';
+  $('tab-dashboard').style.display = tab === 'dashboard' ? '' : 'none';
+  $('tab-scenes').style.display    = tab === 'scenes'    ? '' : 'none';
+  $('tab-settings').style.display  = tab === 'settings'  ? '' : 'none';
   document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-btn-' + tab).classList.add('active');
+  $('tab-btn-' + tab).classList.add('active');
 }
 
 function switchTab(tab, pushHistory = true) {
@@ -1026,7 +1029,7 @@ function groupHasMatrixLight(id) {
 function renderGroups(groups) {
   _groups = groups;
   if (_self) renderLights(_self, _peers);
-  const el = document.getElementById('groups-list');
+  const el = $('groups-list');
   const activeCard = document.activeElement?.closest('.group-card');
   const activeGroupId = (activeCard && el.contains(activeCard)) ? Number(activeCard.dataset.groupId) : null;
   const existing = new Map([...el.children].map(c => [Number(c.dataset.groupId), c]));
@@ -1135,25 +1138,25 @@ function renderGroups(groups) {
           <p class="pattern-desc" style="margin-top:.2rem">Only affects string lights. Matrix lights still render the full scene image.</p>
           <div class="sync-row" style="margin-top:.3rem">
             <input type="checkbox" id="ganim-${g.id}" ${animEnabled?'checked':''}
-                   onchange="document.getElementById('ganimdur-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
+                   onchange="$('ganimdur-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
             <label for="ganim-${g.id}" style="margin:0;color:inherit;font-size:inherit">Animate frames</label>
           </div>
           <div id="ganimdur-wrap-${g.id}" style="${animEnabled?'':'display:none'}">
             <label style="margin-top:.4rem">Frame duration <span id="gfd-label-${g.id}">${(animEnabled?frameDuration:1).toFixed(1)}s</span></label>
             <input type="range" id="gfd-${g.id}" min="0.5" max="60" step="0.5" value="${animEnabled?frameDuration:1}"
-                   oninput="document.getElementById('gfd-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'s'; onGroupControl(${g.id})">
+                   oninput="$('gfd-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'s'; onGroupControl(${g.id})">
           </div>
           <div id="gtrans-wrap-${g.id}">
             <div class="sync-row" style="margin-top:.3rem">
               <input type="checkbox" id="gtrans-${g.id}" ${transitionEnabled?'checked':''}
-                     onchange="document.getElementById('gtranstime-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
+                     onchange="$('gtranstime-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
               <label for="gtrans-${g.id}" style="margin:0;color:inherit;font-size:inherit">Blend / cycle colors</label>
             </div>
             <p class="pattern-desc" style="margin-top:.2rem">Matrix: blends between frames. String: cycles scene colors, either per LED or for the whole string depending on the option above.</p>
             <div id="gtranstime-wrap-${g.id}" style="${transitionEnabled?'':'display:none'}">
               <label style="margin-top:.4rem">Transition time <span id="gtt-label-${g.id}">${transitionTime}s</span></label>
               <input type="range" id="gtt-${g.id}" min="0.1" max="30" step="0.1" value="${transitionTime}"
-                     oninput="document.getElementById('gtt-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'s'; onGroupControl(${g.id})">
+                     oninput="$('gtt-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'s'; onGroupControl(${g.id})">
             </div>
           </div>
         </div>
@@ -1183,14 +1186,14 @@ function renderGroups(groups) {
           </div>
           <div class="sync-row" style="margin-top:.3rem">
             <input type="checkbox" id="ggstopscustom-${g.id}" ${gradientStopCount>0?'checked':''}
-                   onchange="document.getElementById('ggstops-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
+                   onchange="$('ggstops-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
             <label for="ggstopscustom-${g.id}" style="margin:0;color:inherit;font-size:inherit">Custom stop count</label>
           </div>
           <p class="pattern-desc" style="margin-top:.2rem">By default, the number of gradient stops is calculated automatically from the light's length. Enable this to set it yourself.</p>
           <div id="ggstops-wrap-${g.id}" style="${gradientStopCount>0?'':'display:none'}">
             <label style="margin-top:.4rem">Stops <span id="ggstops-label-${g.id}">${gradientStopCount>0?gradientStopCount:4}</span></label>
             <input type="range" id="ggstops-${g.id}" min="2" max="32" step="1" value="${gradientStopCount>0?gradientStopCount:4}"
-                   oninput="document.getElementById('ggstops-label-${g.id}').textContent=this.value; onGroupControl(${g.id})">
+                   oninput="$('ggstops-label-${g.id}').textContent=this.value; onGroupControl(${g.id})">
           </div>
           <div>
             <label>Brightness</label>
@@ -1199,14 +1202,14 @@ function renderGroups(groups) {
           </div>
           <div class="sync-row" style="margin-top:.3rem">
             <input type="checkbox" id="ggmorph-${g.id}" ${morphEnabled?'checked':''}
-                   onchange="document.getElementById('ggspeed-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
+                   onchange="$('ggspeed-wrap-${g.id}').style.display=this.checked?'':'none'; onGroupControl(${g.id})">
             <label for="ggmorph-${g.id}" style="margin:0;color:inherit;font-size:inherit">Morph colors</label>
           </div>
           <p class="pattern-desc" style="margin-top:.2rem">Gradient stops continuously wander to a new random color from the scene, blending the whole gradient in real time.</p>
           <div id="ggspeed-wrap-${g.id}" style="${morphEnabled?'':'display:none'}">
             <label style="margin-top:.4rem">Morph speed <span id="ggspeed-label-${g.id}">${(g.speed||1).toFixed(1)}×</span></label>
             <input type="range" id="ggsp-${g.id}" min="0.1" max="5" step="0.1" value="${g.speed||1}"
-                   oninput="document.getElementById('ggspeed-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'×'; onGroupControl(${g.id})">
+                   oninput="$('ggspeed-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'×'; onGroupControl(${g.id})">
           </div>
         </div>
 
@@ -1238,7 +1241,7 @@ function renderGroups(groups) {
           <div>
             <label>Speed <span id="gtxspeed-label-${g.id}">${(g.speed||1).toFixed(1)}×</span></label>
             <input type="range" id="gtxsp-${g.id}" min="0.1" max="5" step="0.1" value="${g.speed||1}"
-                   oninput="document.getElementById('gtxspeed-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'×'; onGroupControl(${g.id})">
+                   oninput="$('gtxspeed-label-${g.id}').textContent=parseFloat(this.value).toFixed(1)+'×'; onGroupControl(${g.id})">
           </div>
         </div>
 
@@ -1274,18 +1277,18 @@ function renderGroups(groups) {
 }
 
 function onSpeedLabel(id) {
-  const v = parseFloat(document.getElementById(`gsp-${id}`).value).toFixed(1);
-  document.getElementById(`gspeed-label-${id}`).textContent = v + '×';
+  const v = parseFloat($(`gsp-${id}`).value).toFixed(1);
+  $(`gspeed-label-${id}`).textContent = v + '×';
 }
 
 function onProxLabel(id) {
-  const v = parseFloat(document.getElementById(`gprox-${id}`).value).toFixed(1);
-  document.getElementById(`gproxlabel-${id}`).textContent = v + '×';
+  const v = parseFloat($(`gprox-${id}`).value).toFixed(1);
+  $(`gproxlabel-${id}`).textContent = v + '×';
 }
 
 function _setActiveButton(idA, idB, isA) {
-  const buttonA = document.getElementById(idA);
-  const buttonB = document.getElementById(idB);
+  const buttonA = $(idA);
+  const buttonB = $(idB);
   [[buttonA, isA], [buttonB, !isA]].forEach(([button, active]) => {
     if (!button) return;
     button.classList.toggle('btn-primary', active);
@@ -1294,34 +1297,34 @@ function _setActiveButton(idA, idB, isA) {
 }
 
 function setGroupSceneColorMode(id, mode) {
-  const input = document.getElementById(`gsceneuniform-${id}`);
+  const input = $(`gsceneuniform-${id}`);
   if (input) input.value = mode;
   _setActiveButton(`gsceneuniform-perled-${id}`, `gsceneuniform-uniform-${id}`, mode === 'per-led');
   onGroupControl(id);
 }
 
 function setGroupTextAnimation(id, anim) {
-  const input = document.getElementById(`gtxanim-${id}`);
+  const input = $(`gtxanim-${id}`);
   if (input) input.value = anim;
   _setActiveButton(`gtxanim-scroll-${id}`, `gtxanim-bounce-${id}`, anim === 0);
   onGroupControl(id);
 }
 
 function setGroupTimeFormat(id, format) {
-  const input = document.getElementById(`gtime24h-${id}`);
+  const input = $(`gtime24h-${id}`);
   if (input) input.value = format;
   _setActiveButton(`gtime24-${id}`, `gtime12-${id}`, format === '24');
   onGroupControl(id);
 }
 
 function onGroupControl(id) {
-  const mode = parseInt(document.getElementById(`gmode-${id}`)?.value || 0);
-  const pat = parseInt(document.getElementById(`gp-${id}`)?.value || 0);
-  const patternWrap = document.getElementById(`gpattern-wrap-${id}`);
-  const sceneWrap   = document.getElementById(`gscene-wrap-${id}`);
-  const gradWrap    = document.getElementById(`ggrad-wrap-${id}`);
-  const textWrap    = document.getElementById(`gtext-wrap-${id}`);
-  const timeWrap    = document.getElementById(`gtime-wrap-${id}`);
+  const mode = parseInt($(`gmode-${id}`)?.value || 0);
+  const pat = parseInt($(`gp-${id}`)?.value || 0);
+  const patternWrap = $(`gpattern-wrap-${id}`);
+  const sceneWrap   = $(`gscene-wrap-${id}`);
+  const gradWrap    = $(`ggrad-wrap-${id}`);
+  const textWrap    = $(`gtext-wrap-${id}`);
+  const timeWrap    = $(`gtime-wrap-${id}`);
 
   if (patternWrap) patternWrap.style.display = mode === 0 ? '' : 'none';
   if (sceneWrap) sceneWrap.style.display = mode === 1 ? '' : 'none';
@@ -1329,33 +1332,33 @@ function onGroupControl(id) {
   if (textWrap) textWrap.style.display = mode === 4 ? '' : 'none';
   if (timeWrap) timeWrap.style.display = mode === 5 ? '' : 'none';
 
-  const desc = document.getElementById(`gdesc-${id}`);
+  const desc = $(`gdesc-${id}`);
   if (desc) desc.textContent = PATTERNS[pat]?.desc || '';
 
   const colorHidden = PATTERNS[pat]?.hasColor === false;
-  const colorRow = document.getElementById(`gcr-${id}`);
+  const colorRow = $(`gcr-${id}`);
   if (colorRow) colorRow.style.display = colorHidden ? 'none' : '';
 
-  const syncRow = document.getElementById(`gsync-row-${id}`);
+  const syncRow = $(`gsync-row-${id}`);
   const noSync  = PATTERNS[pat]?.syncable === false;
   if (syncRow) syncRow.style.display = noSync ? 'none' : '';
 
-  const proxModeWrap = document.getElementById(`gprox-mode-wrap-${id}`);
+  const proxModeWrap = $(`gprox-mode-wrap-${id}`);
   if (proxModeWrap) proxModeWrap.style.display = mode === 2 ? '' : 'none';
 
-  const gradSpeedWrap = document.getElementById(`ggspeed-wrap-${id}`);
-  const gradMorph     = document.getElementById(`ggmorph-${id}`)?.checked;
+  const gradSpeedWrap = $(`ggspeed-wrap-${id}`);
+  const gradMorph     = $(`ggmorph-${id}`)?.checked;
   if (gradSpeedWrap) gradSpeedWrap.style.display = gradMorph ? '' : 'none';
 
-  const gradStopsWrap   = document.getElementById(`ggstops-wrap-${id}`);
-  const gradStopsCustom = document.getElementById(`ggstopscustom-${id}`)?.checked;
+  const gradStopsWrap   = $(`ggstops-wrap-${id}`);
+  const gradStopsCustom = $(`ggstopscustom-${id}`)?.checked;
   if (gradStopsWrap) gradStopsWrap.style.display = gradStopsCustom ? '' : 'none';
 
   const grp = _groups.find(g => g.id === id);
   if (grp) { grp.mode = mode; _updateSignalColumn(); }
 
-  const transTimeWrap = document.getElementById(`gtranstime-wrap-${id}`);
-  const transEnabled  = document.getElementById(`gtrans-${id}`)?.checked;
+  const transTimeWrap = $(`gtranstime-wrap-${id}`);
+  const transEnabled  = $(`gtrans-${id}`)?.checked;
   if (transTimeWrap) transTimeWrap.style.display = transEnabled ? '' : 'none';
 
   clearTimeout(_debounce[id]);
@@ -1363,47 +1366,47 @@ function onGroupControl(id) {
 }
 
 async function applyGroupControl(id) {
-  const mode = parseInt(document.getElementById(`gmode-${id}`)?.value || 0);
-  const hex = mode === 4 ? (document.getElementById(`gtxc-${id}`)?.value || '#ffffff')
-            : mode === 5 ? (document.getElementById(`gtc-${id}`)?.value  || '#ffffff')
-                          : (document.getElementById(`gc2-${id}`)?.value || '#ffffff');
+  const mode = parseInt($(`gmode-${id}`)?.value || 0);
+  const hex = mode === 4 ? ($(`gtxc-${id}`)?.value || '#ffffff')
+            : mode === 5 ? ($(`gtc-${id}`)?.value  || '#ffffff')
+                          : ($(`gc2-${id}`)?.value || '#ffffff');
   const [r,g,b] = hexToRgb(hex);
-  const brEl = mode === 2 ? document.getElementById(`gprox-br-${id}`)
-             : mode === 1 ? document.getElementById(`gbrs-${id}`)
-             : mode === 3 ? document.getElementById(`ggbr-${id}`)
-             : mode === 4 ? document.getElementById(`gtxbr-${id}`)
-             : mode === 5 ? document.getElementById(`gtbr-${id}`)
-             :               document.getElementById(`gbr-${id}`);
-  const speedEl = mode === 3 ? document.getElementById(`ggsp-${id}`)
-                 : mode === 4 ? document.getElementById(`gtxsp-${id}`)
-                 :              document.getElementById(`gsp-${id}`);
+  const brEl = mode === 2 ? $(`gprox-br-${id}`)
+             : mode === 1 ? $(`gbrs-${id}`)
+             : mode === 3 ? $(`ggbr-${id}`)
+             : mode === 4 ? $(`gtxbr-${id}`)
+             : mode === 5 ? $(`gtbr-${id}`)
+             :               $(`gbr-${id}`);
+  const speedEl = mode === 3 ? $(`ggsp-${id}`)
+                 : mode === 4 ? $(`gtxsp-${id}`)
+                 :              $(`gsp-${id}`);
   await _fetchOrToast('/api/groups/update', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
       id,
       mode,
-      sceneId:           mode === 1 ? (document.getElementById(`gscene-${id}`)?.value || '')
-                        : mode === 3 ? (document.getElementById(`ggscene-${id}`)?.value || '')
+      sceneId:           mode === 1 ? ($(`gscene-${id}`)?.value || '')
+                        : mode === 3 ? ($(`ggscene-${id}`)?.value || '')
                         : '',
-      pattern:           parseInt(document.getElementById(`gp-${id}`)?.value || 0),
+      pattern:           parseInt($(`gp-${id}`)?.value || 0),
       r, g, b,
       brightness:        parseInt(brEl?.value || 255),
       speed:             parseFloat(speedEl?.value || 1),
-      transitionEnabled: document.getElementById(`gtrans-${id}`)?.checked || false,
-      sceneUniformColor: (document.getElementById(`gsceneuniform-${id}`)?.value || 'per-led') === 'uniform',
-      transitionTime:    parseFloat(document.getElementById(`gtt-${id}`)?.value || 2),
-      frameDuration:     document.getElementById(`ganim-${id}`)?.checked
-                           ? parseFloat(document.getElementById(`gfd-${id}`)?.value || 1)
+      transitionEnabled: $(`gtrans-${id}`)?.checked || false,
+      sceneUniformColor: ($(`gsceneuniform-${id}`)?.value || 'per-led') === 'uniform',
+      transitionTime:    parseFloat($(`gtt-${id}`)?.value || 2),
+      frameDuration:     $(`ganim-${id}`)?.checked
+                           ? parseFloat($(`gfd-${id}`)?.value || 1)
                            : 0,
-      proximityScale:    parseFloat(document.getElementById(`gprox-${id}`)?.value || 1),
-      morphEnabled:      document.getElementById(`ggmorph-${id}`)?.checked || false,
-      gradientStopCount: document.getElementById(`ggstopscustom-${id}`)?.checked
-                           ? parseInt(document.getElementById(`ggstops-${id}`)?.value || 4)
+      proximityScale:    parseFloat($(`gprox-${id}`)?.value || 1),
+      morphEnabled:      $(`ggmorph-${id}`)?.checked || false,
+      gradientStopCount: $(`ggstopscustom-${id}`)?.checked
+                           ? parseInt($(`ggstops-${id}`)?.value || 4)
                            : 0,
-      text:              document.getElementById(`gtxt-${id}`)?.value || '',
-      textAnimation:     parseInt(document.getElementById(`gtxanim-${id}`)?.value || 0),
-      time24h:           (document.getElementById(`gtime24h-${id}`)?.value || '24') === '24',
+      text:              $(`gtxt-${id}`)?.value || '',
+      textAnimation:     parseInt($(`gtxanim-${id}`)?.value || 0),
+      time24h:           ($(`gtime24h-${id}`)?.value || '24') === '24',
     })
   }, 'Failed to apply group settings');
 }
@@ -1424,7 +1427,7 @@ async function renameGroup(id, name) {
 }
 
 async function createGroup() {
-  const inp = document.getElementById('new-group-name');
+  const inp = $('new-group-name');
   const name = inp.value.trim();
   if (!name) return;
   const res = await _fetchOrToast('/api/groups/create', {
@@ -1435,12 +1438,13 @@ async function createGroup() {
 }
 
 async function deleteGroup(id) {
-  if (!confirm(`Delete group?`)) return;
-  const res = await _fetchOrToast('/api/groups/delete', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({id})
-  }, 'Failed to delete group');
-  if (res) await loadConfig();
+  await _confirmAction(`Delete group?`, async () => {
+    const res = await _fetchOrToast('/api/groups/delete', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id})
+    }, 'Failed to delete group');
+    if (res) await loadConfig();
+  });
 }
 
 // ── Lights table ──────────────────────────────────────────────────────────────
@@ -1457,7 +1461,7 @@ function compareVersions(a, b) {
 
 function _updateSignalColumn() {
   const showSignal = _groups.some(g => g.mode === 2);
-  document.getElementById('signal-th').style.display = showSignal ? '' : 'none';
+  $('signal-th').style.display = showSignal ? '' : 'none';
   document.querySelectorAll('#lights-body tr td:nth-child(4)').forEach(td => {
     td.style.display = showSignal ? '' : 'none';
   });
@@ -1481,8 +1485,8 @@ function renderLights(self, peers) {
 
   const all = (self ? [{...self, isSelf: true}, ...peers] : peers)
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  const body = document.getElementById('lights-body');
-  const mobile = document.getElementById('lights-mobile-list');
+  const body = $('lights-body');
+  const mobile = $('lights-mobile-list');
   const showSignal = _groups.some(g => g.mode === 2);
 
   if (!all.length) {
@@ -1720,8 +1724,9 @@ async function setSceneSync(mac, enabled) {
 }
 
 function meshSearch() {
-  if (!confirm('Re-searching for mesh peers will disconnect active peers temporarily and may drop your connection to this device. Continue?')) return;
-  fetch('/api/mesh/search', { method: 'POST' });
+  _confirmAction('Re-searching for mesh peers will disconnect active peers temporarily and may drop your connection to this device. Continue?', () => {
+    fetch('/api/mesh/search', { method: 'POST' });
+  });
 }
 
 // Fields that support "use current" — shared fields first, then per-device
@@ -1739,7 +1744,7 @@ const _pushSensitiveFields = new Set([
 ]);
 
 function toggleField(id, checked) {
-  const el = document.getElementById(id);
+  const el = $(id);
   if (_pushSensitiveFields.has(id)) {
     el.disabled = checked;
     el.placeholder = checked ? '(current value)' : '(leave blank to keep unchanged)';
@@ -1757,7 +1762,7 @@ function toggleField(id, checked) {
 }
 
 function togglePushWifi(checked) {
-  document.getElementById('push-wifi-manual').style.display = checked ? 'none' : '';
+  $('push-wifi-manual').style.display = checked ? 'none' : '';
 }
 
 function setAllPushFields(checked) {
@@ -1765,13 +1770,13 @@ function setAllPushFields(checked) {
   const fields = isAll ? _pushSharedFields : [..._pushSharedFields, ..._pushDeviceFields];
   fields.forEach(id => {
     if (id === 'push-wifiNetworks') {
-      const cb = document.getElementById(id + '-ul');
+      const cb = $(id + '-ul');
       if (!cb) return;
       cb.checked = checked;
       togglePushWifi(checked);
       return;
     }
-    const cb = document.getElementById(id + '-ul');
+    const cb = $(id + '-ul');
     if (!cb) return;
     cb.checked = checked;
     toggleField(id, checked);
@@ -1783,10 +1788,10 @@ document.addEventListener('DOMContentLoaded', () => {
   [..._pushSharedFields, ..._pushDeviceFields]
     .filter(id => !_pushSensitiveFields.has(id))
     .forEach(id => {
-      const el = document.getElementById(id);
+      const el = $(id);
       if (!el) return;
       el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
-        const cb = document.getElementById(id + '-ul');
+        const cb = $(id + '-ul');
         if (cb) cb.checked = false;
       });
     });
@@ -1795,29 +1800,29 @@ document.addEventListener('DOMContentLoaded', () => {
 function openPushModal(mac, peerName) {
   _pushTarget = mac || null;
   const isAll = !_pushTarget;
-  document.getElementById('push-modal-title').textContent =
+  $('push-modal-title').textContent =
     isAll ? 'Push config to all' : `Push config to ${peerName || mac}`;
-  document.getElementById('push-device-section').style.display = isAll ? 'none' : '';
+  $('push-device-section').style.display = isAll ? 'none' : '';
 
   // Reset deviceName (no checkbox) and wifi manual fields
-  document.getElementById('push-deviceName').value = '';
-  const wSsidEl = document.getElementById('push-wifiSsidNew');
-  const wPassEl = document.getElementById('push-wifiPasswordNew');
+  $('push-deviceName').value = '';
+  const wSsidEl = $('push-wifiSsidNew');
+  const wPassEl = $('push-wifiPasswordNew');
   if (wSsidEl) wSsidEl.value = '';
   if (wPassEl) wPassEl.value = '';
 
   // Set all checkboxes: all checked for push-to-all, all unchecked for per-device
   setAllPushFields(isAll);
 
-  const btn = document.getElementById('push-submit-btn');
+  const btn = $('push-submit-btn');
   btn.disabled = false;
   btn.textContent = 'Push';
 
-  document.getElementById('push-overlay').style.display = 'block';
+  $('push-overlay').style.display = 'block';
 }
 
 function closePushModal() {
-  document.getElementById('push-overlay').style.display = 'none';
+  $('push-overlay').style.display = 'none';
 }
 
 async function submitPushConfig() {
@@ -1826,31 +1831,31 @@ async function submitPushConfig() {
 
   // deviceName — per-device only, always manual
   if (_pushTarget) {
-    const name = document.getElementById('push-deviceName').value.trim();
+    const name = $('push-deviceName').value.trim();
     if (name) body.deviceName = name;
   }
 
   const useLocal = [];
   const isSensitive = id => _pushSensitiveFields.has(id);
-  const ul = id => document.getElementById(id + '-ul')?.checked;
+  const ul = id => $(id + '-ul')?.checked;
 
   // Sensitive fields: checked → firmware fills via useLocal; unchecked → read typed value
   const sensitiveStr = (elId, key) => {
     if (ul(elId)) { useLocal.push(key); return; }
-    const v = document.getElementById(elId).value.trim(); if (v) body[key] = v;
+    const v = $(elId).value.trim(); if (v) body[key] = v;
   };
   // Non-sensitive fields: value already in field (populated by checkbox or typed by user)
-  const str  = (elId, key) => { const v = document.getElementById(elId).value.trim(); if (v) body[key] = v; };
-  const num  = (elId, key) => { const v = document.getElementById(elId).value.trim(); if (v) body[key] = parseInt(v); };
-  const bool = (elId, key) => { const v = document.getElementById(elId).value; if (v !== '') body[key] = v === 'true'; };
-  const int  = (elId, key) => { const v = document.getElementById(elId).value; if (v !== '') body[key] = parseInt(v); };
+  const str  = (elId, key) => { const v = $(elId).value.trim(); if (v) body[key] = v; };
+  const num  = (elId, key) => { const v = $(elId).value.trim(); if (v) body[key] = parseInt(v); };
+  const bool = (elId, key) => { const v = $(elId).value; if (v !== '') body[key] = v === 'true'; };
+  const int  = (elId, key) => { const v = $(elId).value; if (v !== '') body[key] = parseInt(v); };
 
   // WiFi: either push full list (useLocal) or add one manual entry
-  if (document.getElementById('push-wifiNetworks-ul')?.checked) {
+  if ($('push-wifiNetworks-ul')?.checked) {
     useLocal.push('wifiNetworks');
   } else {
-    const wSsid = document.getElementById('push-wifiSsidNew')?.value.trim();
-    const wPass = document.getElementById('push-wifiPasswordNew')?.value.trim();
+    const wSsid = $('push-wifiSsidNew')?.value.trim();
+    const wPass = $('push-wifiPasswordNew')?.value.trim();
     if (wSsid) body.addWifiNetworks = [{ssid: wSsid, password: wPass || ''}];
   }
   sensitiveStr('push-apPassword',   'apPassword');
@@ -1871,7 +1876,7 @@ async function submitPushConfig() {
     return;
   }
 
-  const btn = document.getElementById('push-submit-btn');
+  const btn = $('push-submit-btn');
   btn.disabled = true;
   btn.textContent = 'Pushing…';
   const res = await _fetchOrToast('/api/peers/pushconfig', {
@@ -1884,8 +1889,8 @@ async function submitPushConfig() {
 
 // ── Settings save ─────────────────────────────────────────────────────────────
 async function saveSettings() {
-  const btn    = document.getElementById('save-reboot-btn');
-  const status = document.getElementById('save-reboot-status');
+  const btn    = $('save-reboot-btn');
+  const status = $('save-reboot-status');
 
   btn.disabled    = true;
   btn.textContent = 'Saving…';
@@ -1893,22 +1898,22 @@ async function saveSettings() {
   status.textContent = '';
 
   const body = {
-    deviceName: document.getElementById('deviceName').value,
-    otaPort:    parseInt(document.getElementById('otaPort').value),
-    otaEnabled: document.getElementById('otaEnabled').checked,
-    logLevel:   parseInt(document.getElementById('logLevel').value),
-    mqttHost:   document.getElementById('mqttHost').value,
-    mqttPort:   parseInt(document.getElementById('mqttPort').value) || 1883,
-    mqttUser:   document.getElementById('mqttUser').value,
-    timezone:   document.getElementById('timezone').value || 'UTC0',
+    deviceName: $('deviceName').value,
+    otaPort:    parseInt($('otaPort').value),
+    otaEnabled: $('otaEnabled').checked,
+    logLevel:   parseInt($('logLevel').value),
+    mqttHost:   $('mqttHost').value,
+    mqttPort:   parseInt($('mqttPort').value) || 1883,
+    mqttUser:   $('mqttUser').value,
+    timezone:   $('timezone').value || 'UTC0',
   };
-  const apPw   = document.getElementById('apPassword').value;
-  const mqttPw = document.getElementById('mqttPassword').value;
-  const ghTok  = document.getElementById('githubToken').value;
+  const apPw   = $('apPassword').value;
+  const mqttPw = $('mqttPassword').value;
+  const ghTok  = $('githubToken').value;
   if (apPw)   body.apPassword    = apPw;
   if (mqttPw) body.mqttPassword  = mqttPw;
-  body.githubRepo = document.getElementById('githubRepo').value;
-  body.checkUpdateOnStartup = document.getElementById('checkUpdateOnStartup').checked;
+  body.githubRepo = $('githubRepo').value;
+  body.checkUpdateOnStartup = $('checkUpdateOnStartup').checked;
   if (ghTok)  body.githubToken   = ghTok;
 
   try {
@@ -1960,9 +1965,10 @@ async function _waitForDeviceOnline(timeoutMs = 60_000) {
 }
 
 async function factoryReset() {
-  if (!confirm('Factory reset? All settings will be lost.')) return;
-  await fetch('/api/reset', {method:'POST'});
-  alert('Reset. Device rebooting.');
+  await _confirmAction('Factory reset? All settings will be lost.', async () => {
+    await fetch('/api/reset', {method:'POST'});
+    alert('Reset. Device rebooting.');
+  });
 }
 
 // ── Firmware update ───────────────────────────────────────────────────────────
@@ -1972,13 +1978,13 @@ let _selfLatestVersion = '';
 let _otaRebooting = false;
 
 function _updSetStatus(text, color) {
-  const el = document.getElementById('upd-status');
+  const el = $('upd-status');
   el.textContent = text;
   el.style.color = color || '#555';
 }
 
 async function checkUpdate() {
-  document.getElementById('upd-check-btn').disabled = true;
+  $('upd-check-btn').disabled = true;
   _updSetStatus('Checking…', '#aaa');
   await fetch('/api/update/check', {method:'POST'});
   _updPollStatus();
@@ -1986,8 +1992,8 @@ async function checkUpdate() {
 
 async function applyUpdate() {
   if (!confirm('Install firmware update? The device will reboot after flashing.')) return;
-  document.getElementById('upd-apply-btn').style.display = 'none';
-  document.getElementById('upd-progress-wrap').style.display = 'block';
+  $('upd-apply-btn').style.display = 'none';
+  $('upd-progress-wrap').style.display = 'block';
   await fetch('/api/update/apply', {method:'POST'});
   _updPollStatus();
 }
@@ -2009,15 +2015,15 @@ function _updPollStatus() {
 }
 
 function _updApplyStatus(data) {
-  if (data.latestVersion) document.getElementById('upd-latest').textContent = data.latestVersion;
-  document.getElementById('update-badge').style.display = data.hasUpdate ? '' : 'none';
+  if (data.latestVersion) $('upd-latest').textContent = data.latestVersion;
+  $('update-badge').style.display = data.hasUpdate ? '' : 'none';
   _selfHasUpdate = data.hasUpdate || false;
   _selfLatestVersion = data.latestVersion || '';
   if (_self) renderLights(_self, _peers);
-  const applyBtn   = document.getElementById('upd-apply-btn');
-  const progressWrap = document.getElementById('upd-progress-wrap');
-  const checkBtn   = document.getElementById('upd-check-btn');
-  const bar        = document.getElementById('upd-progress-bar');
+  const applyBtn   = $('upd-apply-btn');
+  const progressWrap = $('upd-progress-wrap');
+  const checkBtn   = $('upd-check-btn');
+  const bar        = $('upd-progress-bar');
 
   checkBtn.disabled = (data.state === 'checking' || data.state === 'downloading');
 
@@ -2053,7 +2059,7 @@ function _updApplyStatus(data) {
 
 // ── WiFi network management ───────────────────────────────────────────────────
 function renderWifiList(networks, connected) {
-  const el = document.getElementById('wifi-list');
+  const el = $('wifi-list');
   if (!el) return;
   if (!networks.length) {
     el.innerHTML = '<div style="font-size:.82rem;color:#555;margin-bottom:.25rem">(no networks saved — device runs in AP mode)</div>';
@@ -2061,7 +2067,7 @@ function renderWifiList(networks, connected) {
   }
   el.innerHTML = networks.map(ssid => {
     const isConn = ssid === connected;
-    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.3rem 0;border-bottom:1px solid #222">
+    return `<div class="flex-between" style="padding:.3rem 0;border-bottom:1px solid #222">
       <span style="font-size:.9rem">${esc(ssid)}${isConn ? ' <small style="color:#4c4">(connected)</small>' : ''}</span>
       <button class="btn-ghost btn-sm" onclick="deleteWifiNetwork(${JSON.stringify(ssid)})">Delete</button>
     </div>`;
@@ -2069,8 +2075,8 @@ function renderWifiList(networks, connected) {
 }
 
 async function addWifiNetwork() {
-  const ssid = document.getElementById('wifiSsidAdd').value.trim();
-  const pass = document.getElementById('wifiPasswordAdd').value;
+  const ssid = $('wifiSsidAdd').value.trim();
+  const pass = $('wifiPasswordAdd').value;
   if (!ssid) { alert('SSID is required'); return; }
   const res = await fetch('/api/wifi/add', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -2078,23 +2084,24 @@ async function addWifiNetwork() {
   });
   const data = await res.json();
   if (!res.ok) { alert('Error: ' + (data.error || res.status)); return; }
-  document.getElementById('wifiSsidAdd').value = '';
-  document.getElementById('wifiPasswordAdd').value = '';
+  $('wifiSsidAdd').value = '';
+  $('wifiPasswordAdd').value = '';
   const wr = await fetch('/api/wifi');
   const wd = await wr.json();
   renderWifiList(wd.networks || [], wd.connected || null);
 }
 
 async function deleteWifiNetwork(ssid) {
-  if (!confirm(`Remove "${ssid}" from the WiFi list?`)) return;
-  const res = await fetch('/api/wifi/delete', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ssid})
+  await _confirmAction(`Remove "${ssid}" from the WiFi list?`, async () => {
+    const res = await _fetchOrAlert('/api/wifi/delete', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ssid})
+    });
+    if (!res) return;
+    const wr = await fetch('/api/wifi');
+    const wd = await wr.json();
+    renderWifiList(wd.networks || [], wd.connected || null);
   });
-  if (!res.ok) { const d = await res.json(); alert('Error: ' + (d.error || res.status)); return; }
-  const wr = await fetch('/api/wifi');
-  const wd = await wr.json();
-  renderWifiList(wd.networks || [], wd.connected || null);
 }
 
 // ── Load config ───────────────────────────────────────────────────────────────
@@ -2120,20 +2127,20 @@ async function loadConfig() {
   _localConfig = d;
   await _refreshSceneOptions();
   _selfMac  = d.mac || '';
-  document.getElementById('deviceName').value = d.deviceName || '';
-  document.getElementById('otaPort').value    = d.otaPort    || 3232;
-  document.getElementById('otaEnabled').checked = d.otaEnabled !== false;
-  if (d.logLevel !== undefined) document.getElementById('logLevel').value = d.logLevel;
+  $('deviceName').value = d.deviceName || '';
+  $('otaPort').value    = d.otaPort    || 3232;
+  $('otaEnabled').checked = d.otaEnabled !== false;
+  if (d.logLevel !== undefined) $('logLevel').value = d.logLevel;
   if (d.lights) renderLightsHw(d.lights);
-  if (d.mqttHost   !== undefined) document.getElementById('mqttHost').value   = d.mqttHost;
-  if (d.mqttPort   !== undefined) document.getElementById('mqttPort').value   = d.mqttPort;
-  if (d.mqttUser   !== undefined) document.getElementById('mqttUser').value   = d.mqttUser;
-  if (d.githubRepo !== undefined) document.getElementById('githubRepo').value = d.githubRepo;
-  if (d.timezone   !== undefined) document.getElementById('timezone').value   = d.timezone;
-  document.getElementById('checkUpdateOnStartup').checked = d.checkUpdateOnStartup === true;
+  if (d.mqttHost   !== undefined) $('mqttHost').value   = d.mqttHost;
+  if (d.mqttPort   !== undefined) $('mqttPort').value   = d.mqttPort;
+  if (d.mqttUser   !== undefined) $('mqttUser').value   = d.mqttUser;
+  if (d.githubRepo !== undefined) $('githubRepo').value = d.githubRepo;
+  if (d.timezone   !== undefined) $('timezone').value   = d.timezone;
+  $('checkUpdateOnStartup').checked = d.checkUpdateOnStartup === true;
   if (d.version) {
-    document.getElementById('fw-version').textContent = 'v' + d.version;
-    document.getElementById('upd-current').textContent = d.version;
+    $('fw-version').textContent = 'v' + d.version;
+    $('upd-current').textContent = d.version;
   }
   if (d.groups) renderGroups(d.groups);
   try {
@@ -2155,7 +2162,7 @@ async function loadConfig() {
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 function appendLog(level, msg) {
-  const log  = document.getElementById('log');
+  const log  = $('log');
   const line = document.createElement('div');
   line.className = 'log-' + level;
   line.textContent = `[${level}] ${msg}`;
@@ -2168,14 +2175,14 @@ let _wsEverConnected = false;
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws  = new WebSocket(proto + '//' + location.host + '/ws');
-  const st  = document.getElementById('ws-status');
+  const st  = $('ws-status');
   ws.onopen  = () => {
     st.textContent = 'WebSocket: connected'; st.style.color='#4af';
     if (_wsEverConnected) {
       if (_otaRebooting) {
         _otaRebooting = false;
         loadConfig().then(() => {
-          const ver = document.getElementById('upd-current').textContent;
+          const ver = $('upd-current').textContent;
           _updSetStatus(ver ? `Firmware updated — now running v${ver}` : 'Firmware updated — device back online', '#4f4');
         });
       } else {
@@ -2207,7 +2214,7 @@ function esc(s) {
 }
 
 function showToast(message, isError = true) {
-  let el = document.getElementById('toast');
+  let el = $('toast');
   if (!el) {
     el = document.createElement('div');
     el.id = 'toast';
@@ -2233,6 +2240,22 @@ async function _fetchOrToast(url, options, errorPrefix) {
     showToast(`${errorPrefix}: ${e.message}`);
     return null;
   }
+}
+
+// Confirm dialog gating an async action — shared by the various delete/reset actions.
+async function _confirmAction(message, action) {
+  if (!confirm(message)) return;
+  await action();
+}
+
+async function _fetchOrAlert(url, options) {
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert('Error: ' + (data.error || res.status));
+    return null;
+  }
+  return res;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2304,8 +2327,8 @@ function _pushHistory() {
 }
 
 function _updateUndoBtn() {
-  const btn   = document.getElementById('se-undo-btn');
-  const count = document.getElementById('se-undo-count');
+  const btn   = $('se-undo-btn');
+  const count = $('se-undo-count');
   if (btn)   btn.disabled      = _history.length === 0;
   if (count) count.textContent = _history.length > 0 ? `(${_history.length})` : '';
 }
@@ -2324,7 +2347,7 @@ function undoScene() {
 // ── Tab helpers ───────────────────────────────────────────────────────────────
 function showSceneView(view, sceneId = null, pushHistory = true) {
   ['list','image','editor','conflicts'].forEach(v => {
-    document.getElementById('scene-view-' + v).style.display = v === view ? '' : 'none';
+    $('scene-view-' + v).style.display = v === view ? '' : 'none';
   });
   _sceneView = view;
   if (view === 'list') _loadScenes();
@@ -2349,7 +2372,7 @@ async function _loadScenes() {
 }
 
 function _renderSceneList(scenes) {
-  const el = document.getElementById('scene-list-items');
+  const el = $('scene-list-items');
   if (!scenes.length) {
     el.innerHTML = '<p style="color:#555;font-size:.85rem;padding:.3rem 0">No scenes yet.</p>';
     return;
@@ -2395,12 +2418,13 @@ async function showCreateScene() {
 
 // ── Delete scene ──────────────────────────────────────────────────────────────
 async function deleteScene(id) {
-  if (!confirm('Delete this scene?')) return;
-  await fetch('/api/scenes/delete', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({id})
+  await _confirmAction('Delete this scene?', async () => {
+    await fetch('/api/scenes/delete', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({id})
+    });
+    await _loadScenes();
   });
-  await _loadScenes();
 }
 
 // ── Conflict resolution ───────────────────────────────────────────────────────
@@ -2410,7 +2434,7 @@ async function showConflictResolve(sceneId) {
 
   showSceneView('conflicts');
 
-  const el = document.getElementById('conflict-resolve-content');
+  const el = $('conflict-resolve-content');
   el.innerHTML = `<p style="font-size:.8rem;color:#555">Loading scene…</p>`;
 
   // Fetch local scene data to render frame 1 preview
@@ -2441,7 +2465,7 @@ async function showConflictResolve(sceneId) {
   // Draw previews on canvases
   versions.forEach(v => {
     if (!v.scene) return;
-    const canvas = document.getElementById('cv-' + v.mac.replace(/:/g,''));
+    const canvas = $('cv-' + v.mac.replace(/:/g,''));
     if (!canvas) return;
     _drawScenePreview(canvas, v.scene);
   });
@@ -2526,32 +2550,32 @@ const SCENE_PREVIEW_DESC = {
 function setScenePreviewMode(mode) {
   _scenePreviewMode = mode;
   _setActiveButton('se-preview-mode-scene', 'se-preview-mode-gradient', mode === 'scene');
-  document.getElementById('se-preview-stops-wrap').style.display = mode === 'gradient' ? '' : 'none';
-  const desc = document.getElementById('se-preview-desc');
+  $('se-preview-stops-wrap').style.display = mode === 'gradient' ? '' : 'none';
+  const desc = $('se-preview-desc');
   if (desc) desc.textContent = SCENE_PREVIEW_DESC[mode];
   _renderScenePreview();
 }
 
 function onScenePreviewStopsToggle() {
-  const checked = document.getElementById('se-preview-stops-custom').checked;
-  const slider = document.getElementById('se-preview-stops');
+  const checked = $('se-preview-stops-custom').checked;
+  const slider = $('se-preview-stops');
   slider.style.display = checked ? '' : 'none';
   _scenePreviewStopOverride = checked ? parseInt(slider.value || 4) : 0;
-  document.getElementById('se-preview-stops-label').textContent = checked ? slider.value : '';
+  $('se-preview-stops-label').textContent = checked ? slider.value : '';
   _renderScenePreview();
 }
 
 function onScenePreviewStopsInput() {
-  const slider = document.getElementById('se-preview-stops');
+  const slider = $('se-preview-stops');
   _scenePreviewStopOverride = parseInt(slider.value);
-  document.getElementById('se-preview-stops-label').textContent = slider.value;
+  $('se-preview-stops-label').textContent = slider.value;
   _renderScenePreview();
 }
 
 function _renderScenePreview() {
-  const el = document.getElementById('se-preview-list');
+  const el = $('se-preview-list');
   if (!el || !_editScene) return;
-  document.getElementById('se-preview-desc').textContent = SCENE_PREVIEW_DESC[_scenePreviewMode];
+  $('se-preview-desc').textContent = SCENE_PREVIEW_DESC[_scenePreviewMode];
 
   const allLights = (_self && Array.isArray(_self.lights)) ? _self.lights : [];
   const isGradient = _scenePreviewMode === 'gradient';
@@ -2575,12 +2599,12 @@ function _renderScenePreview() {
 
   if (isGradient) {
     for (const l of lights) {
-      const canvas = document.getElementById(`se-preview-${l.index}`);
+      const canvas = $(`se-preview-${l.index}`);
       if (canvas) _drawGradientPreview(canvas, palette, l.width || 1, l.height || 1, Boolean(l.wrapWidth));
     }
   } else {
     for (const l of lights) {
-      const canvas = document.getElementById(`se-preview-${l.index}`);
+      const canvas = $(`se-preview-${l.index}`);
       if (canvas) _drawSceneStretched(canvas, _editScene, l.width, l.height);
     }
   }
@@ -2877,21 +2901,21 @@ function _frameToHex(cells) {
 
 // ── Render editor ─────────────────────────────────────────────────────────────
 function _renderEditor() {
-  document.getElementById('se-name').value = _editScene.name;
-  document.getElementById('se-scene-id').textContent = _editScene.id || '';
-  document.getElementById('se-width').value = _editScene.w;
-  document.getElementById('se-height').value = _editScene.h;
+  $('se-name').value = _editScene.name;
+  $('se-scene-id').textContent = _editScene.id || '';
+  $('se-width').value = _editScene.w;
+  $('se-height').value = _editScene.h;
   // Ensure swatch reflects current paint color
-  document.getElementById('se-swatch').style.background = _paintColor;
-  document.getElementById('se-hex-input').value = _paintColor;
-  document.getElementById('se-brightness').value = _brightness;
-  document.getElementById('se-brightness-val').textContent = _brightness;
+  $('se-swatch').style.background = _paintColor;
+  $('se-hex-input').value = _paintColor;
+  $('se-brightness').value = _brightness;
+  $('se-brightness-val').textContent = _brightness;
   _renderPresets();
   _renderRecents();
   _hsvInitCanvas();
   _hsvSync();
   _renderGradUI();
-  document.getElementById('se-sync-frames').checked = _syncFrames;
+  $('se-sync-frames').checked = _syncFrames;
   _mode = 'paint';
   _prevMode = 'paint';
   _updateModeUI();
@@ -2915,8 +2939,8 @@ function zoomOut() {
 }
 
 function resizeCanvas() {
-  const w = parseInt(document.getElementById('se-width').value, 10);
-  const h = parseInt(document.getElementById('se-height').value, 10);
+  const w = parseInt($('se-width').value, 10);
+  const h = parseInt($('se-height').value, 10);
 
   if (!Number.isFinite(w) || !Number.isFinite(h) || w < 1 || h < 1 || w > 200 || h > 200) {
     alert('Canvas size must be between 1 and 200 for both width and height.');
@@ -2959,7 +2983,7 @@ function _resizeSceneTo(newW, newH) {
 
 // ── Frame list ────────────────────────────────────────────────────────────────
 function _renderFrameList() {
-  const el     = document.getElementById('se-frames');
+  const el     = $('se-frames');
   const frames = _editScene.frames;
   if (!frames.length) {
     el.innerHTML = '<p style="color:#555;font-size:.8rem;padding:.3rem 0">No frames. Add one below.</p>';
@@ -3020,7 +3044,7 @@ function moveFrame(index, dir) {
 
 // ── Grid ──────────────────────────────────────────────────────────────────────
 function _renderGrid() {
-  const wrap = document.getElementById('se-grid');
+  const wrap = $('se-grid');
   wrap.style.setProperty('--cell-size', _zoomCellPx + 'px');
   const { w, h, frames } = _editScene;
 
@@ -3190,12 +3214,12 @@ function fillColumnFor(frameIndex, c) {
 function setPaintColor(color, skipRecent) {
   _paintColor = color;
   _brightness = 100; // reset brightness when picking a new base color
-  document.getElementById('se-swatch').style.background = color;
-  const hi = document.getElementById('se-hex-input');
+  $('se-swatch').style.background = color;
+  const hi = $('se-hex-input');
   if (hi) hi.value = color;
-  const bs = document.getElementById('se-brightness');
+  const bs = $('se-brightness');
   if (bs) bs.value = 100;
-  const bv = document.getElementById('se-brightness-val');
+  const bv = $('se-brightness-val');
   if (bv) bv.textContent = 100;
   if (!skipRecent) _pushRecentColor(color);
   _hsvSync();
@@ -3210,7 +3234,7 @@ function _pushRecentColor(color) {
 }
 
 function _renderPresets() {
-  const el = document.getElementById('se-presets');
+  const el = $('se-presets');
   if (!el) return;
   el.innerHTML = _PRESETS.map(c =>
     `<div class="cp-mini-swatch" style="background:${c}" title="${c}"
@@ -3219,7 +3243,7 @@ function _renderPresets() {
 }
 
 function _renderRecents() {
-  const el = document.getElementById('se-recents');
+  const el = $('se-recents');
   if (!el) return;
   if (!_recentColors.length) {
     el.innerHTML = '<span style="font-size:.72rem;color:#555">None yet</span>';
@@ -3235,16 +3259,16 @@ function _onHexInput(val) {
   if (/^#[0-9a-fA-F]{6}$/.test(val)) {
     _paintColor = val.toLowerCase();
     _brightness = 100;
-    document.getElementById('se-swatch').style.background = _paintColor;
-    document.getElementById('se-brightness').value = 100;
-    document.getElementById('se-brightness-val').textContent = 100;
+    $('se-swatch').style.background = _paintColor;
+    $('se-brightness').value = 100;
+    $('se-brightness-val').textContent = 100;
     _renderGradUI();
   }
 }
 
 function _onHexBlur(val) {
   if (!/^#[0-9a-fA-F]{6}$/.test(val)) {
-    document.getElementById('se-hex-input').value = _paintColor;
+    $('se-hex-input').value = _paintColor;
     return;
   }
   _pushRecentColor(_paintColor);
@@ -3252,11 +3276,11 @@ function _onHexBlur(val) {
 
 function _onBrightnessInput(val) {
   _brightness = parseInt(val, 10);
-  document.getElementById('se-brightness-val').textContent = _brightness;
+  $('se-brightness-val').textContent = _brightness;
   const [r, g, b] = hexToRgb(_paintColor);
   const f = _brightness / 100;
   const dimmed = toHex(Math.round(r * f), Math.round(g * f), Math.round(b * f));
-  document.getElementById('se-swatch').style.background = dimmed;
+  $('se-swatch').style.background = dimmed;
   _renderGradUI();
 }
 
@@ -3291,8 +3315,8 @@ function _rgbToHsv(r, g, b) {
 }
 
 function _hsvInitCanvas() {
-  const wrap = document.getElementById('hsv-sv');
-  const canvas = document.getElementById('hsv-canvas');
+  const wrap = $('hsv-sv');
+  const canvas = $('hsv-canvas');
   if (!wrap || !canvas) return;
   canvas.width  = wrap.clientWidth  || 200;
   canvas.height = wrap.clientHeight || 120;
@@ -3326,12 +3350,12 @@ function _hsvApply() {
   const hex = toHex(r, g, b);
   _paintColor = hex;
   _brightness = 100;
-  document.getElementById('se-swatch').style.background = hex;
-  const hi = document.getElementById('se-hex-input');
+  $('se-swatch').style.background = hex;
+  const hi = $('se-hex-input');
   if (hi) hi.value = hex;
-  const bs = document.getElementById('se-brightness');
+  const bs = $('se-brightness');
   if (bs) bs.value = 100;
-  const bv = document.getElementById('se-brightness-val');
+  const bv = $('se-brightness-val');
   if (bv) bv.textContent = 100;
   _hsvDrawSV();
   _hsvMoveCursor();
@@ -3339,7 +3363,7 @@ function _hsvApply() {
 }
 
 function _hsvDrawSV() {
-  const canvas = document.getElementById('hsv-canvas');
+  const canvas = $('hsv-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
@@ -3358,8 +3382,8 @@ function _hsvDrawSV() {
 }
 
 function _hsvMoveCursor() {
-  const cursor = document.getElementById('hsv-cursor');
-  const wrap   = document.getElementById('hsv-sv');
+  const cursor = $('hsv-cursor');
+  const wrap   = $('hsv-sv');
   if (!cursor || !wrap) return;
   cursor.style.left = (_hsvS * 100) + '%';
   cursor.style.top  = ((1 - _hsvV) * 100) + '%';
@@ -3369,7 +3393,7 @@ function _hsvSync() {
   // Sync HSV state from current _paintColor
   const [r, g, b] = hexToRgb(_paintColor);
   [_hsvH, _hsvS, _hsvV] = _rgbToHsv(r, g, b);
-  const hueEl = document.getElementById('hsv-hue');
+  const hueEl = $('hsv-hue');
   if (hueEl) hueEl.value = Math.round(_hsvH);
   _hsvDrawSV();
   _hsvMoveCursor();
@@ -3378,8 +3402,8 @@ function _hsvSync() {
 // ── Gradient fill ──────────────────────────────────────────────────────────────
 
 function _renderGradUI() {
-  const a = document.getElementById('grad-swatch-a');
-  const b = document.getElementById('grad-swatch-b');
+  const a = $('grad-swatch-a');
+  const b = $('grad-swatch-b');
   if (a) a.style.background = _gradColorA;
   if (b) b.style.background = _gradColorB;
 }
@@ -3464,12 +3488,12 @@ function gradFillColFor(frameIndex, c) {
 function applyWrapBlend(axis) {
   if (!_editScene) return;
   const { w, h, frames } = _editScene;
-  const cols    = axis === 'cols' ? Math.min(Math.max(0, parseInt(document.getElementById('wrap-cols')?.value, 10) || 0), w - 1) : 0;
-  const rows    = axis === 'rows' ? Math.min(Math.max(0, parseInt(document.getElementById('wrap-rows')?.value, 10) || 0), h - 1) : 0;
+  const cols    = axis === 'cols' ? Math.min(Math.max(0, parseInt($('wrap-cols')?.value, 10) || 0), w - 1) : 0;
+  const rows    = axis === 'rows' ? Math.min(Math.max(0, parseInt($('wrap-rows')?.value, 10) || 0), h - 1) : 0;
   if (cols <= 0 && rows <= 0) return;
-  const framesSel = document.getElementById('wrap-frames')?.value ?? 'all';
-  const colSide   = document.getElementById('wrap-col-side')?.value ?? 'right';
-  const rowSide   = document.getElementById('wrap-row-side')?.value ?? 'bottom';
+  const framesSel = $('wrap-frames')?.value ?? 'all';
+  const colSide   = $('wrap-col-side')?.value ?? 'right';
+  const rowSide   = $('wrap-row-side')?.value ?? 'bottom';
   const targetFrames = framesSel === 'all'
     ? frames
     : [frames[parseInt(framesSel, 10)]].filter(Boolean);
@@ -3537,10 +3561,10 @@ function setMode(mode) {
 
 function _updateModeUI() {
   ['paint','eyedropper','gradient','wrap'].forEach(m => {
-    document.getElementById(`fill-mode-${m}`)?.classList.toggle('active', _mode === m);
+    $(`fill-mode-${m}`)?.classList.toggle('active', _mode === m);
   });
-  const gc = document.getElementById('fill-context-gradient');
-  const wc = document.getElementById('fill-context-wrap');
+  const gc = $('fill-context-gradient');
+  const wc = $('fill-context-wrap');
   if (gc) gc.style.display = _mode === 'gradient' ? '' : 'none';
   if (wc) wc.style.display = _mode === 'wrap'     ? '' : 'none';
   _refreshWrapFrameSelect();
@@ -3548,7 +3572,7 @@ function _updateModeUI() {
 
 function _refreshWrapFrameSelect() {
   if (!_editScene) return;
-  const sel = document.getElementById('wrap-frames');
+  const sel = $('wrap-frames');
   if (!sel) return;
   const prev  = sel.value;
   const count = _editScene.frames.length;
@@ -3708,13 +3732,13 @@ function _confirmSceneNavigation(message = 'Unsaved changes will be lost. Contin
 }
 
 function _scheduleAutoSave() {
-  if (!document.getElementById('se-auto-save')?.checked) return;
+  if (!$('se-auto-save')?.checked) return;
   clearTimeout(_autoSaveTimer);
   _autoSaveTimer = setTimeout(() => { if (_modified) saveScene(); }, 3000);
 }
 
 function _setSaveBtnState(dirty) {
-  const btn = document.getElementById('se-save-btn');
+  const btn = $('se-save-btn');
   if (!btn) return;
   btn.disabled = !dirty;
   btn.className = dirty ? 'btn-primary btn-sm' : 'btn-ghost btn-sm';
@@ -3732,7 +3756,7 @@ async function saveScene() {
     alert('Cannot save: scene has no id. Close the editor and reopen the scene.');
     return;
   }
-  _editScene.name = document.getElementById('se-name').value.trim() || 'Unnamed';
+  _editScene.name = $('se-name').value.trim() || 'Unnamed';
   const payload = {
     id:     _editScene.id,
     name:   _editScene.name,
@@ -3801,30 +3825,30 @@ let _sciMode = 'pixel';
 
 function showCreateSceneFromImage() {
   _sciMode = 'pixel';
-  document.getElementById('sci-file').value = '';
-  document.getElementById('sci-name').value = '';
-  document.getElementById('sci-palette-name').value = '';
-  document.getElementById('sci-width').value = 20;
-  document.getElementById('sci-height').value = 10;
-  document.getElementById('sci-ncolors').value = 8;
-  document.getElementById('sci-ncolors-label').textContent = '8';
-  document.getElementById('sci-preview-wrap').style.display = 'none';
+  $('sci-file').value = '';
+  $('sci-name').value = '';
+  $('sci-palette-name').value = '';
+  $('sci-width').value = 20;
+  $('sci-height').value = 10;
+  $('sci-ncolors').value = 8;
+  $('sci-ncolors-label').textContent = '8';
+  $('sci-preview-wrap').style.display = 'none';
   _setSciMode('pixel');
   showSceneView('image');
 }
 
 function _setSciMode(mode) {
   _sciMode = mode;
-  document.getElementById('sci-pixel-opts').style.display   = mode === 'pixel'   ? '' : 'none';
-  document.getElementById('sci-palette-opts').style.display = mode === 'palette' ? '' : 'none';
+  $('sci-pixel-opts').style.display   = mode === 'pixel'   ? '' : 'none';
+  $('sci-palette-opts').style.display = mode === 'palette' ? '' : 'none';
   _setActiveButton('sci-mode-pixel', 'sci-mode-palette', mode === 'pixel');
 }
 
 function _onSciFileChange(ev) {
   const file = ev.target.files[0];
   if (!file) return;
-  const preview = document.getElementById('sci-preview');
-  const wrap    = document.getElementById('sci-preview-wrap');
+  const preview = $('sci-preview');
+  const wrap    = $('sci-preview-wrap');
   const url = URL.createObjectURL(file);
   const img = new Image();
   img.onload = () => {
@@ -3900,7 +3924,7 @@ function _extractPalette(img, n) {
 }
 
 async function doCreateSceneFromImage() {
-  const fileEl = document.getElementById('sci-file');
+  const fileEl = $('sci-file');
   const file   = fileEl.files[0];
   if (!file) { alert('Please select an image file.'); return; }
 
@@ -3910,13 +3934,13 @@ async function doCreateSceneFromImage() {
 
   let name, w, h, firstFrame;
   if (_sciMode === 'pixel') {
-    name       = document.getElementById('sci-name').value.trim() || 'Unnamed';
-    w          = parseInt(document.getElementById('sci-width').value)  || 20;
-    h          = parseInt(document.getElementById('sci-height').value) || 10;
+    name       = $('sci-name').value.trim() || 'Unnamed';
+    w          = parseInt($('sci-width').value)  || 20;
+    h          = parseInt($('sci-height').value) || 10;
     firstFrame = _imgCoverCrop(img, w, h);
   } else {
-    name = document.getElementById('sci-palette-name').value.trim() || 'Unnamed';
-    const n = parseInt(document.getElementById('sci-ncolors').value) || 8;
+    name = $('sci-palette-name').value.trim() || 'Unnamed';
+    const n = parseInt($('sci-ncolors').value) || 8;
     const colors = _extractPalette(img, n);
     w          = colors.length;
     h          = 1;
@@ -3978,7 +4002,7 @@ window.addEventListener('popstate', () => {
 const LED_TYPE_NAMES = ['WS2812B — single wire', 'WS2801 — two wire'];
 
 function renderLightsHw(lights) {
-  const el = document.getElementById('lights-hw-list');
+  const el = $('lights-hw-list');
   if (!el) return;
   if (!lights || !lights.length) {
     el.innerHTML = '<p style="color:#555;font-size:.85rem">No lights configured.</p>';
@@ -3994,7 +4018,7 @@ function renderLightsHw(lights) {
       ? `<button class="btn-ghost btn-sm" onclick="testLight(${l.index})" title="Flash a test pattern to verify matrix orientation">Test</button>`
       : '';
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
-      <div style="display:flex;align-items:center;justify-content:space-between">
+      <div class="flex-between">
         <div>
           <strong>${esc(label)}</strong>
           <span style="color:#888;font-size:.82rem;margin-left:.5rem">${LED_TYPE_NAMES[l.ledType] || 'Unknown'}</span>
@@ -4037,9 +4061,9 @@ function _openLightModal(l) {
   overlay.id = 'light-modal-overlay';
   overlay.className = 'push-overlay';
   overlay.innerHTML = `<div class="push-modal"><div class="card" style="margin:0">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+    <div class="flex-between" style="margin-bottom:.5rem">
       <h2 style="margin:0">${title}</h2>
-      <button class="btn-ghost btn-sm" onclick="document.getElementById('light-modal-overlay').remove()">✕</button>
+      <button class="btn-ghost btn-sm" onclick="$('light-modal-overlay').remove()">✕</button>
     </div>
     <label>Name <small>(optional)</small></label>
     <input type="text" id="lm-name" value="${esc(l.name||'')}" maxlength="19" placeholder="e.g. Living room">
@@ -4128,17 +4152,17 @@ function _openLightModal(l) {
 
 async function saveLightModal() {
   const body = {
-    name:     document.getElementById('lm-name').value.trim(),
-    ledType:  parseInt(document.getElementById('lm-ledType').value),
-    dataPin:  parseInt(document.getElementById('lm-dataPin').value),
-    clockPin: parseInt(document.getElementById('lm-clockPin').value),
-    width:       parseInt(document.getElementById('lm-width').value) || 1,
-    height:      parseInt(document.getElementById('lm-height').value) || 1,
-    matrixStart: parseInt(document.getElementById('lm-matrixStart').value),
-    matrixDir:   parseInt(document.getElementById('lm-matrixDir').value),
-    matrixSerpentine: document.getElementById('lm-matrixSerpentine').checked,
-    wrapWidth:   document.getElementById('lm-wrapWidth').checked,
-    wrapHeight:  document.getElementById('lm-wrapHeight').checked,
+    name:     $('lm-name').value.trim(),
+    ledType:  parseInt($('lm-ledType').value),
+    dataPin:  parseInt($('lm-dataPin').value),
+    clockPin: parseInt($('lm-clockPin').value),
+    width:       parseInt($('lm-width').value) || 1,
+    height:      parseInt($('lm-height').value) || 1,
+    matrixStart: parseInt($('lm-matrixStart').value),
+    matrixDir:   parseInt($('lm-matrixDir').value),
+    matrixSerpentine: $('lm-matrixSerpentine').checked,
+    wrapWidth:   $('lm-wrapWidth').checked,
+    wrapHeight:  $('lm-wrapHeight').checked,
   };
   // Add always reboots; edit only reboots when a hardware field actually changed (mirrors _updateSaveBtn).
   const needsReboot = _editLightIndex === null || !_originalLight ? true :
@@ -4152,7 +4176,7 @@ async function saveLightModal() {
   const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   const d = await res.json();
   if (!res.ok) { alert('Error: ' + (d.error || res.status)); return; }
-  document.getElementById('light-modal-overlay')?.remove();
+  $('light-modal-overlay')?.remove();
   if (!needsReboot) { loadConfig(); return; }
   // Device is restarting: wait for it to come back before refreshing, otherwise
   // loadConfig() races the reboot and the UI is left showing stale data.
@@ -4161,14 +4185,14 @@ async function saveLightModal() {
 }
 
 async function deleteLight(index) {
-  if (!confirm(`Delete light ${index}? The device will reboot.`)) return;
-  const res = await fetch('/api/lights/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
-  const d = await res.json();
-  if (!res.ok) { alert('Error: ' + (d.error || res.status)); return; }
-  // Delete always triggers a restart: wait for it to come back before refreshing,
-  // otherwise loadConfig() races the reboot and the UI is left showing stale data.
-  await _waitForDeviceOnline();
-  loadConfig().catch(() => {});
+  await _confirmAction(`Delete light ${index}? The device will reboot.`, async () => {
+    const res = await _fetchOrAlert('/api/lights/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
+    if (!res) return;
+    // Delete always triggers a restart: wait for it to come back before refreshing,
+    // otherwise loadConfig() races the reboot and the UI is left showing stale data.
+    await _waitForDeviceOnline();
+    loadConfig().catch(() => {});
+  });
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
