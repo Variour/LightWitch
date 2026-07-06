@@ -37,6 +37,9 @@ public:
     using CheckUpdateCb    = std::function<void()>;
     using PeerHeardCb      = std::function<void()>;
     using TimeSyncCb       = std::function<void(uint32_t epoch)>;
+    // Called when a peer (or this device, echoed back) changes the mesh-wide
+    // single-WiFi-client policy. Receiver should persist and apply it locally.
+    using MeshPolicyCb     = std::function<void(bool singleClientMode)>;
 
     void setOnPeerHeard(PeerHeardCb cb)           { _onPeerHeard      = cb; }
     void setOnLightConfig(LightConfigCb cb)       { _onLightConfig    = cb; }
@@ -56,6 +59,7 @@ public:
     void setOnTriggerUpdate(TriggerUpdateCb cb)   { _onTriggerUpdate  = cb; }
     void setOnCheckUpdate(CheckUpdateCb cb)       { _onCheckUpdate    = cb; }
     void setOnTimeSync(TimeSyncCb cb)             { _onTimeSync       = cb; }
+    void setOnMeshPolicy(MeshPolicyCb cb)         { _onMeshPolicy     = cb; }
 
     void begin() {
         _instance = this;
@@ -285,6 +289,15 @@ public:
         _send(&msg, sizeof(msg));
     }
 
+    // Broadcasts a change to the mesh-wide single-WiFi-client policy so every
+    // peer adopts the same setting (see WifiElection.h).
+    void broadcastMeshPolicy(bool singleClientMode) {
+        if (!_ready) return;
+        MeshPolicyMsg msg;
+        msg.wifiSingleClientMode = singleClientMode ? 1 : 0;
+        _send(&msg, sizeof(msg));
+    }
+
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
             if (Config::get().groups[i].exists)
@@ -320,6 +333,7 @@ private:
     TriggerUpdateCb _onTriggerUpdate;
     CheckUpdateCb   _onCheckUpdate;
     TimeSyncCb      _onTimeSync;
+    MeshPolicyCb    _onMeshPolicy;
 
     // ── Config push encryption (issue #252) ───────────────────────────────────
     static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 3000;
@@ -474,6 +488,7 @@ private:
         msg.sceneSyncEnabled = Config::get().sceneSyncEnabled ? 1 : 0;
         strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
         msg.wifiConnected = (WiFi.status() == WL_CONNECTED) ? 1 : 0;
+        msg.hasWifiNetworks = (Config::wifiCount() > 0) ? 1 : 0;
         strlcpy(msg.fwVersion, FW_VERSION, sizeof(msg.fwVersion));
         const auto& us = Updater::status();
         msg.fwState = (uint8_t)(
@@ -548,7 +563,7 @@ private:
                 bool isNew = _instance->peers.update(mac, m->name,
                     m->lightCount, m->lightGroupIds, m->lightNames,
                     m->sceneSyncEnabled != 0, m->wifiConnected != 0,
-                    m->fwVersion, (FwState)m->fwState);
+                    m->fwVersion, (FwState)m->fwState, m->hasWifiNetworks != 0);
                 if (_instance->_onPeerHeard) _instance->_onPeerHeard();
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, isNew);
                 if (isNew) _instance->broadcastAllGroups();
@@ -683,6 +698,12 @@ private:
                 uint8_t own[6];
                 WiFi.macAddress(own);
                 if (memcmp(m->targetMac, own, 6) == 0) _instance->_onKeyExchangeResp(m);
+                break;
+            }
+            case MsgType::MeshPolicy: {
+                if (len < (int)sizeof(MeshPolicyMsg)) return;
+                auto* m = (MeshPolicyMsg*)data;
+                if (_instance->_onMeshPolicy) _instance->_onMeshPolicy(m->wifiSingleClientMode != 0);
                 break;
             }
             default:

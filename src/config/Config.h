@@ -215,6 +215,11 @@ struct DeviceConfig {
     char        timezone[64]     = "CET-1CEST,M3.5.0,M10.5.0/3";  // POSIX TZ string; default is Europe/Berlin
     bool        sceneSyncEnabled        = true;
     bool        checkUpdateOnStartup    = false;
+    // Mesh-wide policy (see WifiElection.h): when true, only one candidate device
+    // (lowest MAC among devices with ≥1 WiFi network configured) actually joins
+    // the configured WiFi network at a time; the rest stay AP-only to save power.
+    // Changing this broadcasts MeshPolicyMsg so the whole mesh adopts it.
+    bool        wifiSingleClientMode    = false;
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];

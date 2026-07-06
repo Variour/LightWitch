@@ -13,6 +13,7 @@
 #include "patterns/PatternRunner.h"
 #include "mesh/MeshManager.h"
 #include "mesh/ChannelManager.h"
+#include "mesh/WifiElection.h"
 #include "web/WebServer.h"
 #include "mqtt/MqttManager.h"
 #include "scenes/SceneSyncManager.h"
@@ -26,6 +27,7 @@ static LedDriver*       _leds[MAX_LIGHTS]    = {};
 static PatternRunner    _runners[MAX_LIGHTS];
 static MeshManager      mesh;
 static ChannelManager   channelMgr;
+static WifiElection     wifiElection;
 static BatteryWebServer webServer;
 static MqttManager      mqtt;
 static SceneSyncManager sceneSync;
@@ -102,6 +104,19 @@ static void setupWifi() {
         WiFi.softAP(c.deviceName, c.apPassword, 1);
         WiFi.setTxPower(WIFI_TX_POWER);
         Logger::i("[wifi] No networks configured, AP: %s  IP: %s",
+                  c.deviceName, WiFi.softAPIP().toString().c_str());
+        return;
+    }
+
+    // Single-client mode: don't block here trying to join a network — the
+    // mesh isn't even up yet, so we have no way to know if a lower-MAC peer
+    // should get first shot at the connection. Bring up the local AP for
+    // reachability and let WifiElection (ticked once mesh.begin() has run)
+    // decide non-blockingly whether/when this device should actually connect.
+    if (c.wifiSingleClientMode) {
+        WiFi.softAP(c.deviceName, c.apPassword, 1);
+        WiFi.setTxPower(WIFI_TX_POWER);
+        Logger::i("[wifi] single-client mode: deferring connect decision to WifiElection, AP: %s  IP: %s",
                   c.deviceName, WiFi.softAPIP().toString().c_str());
         return;
     }
@@ -234,7 +249,15 @@ void setup() {
 
     if (Config::get().otaEnabled) setupOta();
     mesh.begin();
+    wifiElection.begin(&mesh.peers);
     mesh.setOnPeerHeard([](){ channelMgr.onPeerHeard(); });
+    mesh.setOnMeshPolicy([](bool enabled) {
+        if (Config::get().wifiSingleClientMode == enabled) return;
+        Config::get().wifiSingleClientMode = enabled;
+        Config::save();
+        Logger::i("[wifi] single-client mode changed to %d via mesh", enabled);
+        wifiElection.onPolicyChanged(enabled);
+    });
 
     // Wire SceneSyncManager → MeshManager
     sceneSync.setBroadcastFns(
@@ -283,8 +306,8 @@ void setup() {
         sceneSync.onSetSceneSync(enabled);
     });
 
-    mesh.setOnTriggerUpdate([]() { Updater::triggerAsync(); });
-    mesh.setOnCheckUpdate([]() { Updater::checkAsync(); });
+    mesh.setOnTriggerUpdate([]() { wifiElection.requestTemporary([]() { Updater::triggerAsync(); }); });
+    mesh.setOnCheckUpdate([]()   { wifiElection.requestTemporary([]() { Updater::checkAsync(); });   });
     mesh.setOnTimeSync([](uint32_t epoch) { TimeSync::onPeerTime(epoch); });
     TimeSync::setBroadcastFn([](uint32_t epoch) { mesh.broadcastTimeSync(epoch); });
 
@@ -407,7 +430,11 @@ void setup() {
 
         []() { channelMgr.beginSearch(); },
 
-        [](const uint8_t* mac) { mesh.broadcastCheckUpdate(mac); }
+        [](const uint8_t* mac) { mesh.broadcastCheckUpdate(mac); },
+
+        [](std::function<void()> onReady) { wifiElection.requestTemporary(onReady); },
+
+        [](bool enabled) { mesh.broadcastMeshPolicy(enabled); }
     );
 
     auto notifySceneUpdated = [](const char* id) {
@@ -430,7 +457,8 @@ void setup() {
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
     Logger::i("[sys] ready");
-    if (Config::get().checkUpdateOnStartup && WiFi.status() == WL_CONNECTED) Updater::checkAsync();
+    if (Config::get().checkUpdateOnStartup)
+        wifiElection.requestTemporary([]() { Updater::checkAsync(); });
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
@@ -457,6 +485,7 @@ void loop() {
     if (!_otaActive) {
         channelMgr.tick();
         mesh.tick();
+        wifiElection.tick();
         TimeSync::tick();
         mqtt.loop();
         buttonManager.tick();

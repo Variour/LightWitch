@@ -824,6 +824,10 @@ input[type=checkbox]:active { background-color: #1a5; }
       <input type="password" id="wifiPasswordAdd" placeholder="(leave blank for open network)" autocomplete="new-password">
       <button class="btn-ghost" style="width:100%" onclick="addWifiNetwork()">Add network</button>
     </div>
+    <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;margin-top:.75rem">
+      <input type="checkbox" id="wifiSingleClientMode">
+      Only one mesh device connects to WiFi <small>(saves power on the rest; auto-elected by MAC, with failover)</small>
+    </label>
     <label style="margin-top:.75rem">AP Password <small>(min 8 chars)</small></label>
     <input type="password" id="apPassword" placeholder="(unchanged if empty)">
     <label>OTA port</label>
@@ -963,6 +967,7 @@ let _localConfig = {};
 let _pushTarget  = null; // null = all peers, string = specific MAC
 let _self    = null;
 let _selfMac = '';
+let _wifiSingleClientMode = false;
 let _sceneOptions = [];
 let _debounce = {};
 let _syncConflicts  = [];
@@ -1554,7 +1559,8 @@ function _renderLightGroupSelect(mac, light) {
   return `<select onchange="assignGroup('${mac}',${light.index},parseInt(this.value))">${_renderGroupOptions(light.groupId)}</select>`;
 }
 
-function renderLights(self, peers) {
+function renderLights(self, peers, wifiSingleClientMode) {
+  if (wifiSingleClientMode !== undefined) _wifiSingleClientMode = wifiSingleClientMode;
   _self  = self;
   _peers = peers;
   if (self) _selfMac = self.mac;
@@ -1589,8 +1595,14 @@ function renderLights(self, peers) {
     const syncCell = `<input type="checkbox" title="Scene sync: share and receive scene files with other mesh peers" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
 
     const wifiOn = p.wifiConnected === true;
-    const wifiColor = wifiOn ? '#4c4' : '#555';
-    const wifiTitle = wifiOn ? 'WiFi connected' : 'WiFi not connected';
+    // Single-client mode: a candidate (has WiFi networks configured) that isn't
+    // currently connected is standing by on purpose, not broken — give it its
+    // own color instead of the plain "not connected" gray.
+    const wifiStandby = !wifiOn && _wifiSingleClientMode === true && p.hasWifiNetworks === true;
+    const wifiColor = wifiOn ? '#4c4' : wifiStandby ? '#48a' : '#555';
+    const wifiTitle = wifiOn ? 'WiFi connected'
+                    : wifiStandby ? 'WiFi standby (single-client mode — another device is/should be connected)'
+                    : 'WiFi not connected';
     const wifiIcon = `<span title="${wifiTitle}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
     const signalIcon = showSignal && !p.isSelf
       ? `<span title="Signal: ${rssiText}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
@@ -1990,6 +2002,7 @@ async function saveSettings() {
   if (mqttPw) body.mqttPassword  = mqttPw;
   body.githubRepo = $('githubRepo').value;
   body.checkUpdateOnStartup = $('checkUpdateOnStartup').checked;
+  body.wifiSingleClientMode = $('wifiSingleClientMode').checked;
   if (ghTok)  body.githubToken   = ghTok;
 
   try {
@@ -2215,6 +2228,7 @@ async function loadConfig() {
   if (d.githubRepo !== undefined) $('githubRepo').value = d.githubRepo;
   if (d.timezone   !== undefined) _renderTimezoneOptions(d.timezone);
   $('checkUpdateOnStartup').checked = d.checkUpdateOnStartup === true;
+  $('wifiSingleClientMode').checked = d.wifiSingleClientMode === true;
   if (d.version) {
     $('fw-version').textContent = 'v' + d.version;
     $('upd-current').textContent = d.version;
@@ -2227,7 +2241,7 @@ async function loadConfig() {
   } catch {}
   const pr = await fetch('/api/peers');
   const pd = await pr.json();
-  renderLights(pd.self, pd.peers || []);
+  renderLights(pd.self, pd.peers || [], pd.wifiSingleClientMode === true);
   _refreshSceneOptionViews();  // re-render group cards now that _self.lights (and Text-mode eligibility) is known
   try {
     const updRes  = await fetch('/api/update/status');
@@ -2273,7 +2287,7 @@ function connectWs() {
     try {
       const d = JSON.parse(ev.data);
       if (d.t === 'log')    appendLog(d.l, d.m);
-      if (d.t === 'peers') { renderLights(d.self, d.peers || []); _refreshSceneOptionViews(); }
+      if (d.t === 'peers') { renderLights(d.self, d.peers || [], d.wifiSingleClientMode === true); _refreshSceneOptionViews(); }
       if (d.t === 'groups') renderGroups(d.list || []);
     } catch {}
   };

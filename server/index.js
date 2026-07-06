@@ -29,6 +29,7 @@ const MOCK_CONFIG = {
   logLevel: 1,
   sceneSyncEnabled: true,
   checkUpdateOnStartup: false,
+  wifiSingleClientMode: false,
   mqttHost: 'mqtt.local',
   mqttPort: 1883,
   mqttUser: 'lights',
@@ -59,11 +60,11 @@ const mockButtons = [
   },
 ];
 
-const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'checking' };
+const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  version: '2026.06.27.0', fwState: 'checking' };
 const MOCK_PEERS = [
-  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.01.01.0', fwState: 'idle'  },
-  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, version: '2026.01.01.0', fwState: 'idle'  },
-  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  version: '2026.06.27.0', fwState: 'idle'  },
+  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  version: '2026.01.01.0', fwState: 'idle'  },
+  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, hasWifiNetworks: true,  version: '2026.01.01.0', fwState: 'idle'  },
+  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: false, version: '2026.06.27.0', fwState: 'idle'  },
 ];
 
 const wifiNetworks = [
@@ -100,7 +101,12 @@ function selfWithLights() {
 
 // Broadcast current self+peers state to all connected WS clients.
 function broadcastPeers() {
-  const msg = JSON.stringify({ t: 'peers', self: selfWithLights(), peers: MOCK_PEERS });
+  const msg = JSON.stringify({
+    t: 'peers',
+    self: selfWithLights(),
+    peers: MOCK_PEERS,
+    wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode,
+  });
   wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
 }
 
@@ -212,7 +218,11 @@ app.post('/api/wifi/delete', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/peers', (_req, res) => res.json({ self: selfWithLights(), peers: MOCK_PEERS }));
+app.get('/api/peers', (_req, res) => res.json({
+  self: selfWithLights(),
+  peers: MOCK_PEERS,
+  wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode,
+}));
 app.post('/api/peers/setgroup', (req, res) => {
   const { mac, lightIndex, groupId } = req.body || {};
   // Mirrors WebServer.h::_setRemoteGroup: only self-mac assignments are
@@ -226,17 +236,25 @@ app.post('/api/peers/setgroup', (req, res) => {
 });
 app.post('/api/peers/setscenesync', (_req, res) => res.json({ ok: true }));
 app.post('/api/peers/pushconfig',      (_req, res) => res.json({ ok: true }));
+// Mirrors WebServer.h::_peerUpdateRequest: a standby candidate (single-client
+// mode + hasWifiNetworks) can still connect on demand, so only genuinely
+// unreachable peers are rejected.
+function canReachPeerForOta(peer) {
+  if (!peer) return true;
+  if (peer.wifiConnected) return true;
+  return MOCK_CONFIG.wifiSingleClientMode && peer.hasWifiNetworks;
+}
 app.post('/api/peers/triggerupdate', (req, res) => {
   const { mac } = req.body || {};
   const peer = MOCK_PEERS.find(p => p.mac === mac);
-  if (peer && !peer.wifiConnected) return res.status(409).json({ error: 'peer not connected to WiFi' });
+  if (!canReachPeerForOta(peer)) return res.status(409).json({ error: 'peer not connected to WiFi' });
   res.json({ ok: true });
   if (peer) simulatePeerUpdateCycle(peer);
 });
 app.post('/api/peers/checkupdate', (req, res) => {
   const { mac } = req.body || {};
   const peer = MOCK_PEERS.find(p => p.mac === mac);
-  if (peer && !peer.wifiConnected) return res.status(409).json({ error: 'peer not connected to WiFi' });
+  if (!canReachPeerForOta(peer)) return res.status(409).json({ error: 'peer not connected to WiFi' });
   res.json({ ok: true });
   if (peer) simulatePeerCheckCycle(peer);
 });
@@ -449,7 +467,7 @@ wss.on('connection', ws => {
   const send = data => ws.send(JSON.stringify(data));
   send({ t: 'log', l: 'I', m: 'Mock server connected' });
   send({ t: 'log', l: 'I', m: 'This is a development mock — no hardware attached' });
-  send({ t: 'peers', self: selfWithLights(), peers: MOCK_PEERS });
+  send({ t: 'peers', self: selfWithLights(), peers: MOCK_PEERS, wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode });
   send({ t: 'groups', list: MOCK_CONFIG.groups });
 });
 

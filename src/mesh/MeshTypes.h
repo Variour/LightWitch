@@ -22,11 +22,12 @@ enum class MsgType : uint8_t {
     TimeSync       = 17,
     KeyExchangeInit = 18,
     KeyExchangeResp = 19,
+    MeshPolicy      = 20,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
 
-static constexpr uint8_t PRESENCE_MSG_VERSION = 3;
+static constexpr uint8_t PRESENCE_MSG_VERSION = 4;
 
 // lightGroupIds: groupId for each light slot; 0xFF means that slot is empty.
 struct PresenceMsg {
@@ -40,6 +41,9 @@ struct PresenceMsg {
     uint8_t lightCount;
     uint8_t lightGroupIds[MAX_LIGHTS];
     char    lightNames[MAX_LIGHTS][20];
+    // Whether this device has ≥1 WiFi network configured, i.e. is a candidate to
+    // be the mesh's single WiFi client (see WifiElection.h). Added in version 4.
+    uint8_t hasWifiNetworks;
 };
 
 struct LightConfigMsg {
@@ -190,4 +194,13 @@ struct KeyExchangeRespMsg {
     uint8_t  targetMac[6];  // = initiator's MAC
     uint32_t sessionId;
     uint8_t  pubKey[ECDH_PUBKEY_LEN];
+};
+
+// ── Mesh-wide WiFi policy ──────────────────────────────────────────────────────
+// Broadcast whenever a device changes the "single WiFi client" mesh setting via
+// its web UI, so the choice applies to the whole mesh rather than just the
+// device it was changed on. See WifiElection.h for the election this enables.
+struct MeshPolicyMsg {
+    MsgType type = MsgType::MeshPolicy;
+    uint8_t wifiSingleClientMode;
 };

@@ -39,6 +39,13 @@ using TestLightCb         = std::function<void(uint8_t)>;
 using OrientationChangeCb = std::function<void(uint8_t)>;
 // Called after a button is added/updated/deleted, so GPIO pin modes can be re-applied live
 using ButtonsChangedCb    = std::function<void()>;
+// Called before a local OTA action so this device can connect to WiFi first if it's
+// currently on single-WiFi-client standby; invokes the given callback once ready
+// (immediately, if already connected).
+using RequestWifiCb       = std::function<void(std::function<void()>)>;
+// Called when wifiSingleClientMode changes via this device's own web UI, so the
+// mesh-wide policy is broadcast to every peer instead of only applying locally.
+using MeshPolicyCb        = std::function<void(bool singleClientMode)>;
 
 class BatteryWebServer {
 private:
@@ -71,7 +78,9 @@ public:
                PushConfigCb onPushConfig = nullptr,
                TriggerPeerUpdateCb onTriggerPeerUpdate = nullptr,
                MeshSearchCb onMeshSearch = nullptr,
-               CheckPeerUpdateCb onCheckPeerUpdate = nullptr) {
+               CheckPeerUpdateCb onCheckPeerUpdate = nullptr,
+               RequestWifiCb onRequestWifi = nullptr,
+               MeshPolicyCb onMeshPolicyChange = nullptr) {
         _onGroupChange      = onGroupChange;
         _onGroupLight       = onGroupLight;
         _onGroupSync        = onGroupSync;
@@ -84,6 +93,8 @@ public:
         _onTriggerPeerUpdate  = onTriggerPeerUpdate;
         _onMeshSearch         = onMeshSearch;
         _onCheckPeerUpdate    = onCheckPeerUpdate;
+        _onRequestWifi        = onRequestWifi;
+        _onMeshPolicyChange   = onMeshPolicyChange;
 
         Logger::i("[web] starting on port 80");
         _server.addHandler(&_reqLogger);
@@ -277,8 +288,9 @@ public:
         _server.on("/api/peers/checkupdate", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _checkPeerUpdate(r,d,l); });
 
-        _server.on("/api/update/trigger", HTTP_POST, [](AsyncWebServerRequest* r) {
-            Updater::triggerAsync();
+        _server.on("/api/update/trigger", HTTP_POST, [this](AsyncWebServerRequest* r) {
+            if (_onRequestWifi) _onRequestWifi([]() { Updater::triggerAsync(); });
+            else                Updater::triggerAsync();
             r->send(200, "application/json", "{\"ok\":true}");
         });
 
@@ -295,18 +307,20 @@ public:
             r->send(200, "application/json", out);
         });
 
-        _server.on("/api/update/check", HTTP_POST, [](AsyncWebServerRequest* r) {
-            Updater::checkAsync();
+        _server.on("/api/update/check", HTTP_POST, [this](AsyncWebServerRequest* r) {
+            if (_onRequestWifi) _onRequestWifi([]() { Updater::checkAsync(); });
+            else                Updater::checkAsync();
             r->send(200, "application/json", "{\"ok\":true}");
         });
 
-        _server.on("/api/update/apply", HTTP_POST, [](AsyncWebServerRequest* r) {
+        _server.on("/api/update/apply", HTTP_POST, [this](AsyncWebServerRequest* r) {
             auto& s = Updater::status();
             if (!s.hasUpdate) {
                 r->send(400, "application/json", "{\"error\":\"no update available\"}");
                 return;
             }
-            Updater::applyAsync();
+            if (_onRequestWifi) _onRequestWifi([]() { Updater::applyAsync(); });
+            else                Updater::applyAsync();
             r->send(200, "application/json", "{\"ok\":true}");
         });
 
@@ -371,6 +385,8 @@ private:
     TriggerPeerUpdateCb _onTriggerPeerUpdate;
     CheckPeerUpdateCb   _onCheckPeerUpdate;
     MeshSearchCb        _onMeshSearch;
+    RequestWifiCb       _onRequestWifi;
+    MeshPolicyCb        _onMeshPolicyChange;
     SceneSyncManager*   _sceneSync = nullptr;
     SceneSavedCb        _onSceneSaved;
     TestLightCb         _onTestLight;
@@ -424,6 +440,7 @@ private:
         doc["logLevel"]         = c.logLevel;
         doc["sceneSyncEnabled"]     = c.sceneSyncEnabled;
         doc["checkUpdateOnStartup"] = c.checkUpdateOnStartup;
+        doc["wifiSingleClientMode"] = c.wifiSingleClientMode;
         doc["mqttHost"]   = c.mqttHost;
         doc["mqttPort"]   = c.mqttPort;
         doc["mqttUser"]   = c.mqttUser;
@@ -479,6 +496,13 @@ private:
         }
         if (!doc["checkUpdateOnStartup"].isNull())
             c.checkUpdateOnStartup = (bool)doc["checkUpdateOnStartup"];
+        if (!doc["wifiSingleClientMode"].isNull()) {
+            bool enabled = (bool)doc["wifiSingleClientMode"];
+            c.wifiSingleClientMode = enabled;
+            // Broadcast before the restart below so peers adopt it without
+            // needing a reboot of their own (see WifiElection::onPolicyChanged).
+            if (_onMeshPolicyChange) _onMeshPolicyChange(enabled);
+        }
         if (!doc["mqttHost"].isNull())     strlcpy(c.mqttHost, doc["mqttHost"], sizeof(c.mqttHost));
         if (!doc["mqttPort"].isNull())     c.mqttPort = (uint16_t)doc["mqttPort"];
         if (!doc["mqttUser"].isNull())     strlcpy(c.mqttUser, doc["mqttUser"], sizeof(c.mqttUser));
@@ -505,13 +529,16 @@ private:
         auto& c = Config::get();
         const auto& us = Updater::status();
 
+        doc["wifiSingleClientMode"] = c.wifiSingleClientMode;
+
         auto self = doc["self"].to<JsonObject>();
-        self["mac"]           = WiFi.macAddress();
-        self["name"]          = c.deviceName;
-        self["online"]        = true;
-        self["wifiConnected"] = (WiFi.status() == WL_CONNECTED);
-        self["version"]       = FW_VERSION;
-        self["fwState"]       = _fwStateToString(us.state);
+        self["mac"]              = WiFi.macAddress();
+        self["name"]             = c.deviceName;
+        self["online"]           = true;
+        self["wifiConnected"]    = (WiFi.status() == WL_CONNECTED);
+        self["hasWifiNetworks"]  = Config::wifiCount() > 0;
+        self["version"]          = FW_VERSION;
+        self["fwState"]          = _fwStateToString(us.state);
         {
             JsonArray la = self["lights"].to<JsonArray>();
             for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
@@ -537,6 +564,7 @@ private:
                 o["rssi"]             = p.rssi;
                 o["sceneSyncEnabled"] = p.sceneSyncEnabled;
                 o["wifiConnected"]    = p.wifiConnected;
+                o["hasWifiNetworks"]  = p.hasWifiNetworks;
                 o["version"]          = p.fwVersion;
                 o["fwState"]          = _fwStateToString(p.fwState);
                 JsonArray la = o["lights"].to<JsonArray>();
@@ -1000,7 +1028,14 @@ private:
         if (_peers) {
             for (auto& p : *_peers) {
                 if (p.active && memcmp(p.mac, mac, 6) == 0) {
-                    if (!p.wifiConnected) {
+                    // In single-client mode, a candidate peer that's merely on
+                    // standby (not currently the elected WiFi client) can still
+                    // connect on demand for this request (see WifiElection::
+                    // requestTemporary) — only reject peers that are genuinely
+                    // unreachable, i.e. not connected and not a WiFi candidate,
+                    // or not connected while the mesh isn't even in that mode.
+                    bool canConnectOnDemand = Config::get().wifiSingleClientMode && p.hasWifiNetworks;
+                    if (!p.wifiConnected && !canConnectOnDemand) {
                         auto e = _makeErr("peer not connected to WiFi"); _sendJson(r, 409, e); return;
                     }
                     break;

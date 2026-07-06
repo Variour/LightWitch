@@ -140,6 +140,7 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().otaEnabled     = doc["otaEnabled"]     | true;
     Config::get().sceneSyncEnabled     = doc["sceneSyncEnabled"]     | true;
     Config::get().checkUpdateOnStartup = doc["checkUpdateOnStartup"] | false;
+    Config::get().wifiSingleClientMode = doc["wifiSingleClientMode"] | false;
     Config::get().logLevel  = doc["logLevel"]  | (uint8_t)0;
     strlcpy(Config::get().mqttHost,     doc["mqttHost"]     | "",    sizeof(Config::get().mqttHost));
     Config::get().mqttPort  = doc["mqttPort"]  | (uint16_t)1883;
@@ -237,6 +238,7 @@ bool Config::save() {
     doc["otaEnabled"]        = _cfg.otaEnabled;
     doc["sceneSyncEnabled"]     = _cfg.sceneSyncEnabled;
     doc["checkUpdateOnStartup"] = _cfg.checkUpdateOnStartup;
+    doc["wifiSingleClientMode"] = _cfg.wifiSingleClientMode;
     doc["logLevel"]     = _cfg.logLevel;
     doc["mqttHost"]     = _cfg.mqttHost;
     doc["mqttPort"]     = _cfg.mqttPort;
