@@ -10,8 +10,12 @@
 // palette from a scene, and sampling a smooth ramp across that palette.
 namespace GradientCommon {
 
-// Distinct colors from a scene's first frame, in first-seen order.
-inline void loadPalette(const char* sceneId, std::vector<Color>& out) {
+// Extract colors from a scene's frames.
+// allFrames=false (default) reads only the first frame; true walks every
+// frame's colors in order.
+// dedupe=true (default) collapses repeats to their first-seen occurrence;
+// false keeps every color, including repeats, as encountered.
+inline void loadPalette(const char* sceneId, std::vector<Color>& out, bool allFrames = false, bool dedupe = true) {
     out.clear();
     if (!sceneId || !sceneId[0]) return;
     File f = LittleFS.open(SceneManager::path(sceneId).c_str(), "r");
@@ -21,17 +25,23 @@ inline void loadPalette(const char* sceneId, std::vector<Color>& out) {
     f.close();
     JsonArray frames = doc["frames"].as<JsonArray>();
     if (!frames || !frames.size()) return;
-    JsonArray frame0 = frames[0];
-    for (JsonVariant v : frame0) {
-        const char* hex = v | "";
-        if (strlen(hex) < 6) continue;
-        unsigned long rgb = strtoul(hex, nullptr, 16);
-        Color c{(uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb};
-        bool dup = false;
-        for (const auto& p : out) {
-            if (p.r == c.r && p.g == c.g && p.b == c.b) { dup = true; break; }
+    size_t frameCount = allFrames ? frames.size() : 1;
+    for (size_t fi = 0; fi < frameCount; fi++) {
+        JsonArray frame = frames[fi];
+        for (JsonVariant v : frame) {
+            const char* hex = v | "";
+            if (strlen(hex) < 6) continue;
+            unsigned long rgb = strtoul(hex, nullptr, 16);
+            Color c{(uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb};
+            if (dedupe) {
+                bool dup = false;
+                for (const auto& p : out) {
+                    if (p.r == c.r && p.g == c.g && p.b == c.b) { dup = true; break; }
+                }
+                if (dup) continue;
+            }
+            out.push_back(c);
         }
-        if (!dup) out.push_back(c);
     }
 }
 

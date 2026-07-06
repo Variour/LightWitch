@@ -1,9 +1,7 @@
 #pragma once
-#include <LittleFS.h>
-#include <ArduinoJson.h>
 #include <vector>
 #include "Pattern.h"
-#include "../scenes/SceneManager.h"
+#include "GradientCommon.h"
 
 // Assigns colors from the scene palette to a string light.
 // Default behavior picks colors per LED; sceneUniformColor makes the whole
@@ -88,24 +86,10 @@ private:
         return (uint32_t)(t * 1000.0f);
     }
 
+    // All colors from every frame, in order and undeduplicated (unlike the
+    // gradient patterns' first-frame, distinct-colors-only palette).
     void _loadPalette(const char* sceneId) {
-        _palette.clear();
-        if (!sceneId || !sceneId[0]) return;
-        File f = LittleFS.open(SceneManager::path(sceneId).c_str(), "r");
-        if (!f) return;
-        JsonDocument doc;
-        if (deserializeJson(doc, f)) { f.close(); return; }
-        f.close();
-        JsonArray frames = doc["frames"].as<JsonArray>();
-        if (!frames || !frames.size()) return;
-        for (JsonArray frame : frames) {
-            for (JsonVariant v : frame) {
-                const char* hex = v | "";
-                if (strlen(hex) < 6) continue;
-                unsigned long rgb = strtoul(hex, nullptr, 16);
-                _palette.push_back({(uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb});
-            }
-        }
+        GradientCommon::loadPalette(sceneId, _palette, /*allFrames=*/true, /*dedupe=*/false);
     }
 
     void _initLeds(uint32_t now) {
