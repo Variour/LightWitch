@@ -279,12 +279,7 @@ public:
             doc["latestVersion"]  = s.latestVersion;
             doc["hasUpdate"]      = s.hasUpdate;
             doc["progress"]       = s.progress;
-            const char* stateStr =
-                s.state == Updater::State::Checking    ? "checking"    :
-                s.state == Updater::State::Downloading ? "downloading" :
-                s.state == Updater::State::Error       ? "error"       :
-                s.state == Updater::State::Done        ? "done"        : "idle";
-            doc["state"] = stateStr;
+            doc["state"] = _fwStateToString(s.state);
             if (s.error) doc["error"] = s.error;
             String out; serializeJson(doc, out);
             r->send(200, "application/json", out);
@@ -391,6 +386,19 @@ private:
         }
         return true;
     }
+
+    // Parses a "xx:xx:xx:xx:xx:xx" MAC string into a 6-byte array.
+    static bool _parseMac(const char* macStr, uint8_t* mac) {
+        return sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                      &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]) == 6;
+    }
+
+    static const char* _fwStateName(uint8_t v) {
+        static const char* kNames[] = { "idle", "checking", "downloading", "error", "done" };
+        return v < 5 ? kNames[v] : "idle";
+    }
+    static const char* _fwStateToString(Updater::State s) { return _fwStateName((uint8_t)s); }
+    static const char* _fwStateToString(FwState s)        { return _fwStateName((uint8_t)s); }
 
     static void _serializeGroup(JsonObject o, const GroupConfig& g) {
         o["id"]          = g.id;
@@ -532,11 +540,6 @@ private:
     void _buildPeersJson(JsonDocument& doc) {
         auto& c = Config::get();
         const auto& us = Updater::status();
-        const char* selfFwState =
-            us.state == Updater::State::Checking    ? "checking"    :
-            us.state == Updater::State::Downloading ? "downloading" :
-            us.state == Updater::State::Error       ? "error"       :
-            us.state == Updater::State::Done        ? "done"        : "idle";
 
         auto self = doc["self"].to<JsonObject>();
         self["mac"]           = WiFi.macAddress();
@@ -544,7 +547,7 @@ private:
         self["online"]        = true;
         self["wifiConnected"] = (WiFi.status() == WL_CONNECTED);
         self["version"]       = FW_VERSION;
-        self["fwState"]       = selfFwState;
+        self["fwState"]       = _fwStateToString(us.state);
         {
             JsonArray la = self["lights"].to<JsonArray>();
             for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
@@ -563,11 +566,6 @@ private:
         if (_peers) {
             for (auto& p : *_peers) {
                 if (!p.active) continue;
-                const char* pFwState =
-                    p.fwState == FwState::Checking    ? "checking"    :
-                    p.fwState == FwState::Downloading ? "downloading" :
-                    p.fwState == FwState::Error       ? "error"       :
-                    p.fwState == FwState::Done        ? "done"        : "idle";
                 auto o = arr.add<JsonObject>();
                 o["mac"]              = p.macStr();
                 o["name"]             = p.name;
@@ -576,7 +574,7 @@ private:
                 o["sceneSyncEnabled"] = p.sceneSyncEnabled;
                 o["wifiConnected"]    = p.wifiConnected;
                 o["version"]          = p.fwVersion;
-                o["fwState"]          = pFwState;
+                o["fwState"]          = _fwStateToString(p.fwState);
                 JsonArray la = o["lights"].to<JsonArray>();
                 for (uint8_t i = 0; i < p.lightCount && i < MAX_LIGHTS; i++) {
                     JsonObject lo = la.add<JsonObject>();
@@ -725,8 +723,7 @@ private:
         }
 
         uint8_t mac[6];
-        if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-                   &mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]) != 6) {
+        if (!_parseMac(macStr, mac)) {
             auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
         }
 
@@ -858,8 +855,7 @@ private:
             if (_onResolveConflict) _onResolveConflict(id, nullptr);
         } else {
             uint8_t mac[6];
-            if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-                       &mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]) != 6) {
+            if (!_parseMac(macStr, mac)) {
                 auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
             }
             if (_onResolveConflict) _onResolveConflict(id, mac);
@@ -927,12 +923,8 @@ private:
         const char* macStr = doc["mac"] | "";
         uint8_t targetMac[6] = {0, 0, 0, 0, 0, 0};
         bool hasTarget = macStr[0] != '\0';
-        if (hasTarget) {
-            if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-                       &targetMac[0], &targetMac[1], &targetMac[2],
-                       &targetMac[3], &targetMac[4], &targetMac[5]) != 6) {
-                auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
-            }
+        if (hasTarget && !_parseMac(macStr, targetMac)) {
+            auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
         }
 
         JsonDocument payload;
@@ -1040,22 +1032,23 @@ private:
         }
 
         uint8_t mac[6];
-        if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-                   &mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]) != 6) {
+        if (!_parseMac(macStr, mac)) {
             auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
         }
         if (_onSetRemoteSync) _onSetRemoteSync(mac, enabled);
         auto ok = _makeOk(); _sendJson(r, 200, ok);
     }
 
-    // ── POST /api/peers/triggerupdate ─────────────────────────────────────────
-    void _triggerPeerUpdate(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+    // Shared body for /api/peers/triggerupdate and /api/peers/checkupdate:
+    // parse the target MAC, reject if that peer is known but offline, then
+    // invoke the given callback.
+    void _peerUpdateRequest(AsyncWebServerRequest* r, uint8_t* data, size_t len,
+                             const char* logVerb, const std::function<void(const uint8_t*)>& cb) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
         const char* macStr = doc["mac"] | "";
         uint8_t mac[6];
-        if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-                   &mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]) != 6) {
+        if (!_parseMac(macStr, mac)) {
             auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
         }
         if (_peers) {
@@ -1068,34 +1061,19 @@ private:
                 }
             }
         }
-        Logger::i("[web] trigger-update for %s", macStr);
-        if (_onTriggerPeerUpdate) _onTriggerPeerUpdate(mac);
+        Logger::i("[web] %s for %s", logVerb, macStr);
+        if (cb) cb(mac);
         auto ok = _makeOk(); _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/peers/triggerupdate ─────────────────────────────────────────
+    void _triggerPeerUpdate(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        _peerUpdateRequest(r, data, len, "trigger-update", _onTriggerPeerUpdate);
     }
 
     // ── POST /api/peers/checkupdate ───────────────────────────────────────────
     void _checkPeerUpdate(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        const char* macStr = doc["mac"] | "";
-        uint8_t mac[6];
-        if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-                   &mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]) != 6) {
-            auto e = _makeErr("bad mac"); _sendJson(r, 400, e); return;
-        }
-        if (_peers) {
-            for (auto& p : *_peers) {
-                if (p.active && memcmp(p.mac, mac, 6) == 0) {
-                    if (!p.wifiConnected) {
-                        auto e = _makeErr("peer not connected to WiFi"); _sendJson(r, 409, e); return;
-                    }
-                    break;
-                }
-            }
-        }
-        Logger::i("[web] check-update for %s", macStr);
-        if (_onCheckPeerUpdate) _onCheckPeerUpdate(mac);
-        auto ok = _makeOk(); _sendJson(r, 200, ok);
+        _peerUpdateRequest(r, data, len, "check-update", _onCheckPeerUpdate);
     }
 
     // ── GET /api/lights ───────────────────────────────────────────────────────
