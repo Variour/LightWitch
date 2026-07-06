@@ -2206,8 +2206,9 @@ const _PRESETS = [
   '#ff69b4','#40e0d0','#7b68ee','#ffd700'
 ];
 
-// Global mouseup to end drag-paint
+// Global mouseup/touchend to end drag-paint
 document.addEventListener('mouseup', () => { _painting = false; });
+document.addEventListener('touchend', () => { _painting = false; });
 
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
@@ -3068,7 +3069,6 @@ function _renderGrid() {
       e.preventDefault();
     }, { passive: false });
   });
-  document.addEventListener('touchend', () => { _painting = false; }, { once: false });
 
   _renderGradUI();
 }
