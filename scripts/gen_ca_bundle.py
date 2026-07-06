@@ -6,10 +6,11 @@ Updater.h to validate TLS certs for the GitHub API and release asset CDN
 without pinning to specific roots — this is a generic public trust store,
 not something specific to GitHub.
 
-Binary format matches esp-idf's components/mbedtls/esp_crt_bundle/esp_crt_bundle.c:
-  [offset of 1st cert](u32) ... [offset of nth cert](u32)
+Binary format matches Arduino-ESP32's WiFiClientSecure crt bundle parser:
+  [cert count](u16, big-endian)
   [1st cert] ... [nth cert]
-  cert = [len(CN)](u16) [len(key)](u16) [CN bytes] [key bytes]
+  cert = [len(CN)](u16, big-endian) [len(key)](u16, big-endian)
+         [CN bytes] [key bytes]
 Certs are sorted ascending by CN (DER-encoded subject) for binary search.
 
 Requires: pip install cryptography certifi
@@ -53,17 +54,12 @@ def build_bundle(certs):
     entries.sort(key=lambda e: e[0])
 
     n = len(entries)
-    offset_table_size = n * 4
     bodies = []
-    offsets = []
-    running = offset_table_size
     for cn_der, key_der in entries:
-        body = struct.pack("<HH", len(cn_der), len(key_der)) + cn_der + key_der
-        offsets.append(running)
+        body = struct.pack(">HH", len(cn_der), len(key_der)) + cn_der + key_der
         bodies.append(body)
-        running += len(body)
 
-    out = b"".join(struct.pack("<I", o) for o in offsets) + b"".join(bodies)
+    out = struct.pack(">H", n) + b"".join(bodies)
     return out, n
 
 
