@@ -91,7 +91,7 @@ private:
     // Opens an authenticated GET request against the GitHub API and returns the HTTP status code.
     // tls/http are owned by the caller and must stay alive while the response body/stream is read.
     static int _httpGet(WiFiClientSecure& tls, HTTPClient& http, const String& url, const char* accept) {
-        tls.setCACertBundle(CA_BUNDLE, CA_BUNDLE_LEN);
+        tls.setCACertBundle(CA_BUNDLE);
         http.begin(tls, url);
         http.addHeader("Authorization", _authHeader());
         http.addHeader("Accept", accept);
