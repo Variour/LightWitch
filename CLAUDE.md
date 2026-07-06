@@ -1,5 +1,9 @@
 never regenerate the index.html.gz
 
+## GitHub content
+
+All content on GitHub — issues, pull requests, comments, commit messages, and labels — is always written in English.
+
 ## Commit Messages
 
 Use [scoped commits](https://scopedcommits.com/): `scope: description`

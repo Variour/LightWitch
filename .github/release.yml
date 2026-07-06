@@ -14,6 +14,12 @@ changelog:
     - title: Dependencies
       labels:
         - dependencies
+    - title: Security
+      labels:
+        - security
+    - title: Performance
+      labels:
+        - performance
     - title: Other Changes
       labels:
         - "*"
