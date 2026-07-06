@@ -135,10 +135,12 @@ private:
 // heard any presence yet, so without care it would see an empty peer list
 // and conclude "nobody's connected" even if a peer has been happily
 // connected for weeks — see DISCOVERY_GRACE_MS below for the mitigation.
-// This is best-effort (no central coordinator to guarantee it), and once
-// connected a device does not step down just because it later learns
-// another candidate was connected first — only an actual disconnect (on
-// either side) triggers re-election.
+// This is best-effort, not a guarantee (no central coordinator): two
+// candidates can still end up connected at once, e.g. both connecting
+// independently before finding each other in the mesh. When that happens,
+// the higher-MAC one yields (disconnects) as soon as it learns the lower-MAC
+// one is also connected — see the Connected case in tick() — so the mesh
+// still converges back to exactly one WiFi client, just not instantly.
 class WifiElection {
 public:
     void begin(PeerRegistry* peers) {
@@ -196,10 +198,21 @@ public:
 
         uint8_t ownMac[6];
         WiFi.macAddress(ownMac);
-        bool anyConnected = _anyCandidateConnected();
+        bool selfConnected = WiFi.status() == WL_CONNECTED;
+        bool anyConnected  = selfConnected || _anyPeerConnected();
 
         switch (_state) {
             case State::Waiting: {
+                if (selfConnected) {
+                    // Already connected — e.g. the mode was just turned on
+                    // while this device had a live connection from before, or
+                    // it independently connected before discovering a peer.
+                    // Adopt it; the Connected case below yields it to a
+                    // lower-MAC peer if one turns out to also be connected.
+                    Logger::i("[wifi-elect] already connected — adopting as this mesh's WiFi client");
+                    _state = State::Connected;
+                    return;
+                }
                 if (anyConnected) {
                     Logger::i("[wifi-elect] another candidate connected — standing by");
                     _state = State::Standby;
@@ -218,9 +231,20 @@ public:
             case State::Connecting:
                 break; // handled by the DoneCb passed to _attempt.start()
             case State::Connected:
-                if (WiFi.status() != WL_CONNECTED) {
+                if (!selfConnected) {
                     Logger::w("[wifi-elect] lost connection — re-electing");
                     _enterFreshWaiting();
+                } else if (_lowerMacPeerConnected(ownMac)) {
+                    // Two candidates ended up connected at once (e.g. both
+                    // connected independently before finding each other in
+                    // the mesh) — yield to the lower MAC so the mesh settles
+                    // back to exactly one WiFi client.
+                    Logger::w("[wifi-elect] a lower-MAC peer is also connected — yielding");
+                    WiFi.disconnect(false);
+                    auto& c = Config::get();
+                    WiFi.softAP(c.deviceName, c.apPassword, 1);
+                    WiFi.setTxPower(WIFI_TX_POWER);
+                    _state = State::Standby;
                 }
                 break;
             case State::Standby:
@@ -304,11 +328,20 @@ private:
         if (cb) cb();
     }
 
-    bool _anyCandidateConnected() const {
-        if (WiFi.status() == WL_CONNECTED) return true;
+    // Excludes self on purpose — callers combine this with their own
+    // WiFi.status() check so they can tell "I'm the one connected" apart
+    // from "a peer is", which need different reactions (adopt vs. stand by).
+    bool _anyPeerConnected() const {
         if (!_peers) return false;
         for (auto& p : *_peers)
             if (p.active && p.online() && p.wifiConnected) return true;
+        return false;
+    }
+
+    bool _lowerMacPeerConnected(const uint8_t* ownMac) const {
+        if (!_peers) return false;
+        for (auto& p : *_peers)
+            if (p.active && p.online() && p.wifiConnected && memcmp(p.mac, ownMac, 6) < 0) return true;
         return false;
     }
 
