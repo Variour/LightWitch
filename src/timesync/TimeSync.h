@@ -38,6 +38,7 @@ private:
     static bool        _ntpStarted;
     static uint32_t    _lastBroadcast;
     static BroadcastFn _broadcastFn;
+    static char        _timezone[64];
 
     // Rejects implausible epochs received from a peer (e.g. a peer that never
     // synced itself and is still at its 1970 boot default). Corresponds to
