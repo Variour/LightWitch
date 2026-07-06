@@ -49,6 +49,42 @@ enum class TextAnimation : uint8_t {
     Bounce = 1,
 };
 
+// Actions a button (or, perspectively, any other trigger source — MQTT/API/mesh)
+// can invoke against a group's LightConfig. Every action targets a group id;
+// GroupSyncToggle is the one exception that mutates GroupConfig.syncEnabled
+// instead of LightConfig.
+enum class ActionId : uint8_t {
+    None = 0,
+    BrightnessStep,
+    BrightnessSet,
+    ColorSet,
+    SpeedStep,
+    ModeSet,
+    PatternNext,
+    PatternPrev,
+    PatternSet,
+    SceneNext,
+    ScenePrev,
+    SceneRandom,
+    SceneSet,
+    FrameDurationStep,
+    TransitionToggle,
+    TransitionTimeSet,
+    SceneUniformColorToggle,
+    ProximityScaleStep,
+    ProximityScaleSet,
+    GradientPaletteNext,
+    GradientPalettePrev,
+    GradientPaletteRandom,
+    GradientPaletteSet,
+    MorphToggle,
+    GradientStopCountSet,
+    TextSet,
+    TextAnimationSet,
+    Time24hToggle,
+    GroupSyncToggle,
+};
+
 struct Color {
     uint8_t r = 255;
     uint8_t g = 255;
@@ -86,8 +122,27 @@ struct LightConfig {
 
 static constexpr uint8_t MAX_GROUPS        = 8;
 static constexpr uint8_t MAX_LIGHTS        = 4;
+static constexpr uint8_t MAX_BUTTONS       = 4;
 static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
 static constexpr uint8_t CONFIG_SCHEMA_VERSION = 2;
+
+// Parameters for a ButtonAction. Which member is meaningful depends on the
+// ActionId — numberValue covers steps/fixed values/enum ordinals,
+// stringValue covers sceneId or free text, colorValue covers ColorSet.
+struct ActionParams {
+    float   numberValue     = 0.0f;
+    char    stringValue[64] = {};
+    Color   colorValue;
+};
+
+// One action assignment: what to do (ActionId), which group to do it to,
+// and any parameters the action needs. action == ActionId::None means the
+// slot is unassigned.
+struct ButtonAction {
+    ActionId     action  = ActionId::None;
+    uint8_t      groupId = 0;
+    ActionParams params;
+};
 
 struct WifiNetwork {
     char ssid[64]     = {};
@@ -109,6 +164,24 @@ void serializeLightConfig(JsonObject o, const LightConfig& l);
 LightConfig deserializeLightConfig(JsonVariant j, const LightConfig& def = LightConfig{});
 void serializeGroup(JsonObject o, const GroupConfig& g);
 void deserializeGroup(JsonVariant o, GroupConfig& g);
+
+// Physical GPIO button configuration, stored in DeviceConfig. Each button has
+// up to three independently-assignable actions (short press, long press,
+// double click); an unassigned slot has action == ActionId::None.
+struct ButtonHardwareConfig {
+    char         name[20]  = "";
+    uint8_t      pin       = 0;
+    bool         activeLow = true;  // true = pressed reads LOW (INPUT_PULLUP wiring)
+    ButtonAction onShortPress;
+    ButtonAction onLongPress;
+    ButtonAction onDoubleClick;
+    bool         exists    = false;
+};
+
+void serializeButtonAction(JsonObject o, const ButtonAction& a);
+ButtonAction deserializeButtonAction(JsonVariant j, const ButtonAction& def = ButtonAction{});
+void serializeButton(JsonObject o, const ButtonHardwareConfig& b);
+void deserializeButton(JsonVariant o, ButtonHardwareConfig& b);
 
 // Per-light physical hardware configuration, stored in DeviceConfig.
 struct LightHardwareConfig {
@@ -144,6 +217,7 @@ struct DeviceConfig {
     bool        checkUpdateOnStartup    = false;
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
+    ButtonHardwareConfig buttons[MAX_BUTTONS];
 };
 
 class Config {
@@ -187,9 +261,30 @@ public:
         }
     }
 
+    // Invoke fn(index, button) for every configured button where button.exists is true.
+    static void forEachButton(const std::function<void(uint8_t, ButtonHardwareConfig&)>& fn) {
+        for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
+            auto& b = _cfg.buttons[i];
+            if (b.exists) fn(i, b);
+        }
+    }
+
+    // Like forEachButton, but stops as soon as fn returns false.
+    static void forEachButtonUntil(const std::function<bool(uint8_t, ButtonHardwareConfig&)>& fn) {
+        for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
+            auto& b = _cfg.buttons[i];
+            if (b.exists && !fn(i, b)) return;
+        }
+    }
+
     static bool applyGroupSync(const GroupConfig& g);
 
     static void applyConfigSync(const char* json, size_t len);
+
+    // True if `pin` is already used by a configured light (data/clock pin) or
+    // by another configured button. Pass the button's own index as
+    // excludeButtonIndex when validating an update to an existing button.
+    static bool isPinInUse(uint8_t pin, int8_t excludeButtonIndex = -1);
 
 private:
     static DeviceConfig _cfg;

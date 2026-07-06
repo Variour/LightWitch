@@ -37,6 +37,8 @@ using SceneSavedCb        = std::function<void(const char* sceneId)>;
 using TestLightCb         = std::function<void(uint8_t)>;
 // Called when matrix orientation (matrixStart/matrixDir) or wrap topology changes without reboot
 using OrientationChangeCb = std::function<void(uint8_t)>;
+// Called after a button is added/updated/deleted, so GPIO pin modes can be re-applied live
+using ButtonsChangedCb    = std::function<void()>;
 
 class BatteryWebServer {
 private:
@@ -130,6 +132,14 @@ public:
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _deleteLight(r,d,l); });
         _server.on("/api/lights/test", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _testLight(r,d,l); });
+
+        _server.on("/api/buttons", HTTP_GET, [this](AsyncWebServerRequest* r){ _getButtons(r); });
+        _server.on("/api/buttons/add", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _addButton(r,d,l); });
+        _server.on("/api/buttons/update", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _updateButton(r,d,l); });
+        _server.on("/api/buttons/delete", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _deleteButton(r,d,l); });
 
         // ── Scene API ─────────────────────────────────────────────────────────
         // Specific routes must be registered before /api/scenes because
@@ -343,6 +353,7 @@ public:
     void setOnSceneSaved(SceneSavedCb cb)           { _onSceneSaved          = cb; }
     void setOnTestLight(TestLightCb cb)              { _onTestLight           = cb; }
     void setOnOrientationChange(OrientationChangeCb cb) { _onOrientationChange = cb; }
+    void setOnButtonsChanged(ButtonsChangedCb cb)       { _onButtonsChanged    = cb; }
 
 private:
     AsyncWebServer   _server{80};
@@ -364,6 +375,7 @@ private:
     SceneSavedCb        _onSceneSaved;
     TestLightCb         _onTestLight;
     OrientationChangeCb _onOrientationChange;
+    ButtonsChangedCb    _onButtonsChanged;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -1140,6 +1152,95 @@ private:
         Config::save();
         auto ok = _makeOk(); _sendJson(r, 200, ok);
         delay(200); ESP.restart();
+    }
+
+    // ── GET /api/buttons ──────────────────────────────────────────────────────
+    void _getButtons(AsyncWebServerRequest* r) {
+        JsonDocument doc;
+        doc["maxButtons"] = MAX_BUTTONS;
+        JsonArray arr = doc["buttons"].to<JsonArray>();
+        for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
+            auto& b = Config::get().buttons[i];
+            if (!b.exists) continue;
+            JsonObject o = arr.add<JsonObject>();
+            o["index"] = i;
+            serializeButton(o, b);
+        }
+        _sendJson(r, 200, doc);
+    }
+
+    // ── POST /api/buttons/add ─────────────────────────────────────────────────
+    // Body: {name?, pin, activeLow?, onShortPress?, onLongPress?, onDoubleClick?}
+    void _addButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = 0xFF;
+        for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
+            if (!Config::get().buttons[i].exists) { idx = i; break; }
+        }
+        if (idx == 0xFF) {
+            auto e = _makeErr("button limit reached"); _sendJson(r, 400, e); return;
+        }
+        uint8_t pin = doc["pin"] | (uint8_t)0;
+        if (Config::isPinInUse(pin)) {
+            auto e = _makeErr("pin already in use"); _sendJson(r, 400, e); return;
+        }
+        auto& b = Config::get().buttons[idx];
+        b = ButtonHardwareConfig{};
+        deserializeButton(doc, b);
+        b.pin    = pin;   // deserializeButton already applied it, but keep explicit — validated above
+        b.exists = true;  // deserializeButton defaults "exists" to false when the key is absent
+        Config::save();
+        JsonDocument resp;
+        resp["ok"]    = true;
+        resp["index"] = idx;
+        _sendJson(r, 200, resp);
+        if (_onButtonsChanged) _onButtonsChanged();
+    }
+
+    // ── POST /api/buttons/update ──────────────────────────────────────────────
+    // Body: {index, name?, pin?, activeLow?, onShortPress?, onLongPress?, onDoubleClick?}
+    void _updateButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_BUTTONS || !Config::get().buttons[idx].exists) {
+            auto e = _makeErr("not found"); _sendJson(r, 404, e); return;
+        }
+        auto& b = Config::get().buttons[idx];
+        if (!doc["name"].isNull())      strlcpy(b.name, doc["name"] | "", sizeof(b.name));
+        if (!doc["activeLow"].isNull()) b.activeLow = (bool)doc["activeLow"];
+        if (!doc["pin"].isNull()) {
+            uint8_t pin = doc["pin"];
+            if (Config::isPinInUse(pin, (int8_t)idx)) {
+                auto e = _makeErr("pin already in use"); _sendJson(r, 400, e); return;
+            }
+            b.pin = pin;
+        }
+        if (!doc["onShortPress"].isNull())
+            b.onShortPress = deserializeButtonAction(doc["onShortPress"], b.onShortPress);
+        if (!doc["onLongPress"].isNull())
+            b.onLongPress = deserializeButtonAction(doc["onLongPress"], b.onLongPress);
+        if (!doc["onDoubleClick"].isNull())
+            b.onDoubleClick = deserializeButtonAction(doc["onDoubleClick"], b.onDoubleClick);
+        Config::save();
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+        if (_onButtonsChanged) _onButtonsChanged();
+    }
+
+    // ── POST /api/buttons/delete ──────────────────────────────────────────────
+    // Body: {index}
+    void _deleteButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_BUTTONS || !Config::get().buttons[idx].exists) {
+            auto e = _makeErr("not found"); _sendJson(r, 404, e); return;
+        }
+        Config::get().buttons[idx].exists = false;
+        Config::save();
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+        if (_onButtonsChanged) _onButtonsChanged();
     }
 
     static String _jsonStr(const char* s) {

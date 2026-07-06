@@ -810,6 +810,11 @@ input[type=checkbox]:active { background-color: #1a5; }
     <button class="btn-ghost" style="width:100%" id="add-light-btn" onclick="openAddLightModal()">Add light</button>
 
     <hr class="section-divider">
+    <h3>Buttons</h3>
+    <div id="buttons-hw-list" style="margin-bottom:.75rem"></div>
+    <button class="btn-ghost" style="width:100%" id="add-button-btn" onclick="openAddButtonModal()">Add button</button>
+
+    <hr class="section-divider">
     <h3>WiFi</h3>
     <div id="wifi-list" style="margin-bottom:.5rem"></div>
     <div style="display:flex;flex-direction:column;gap:.4rem">
@@ -2203,6 +2208,7 @@ async function loadConfig() {
   $('otaEnabled').checked = d.otaEnabled !== false;
   if (d.logLevel !== undefined) $('logLevel').value = d.logLevel;
   if (d.lights) renderLightsHw(d.lights);
+  loadButtons().catch(() => {});
   if (d.mqttHost   !== undefined) $('mqttHost').value   = d.mqttHost;
   if (d.mqttPort   !== undefined) $('mqttPort').value   = d.mqttPort;
   if (d.mqttUser   !== undefined) $('mqttUser').value   = d.mqttUser;
@@ -4264,6 +4270,229 @@ async function deleteLight(index) {
     await _waitForDeviceOnline();
     loadConfig().catch(() => {});
   });
+}
+
+// ── Buttons ───────────────────────────────────────────────────────────────────
+// ActionId values must match the C++ enum ordinals in src/config/Config.h exactly.
+const ACTION_CATALOG = [
+  {id:1,  label:'Brightness step',            cat:'Generic',   param:'number', hint:'± step, e.g. 20 or -20'},
+  {id:2,  label:'Brightness set',             cat:'Generic',   param:'number', hint:'0–255'},
+  {id:3,  label:'Color set',                  cat:'Generic',   param:'color'},
+  {id:4,  label:'Speed step',                 cat:'Generic',   param:'number', hint:'± step'},
+  {id:5,  label:'Mode set',                   cat:'Generic',   param:'enum', hint:'Mode',
+    options:[[0,'Pattern'],[1,'Scene'],[2,'Proximity'],[3,'Gradient'],[4,'Text'],[5,'Time']]},
+  {id:28, label:'Group sync toggle',          cat:'Generic',   param:'none'},
+  {id:6,  label:'Pattern next',               cat:'Pattern',   param:'none'},
+  {id:7,  label:'Pattern previous',           cat:'Pattern',   param:'none'},
+  {id:8,  label:'Pattern set',                cat:'Pattern',   param:'enum', hint:'Pattern',
+    options:[[0,'Static'],[1,'Breathing'],[2,'ColorCycle'],[3,'Strobe'],[4,'Candle']]},
+  {id:9,  label:'Scene next',                 cat:'Scene',     param:'none'},
+  {id:10, label:'Scene previous',             cat:'Scene',     param:'none'},
+  {id:11, label:'Scene random',               cat:'Scene',     param:'none'},
+  {id:12, label:'Scene set',                  cat:'Scene',     param:'scene'},
+  {id:13, label:'Frame duration step',        cat:'Scene',     param:'number', hint:'± seconds'},
+  {id:14, label:'Transition toggle',          cat:'Scene',     param:'none'},
+  {id:15, label:'Transition time set',        cat:'Scene',     param:'number', hint:'seconds'},
+  {id:16, label:'Uniform color toggle',       cat:'Scene',     param:'none', hint:'string lights only'},
+  {id:17, label:'Proximity scale step',       cat:'Proximity', param:'number', hint:'± step'},
+  {id:18, label:'Proximity scale set',        cat:'Proximity', param:'number'},
+  {id:19, label:'Gradient palette next',      cat:'Gradient',  param:'none'},
+  {id:20, label:'Gradient palette previous',  cat:'Gradient',  param:'none'},
+  {id:21, label:'Gradient palette random',    cat:'Gradient',  param:'none'},
+  {id:22, label:'Gradient palette set',       cat:'Gradient',  param:'scene'},
+  {id:23, label:'Morph toggle',               cat:'Gradient',  param:'none'},
+  {id:24, label:'Gradient stop count set',    cat:'Gradient',  param:'number', hint:'0 = auto'},
+  {id:25, label:'Text set',                   cat:'Text',      param:'string', hint:'message to display'},
+  {id:26, label:'Text animation set',         cat:'Text',      param:'enum', hint:'Animation',
+    options:[[0,'Scroll'],[1,'Bounce']]},
+  {id:27, label:'24h/12h toggle',             cat:'Time',      param:'none'},
+];
+
+function _actionMeta(id) { return ACTION_CATALOG.find(a => a.id === id); }
+
+function _renderActionOptions(selectedId) {
+  const cats = [...new Set(ACTION_CATALOG.map(a => a.cat))];
+  return cats.map(cat => `<optgroup label="${esc(cat)}">${
+    ACTION_CATALOG.filter(a => a.cat === cat).map(a =>
+      `<option value="${a.id}"${a.id === selectedId ? ' selected' : ''}>${esc(a.label)}</option>`
+    ).join('')
+  }</optgroup>`).join('');
+}
+
+// Builds the param input for one action slot. `existing` (a ButtonAction from
+// the API, or null when the action was just changed by the user) supplies the
+// pre-filled value; null means start from a blank default.
+function _buildParamHtml(prefix, action, existing) {
+  const meta = _actionMeta(action);
+  if (!meta || meta.param === 'none') return '';
+  if (meta.param === 'number') {
+    const v = existing ? existing.numberValue : 0;
+    return `<label>${esc(meta.hint || 'Value')}</label><input type="number" step="any" id="${prefix}-param-number" value="${v || 0}">`;
+  }
+  if (meta.param === 'string') {
+    const v = existing ? existing.stringValue : '';
+    return `<label>${esc(meta.hint || 'Text')}</label><input type="text" id="${prefix}-param-string" value="${esc(v || '')}">`;
+  }
+  if (meta.param === 'scene') {
+    const sel = existing ? existing.stringValue : '';
+    return `<label>Scene</label><select id="${prefix}-param-scene">${
+      _sceneOptions.map(s => `<option value="${esc(s.id)}"${sel === String(s.id) ? ' selected' : ''}>${esc(s.name)}</option>`).join('')
+    }</select>`;
+  }
+  if (meta.param === 'enum') {
+    const sel = existing ? existing.numberValue : 0;
+    return `<label>${esc(meta.hint || 'Value')}</label><select id="${prefix}-param-enum">${
+      meta.options.map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${esc(l)}</option>`).join('')
+    }</select>`;
+  }
+  if (meta.param === 'color') {
+    const hex = existing ? toHex(existing.r, existing.g, existing.b) : '#ffffff';
+    return `<label>Color</label><input type="color" id="${prefix}-param-color" value="${hex}">`;
+  }
+  return '';
+}
+
+// Re-renders the target-group and param controls for one action slot after
+// the user changes its action dropdown (existing = null → blank defaults).
+function _updateActionParamVisibility(prefix, action, existing) {
+  const meta = _actionMeta(action);
+  $(prefix + '-target-wrap').style.display = meta ? '' : 'none';
+  $(prefix + '-param-wrap').innerHTML = _buildParamHtml(prefix, action, existing);
+}
+
+function _renderActionSlot(prefix, label, a) {
+  a = a || {action: 0, groupId: 0};
+  const meta = _actionMeta(a.action);
+  return `<div class="card" style="margin-bottom:.5rem;padding:.5rem .6rem">
+    <strong style="font-size:.85rem">${esc(label)}</strong>
+    <label>Action</label>
+    <select id="${prefix}-action" onchange="_updateActionParamVisibility('${prefix}', parseInt(this.value), null)">
+      <option value="0"${!a.action ? ' selected' : ''}>— none —</option>
+      ${_renderActionOptions(a.action)}
+    </select>
+    <div id="${prefix}-target-wrap" style="${meta ? '' : 'display:none'}">
+      <label>Target group</label>
+      <select id="${prefix}-groupId">${_renderGroupOptions(a.groupId)}</select>
+    </div>
+    <div id="${prefix}-param-wrap">${_buildParamHtml(prefix, a.action, a)}</div>
+  </div>`;
+}
+
+function _readActionSlot(prefix) {
+  const action  = parseInt($(prefix + '-action').value) || 0;
+  const groupId = parseInt($(prefix + '-groupId')?.value) || 0;
+  const out = {action, groupId, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255};
+  const meta = _actionMeta(action);
+  if (!meta) return out;
+  if (meta.param === 'number') out.numberValue = parseFloat($(prefix + '-param-number').value) || 0;
+  else if (meta.param === 'enum') out.numberValue = parseInt($(prefix + '-param-enum').value) || 0;
+  else if (meta.param === 'string') out.stringValue = $(prefix + '-param-string').value;
+  else if (meta.param === 'scene') out.stringValue = $(prefix + '-param-scene').value || '';
+  else if (meta.param === 'color') {
+    const [r, g, b] = hexToRgb($(prefix + '-param-color').value);
+    out.r = r; out.g = g; out.b = b;
+  }
+  return out;
+}
+
+function renderButtonsHw(buttons) {
+  const el = $('buttons-hw-list');
+  if (!el) return;
+  if (!buttons || !buttons.length) {
+    el.innerHTML = '<p style="color:#555;font-size:.85rem">No buttons configured.</p>';
+    return;
+  }
+  el.innerHTML = buttons.map(b => {
+    const label = b.name ? b.name : `Button ${b.index}`;
+    const summary = ['onShortPress', 'onLongPress', 'onDoubleClick']
+      .map(k => { const m = _actionMeta(b[k] && b[k].action); return m ? m.label : null; })
+      .filter(Boolean);
+    return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
+      <div class="flex-between">
+        <div>
+          <strong>${esc(label)}</strong>
+          <span style="color:#888;font-size:.82rem;margin-left:.5rem">GPIO${b.pin}</span>
+        </div>
+        <div style="display:flex;gap:.4rem">
+          <button class="btn-ghost btn-sm" onclick="openEditButtonModal(${JSON.stringify(b).replace(/"/g,'&quot;')})">Edit</button>
+          <button class="btn-ghost btn-sm" style="color:#c44" onclick="deleteButton(${b.index})">Delete</button>
+        </div>
+      </div>
+      <div style="font-size:.8rem;color:#888;margin-top:.25rem">${summary.length ? esc(summary.join(' · ')) : 'No actions assigned'}</div>
+    </div>`;
+  }).join('');
+}
+
+let _editButtonIndex = null;
+
+function openAddButtonModal() {
+  _editButtonIndex = null;
+  _openButtonModal({index: null, name: '', pin: 0, activeLow: true, onShortPress: null, onLongPress: null, onDoubleClick: null});
+}
+
+function openEditButtonModal(b) {
+  _editButtonIndex = b.index;
+  _openButtonModal(b);
+}
+
+function _openButtonModal(b) {
+  const title = _editButtonIndex === null ? 'Add button' : `Edit button ${b.index}`;
+  const overlay = document.createElement('div');
+  overlay.id = 'button-modal-overlay';
+  overlay.className = 'push-overlay';
+  overlay.innerHTML = `<div class="push-modal"><div class="card" style="margin:0">
+    <div class="flex-between" style="margin-bottom:.5rem">
+      <h2 style="margin:0">${title}</h2>
+      <button class="btn-ghost btn-sm" onclick="$('button-modal-overlay').remove()">✕</button>
+    </div>
+    <label>Name <small>(optional)</small></label>
+    <input type="text" id="bm-name" value="${esc(b.name || '')}" maxlength="19" placeholder="e.g. Living room switch">
+    <label>GPIO pin</label>
+    <input type="number" id="bm-pin" value="${b.pin || 0}" min="0" max="39">
+    <label style="display:flex;align-items:center;gap:.5rem">
+      <input type="checkbox" id="bm-activeLow" style="width:auto" ${b.activeLow !== false ? 'checked' : ''}>
+      <span>Active low <small>(pressed reads LOW — typical wiring: button to GND, internal pull-up)</small></span>
+    </label>
+    <hr class="section-divider">
+    ${_renderActionSlot('bm-short',  'Short press',  b.onShortPress)}
+    ${_renderActionSlot('bm-long',   'Long press',   b.onLongPress)}
+    ${_renderActionSlot('bm-double', 'Double click', b.onDoubleClick)}
+    <button id="bm-save-btn" class="btn-primary" style="width:100%;margin-top:.75rem" onclick="saveButtonModal()">Save</button>
+  </div></div>`;
+  overlay.style.display = 'block';
+  document.body.appendChild(overlay);
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+}
+
+async function saveButtonModal() {
+  const body = {
+    name:      $('bm-name').value.trim(),
+    pin:       parseInt($('bm-pin').value) || 0,
+    activeLow: $('bm-activeLow').checked,
+    onShortPress:  _readActionSlot('bm-short'),
+    onLongPress:   _readActionSlot('bm-long'),
+    onDoubleClick: _readActionSlot('bm-double'),
+  };
+  const url = _editButtonIndex === null ? '/api/buttons/add' : '/api/buttons/update';
+  if (_editButtonIndex !== null) body.index = _editButtonIndex;
+  const res = await _fetchOrAlert(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!res) return;
+  $('button-modal-overlay')?.remove();
+  loadButtons();
+}
+
+async function deleteButton(index) {
+  await _confirmAction(`Delete button ${index}?`, async () => {
+    const res = await _fetchOrAlert('/api/buttons/delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({index})});
+    if (!res) return;
+    loadButtons();
+  });
+}
+
+async function loadButtons() {
+  const res = await fetch('/api/buttons');
+  const d = await res.json();
+  renderButtonsHw(d.buttons || []);
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

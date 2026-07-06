@@ -78,6 +78,48 @@ void deserializeGroup(JsonVariant o, GroupConfig& g) {
     g.light = deserializeLightConfig(o, LightConfig{});
 }
 
+void serializeButtonAction(JsonObject o, const ButtonAction& a) {
+    o["action"]      = (uint8_t)a.action;
+    o["groupId"]     = a.groupId;
+    o["numberValue"] = a.params.numberValue;
+    o["stringValue"] = a.params.stringValue;
+    o["r"]           = a.params.colorValue.r;
+    o["g"]           = a.params.colorValue.g;
+    o["b"]           = a.params.colorValue.b;
+}
+
+ButtonAction deserializeButtonAction(JsonVariant j, const ButtonAction& def) {
+    ButtonAction a = def;
+    a.action             = (ActionId)(uint8_t)(j["action"]  | (uint8_t)def.action);
+    a.groupId            = j["groupId"]     | def.groupId;
+    a.params.numberValue = j["numberValue"] | def.params.numberValue;
+    strlcpy(a.params.stringValue, j["stringValue"] | def.params.stringValue, sizeof(a.params.stringValue));
+    a.params.colorValue.r = j["r"] | def.params.colorValue.r;
+    a.params.colorValue.g = j["g"] | def.params.colorValue.g;
+    a.params.colorValue.b = j["b"] | def.params.colorValue.b;
+    return a;
+}
+
+void serializeButton(JsonObject o, const ButtonHardwareConfig& b) {
+    o["name"]      = b.name;
+    o["pin"]       = b.pin;
+    o["activeLow"] = b.activeLow;
+    o["exists"]    = b.exists;
+    serializeButtonAction(o["onShortPress"].to<JsonObject>(),  b.onShortPress);
+    serializeButtonAction(o["onLongPress"].to<JsonObject>(),   b.onLongPress);
+    serializeButtonAction(o["onDoubleClick"].to<JsonObject>(), b.onDoubleClick);
+}
+
+void deserializeButton(JsonVariant o, ButtonHardwareConfig& b) {
+    strlcpy(b.name, o["name"] | "", sizeof(b.name));
+    b.pin       = o["pin"]       | (uint8_t)0;
+    b.activeLow = o["activeLow"] | true;
+    b.exists    = o["exists"]    | false;
+    b.onShortPress  = deserializeButtonAction(o["onShortPress"],  b.onShortPress);
+    b.onLongPress   = deserializeButtonAction(o["onLongPress"],   b.onLongPress);
+    b.onDoubleClick = deserializeButtonAction(o["onDoubleClick"], b.onDoubleClick);
+}
+
 static bool migrateDoc(JsonDocument& doc) {
     uint8_t ver = doc["schemaVersion"] | (uint8_t)0;
     if (ver > CONFIG_SCHEMA_VERSION) {
@@ -132,6 +174,13 @@ static void applyDoc(JsonDocument& doc) {
         for (JsonVariant v : doc["groups"].as<JsonArray>()) {
             uint8_t id = v["id"] | (uint8_t)0;
             if (id < MAX_GROUPS) deserializeGroup(v, Config::get().groups[id]);
+        }
+    }
+
+    if (doc["buttons"].is<JsonArray>()) {
+        for (JsonVariant v : doc["buttons"].as<JsonArray>()) {
+            uint8_t idx = v["index"] | (uint8_t)0;
+            if (idx < MAX_BUTTONS) deserializeButton(v, Config::get().buttons[idx]);
         }
     }
 }
@@ -221,6 +270,14 @@ bool Config::save() {
     JsonArray arr = doc["groups"].to<JsonArray>();
     for (uint8_t i = 0; i < MAX_GROUPS; i++)
         if (_cfg.groups[i].exists) serializeGroup(arr.add<JsonObject>(), _cfg.groups[i]);
+
+    JsonArray buttonsArr = doc["buttons"].to<JsonArray>();
+    for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
+        if (!_cfg.buttons[i].exists) continue;
+        JsonObject o = buttonsArr.add<JsonObject>();
+        o["index"] = i;
+        serializeButton(o, _cfg.buttons[i]);
+    }
 
     bool fsOk = false;
     File f = LittleFS.open(_path, "w");
@@ -420,6 +477,19 @@ bool Config::deleteWifiNetwork(const char* ssid) {
             saveWifi();
             return true;
         }
+    }
+    return false;
+}
+
+bool Config::isPinInUse(uint8_t pin, int8_t excludeButtonIndex) {
+    for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+        auto& l = _cfg.lights[i];
+        if (l.exists && (l.dataPin == pin || l.clockPin == pin)) return true;
+    }
+    for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
+        if ((int8_t)i == excludeButtonIndex) continue;
+        auto& b = _cfg.buttons[i];
+        if (b.exists && b.pin == pin) return true;
     }
     return false;
 }
