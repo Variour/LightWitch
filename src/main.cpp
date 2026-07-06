@@ -28,6 +28,12 @@ static MqttManager      mqtt;
 static SceneSyncManager sceneSync;
 static bool             _otaActive = false;
 
+// Caps how often patterns recompute and push to the LED driver. Well above what
+// any strip or human eye needs, but far below the unthrottled main-loop rate —
+// getPhase()/snapPhase() are time-based, so skipping ticks doesn't affect them.
+static constexpr uint32_t PATTERN_TICK_INTERVAL_MS = 1000 / 60;
+static uint32_t           _lastPatternTickMs        = 0;
+
 // Reassembly buffer for incoming config push chunks
 static String   _cfgSyncBuf;
 static uint16_t _cfgSyncExpected = 0;
@@ -409,8 +415,12 @@ void loop() {
         mesh.tick();
         TimeSync::tick();
         mqtt.loop();
-        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
-            if (_leds[i]) _runners[i].tick();
+        uint32_t now = millis();
+        if (now - _lastPatternTickMs >= PATTERN_TICK_INTERVAL_MS) {
+            _lastPatternTickMs = now;
+            for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+                if (_leds[i]) _runners[i].tick();
+        }
         sceneSync.tick();
     }
 }
