@@ -1,0 +1,36 @@
+name: Refresh CA bundle
+
+on:
+  schedule:
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install generator dependencies
+        run: pip install cryptography certifi
+
+      - name: Regenerate CA bundle
+        run: python3 scripts/gen_ca_bundle.py src/update/CaBundle.h
+
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: 'ota: refresh CA bundle'
+          title: 'ota: refresh CA bundle'
+          body: |
+            Automated refresh of `src/update/CaBundle.h` from the current
+            `certifi` root-CA store (`scripts/gen_ca_bundle.py`).
+          branch: chore/refresh-ca-bundle
+          delete-branch: true
