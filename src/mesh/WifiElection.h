@@ -221,9 +221,14 @@ public:
 private:
     enum class State { Waiting, Connecting, Connected, Standby };
 
-    // Generously bounds the worst case of exhausting up to MAX_WIFI_NETWORKS
-    // networks (3 attempts * 10s each) for a single candidate's turn.
-    static constexpr uint32_t RANK_BUDGET_MS = 240000; // 4 min per rank step
+    // Covers one candidate's realistic turn: with the common case of 1-2
+    // configured networks, exhausting them (3 attempts * 10s each, plus
+    // settle delays) takes well under this. A candidate with many more
+    // networks configured may still be mid-attempt when the next rank's
+    // turn opens — in that rare case both may briefly hold the connection
+    // until the next election cycle resolves it, which is an acceptable
+    // trade-off for not making every failover wait several minutes.
+    static constexpr uint32_t RANK_BUDGET_MS = 60000; // 1 min per rank step
 
     PeerRegistry*      _peers = nullptr;
     State              _state = State::Waiting;

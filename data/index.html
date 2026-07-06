@@ -460,7 +460,11 @@ input[type=checkbox]:active { background-color: #1a5; }
   <div class="card">
     <div class="flex-between" style="margin-bottom:.5rem;gap:.5rem;flex-wrap:wrap">
       <h2 style="margin:0">Connected Lights</h2>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
+        <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.82rem;color:#aaa" title="Only one mesh device connects to WiFi at a time — saves power on the rest. Auto-elected by MAC, with automatic failover.">
+          <input type="checkbox" id="wifiSingleClientToggle" onchange="setWifiSingleClientMode(this.checked)">
+          Single WiFi client
+        </label>
         <button class="btn-ghost btn-sm" onclick="meshSearch()" title="Search for mesh peers on other channels">Search channel</button>
         <button class="btn-ghost btn-sm" onclick="openPushModal(null)" title="Push settings to all peers">Push config to all</button>
       </div>
@@ -824,10 +828,6 @@ input[type=checkbox]:active { background-color: #1a5; }
       <input type="password" id="wifiPasswordAdd" placeholder="(leave blank for open network)" autocomplete="new-password">
       <button class="btn-ghost" style="width:100%" onclick="addWifiNetwork()">Add network</button>
     </div>
-    <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;margin-top:.75rem">
-      <input type="checkbox" id="wifiSingleClientMode">
-      Only one mesh device connects to WiFi <small>(saves power on the rest; auto-elected by MAC, with failover)</small>
-    </label>
     <label style="margin-top:.75rem">AP Password <small>(min 8 chars)</small></label>
     <input type="password" id="apPassword" placeholder="(unchanged if empty)">
     <label>OTA port</label>
@@ -1561,6 +1561,8 @@ function _renderLightGroupSelect(mac, light) {
 
 function renderLights(self, peers, wifiSingleClientMode) {
   if (wifiSingleClientMode !== undefined) _wifiSingleClientMode = wifiSingleClientMode;
+  const wifiToggle = $('wifiSingleClientToggle');
+  if (wifiToggle) wifiToggle.checked = _wifiSingleClientMode;
   _self  = self;
   _peers = peers;
   if (self) _selfMac = self.mac;
@@ -1812,6 +1814,17 @@ async function setSceneSync(mac, enabled) {
   }, 'Failed to update scene sync');
 }
 
+async function setWifiSingleClientMode(enabled) {
+  const ok = await _fetchOrToast('/api/mesh/wifipolicy', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({enabled})
+  }, 'Failed to update WiFi client mode');
+  if (!ok) { $('wifiSingleClientToggle').checked = !enabled; return; }
+  // Applies mesh-wide and updates over the websocket, but reflect it in this
+  // tab immediately rather than waiting on the round trip.
+  renderLights(_self, _peers, enabled);
+}
+
 function meshSearch() {
   _confirmAction('Re-searching for mesh peers will disconnect active peers temporarily and may drop your connection to this device. Continue?', () => {
     fetch('/api/mesh/search', { method: 'POST' });
@@ -2002,7 +2015,6 @@ async function saveSettings() {
   if (mqttPw) body.mqttPassword  = mqttPw;
   body.githubRepo = $('githubRepo').value;
   body.checkUpdateOnStartup = $('checkUpdateOnStartup').checked;
-  body.wifiSingleClientMode = $('wifiSingleClientMode').checked;
   if (ghTok)  body.githubToken   = ghTok;
 
   try {
@@ -2228,7 +2240,6 @@ async function loadConfig() {
   if (d.githubRepo !== undefined) $('githubRepo').value = d.githubRepo;
   if (d.timezone   !== undefined) _renderTimezoneOptions(d.timezone);
   $('checkUpdateOnStartup').checked = d.checkUpdateOnStartup === true;
-  $('wifiSingleClientMode').checked = d.wifiSingleClientMode === true;
   if (d.version) {
     $('fw-version').textContent = 'v' + d.version;
     $('upd-current').textContent = d.version;

@@ -335,6 +335,11 @@ public:
             r->send(200, "application/json", "{\"ok\":true}");
         });
 
+        // Body: {enabled}. Runtime-safe, mesh-wide toggle — no reboot, applies
+        // to this device immediately and broadcasts to peers (see WifiElection).
+        _server.on("/api/mesh/wifipolicy", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _setWifiPolicy(r,d,l); });
+
         // Browsers always request a favicon; return 204 so the request doesn't
         // fall through serveStatic's default-file fallback and generate log noise.
         _server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest* r){ r->send(204); });
@@ -496,13 +501,10 @@ private:
         }
         if (!doc["checkUpdateOnStartup"].isNull())
             c.checkUpdateOnStartup = (bool)doc["checkUpdateOnStartup"];
-        if (!doc["wifiSingleClientMode"].isNull()) {
-            bool enabled = (bool)doc["wifiSingleClientMode"];
-            c.wifiSingleClientMode = enabled;
-            // Broadcast before the restart below so peers adopt it without
-            // needing a reboot of their own (see WifiElection::onPolicyChanged).
-            if (_onMeshPolicyChange) _onMeshPolicyChange(enabled);
-        }
+        // wifiSingleClientMode is intentionally not handled here — it's a
+        // runtime-safe, mesh-wide toggle exposed from the device list instead
+        // (POST /api/mesh/wifipolicy), so flipping it doesn't force the
+        // "save settings" reboot that every other field here triggers.
         if (!doc["mqttHost"].isNull())     strlcpy(c.mqttHost, doc["mqttHost"], sizeof(c.mqttHost));
         if (!doc["mqttPort"].isNull())     c.mqttPort = (uint16_t)doc["mqttPort"];
         if (!doc["mqttUser"].isNull())     strlcpy(c.mqttUser, doc["mqttUser"], sizeof(c.mqttUser));
@@ -1011,6 +1013,18 @@ private:
         }
         if (_onSetRemoteSync) _onSetRemoteSync(mac, enabled);
         auto ok = _makeOk(); _sendJson(r, 200, ok);
+    }
+
+    // Body: {enabled}
+    void _setWifiPolicy(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        bool enabled = doc["enabled"] | false;
+        Config::get().wifiSingleClientMode = enabled;
+        Config::save();
+        if (_onMeshPolicyChange) _onMeshPolicyChange(enabled);
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+        _pushPeers(); // wifi icon colors in the device list depend on this flag
     }
 
     // Shared body for /api/peers/triggerupdate and /api/peers/checkupdate:

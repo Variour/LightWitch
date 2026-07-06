@@ -434,7 +434,10 @@ void setup() {
 
         [](std::function<void()> onReady) { wifiElection.requestTemporary(onReady); },
 
-        [](bool enabled) { mesh.broadcastMeshPolicy(enabled); }
+        [](bool enabled) {
+            mesh.broadcastMeshPolicy(enabled);
+            wifiElection.onPolicyChanged(enabled);
+        }
     );
 
     auto notifySceneUpdated = [](const char* id) {

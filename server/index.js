@@ -375,6 +375,11 @@ app.post('/api/groups/update',  (req, res) => {
 app.post('/api/groups/delete',  (_req, res) => res.json({ ok: true }));
 app.post('/api/reset',          (_req, res) => res.json({ ok: true }));
 app.post('/api/mesh/search',    (_req, res) => res.json({ ok: true }));
+app.post('/api/mesh/wifipolicy', (req, res) => {
+  MOCK_CONFIG.wifiSingleClientMode = !!(req.body || {}).enabled;
+  res.json({ ok: true });
+  broadcastPeers();
+});
 
 app.get('/api/update/status', (_req, res) => {
   const out = {
