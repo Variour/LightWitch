@@ -84,7 +84,59 @@ public:
         _led->show();
     }
 
+    // Thread-safe entry point. Callers include the web server's request
+    // handler and the mesh ESP-NOW receive callback, both of which run on
+    // FreeRTOS tasks other than the Arduino loop() task — and neither is
+    // pinned to the same core loop() runs on. Actually mutating _current /
+    // _sceneMode or touching a pattern's internal buffers must only ever
+    // happen on the same thread that renders every frame (tick(), below),
+    // otherwise a pattern's own continuous tick()-driven show() call can
+    // race with begin()'s show() call here and silently win, leaving the
+    // strip stuck showing the old pattern. So this only stashes the config;
+    // tick() picks it up and applies it before rendering the next frame.
     void applyConfig(const LightConfig& cfg) {
+        portENTER_CRITICAL(&_mux);
+        _pendingConfig    = cfg;
+        _hasPendingConfig = true;
+        portEXIT_CRITICAL(&_mux);
+    }
+
+    void tick() {
+        LightConfig pending;
+        bool hasPending;
+        portENTER_CRITICAL(&_mux);
+        hasPending = _hasPendingConfig;
+        if (hasPending) { pending = _pendingConfig; _hasPendingConfig = false; }
+        portEXIT_CRITICAL(&_mux);
+        if (hasPending) _applyConfig(pending);
+
+        if (_testActive) {
+            if (millis() - _testStart >= _testDuration) {
+                _testActive = false;
+                _applyConfig(_savedConfig);
+            }
+            return;
+        }
+        if (_current) _current->tick(millis());
+    }
+
+    void notifySceneUpdated(const char* sceneId) {
+        if (_sceneMode == SceneMode::Matrix)
+            _sceneMatrix.reloadIfCurrent(sceneId);
+        else if (_sceneMode == SceneMode::String)
+            _sceneString.reloadIfCurrent(sceneId);
+        else if (_sceneMode == SceneMode::GradientMatrix)
+            _gradientMatrix.reloadIfCurrent(sceneId);
+        else if (_sceneMode == SceneMode::GradientString)
+            _gradientString.reloadIfCurrent(sceneId);
+    }
+
+    float getPhase()        const { return _current ? _current->getPhase()    : 0.0f; }
+    void  snapPhase(float p)      { if (_current) _current->snapPhase(p); }
+    void  resetPhase()            { if (_current) _current->resetPhase(); }
+
+private:
+    void _applyConfig(const LightConfig& cfg) {
         _savedConfig = cfg;
         if (_testActive) return;
         if (cfg.mode == GroupMode::Proximity) {
@@ -221,33 +273,6 @@ public:
         }
     }
 
-    void tick() {
-        if (_testActive) {
-            if (millis() - _testStart >= _testDuration) {
-                _testActive = false;
-                applyConfig(_savedConfig);
-            }
-            return;
-        }
-        if (_current) _current->tick(millis());
-    }
-
-    void notifySceneUpdated(const char* sceneId) {
-        if (_sceneMode == SceneMode::Matrix)
-            _sceneMatrix.reloadIfCurrent(sceneId);
-        else if (_sceneMode == SceneMode::String)
-            _sceneString.reloadIfCurrent(sceneId);
-        else if (_sceneMode == SceneMode::GradientMatrix)
-            _gradientMatrix.reloadIfCurrent(sceneId);
-        else if (_sceneMode == SceneMode::GradientString)
-            _gradientString.reloadIfCurrent(sceneId);
-    }
-
-    float getPhase()        const { return _current ? _current->getPhase()    : 0.0f; }
-    void  snapPhase(float p)      { if (_current) _current->snapPhase(p); }
-    void  resetPhase()            { if (_current) _current->resetPhase(); }
-
-private:
     enum class SceneMode { None, Matrix, String, GradientMatrix, GradientString, Time };
 
     // ── state ────────────────────────────────────────────────────────────────
@@ -267,6 +292,15 @@ private:
     bool         _testActive   = false;
     uint32_t     _testStart    = 0;
     uint32_t     _testDuration = 0;
+
+    // ── cross-task config handoff ───────────────────────────────────────────
+    // applyConfig() may be called from the web server's request-handling
+    // task or the mesh ESP-NOW receive callback, neither of which is
+    // guaranteed to run on the same core as tick(). Guarded by _mux so the
+    // handoff itself is safe; _applyConfig() only ever runs from tick().
+    portMUX_TYPE _mux              = portMUX_INITIALIZER_UNLOCKED;
+    LightConfig  _pendingConfig;
+    bool         _hasPendingConfig = false;
 
     // ── pattern instances ─────────────────────────────────────────────────────
     StaticColor   _static;
