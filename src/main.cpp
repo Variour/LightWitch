@@ -43,12 +43,11 @@ static void serialSink(LogLevel level, const char* msg) {
 
 // Apply each light's group config to its runner
 static void applyAllLights() {
-    for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-        auto& l = Config::get().lights[i];
-        if (!l.exists || !_leds[i]) continue;
+    Config::forEachLight([](uint8_t i, LightHardwareConfig& l) {
+        if (!_leds[i]) return;
         auto* g = Config::group(l.groupId);
         if (g) _runners[i].applyConfig(g->light);
-    }
+    });
 }
 
 // ── WiFi ─────────────────────────────────────────────────────────────────────
@@ -146,9 +145,7 @@ void setup() {
     channelMgr.begin();
 
     // Initialise one driver + runner per configured light
-    for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-        auto& l = Config::get().lights[i];
-        if (!l.exists) continue;
+    Config::forEachLight([](uint8_t i, LightHardwareConfig& l) {
         uint16_t numLeds = (uint16_t)l.width * l.height;
         if (numLeds == 0) numLeds = 1;
         LedDriver* drv;
@@ -174,23 +171,22 @@ void setup() {
         _runners[i].setGroupId(l.groupId);
         auto* g = Config::group(l.groupId);
         if (g) _runners[i].applyConfig(g->light);
-    }
+    });
 
     // Wire MQTT to the first active light's group for now
     mqtt.setOnCommand([](const LightConfig& cfg) {
-        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-            auto& l = Config::get().lights[i];
-            if (!l.exists || !_leds[i]) continue;
+        Config::forEachLightUntil([&](uint8_t i, LightHardwareConfig& l) -> bool {
+            if (!_leds[i]) return true;
             GroupConfig* g = Config::group(l.groupId);
-            if (!g) continue;
+            if (!g) return true;
             g->light = cfg;
             Config::save();
             _runners[i].applyConfig(cfg);
             mesh.broadcastLightConfig(l.groupId, cfg);
             mesh.broadcastGroupSync(*g);
             mqtt.publishState(cfg);
-            break;
-        }
+            return false;
+        });
     });
     mqtt.begin(Config::get());
 
@@ -223,13 +219,12 @@ void setup() {
         g->light = cfg;
         Config::save();
         // Apply to all runners in this group
-        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-            auto& l = Config::get().lights[i];
-            if (l.exists && l.groupId == groupId && _leds[i]) {
+        Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
+            if (l.groupId == groupId && _leds[i]) {
                 _runners[i].applyConfig(cfg);
                 mqtt.publishState(cfg);
             }
-        }
+        });
     });
 
     mesh.setOnPresence([](const uint8_t* mac, const char*, bool isNew) {
@@ -308,30 +303,27 @@ void setup() {
         Config::save();
         if (!g.exists) {
             // Group deleted — move any lights in it to Default
-            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-                auto& l = Config::get().lights[i];
-                if (l.exists && l.groupId == g.id) l.groupId = 0;
-            }
+            Config::forEachLight([&](uint8_t, LightHardwareConfig& l) {
+                if (l.groupId == g.id) l.groupId = 0;
+            });
             Config::save();
             applyAllLights();
         } else if (lightUpdated && g.exists) {
-            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-                auto& l = Config::get().lights[i];
-                if (l.exists && l.groupId == g.id && _leds[i])
+            Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
+                if (l.groupId == g.id && _leds[i])
                     _runners[i].applyConfig(g.light);
-            }
+            });
         }
         webServer.pushGroups();
     });
 
     mesh.setOnPhaseSync([](uint8_t groupId, float phase) {
-        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-            auto& l = Config::get().lights[i];
-            if (!l.exists || l.groupId != groupId) continue;
+        Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
+            if (l.groupId != groupId) return;
             GroupConfig* g = Config::group(l.groupId);
-            if (!g || !g->syncEnabled) continue;
+            if (!g || !g->syncEnabled) return;
             _runners[i].snapPhase(phase);
-        }
+        });
     });
 
     mesh.setGetPhase([](uint8_t lightIndex) -> float {
@@ -345,13 +337,12 @@ void setup() {
         []() { applyAllLights(); },
 
         [](uint8_t groupId, const LightConfig& cfg) {
-            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-                auto& l = Config::get().lights[i];
-                if (l.exists && l.groupId == groupId && _leds[i]) {
+            Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
+                if (l.groupId == groupId && _leds[i]) {
                     _runners[i].applyConfig(cfg);
                     mqtt.publishState(cfg);
                 }
-            }
+            });
             mesh.broadcastLightConfig(groupId, cfg);
             if (auto* g = Config::group(groupId)) mesh.broadcastGroupSync(*g);
         },
