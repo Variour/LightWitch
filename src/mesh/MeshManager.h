@@ -85,28 +85,24 @@ public:
         _setSnifferEnabled(inProximity);
         if (inProximity && now - _lastProximityPing >= 500) {
             _lastProximityPing = now;
-            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-                auto& l = Config::get().lights[i];
-                if (!l.exists) continue;
+            Config::forEachLight([&](uint8_t, LightHardwareConfig& l) {
                 GroupConfig* g = Config::group(l.groupId);
-                if (!g || g->light.mode != GroupMode::Proximity) continue;
+                if (!g || g->light.mode != GroupMode::Proximity) return;
                 ProximityPingMsg msg;
                 msg.groupId = l.groupId;
                 _send(&msg, sizeof(msg));
-            }
+            });
         }
 
         // Phase sync: broadcast for each local light group where this device is master
         if (now - _lastPhaseBroadcast >= 2000 && _getPhase) {
             _lastPhaseBroadcast = now;
-            for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-                auto& l = Config::get().lights[i];
-                if (!l.exists) continue;
-                if (!_isSyncMaster(l.groupId)) continue;
+            Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
+                if (!_isSyncMaster(l.groupId)) return;
                 GroupConfig* g = Config::group(l.groupId);
-                if (!g || !g->syncEnabled) continue;
+                if (!g || !g->syncEnabled) return;
                 broadcastPhaseSync(l.groupId, _getPhase(i));
-            }
+            });
         }
     }
 
@@ -290,13 +286,13 @@ private:
     }
 
     bool _anyProximity() {
-        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-            auto& l = Config::get().lights[i];
-            if (!l.exists) continue;
+        bool found = false;
+        Config::forEachLightUntil([&](uint8_t, LightHardwareConfig& l) -> bool {
             GroupConfig* g = Config::group(l.groupId);
-            if (g && g->light.mode == GroupMode::Proximity) return true;
-        }
-        return false;
+            if (g && g->light.mode == GroupMode::Proximity) { found = true; return false; }
+            return true;
+        });
+        return found;
     }
 
     void _sendPresence() {
@@ -318,15 +314,13 @@ private:
             msg.lightGroupIds[i] = 0xFF;
             msg.lightNames[i][0] = '\0';
         }
-        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
-            auto& l = Config::get().lights[i];
-            if (!l.exists) continue;
+        Config::forEachLight([&](uint8_t, LightHardwareConfig& l) {
             if (msg.lightCount < MAX_LIGHTS) {
                 uint8_t slot = msg.lightCount++;
                 msg.lightGroupIds[slot] = l.groupId;
                 strlcpy(msg.lightNames[slot], l.name, 20);
             }
-        }
+        });
         _send(&msg, sizeof(msg));
     }
 

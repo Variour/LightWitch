@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <functional>
 
 #ifndef LED_DATA_PIN
 #define LED_DATA_PIN 25
@@ -161,6 +162,22 @@ public:
     }
 
     static uint8_t createGroup(const char* name);
+
+    // Invoke fn(index, light) for every configured light where light.exists is true.
+    static void forEachLight(const std::function<void(uint8_t, LightHardwareConfig&)>& fn) {
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            auto& l = _cfg.lights[i];
+            if (l.exists) fn(i, l);
+        }
+    }
+
+    // Like forEachLight, but stops as soon as fn returns false.
+    static void forEachLightUntil(const std::function<bool(uint8_t, LightHardwareConfig&)>& fn) {
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            auto& l = _cfg.lights[i];
+            if (l.exists && !fn(i, l)) return;
+        }
+    }
 
     static bool applyGroupSync(const GroupConfig& g);
 
