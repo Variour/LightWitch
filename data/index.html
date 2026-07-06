@@ -37,6 +37,16 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
                   line-height: 0; border-radius: 3px; }
 .btn-fw-trigger:hover { background: #2a2a2a; }
 .btn-fw-trigger:disabled { cursor: default; pointer-events: none; }
+input[type=checkbox] {
+  appearance: none; -webkit-appearance: none;
+  width: 1.3rem; height: 1.3rem; margin: 0; flex-shrink: 0;
+  border-radius: 6px; border: none; background: #2a2a2a; cursor: pointer;
+  transition: background-color .15s;
+}
+input[type=checkbox]:checked {
+  background: #2a6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' d='M3 8.5l3.2 3.2L13 4.5'/%3E%3C/svg%3E") no-repeat center / 65%;
+}
+input[type=checkbox]:active { background-color: #1a5; }
 
 .toast { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
          background: #222; color: #eee; padding: .6rem 1rem; border-radius: 8px;
@@ -106,12 +116,6 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
   display: inline-flex;
   align-items: center;
 }
-.light-device-icons input[type=checkbox] {
-  width: auto;
-  margin: 0;
-  accent-color: #4af;
-  cursor: pointer;
-}
 .light-device-actions {
   margin-left: auto;
   flex-shrink: 0;
@@ -161,7 +165,6 @@ button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer
 .pattern-desc { font-size: .75rem; color: #555; margin-top: -.35rem; margin-bottom: .4rem; }
 .sync-row { display: flex; align-items: center; gap: .5rem; font-size: .8rem; color: #777;
             margin-top: .2rem; }
-.sync-row input[type=checkbox] { width: auto; margin: 0; accent-color: #4af; cursor: pointer; }
 
 /* Log */
 #log { font-family: monospace; font-size: .76rem; background: #0a0a0a;
@@ -1584,7 +1587,7 @@ function renderLights(self, peers) {
     const mac = p.mac || '';
     const rssiText = (!p.isSelf && online && p.rssi != null) ? `${p.rssi} dBm` : '–';
     const syncEnabled = p.sceneSyncEnabled !== false;
-    const syncCell = `<input type="checkbox" title="Scene sync" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)" style="accent-color:#4af;cursor:pointer">`;
+    const syncCell = `<input type="checkbox" title="Scene sync" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
 
     const wifiOn = p.wifiConnected === true;
     const wifiColor = wifiOn ? '#4c4' : '#555';
