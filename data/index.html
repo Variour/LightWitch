@@ -467,7 +467,7 @@ input[type=checkbox]:active { background-color: #1a5; }
     </div>
     <div class="lights-table-wrap">
       <table class="lights-table">
-        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th title="Scene sync: share and receive scene files with other mesh peers">Sync</th><th></th></tr></thead>
         <tbody id="lights-body"><tr><td colspan="7" style="color:#444">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -935,12 +935,6 @@ input[type=checkbox]:active { background-color: #1a5; }
       <h3>Options</h3>
       <div class="push-fh"><span>OTA updates</span><label class="push-ul"><input type="checkbox" id="push-otaEnabled-ul" onchange="toggleField('push-otaEnabled',this.checked)"> Use current</label></div>
       <select id="push-otaEnabled">
-        <option value="">— keep unchanged —</option>
-        <option value="true">Enabled</option>
-        <option value="false">Disabled</option>
-      </select>
-      <div class="push-fh"><span>Scene sync</span><label class="push-ul"><input type="checkbox" id="push-sceneSyncEnabled-ul" onchange="toggleField('push-sceneSyncEnabled',this.checked)"> Use current</label></div>
-      <select id="push-sceneSyncEnabled">
         <option value="">— keep unchanged —</option>
         <option value="true">Enabled</option>
         <option value="false">Disabled</option>
@@ -1587,7 +1581,7 @@ function renderLights(self, peers) {
     const mac = p.mac || '';
     const rssiText = (!p.isSelf && online && p.rssi != null) ? `${p.rssi} dBm` : '–';
     const syncEnabled = p.sceneSyncEnabled !== false;
-    const syncCell = `<input type="checkbox" title="Scene sync" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
+    const syncCell = `<input type="checkbox" title="Scene sync: share and receive scene files with other mesh peers" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
 
     const wifiOn = p.wifiConnected === true;
     const wifiColor = wifiOn ? '#4c4' : '#555';
@@ -1662,7 +1656,7 @@ function renderLights(self, peers) {
       wifiIcon,
       signalIcon,
       ver ? fwIconHtml : '',
-      `<span title="Scene sync">${syncCell}</span>`
+      syncCell
     ].filter(Boolean).join('');
 
     const mobileActions = pushCell
@@ -1812,7 +1806,7 @@ const _pushSharedFields = [
   'push-wifiNetworks','push-apPassword',
   'push-mqttHost','push-mqttPort','push-mqttUser','push-mqttPassword',
   'push-githubRepo','push-githubToken',
-  'push-otaEnabled','push-sceneSyncEnabled',
+  'push-otaEnabled',
 ];
 const _pushDeviceFields = []; // deviceName has no "use current"
 
@@ -1944,7 +1938,6 @@ async function submitPushConfig() {
   str('push-githubRepo',            'githubRepo');
   sensitiveStr('push-githubToken',  'githubToken');
   bool('push-otaEnabled',           'otaEnabled');
-  bool('push-sceneSyncEnabled',     'sceneSyncEnabled');
 
   if (useLocal.length) body.useLocal = useLocal;
 
