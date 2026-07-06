@@ -11,7 +11,7 @@
 #include "../logging/Logger.h"
 #include "../scenes/SceneManager.h"
 #include "../version.h"
-#include "GithubCaBundle.h"
+#include "CaBundle.h"
 
 // GitHub API-based OTA updater.
 // Checks the latest release in the configured private repo using a PAT,
@@ -91,7 +91,7 @@ private:
     // Opens an authenticated GET request against the GitHub API and returns the HTTP status code.
     // tls/http are owned by the caller and must stay alive while the response body/stream is read.
     static int _httpGet(WiFiClientSecure& tls, HTTPClient& http, const String& url, const char* accept) {
-        tls.setCACertBundle(GITHUB_CA_BUNDLE, GITHUB_CA_BUNDLE_LEN);
+        tls.setCACertBundle(CA_BUNDLE, CA_BUNDLE_LEN);
         http.begin(tls, url);
         http.addHeader("Authorization", _authHeader());
         http.addHeader("Accept", accept);

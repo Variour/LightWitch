@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Generates GithubCaBundle.h, a full public root-CA bundle for the ESP32
-mbedtls certificate-bundle verifier (WiFiClientSecure::setCACertBundle),
-used by Updater.h to validate TLS certs for the GitHub API and release
-asset CDN without pinning to specific roots.
+Generates CaBundle.h, a full public root-CA bundle for the ESP32 mbedtls
+certificate-bundle verifier (WiFiClientSecure::setCACertBundle). Used by
+Updater.h to validate TLS certs for the GitHub API and release asset CDN
+without pinning to specific roots — this is a generic public trust store,
+not something specific to GitHub.
 
 Binary format matches esp-idf's components/mbedtls/esp_crt_bundle/esp_crt_bundle.c:
   [offset of 1st cert](u32) ... [offset of nth cert](u32)
@@ -12,7 +13,7 @@ Binary format matches esp-idf's components/mbedtls/esp_crt_bundle/esp_crt_bundle
 Certs are sorted ascending by CN (DER-encoded subject) for binary search.
 
 Requires: pip install cryptography certifi
-Usage: python3 scripts/gen_ca_bundle.py [src/update/GithubCaBundle.h]
+Usage: python3 scripts/gen_ca_bundle.py [src/update/CaBundle.h]
 """
 import sys
 import struct
@@ -21,7 +22,7 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-ARRAY_NAME = "GITHUB_CA_BUNDLE"
+ARRAY_NAME = "CA_BUNDLE"
 
 
 def load_certs(pem_path):
@@ -88,6 +89,6 @@ if __name__ == "__main__":
     print(f"source PEM: {pem_path}", file=sys.stderr)
     print(f"parsed {len(certs)} certs, {count} usable in bundle", file=sys.stderr)
     print(f"bundle size: {len(bundle)} bytes", file=sys.stderr)
-    out_path = sys.argv[1] if len(sys.argv) > 1 else "src/update/GithubCaBundle.h"
+    out_path = sys.argv[1] if len(sys.argv) > 1 else "src/update/CaBundle.h"
     emit_header(bundle, count, out_path)
     print(f"wrote {out_path}", file=sys.stderr)
