@@ -62,6 +62,28 @@ static void applyAllLights() {
     });
 }
 
+// Applies a new LightConfig to a group and propagates it everywhere: local
+// runners, Config save, mesh broadcast, MQTT state. Shared by every trigger
+// source (MQTT command, web API, inbound mesh sync) so the sequence — and the
+// seq-based conflict check, matching Config::applyGroupSync — stays consistent
+// regardless of where the change originated.
+static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg) {
+    GroupConfig* g = Config::group(groupId);
+    if (!g) { Logger::w("[cfg] light config for unknown group %u — ignored", groupId); return; }
+    if (cfg.seq < g->light.seq) return;  // stale relative to what we already have
+
+    g->light = cfg;
+    Config::save();
+
+    Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
+        if (l.groupId == groupId && _leds[i]) _runners[i].applyConfig(cfg);
+    });
+
+    mesh.broadcastLightConfig(groupId, cfg);
+    mesh.broadcastGroupSync(*g);
+    mqtt.publishState(cfg);
+}
+
 // ── WiFi ─────────────────────────────────────────────────────────────────────
 static void setupWifi() {
     auto& c = Config::get();
@@ -188,15 +210,8 @@ void setup() {
     // Wire MQTT to the first active light's group for now
     mqtt.setOnCommand([](const LightConfig& cfg) {
         Config::forEachLightUntil([&](uint8_t i, LightHardwareConfig& l) -> bool {
-            if (!_leds[i]) return true;
-            GroupConfig* g = Config::group(l.groupId);
-            if (!g) return true;
-            g->light = cfg;
-            Config::save();
-            _runners[i].applyConfig(cfg);
-            mesh.broadcastLightConfig(l.groupId, cfg);
-            mesh.broadcastGroupSync(*g);
-            mqtt.publishState(cfg);
+            if (!_leds[i] || !Config::group(l.groupId)) return true;
+            applyAndPropagateLightConfig(l.groupId, cfg);
             return false;
         });
     });
@@ -226,17 +241,7 @@ void setup() {
     // ── Mesh callbacks ────────────────────────────────────────────────────────
 
     mesh.setOnLightConfig([](uint8_t groupId, const LightConfig& cfg) {
-        GroupConfig* g = Config::group(groupId);
-        if (!g) { Logger::w("[mesh] light config for unknown group %u — ignored", groupId); return; }
-        g->light = cfg;
-        Config::save();
-        // Apply to all runners in this group
-        Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
-            if (l.groupId == groupId && _leds[i]) {
-                _runners[i].applyConfig(cfg);
-                mqtt.publishState(cfg);
-            }
-        });
+        applyAndPropagateLightConfig(groupId, cfg);
     });
 
     mesh.setOnPresence([](const uint8_t* mac, const char*, bool isNew) {
@@ -357,14 +362,7 @@ void setup() {
         []() { applyAllLights(); },
 
         [](uint8_t groupId, const LightConfig& cfg) {
-            Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
-                if (l.groupId == groupId && _leds[i]) {
-                    _runners[i].applyConfig(cfg);
-                    mqtt.publishState(cfg);
-                }
-            });
-            mesh.broadcastLightConfig(groupId, cfg);
-            if (auto* g = Config::group(groupId)) mesh.broadcastGroupSync(*g);
+            applyAndPropagateLightConfig(groupId, cfg);
         },
 
         [](const GroupConfig& g) { mesh.broadcastGroupSync(g); },
