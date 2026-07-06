@@ -1283,33 +1283,34 @@ function onProxLabel(id) {
   document.getElementById(`gproxlabel-${id}`).textContent = v + '×';
 }
 
+function _setActiveButton(idA, idB, isA) {
+  const buttonA = document.getElementById(idA);
+  const buttonB = document.getElementById(idB);
+  [[buttonA, isA], [buttonB, !isA]].forEach(([button, active]) => {
+    if (!button) return;
+    button.classList.toggle('btn-primary', active);
+    button.classList.toggle('btn-ghost', !active);
+  });
+}
+
 function setGroupSceneColorMode(id, mode) {
   const input = document.getElementById(`gsceneuniform-${id}`);
   if (input) input.value = mode;
-  document.getElementById(`gsceneuniform-perled-${id}`)?.classList.toggle('btn-primary', mode === 'per-led');
-  document.getElementById(`gsceneuniform-perled-${id}`)?.classList.toggle('btn-ghost', mode !== 'per-led');
-  document.getElementById(`gsceneuniform-uniform-${id}`)?.classList.toggle('btn-primary', mode === 'uniform');
-  document.getElementById(`gsceneuniform-uniform-${id}`)?.classList.toggle('btn-ghost', mode !== 'uniform');
+  _setActiveButton(`gsceneuniform-perled-${id}`, `gsceneuniform-uniform-${id}`, mode === 'per-led');
   onGroupControl(id);
 }
 
 function setGroupTextAnimation(id, anim) {
   const input = document.getElementById(`gtxanim-${id}`);
   if (input) input.value = anim;
-  document.getElementById(`gtxanim-scroll-${id}`)?.classList.toggle('btn-primary', anim === 0);
-  document.getElementById(`gtxanim-scroll-${id}`)?.classList.toggle('btn-ghost', anim !== 0);
-  document.getElementById(`gtxanim-bounce-${id}`)?.classList.toggle('btn-primary', anim === 1);
-  document.getElementById(`gtxanim-bounce-${id}`)?.classList.toggle('btn-ghost', anim !== 1);
+  _setActiveButton(`gtxanim-scroll-${id}`, `gtxanim-bounce-${id}`, anim === 0);
   onGroupControl(id);
 }
 
 function setGroupTimeFormat(id, format) {
   const input = document.getElementById(`gtime24h-${id}`);
   if (input) input.value = format;
-  document.getElementById(`gtime24-${id}`)?.classList.toggle('btn-primary', format === '24');
-  document.getElementById(`gtime24-${id}`)?.classList.toggle('btn-ghost', format !== '24');
-  document.getElementById(`gtime12-${id}`)?.classList.toggle('btn-primary', format === '12');
-  document.getElementById(`gtime12-${id}`)?.classList.toggle('btn-ghost', format !== '12');
+  _setActiveButton(`gtime24-${id}`, `gtime12-${id}`, format === '24');
   onGroupControl(id);
 }
 
@@ -1462,6 +1463,16 @@ function _updateSignalColumn() {
   });
 }
 
+function _renderGroupOptions(selectedGroupId) {
+  return _groups.map(g =>
+    `<option value="${g.id}"${g.id === selectedGroupId ? ' selected' : ''}>${esc(g.name)}</option>`
+  ).join('');
+}
+
+function _renderLightGroupSelect(mac, light) {
+  return `<select onchange="assignGroup('${mac}',${light.index},parseInt(this.value))">${_renderGroupOptions(light.groupId)}</select>`;
+}
+
 function renderLights(self, peers) {
   _self  = self;
   _peers = peers;
@@ -1547,22 +1558,20 @@ function renderLights(self, peers) {
     const groupSelects = lights.length === 0
       ? '<span style="color:#555;font-size:.78rem">no lights</span>'
       : lights.map(l => {
-          const opts = _groups.map(g=>`<option value="${g.id}"${g.id===l.groupId?' selected':''}>${esc(g.name)}</option>`).join('');
           const lightLabel = l.name ? esc(l.name) : `L${l.index}`;
           const label = `<span style="font-size:.72rem;color:#888;margin-right:.25rem">${lightLabel}</span>`;
-          return `<div style="display:flex;align-items:center;gap:.25rem;margin-bottom:.2rem">${label}<select onchange="assignGroup('${mac}',${l.index},parseInt(this.value))">${opts}</select></div>`;
+          return `<div style="display:flex;align-items:center;gap:.25rem;margin-bottom:.2rem">${label}${_renderLightGroupSelect(mac, l)}</div>`;
         }).join('');
 
     const mobileLights = lights.length === 0
       ? '<div class="light-device-empty">No lights exposed</div>'
       : lights.map(l => {
-          const opts = _groups.map(g=>`<option value="${g.id}"${g.id===l.groupId?' selected':''}>${esc(g.name)}</option>`).join('');
           const lightLabel = l.name ? esc(l.name) : `Light ${l.index}`;
           return `<div class="light-device-light">
             <div class="light-device-light-head">
               <span class="light-device-light-name">${lightLabel}</span>
             </div>
-            <select onchange="assignGroup('${mac}',${l.index},parseInt(this.value))">${opts}</select>
+            ${_renderLightGroupSelect(mac, l)}
           </div>`;
         }).join('');
 
@@ -2516,8 +2525,7 @@ const SCENE_PREVIEW_DESC = {
 
 function setScenePreviewMode(mode) {
   _scenePreviewMode = mode;
-  document.getElementById('se-preview-mode-scene').className    = mode === 'scene'    ? 'btn-sm btn-primary' : 'btn-sm btn-ghost';
-  document.getElementById('se-preview-mode-gradient').className = mode === 'gradient' ? 'btn-sm btn-primary' : 'btn-sm btn-ghost';
+  _setActiveButton('se-preview-mode-scene', 'se-preview-mode-gradient', mode === 'scene');
   document.getElementById('se-preview-stops-wrap').style.display = mode === 'gradient' ? '' : 'none';
   const desc = document.getElementById('se-preview-desc');
   if (desc) desc.textContent = SCENE_PREVIEW_DESC[mode];
@@ -3809,8 +3817,7 @@ function _setSciMode(mode) {
   _sciMode = mode;
   document.getElementById('sci-pixel-opts').style.display   = mode === 'pixel'   ? '' : 'none';
   document.getElementById('sci-palette-opts').style.display = mode === 'palette' ? '' : 'none';
-  document.getElementById('sci-mode-pixel').className   = 'btn-sm ' + (mode === 'pixel'   ? 'btn-primary' : 'btn-ghost');
-  document.getElementById('sci-mode-palette').className = 'btn-sm ' + (mode === 'palette' ? 'btn-primary' : 'btn-ghost');
+  _setActiveButton('sci-mode-pixel', 'sci-mode-palette', mode === 'pixel');
 }
 
 function _onSciFileChange(ev) {
