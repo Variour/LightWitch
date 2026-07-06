@@ -64,7 +64,7 @@ jobs:
             pio-${{ matrix.env }}-
 
       - name: Install PlatformIO
-        run: pip install platformio
+        run: pip install -r requirements.txt
 
       - name: Build firmware (${{ matrix.env }})
         run: pio run -e ${{ matrix.env }}
@@ -96,7 +96,7 @@ jobs:
           restore-keys: pio-esp32dev-
 
       - name: Install PlatformIO
-        run: pip install platformio
+        run: pip install -r requirements.txt
 
       - name: Gzip web assets
         run: |
