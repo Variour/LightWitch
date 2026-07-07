@@ -16,10 +16,12 @@ Go to the [latest release](https://github.com/Variour/batteryLight/releases/late
 |------|-----------|
 | `bootloader-esp32c3.bin` | Bootloader for ESP32-C3 devices |
 | `bootloader-esp32dev.bin` | Bootloader for ESP32-WROOM-32 devices |
-| `partitions.bin` | Partition table (same for both board types) |
+| `bootloader-esp32s3.bin` | Bootloader for ESP32-S3 devices |
+| `partitions.bin` | Partition table (same for all board types) |
 | `firmware-esp32c3.bin` | Firmware for ESP32-C3 devices |
 | `firmware-esp32dev.bin` | Firmware for ESP32-WROOM-32 devices |
-| `littlefs.bin` | Web UI filesystem (same for both board types) |
+| `firmware-esp32s3.bin` | Firmware for ESP32-S3 devices |
+| `littlefs.bin` | Web UI filesystem (same for all board types) |
 
 **2. Open the web flasher**
 
@@ -33,13 +35,13 @@ Plug in the ESP32 via USB, then click **Connect** and select the device's serial
 
 Add entries for your board type with these addresses:
 
-**ESP32-C3:**
+**ESP32-C3 / ESP32-S3:**
 
 | Address | File |
 |---------|------|
-| `0x0` | `bootloader-esp32c3.bin` |
+| `0x0` | `bootloader-esp32c3.bin` (C3) / `bootloader-esp32s3.bin` (S3) |
 | `0x8000` | `partitions.bin` |
-| `0x10000` | `firmware-esp32c3.bin` |
+| `0x10000` | `firmware-esp32c3.bin` (C3) / `firmware-esp32s3.bin` (S3) |
 | `0x3C0000` | `littlefs.bin` |
 
 **ESP32-WROOM-32:**

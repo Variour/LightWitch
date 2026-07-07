@@ -170,6 +170,8 @@ private:
     static bool _isFirmwareAsset(const char* name) {
 #ifdef CONFIG_IDF_TARGET_ESP32C3
         return strcmp(name, "firmware-esp32c3.bin") == 0;
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+        return strcmp(name, "firmware-esp32s3.bin") == 0;
 #else
         return strcmp(name, "firmware-esp32dev.bin") == 0;
 #endif
