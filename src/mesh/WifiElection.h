@@ -352,6 +352,24 @@ public:
     // device list can show a distinct "connecting…" state.
     bool isAttempting() const { return _attempt.active(); }
 
+    // What this device should advertise as PresenceMsg.wifiConnected — true
+    // only when the connection is (or just became, via a piggybacked
+    // election attempt) this device's actual standing as the mesh's WiFi
+    // client, never for a plain OTA-only hold that's going back to standby
+    // once the request is done. Without this, a peer briefly connected only
+    // to run an OTA check could make the real leader think a legitimate
+    // lower-MAC candidate had shown up and wrongly yield to it (see
+    // _lowerMacPeerConnected in tick()). Deliberately not used for this
+    // device's own local WiFi.status() display (see WebServer.h) — the user
+    // looking at this exact device's own page still wants to see "yes, I'm
+    // online right now", even if the rest of the mesh shouldn't treat that
+    // connection as anything more than a passing OTA errand.
+    bool isAdvertisableConnected() const {
+        if (WiFi.status() != WL_CONNECTED) return false;
+        if (!_otaHold) return true;
+        return _stateBeforeOta == State::Connected || _state == State::Connected;
+    }
+
     // Manual nudge — e.g. a "retry WiFi" UI button — for a device stuck in
     // GaveUp (or just idling in Standby/Waiting) to take a fresh, single-
     // round shot right now instead of waiting for the mode to be toggled.

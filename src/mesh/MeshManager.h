@@ -43,6 +43,11 @@ public:
     // Polled once per heartbeat to fill PresenceMsg.wifiConnecting — whether
     // this device is right now mid-attempt to join a WiFi network.
     using WifiAttemptingCb = std::function<bool()>;
+    // Polled once per heartbeat to fill PresenceMsg.wifiConnected — whether
+    // this device should be advertised as the mesh's actual WiFi client
+    // (see WifiElection::isAdvertisableConnected). Falls back to the raw
+    // WiFi.status() check if unset.
+    using WifiConnectedCb  = std::function<bool()>;
     // Called when a peer (or this device, echoed back) broadcasts a manual
     // "retry WiFi now" request.
     using WifiRetryCb      = std::function<void()>;
@@ -67,6 +72,7 @@ public:
     void setOnTimeSync(TimeSyncCb cb)             { _onTimeSync       = cb; }
     void setOnMeshPolicy(MeshPolicyCb cb)         { _onMeshPolicy     = cb; }
     void setWifiAttemptingProvider(WifiAttemptingCb cb) { _wifiAttemptingProvider = cb; }
+    void setWifiConnectedProvider(WifiConnectedCb cb)   { _wifiConnectedProvider  = cb; }
     void setOnWifiRetry(WifiRetryCb cb)           { _onWifiRetry      = cb; }
 
     void begin() {
@@ -350,6 +356,7 @@ private:
     TimeSyncCb      _onTimeSync;
     MeshPolicyCb    _onMeshPolicy;
     WifiAttemptingCb _wifiAttemptingProvider;
+    WifiConnectedCb  _wifiConnectedProvider;
     WifiRetryCb      _onWifiRetry;
 
     // ── Config push encryption (issue #252) ───────────────────────────────────
@@ -504,7 +511,7 @@ private:
         msg.type             = MsgType::Presence;
         msg.sceneSyncEnabled = Config::get().sceneSyncEnabled ? 1 : 0;
         strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
-        msg.wifiConnected = (WiFi.status() == WL_CONNECTED) ? 1 : 0;
+        msg.wifiConnected = (_wifiConnectedProvider ? _wifiConnectedProvider() : (WiFi.status() == WL_CONNECTED)) ? 1 : 0;
         msg.hasWifiNetworks = (Config::wifiCount() > 0) ? 1 : 0;
         msg.wifiConnecting  = (_wifiAttemptingProvider && _wifiAttemptingProvider()) ? 1 : 0;
         strlcpy(msg.fwVersion, FW_VERSION, sizeof(msg.fwVersion));

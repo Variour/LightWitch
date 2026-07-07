@@ -251,6 +251,7 @@ void setup() {
     mesh.begin();
     wifiElection.begin(&mesh.peers);
     mesh.setWifiAttemptingProvider([]() { return wifiElection.isAttempting(); });
+    mesh.setWifiConnectedProvider([]() { return wifiElection.isAdvertisableConnected(); });
     wifiElection.setOnAttemptingChanged([]() { webServer.pushPeers(); });
     mesh.setOnPeerHeard([](){ channelMgr.onPeerHeard(); });
     mesh.setOnMeshPolicy([](bool enabled) {
