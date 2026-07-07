@@ -46,6 +46,8 @@ using RequestWifiCb       = std::function<void(std::function<void()>)>;
 // Called when wifiSingleClientMode changes via this device's own web UI, so the
 // mesh-wide policy is broadcast to every peer instead of only applying locally.
 using MeshPolicyCb        = std::function<void(bool singleClientMode)>;
+// Polled to report whether this device is right now mid-attempt to join WiFi.
+using WifiAttemptingCb    = std::function<bool()>;
 
 class BatteryWebServer {
 private:
@@ -80,7 +82,8 @@ public:
                MeshSearchCb onMeshSearch = nullptr,
                CheckPeerUpdateCb onCheckPeerUpdate = nullptr,
                RequestWifiCb onRequestWifi = nullptr,
-               MeshPolicyCb onMeshPolicyChange = nullptr) {
+               MeshPolicyCb onMeshPolicyChange = nullptr,
+               WifiAttemptingCb onWifiAttempting = nullptr) {
         _onGroupChange      = onGroupChange;
         _onGroupLight       = onGroupLight;
         _onGroupSync        = onGroupSync;
@@ -95,6 +98,7 @@ public:
         _onCheckPeerUpdate    = onCheckPeerUpdate;
         _onRequestWifi        = onRequestWifi;
         _onMeshPolicyChange   = onMeshPolicyChange;
+        _onWifiAttempting     = onWifiAttempting;
 
         Logger::i("[web] starting on port 80");
         _server.addHandler(&_reqLogger);
@@ -392,6 +396,7 @@ private:
     MeshSearchCb        _onMeshSearch;
     RequestWifiCb       _onRequestWifi;
     MeshPolicyCb        _onMeshPolicyChange;
+    WifiAttemptingCb    _onWifiAttempting;
     SceneSyncManager*   _sceneSync = nullptr;
     SceneSavedCb        _onSceneSaved;
     TestLightCb         _onTestLight;
@@ -539,6 +544,7 @@ private:
         self["online"]           = true;
         self["wifiConnected"]    = (WiFi.status() == WL_CONNECTED);
         self["hasWifiNetworks"]  = Config::wifiCount() > 0;
+        self["wifiConnecting"]   = _onWifiAttempting && _onWifiAttempting();
         self["version"]          = FW_VERSION;
         self["fwState"]          = _fwStateToString(us.state);
         {
@@ -567,6 +573,7 @@ private:
                 o["sceneSyncEnabled"] = p.sceneSyncEnabled;
                 o["wifiConnected"]    = p.wifiConnected;
                 o["hasWifiNetworks"]  = p.hasWifiNetworks;
+                o["wifiConnecting"]   = p.wifiConnecting;
                 o["version"]          = p.fwVersion;
                 o["fwState"]          = _fwStateToString(p.fwState);
                 JsonArray la = o["lights"].to<JsonArray>();

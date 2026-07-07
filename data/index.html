@@ -437,6 +437,10 @@ input[type=checkbox]:active { background-color: #1a5; }
   cursor: pointer; flex-shrink: 0; transition: border-color .15s;
 }
 .grad-swatch:hover { border-color: #555; }
+
+/* WiFi icon: pulses while a connection attempt is in flight */
+@keyframes wifi-connecting-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.wifi-connecting { animation: wifi-connecting-pulse 1.1s ease-in-out infinite; }
 </style>
 </head>
 <body>
@@ -1597,15 +1601,17 @@ function renderLights(self, peers, wifiSingleClientMode) {
     const syncCell = `<input type="checkbox" title="Scene sync: share and receive scene files with other mesh peers" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
 
     const wifiOn = p.wifiConnected === true;
+    const wifiConnecting = !wifiOn && p.wifiConnecting === true;
     // Single-client mode: a candidate (has WiFi networks configured) that isn't
     // currently connected is standing by on purpose, not broken — give it its
     // own color instead of the plain "not connected" gray.
-    const wifiStandby = !wifiOn && _wifiSingleClientMode === true && p.hasWifiNetworks === true;
-    const wifiColor = wifiOn ? '#4c4' : wifiStandby ? '#48a' : '#555';
+    const wifiStandby = !wifiOn && !wifiConnecting && _wifiSingleClientMode === true && p.hasWifiNetworks === true;
+    const wifiColor = wifiOn ? '#4c4' : wifiConnecting ? '#fa4' : wifiStandby ? '#48a' : '#555';
     const wifiTitle = wifiOn ? 'WiFi connected'
+                    : wifiConnecting ? 'WiFi connecting…'
                     : wifiStandby ? 'WiFi standby (single-client mode — another device is/should be connected)'
                     : 'WiFi not connected';
-    const wifiIcon = `<span title="${wifiTitle}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
+    const wifiIcon = `<span title="${wifiTitle}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle" class="${wifiConnecting ? 'wifi-connecting' : ''}"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
     const signalIcon = showSignal && !p.isSelf
       ? `<span title="Signal: ${rssiText}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
       : '';

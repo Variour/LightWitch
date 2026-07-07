@@ -40,6 +40,9 @@ public:
     // Called when a peer (or this device, echoed back) changes the mesh-wide
     // single-WiFi-client policy. Receiver should persist and apply it locally.
     using MeshPolicyCb     = std::function<void(bool singleClientMode)>;
+    // Polled once per heartbeat to fill PresenceMsg.wifiConnecting — whether
+    // this device is right now mid-attempt to join a WiFi network.
+    using WifiAttemptingCb = std::function<bool()>;
 
     void setOnPeerHeard(PeerHeardCb cb)           { _onPeerHeard      = cb; }
     void setOnLightConfig(LightConfigCb cb)       { _onLightConfig    = cb; }
@@ -60,6 +63,7 @@ public:
     void setOnCheckUpdate(CheckUpdateCb cb)       { _onCheckUpdate    = cb; }
     void setOnTimeSync(TimeSyncCb cb)             { _onTimeSync       = cb; }
     void setOnMeshPolicy(MeshPolicyCb cb)         { _onMeshPolicy     = cb; }
+    void setWifiAttemptingProvider(WifiAttemptingCb cb) { _wifiAttemptingProvider = cb; }
 
     void begin() {
         _instance = this;
@@ -334,6 +338,7 @@ private:
     CheckUpdateCb   _onCheckUpdate;
     TimeSyncCb      _onTimeSync;
     MeshPolicyCb    _onMeshPolicy;
+    WifiAttemptingCb _wifiAttemptingProvider;
 
     // ── Config push encryption (issue #252) ───────────────────────────────────
     static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 3000;
@@ -489,6 +494,7 @@ private:
         strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
         msg.wifiConnected = (WiFi.status() == WL_CONNECTED) ? 1 : 0;
         msg.hasWifiNetworks = (Config::wifiCount() > 0) ? 1 : 0;
+        msg.wifiConnecting  = (_wifiAttemptingProvider && _wifiAttemptingProvider()) ? 1 : 0;
         strlcpy(msg.fwVersion, FW_VERSION, sizeof(msg.fwVersion));
         const auto& us = Updater::status();
         msg.fwState = (uint8_t)(
@@ -563,7 +569,7 @@ private:
                 bool isNew = _instance->peers.update(mac, m->name,
                     m->lightCount, m->lightGroupIds, m->lightNames,
                     m->sceneSyncEnabled != 0, m->wifiConnected != 0,
-                    m->fwVersion, (FwState)m->fwState, m->hasWifiNetworks != 0);
+                    m->fwVersion, (FwState)m->fwState, m->hasWifiNetworks != 0, m->wifiConnecting != 0);
                 if (_instance->_onPeerHeard) _instance->_onPeerHeard();
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, isNew);
                 if (isNew) _instance->broadcastAllGroups();

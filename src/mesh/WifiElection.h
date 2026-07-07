@@ -151,6 +151,11 @@ public:
         _enterFreshWaiting();
     }
 
+    // Fires whenever isAttempting() flips, so the caller can push an
+    // immediate update (e.g. over the websocket) instead of waiting for the
+    // next presence-driven refresh, which only covers peers, not self.
+    void setOnAttemptingChanged(std::function<void()> cb) { _onAttemptingChanged = cb; }
+
     // Call whenever Config::get().wifiSingleClientMode transitions, so a
     // peer that had the mode turned off remotely (no reboot for it) resumes
     // "everyone connects" immediately instead of being stuck on standby.
@@ -181,6 +186,16 @@ public:
     }
 
     void tick() {
+        // Runs on every exit path (including early returns below) so a
+        // start/stop of the connect attempt is always reported exactly once.
+        struct AttemptingGuard {
+            WifiElection* self;
+            bool          was;
+            ~AttemptingGuard() {
+                if (self->_attempt.active() != was && self->_onAttemptingChanged) self->_onAttemptingChanged();
+            }
+        } guard{this, _attempt.active()};
+
         _attempt.tick();
 
         if (_otaHold) {
@@ -254,6 +269,12 @@ public:
 
     bool isConnected() const { return WiFi.status() == WL_CONNECTED; }
 
+    // True while a WifiConnectAttempt is actually in flight (WiFi.begin()
+    // issued, waiting on the result) — either this device's own election
+    // turn or a temporary OTA connect. Broadcast in PresenceMsg so the
+    // device list can show a distinct "connecting…" state.
+    bool isAttempting() const { return _attempt.active(); }
+
 private:
     enum class State { Waiting, Connecting, Connected, Standby };
 
@@ -275,6 +296,7 @@ private:
     bool                   _otaHold        = false;
     State                  _stateBeforeOta = State::Waiting;
     std::function<void()> _otaCallback;
+    std::function<void()> _onAttemptingChanged;
 
     void _enterFreshWaiting() {
         _state          = State::Waiting;

@@ -250,6 +250,8 @@ void setup() {
     if (Config::get().otaEnabled) setupOta();
     mesh.begin();
     wifiElection.begin(&mesh.peers);
+    mesh.setWifiAttemptingProvider([]() { return wifiElection.isAttempting(); });
+    wifiElection.setOnAttemptingChanged([]() { webServer.pushPeers(); });
     mesh.setOnPeerHeard([](){ channelMgr.onPeerHeard(); });
     mesh.setOnMeshPolicy([](bool enabled) {
         if (Config::get().wifiSingleClientMode == enabled) return;
@@ -437,7 +439,9 @@ void setup() {
         [](bool enabled) {
             mesh.broadcastMeshPolicy(enabled);
             wifiElection.onPolicyChanged(enabled);
-        }
+        },
+
+        []() { return wifiElection.isAttempting(); }
     );
 
     auto notifySceneUpdated = [](const char* id) {
