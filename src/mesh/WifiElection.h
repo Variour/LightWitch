@@ -34,6 +34,19 @@ public:
         _beginPreDelay(100);
     }
 
+    // Cancels an in-flight attempt without invoking the DoneCb — used when
+    // the caller already knows why (e.g. a lower-MAC peer beat us to it) and
+    // doesn't want the normal completion handling to also run.
+    void abort() {
+        if (!_active) return;
+        _active = false;
+        _onDone = nullptr;
+        WiFi.disconnect(false);
+        auto& c = Config::get();
+        WiFi.softAP(c.deviceName, c.apPassword, 1);
+        WiFi.setTxPower(WIFI_TX_POWER);
+    }
+
     void tick() {
         if (!_active) return;
 
@@ -116,45 +129,27 @@ private:
 // Config::get().wifiSingleClientMode is enabled, so battery-powered peers can
 // skip joining the router entirely (see CLAUDE task: mesh single-client WiFi).
 //
-// Election rule: among online peers that have ≥1 WiFi network configured
-// ("candidates"), the lowest MAC address goes first. If it hasn't connected
-// (or has disconnected) by its turn, the next-lowest-MAC candidate tries, and
-// so on — computed independently by every device from its own view of
-// PeerRegistry, using the shared moment "no candidate is connected" as a
-// common reference point so ranks resolve to the same order everywhere.
-// A candidate that exhausts its own attempt does another full round later
-// (RANK_BUDGET_MS * candidateCount) rather than hammering retries, in case
-// the network was briefly unavailable — but candidates don't just sit out
-// RANK_BUDGET_MS blindly waiting their static MAC-order turn: each one
-// watches PresenceMsg.wifiConnecting on lower-MAC peers, and the moment one
-// of those is seen to give up (attempting flips back to false without ever
-// connecting), it stops counting toward this device's rank — see
-// _updateFailTracking()/_computeRank(). So a fast failure hands off within
-// about one heartbeat instead of the full budget.
+// Rule, deliberately simple: every candidate (a device with ≥1 WiFi network
+// configured) tries to connect whenever it doesn't know of anyone else being
+// connected. If it turns out a lower-MAC peer is also connected — or beats it
+// to it while it's still mid-attempt — the higher-MAC one yields (aborts its
+// attempt, or disconnects if it already succeeded) and stands by instead.
+// There's no coordination beyond that: no staggered turns, no rank-based
+// waiting. The trade-off is that every election event (fresh mesh boot with
+// several candidates, or a failover once the current client drops) makes all
+// remaining candidates' radios fire up at once instead of one at a time —
+// acceptable for the handful of devices a mesh like this has, in exchange for
+// a much simpler, easier-to-reason-about state machine.
 //
 // Once any candidate is confirmed connected (observed via PresenceMsg /
 // local WiFi.status()), everyone else stands down to standby (AP-only, no
 // STA attempts) until that peer drops off the mesh or loses its connection,
-// at which point the same ranked hand-off runs again automatically.
-//
-// Joining an existing, already-settled mesh: a freshly booted device hasn't
-// heard any presence yet, so it has no way to know in advance whether a peer
-// is already connected — it connects when in doubt (same as the fresh-mesh
-// case, since an empty peer list makes it rank 0 by default) and relies on
-// the yield check below to sort it out once presence has propagated. This
-// means a device with a lower MAC than an already-stable, long-running
-// leader can cause a brief double-connect and a hand-off in its favor when
-// it (re)joins — a deliberate trade-off for not adding a startup delay.
-// Two candidates can end up connected at once for other reasons too, e.g.
-// both connecting independently before finding each other in the mesh; the
-// higher-MAC one yields (disconnects) as soon as it learns the lower-MAC one
-// is also connected — see the Connected case in tick() — so the mesh always
-// converges back to exactly one WiFi client, just not always instantly.
+// at which point the same race runs again automatically.
 class WifiElection {
 public:
     void begin(PeerRegistry* peers) {
         _peers = peers;
-        _enterFreshWaiting();
+        _enterWaiting();
     }
 
     // Fires whenever isAttempting() flips, so the caller can push an
@@ -168,7 +163,7 @@ public:
     void onPolicyChanged(bool nowEnabled) {
         if (!nowEnabled && WiFi.status() != WL_CONNECTED && !_attempt.active())
             _attempt.start([](bool) {});
-        if (nowEnabled) _enterFreshWaiting();
+        if (nowEnabled) _enterWaiting();
     }
 
     // Non-blocking: connects if needed, then invokes onReady once WL_CONNECTED
@@ -213,8 +208,6 @@ public:
         if (!Config::get().wifiSingleClientMode) return; // default path: untouched
         if (Config::wifiCount() == 0) return;             // not a candidate — nothing to elect
 
-        _updateFailTracking();
-
         uint8_t ownMac[6];
         WiFi.macAddress(ownMac);
         bool selfConnected = WiFi.status() == WL_CONNECTED;
@@ -237,22 +230,29 @@ public:
                     _state = State::Standby;
                     return;
                 }
-                uint32_t candidates = _countCandidates() + 1; // +self
-                uint32_t rank       = _computeRank(ownMac);
-                uint32_t threshold  = (uint32_t)(_myAttemptCount * candidates + rank) * RANK_BUDGET_MS;
-                if (millis() - _waitSince >= threshold) {
-                    Logger::i("[wifi-elect] my turn (rank %u/%u) — attempting to connect", rank, candidates);
-                    _state = State::Connecting;
-                    _attempt.start([this](bool ok) { _onAttemptDone(ok); });
+                if (_coolingDown) {
+                    if (millis() - _cooldownStart < RETRY_COOLDOWN_MS) break;
+                    _coolingDown = false;
                 }
+                Logger::i("[wifi-elect] nobody connected — attempting to connect");
+                _state = State::Connecting;
+                _attempt.start([this](bool ok) { _onAttemptDone(ok); });
                 break;
             }
             case State::Connecting:
-                break; // handled by the DoneCb passed to _attempt.start()
+                if (_lowerMacPeerConnected(ownMac)) {
+                    // A lower-MAC peer beat us to it while we were still
+                    // mid-attempt — no point finishing (or worse, connecting
+                    // and immediately having to yield), so stop right now.
+                    Logger::i("[wifi-elect] a lower-MAC peer connected while I was still trying — aborting");
+                    _attempt.abort();
+                    _state = State::Standby;
+                }
+                break; // otherwise handled by the DoneCb passed to _attempt.start()
             case State::Connected:
                 if (!selfConnected) {
                     Logger::w("[wifi-elect] lost connection — re-electing");
-                    _enterFreshWaiting();
+                    _enterWaiting();
                 } else if (_lowerMacPeerConnected(ownMac)) {
                     // Two candidates ended up connected at once (e.g. both
                     // connected independently before finding each other in
@@ -269,7 +269,7 @@ public:
             case State::Standby:
                 if (!anyConnected) {
                     Logger::i("[wifi-elect] elected peer went offline — re-electing");
-                    _enterFreshWaiting();
+                    _enterWaiting();
                 }
                 break;
         }
@@ -286,23 +286,16 @@ public:
 private:
     enum class State { Waiting, Connecting, Connected, Standby };
 
-    // Fallback ceiling for a candidate's turn — in practice the fail-tracking
-    // in _computeRank() hands off within about one heartbeat once a
-    // lower-ranked peer is observed to give up, so this budget mostly only
-    // matters if a peer goes silent mid-attempt (dies, drops off the mesh)
-    // without ever reporting wifiConnecting=false. Covers the common case of
-    // 1-2 configured networks (3 attempts * 10s each, plus settle delays)
-    // with room to spare; a candidate with many more networks configured may
-    // still be mid-attempt when the next rank's turn opens — in that rare
-    // case both may briefly hold the connection until the next election
-    // cycle resolves it, an acceptable trade-off for not making every
-    // failover wait several minutes.
-    static constexpr uint32_t RANK_BUDGET_MS = 60000; // 1 min per rank step
+    // After this device's own attempt fails, don't immediately retry (the
+    // network is likely still unreachable) — wait this long first so a
+    // chronically-unreachable network doesn't get hammered in a tight loop.
+    // Unrelated to coordinating with peers; purely local hygiene.
+    static constexpr uint32_t RETRY_COOLDOWN_MS = 30000; // 30s
 
     PeerRegistry*      _peers = nullptr;
     State              _state = State::Waiting;
-    uint32_t           _waitSince      = 0;
-    uint32_t           _myAttemptCount = 0;
+    bool               _coolingDown  = false;
+    uint32_t           _cooldownStart = 0;
     WifiConnectAttempt _attempt;
 
     bool                   _otaHold        = false;
@@ -310,15 +303,9 @@ private:
     std::function<void()> _otaCallback;
     std::function<void()> _onAttemptingChanged;
 
-    void _enterFreshWaiting() {
-        _state          = State::Waiting;
-        _waitSince      = millis();
-        _myAttemptCount = 0;
-        // A new epoch means the "who already had a turn and failed" slate
-        // wipes clean too — otherwise a peer that failed long ago (maybe even
-        // before it briefly connected and lost it) would wrongly keep being
-        // skipped in the rank count below.
-        for (auto& f : _failTrack) { f.wasAttempting = false; f.failedThisEpoch = false; }
+    void _enterWaiting() {
+        _state       = State::Waiting;
+        _coolingDown = false;
     }
 
     void _onAttemptDone(bool ok) {
@@ -327,9 +314,10 @@ private:
             _state = State::Connected;
             return;
         }
-        Logger::w("[wifi-elect] failed to connect — waiting for another round");
-        _myAttemptCount++;
-        _state = State::Waiting; // same epoch — _waitSince stays put, next round's threshold is later
+        Logger::w("[wifi-elect] failed to connect — cooling down before retrying");
+        _coolingDown   = true;
+        _cooldownStart = millis();
+        _state         = State::Waiting;
     }
 
     void _finishOtaHold() {
@@ -349,7 +337,7 @@ private:
                 WiFi.softAP(c.deviceName, c.apPassword, 1);
                 WiFi.setTxPower(WIFI_TX_POWER);
             }
-            _enterFreshWaiting();
+            _enterWaiting();
         }
         std::function<void()> cb = _otaCallback;
         _otaCallback = nullptr;
@@ -371,83 +359,5 @@ private:
         for (auto& p : *_peers)
             if (p.active && p.online() && p.wifiConnected && memcmp(p.mac, ownMac, 6) < 0) return true;
         return false;
-    }
-
-    // Count of online candidates (peers with ≥1 WiFi network configured),
-    // excluding self.
-    uint32_t _countCandidates() const {
-        uint32_t n = 0;
-        if (!_peers) return n;
-        for (auto& p : *_peers)
-            if (p.active && p.online() && p.hasWifiNetworks) n++;
-        return n;
-    }
-
-    // This device's position among online candidates with a lower MAC than
-    // itself — but a lower-MAC peer that this device has already watched try
-    // and fail this epoch (see _updateFailTracking) no longer counts, so
-    // rank drops and this device's wait shortens instead of always running
-    // out the full RANK_BUDGET_MS for a turn that peer isn't going to take.
-    uint32_t _computeRank(const uint8_t* ownMac) const {
-        uint32_t rank = 0;
-        if (!_peers) return rank;
-        for (auto& p : *_peers) {
-            if (!p.active || !p.online() || !p.hasWifiNetworks) continue;
-            if (memcmp(p.mac, ownMac, 6) >= 0) continue;
-            if (_hasFailedThisEpoch(p.mac)) continue;
-            rank++;
-        }
-        return rank;
-    }
-
-    // Tracks, per online candidate peer, whether we've watched its
-    // PresenceMsg.wifiConnecting fall from true back to false without
-    // wifiConnected ever becoming true — i.e. it tried this epoch and gave
-    // up. Keyed by MAC with a fixed table sized to PeerRegistry::MAX_PEERS
-    // (one slot per possible peer), so no dynamic allocation is needed.
-    struct FailTrack {
-        uint8_t mac[6]         = {};
-        bool    used           = false;
-        bool    wasAttempting  = false;
-        bool    failedThisEpoch = false;
-    };
-    FailTrack _failTrack[PeerRegistry::MAX_PEERS];
-
-    FailTrack* _findFailTrack(const uint8_t* mac) {
-        FailTrack* freeSlot = nullptr;
-        for (auto& f : _failTrack) {
-            if (f.used && memcmp(f.mac, mac, 6) == 0) return &f;
-            if (!f.used && !freeSlot) freeSlot = &f;
-        }
-        if (freeSlot) { memcpy(freeSlot->mac, mac, 6); freeSlot->used = true; }
-        return freeSlot;
-    }
-
-    bool _hasFailedThisEpoch(const uint8_t* mac) const {
-        for (auto& f : _failTrack)
-            if (f.used && memcmp(f.mac, mac, 6) == 0) return f.failedThisEpoch;
-        return false;
-    }
-
-    void _updateFailTracking() {
-        if (!_peers) return;
-        for (auto& p : *_peers) {
-            if (!p.active || !p.online() || !p.hasWifiNetworks) continue;
-            FailTrack* f = _findFailTrack(p.mac);
-            if (!f) continue; // table full — extremely unlikely, same size as PeerRegistry
-            if (p.wifiConnected) {
-                // It made it — no longer "failed", though at that point we'd
-                // be standing down anyway (see anyConnected check above).
-                f->wasAttempting   = false;
-                f->failedThisEpoch = false;
-                continue;
-            }
-            if (f->wasAttempting && !p.wifiConnecting) {
-                Logger::i("[wifi-elect] observed %02x:%02x:%02x:%02x:%02x:%02x give up — no longer waiting on it",
-                          p.mac[0], p.mac[1], p.mac[2], p.mac[3], p.mac[4], p.mac[5]);
-                f->failedThisEpoch = true;
-            }
-            f->wasAttempting = p.wifiConnecting;
-        }
     }
 };
