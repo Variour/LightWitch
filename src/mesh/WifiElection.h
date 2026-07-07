@@ -145,6 +145,15 @@ private:
 // local WiFi.status()), everyone else stands down to standby (AP-only, no
 // STA attempts) until that peer drops off the mesh or loses its connection,
 // at which point the same race runs again automatically.
+//
+// A failed attempt (every configured network exhausted, same one round as
+// the original blocking setupWifi() always did) is terminal, not retried —
+// this device just goes quiet (State::GaveUp) until something actually
+// changes: the mode gets toggled, an OTA request needs the radio, or a peer
+// is observed to connect (worth then watching in case *that* connection
+// later drops). This mirrors the pre-single-client-mode behavior, where a
+// device that couldn't reach any configured network simply stayed on AP
+// until manually rebooted, rather than hammering it forever.
 class WifiElection {
 public:
     void begin(PeerRegistry* peers) {
@@ -230,10 +239,6 @@ public:
                     _state = State::Standby;
                     return;
                 }
-                if (_coolingDown) {
-                    if (millis() - _cooldownStart < RETRY_COOLDOWN_MS) break;
-                    _coolingDown = false;
-                }
                 Logger::i("[wifi-elect] nobody connected — attempting to connect");
                 _state = State::Connecting;
                 _attempt.start([this](bool ok) { _onAttemptDone(ok); });
@@ -272,6 +277,12 @@ public:
                     _enterWaiting();
                 }
                 break;
+            case State::GaveUp:
+                // Passive from here — only reacts to a peer actually
+                // succeeding (worth then watching in case it drops again).
+                // No self-triggered retry; see class comment for why.
+                if (anyConnected) _state = State::Standby;
+                break;
         }
     }
 
@@ -284,18 +295,10 @@ public:
     bool isAttempting() const { return _attempt.active(); }
 
 private:
-    enum class State { Waiting, Connecting, Connected, Standby };
-
-    // After this device's own attempt fails, don't immediately retry (the
-    // network is likely still unreachable) — wait this long first so a
-    // chronically-unreachable network doesn't get hammered in a tight loop.
-    // Unrelated to coordinating with peers; purely local hygiene.
-    static constexpr uint32_t RETRY_COOLDOWN_MS = 30000; // 30s
+    enum class State { Waiting, Connecting, Connected, Standby, GaveUp };
 
     PeerRegistry*      _peers = nullptr;
     State              _state = State::Waiting;
-    bool               _coolingDown  = false;
-    uint32_t           _cooldownStart = 0;
     WifiConnectAttempt _attempt;
 
     bool                   _otaHold        = false;
@@ -304,8 +307,7 @@ private:
     std::function<void()> _onAttemptingChanged;
 
     void _enterWaiting() {
-        _state       = State::Waiting;
-        _coolingDown = false;
+        _state = State::Waiting;
     }
 
     void _onAttemptDone(bool ok) {
@@ -314,31 +316,42 @@ private:
             _state = State::Connected;
             return;
         }
-        Logger::w("[wifi-elect] failed to connect — cooling down before retrying");
-        _coolingDown   = true;
-        _cooldownStart = millis();
-        _state         = State::Waiting;
+        Logger::w("[wifi-elect] failed to connect (all configured networks exhausted) — giving up until something changes");
+        _state = State::GaveUp;
     }
 
     void _finishOtaHold() {
         _otaHold = false;
-        bool wasLeader = _stateBeforeOta == State::Connected;
+        // wasLeader covers two cases: was already the leader before the OTA
+        // request came in (_stateBeforeOta), or the request landed mid-
+        // attempt while this device was itself in the running
+        // (State::Connecting) and that very attempt — which still calls the
+        // normal _onAttemptDone, since requestTemporary() only supplies its
+        // own no-op callback when it has to start a fresh attempt — went on
+        // to succeed (_state).
+        bool wasLeader = _stateBeforeOta == State::Connected || _state == State::Connected;
         if (wasLeader) {
             // Already the elected leader — OTA just used the existing
             // connection, nothing to undo, keep acting as the WiFi client.
             _state = State::Connected;
-        } else {
+        } else if (_stateBeforeOta != State::Connecting) {
+            // A pure OTA-only connect — this device wasn't itself mid-
+            // election-attempt, so nothing else has touched _state for us.
+            // Hand the radio back if it actually connected, and resume
+            // whatever this device was doing before (including GaveUp,
+            // deliberately not a fresh Waiting turn it hadn't earned).
             if (Config::get().wifiSingleClientMode && WiFi.status() == WL_CONNECTED) {
-                // We connected only for this OTA request and aren't the
-                // elected leader — hand the radio back and let election
-                // re-settle instead of staying connected indefinitely.
                 WiFi.disconnect(false);
                 auto& c = Config::get();
                 WiFi.softAP(c.deviceName, c.apPassword, 1);
                 WiFi.setTxPower(WIFI_TX_POWER);
             }
-            _enterWaiting();
+            _state = _stateBeforeOta;
         }
+        // else: _stateBeforeOta was Connecting and we didn't end up the
+        // leader — the piggybacked attempt's own completion (_onAttemptDone,
+        // or an abort() elsewhere in tick()) already left _state exactly
+        // where it should be (GaveUp or Standby); leave it alone.
         std::function<void()> cb = _otaCallback;
         _otaCallback = nullptr;
         if (cb) cb();
