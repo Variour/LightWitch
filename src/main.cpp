@@ -43,8 +43,9 @@ static uint32_t           _lastPatternTickMs        = 0;
 
 // Tracks the last-rendered firmware-update status so the progress fill is
 // only redrawn when it actually changes, not on every loop() iteration.
-static Updater::State     _lastUpdateState    = Updater::State::Idle;
-static int                _lastUpdateProgress = -1;
+static Updater::State     _lastUpdateState           = Updater::State::Idle;
+static int                _lastUpdateProgress        = -1;
+static bool               _startupUpdateCheckPending = false;
 
 // Reassembly buffer for incoming config push chunks
 static String   _cfgSyncBuf;
@@ -471,8 +472,14 @@ void setup() {
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
     Logger::i("[sys] ready");
-    if (Config::get().checkUpdateOnStartup && WiFi.status() == WL_CONNECTED)
-        Updater::checkAsync();
+    if (Config::get().checkUpdateOnStartup) {
+        if (Config::get().wifiSingleClientMode) {
+            _startupUpdateCheckPending = true;
+            Logger::i("[upd] startup check armed; waiting for WiFi election");
+        } else if (WiFi.status() == WL_CONNECTED) {
+            Updater::checkAsync();
+        }
+    }
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
@@ -510,6 +517,11 @@ void loop() {
         channelMgr.tick();
         mesh.tick();
         wifiElection.tick();
+        if (_startupUpdateCheckPending && wifiElection.isAdvertisableConnected()) {
+            _startupUpdateCheckPending = false;
+            Logger::i("[upd] WiFi election connected; running deferred startup check");
+            Updater::checkAsync();
+        }
         TimeSync::tick();
         mqtt.loop();
         buttonManager.tick();
