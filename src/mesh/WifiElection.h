@@ -131,15 +131,22 @@ private:
 //
 // Rule, deliberately simple: every candidate (a device with ≥1 WiFi network
 // configured) tries to connect whenever it doesn't know of anyone else being
-// connected. If it turns out a lower-MAC peer is also connected — or beats it
-// to it while it's still mid-attempt — the higher-MAC one yields (aborts its
-// attempt, or disconnects if it already succeeded) and stands by instead.
-// There's no coordination beyond that: no staggered turns, no rank-based
-// waiting. The trade-off is that every election event (fresh mesh boot with
-// several candidates, or a failover once the current client drops) makes all
-// remaining candidates' radios fire up at once instead of one at a time —
-// acceptable for the handful of devices a mesh like this has, in exchange for
-// a much simpler, easier-to-reason-about state machine.
+// connected. Whoever gets there first keeps it — stability wins, not MAC
+// order: if another candidate connects while this device is still mid-
+// attempt, it just aborts and stands by, regardless of either MAC (see the
+// Connecting case in tick()). MAC only comes into play as a last-resort
+// tiebreaker for the one case that's genuinely symmetric and would
+// otherwise livelock: two candidates who both end up connected at once
+// (e.g. both succeeded independently before finding each other in the
+// mesh) — there the higher-MAC one yields (see the Connected case), since
+// without some deterministic rule both sides would see "someone else is
+// also connected" and both disconnect. There's no coordination beyond
+// that: no staggered turns, no rank-based waiting. The trade-off is that
+// every election event (fresh mesh boot with several candidates, or a
+// failover once the current client drops) makes all remaining candidates'
+// radios fire up at once instead of one at a time — acceptable for the
+// handful of devices a mesh like this has, in exchange for a much
+// simpler, easier-to-reason-about state machine.
 //
 // Once any candidate is confirmed connected (observed via PresenceMsg /
 // local WiFi.status()), everyone else stands down to standby (AP-only, no
@@ -303,11 +310,18 @@ public:
                 break;
             }
             case State::Connecting:
-                if (_lowerMacPeerConnected(ownMac)) {
-                    // A lower-MAC peer beat us to it while we were still
-                    // mid-attempt — no point finishing (or worse, connecting
-                    // and immediately having to yield), so stop right now.
-                    Logger::i("[wifi-elect] a lower-MAC peer connected while I was still trying — aborting");
+                if (_anyPeerConnected()) {
+                    // Somebody else already made it while we were still
+                    // mid-attempt — stability wins here regardless of MAC
+                    // (no point finishing just to immediately have to yield):
+                    // whoever got there first keeps it, we stand down. This
+                    // is still race-safe for a genuine simultaneous start —
+                    // neither side sees the other as connected until one of
+                    // them actually succeeds, so there's no symmetric case
+                    // to break a tie on here (see the Connected case for the
+                    // one spot that still needs a MAC-based tiebreaker: both
+                    // ending up connected at once).
+                    Logger::i("[wifi-elect] another candidate connected while I was still trying — aborting");
                     _attempt.abort();
                     _state = State::Standby;
                 }
