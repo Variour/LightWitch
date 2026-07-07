@@ -179,9 +179,18 @@ public:
     // (or once all configured networks were tried and failed — the caller,
     // e.g. Updater, already handles "not connected to WiFi" gracefully).
     // Used for on-demand OTA checks/installs on a peer that is on standby.
+    //
+    // Important: this only guarantees the connection is up when onReady()
+    // runs — it does NOT tear it down right after. Updater's checks/applies
+    // run asynchronously and need the radio for their whole duration, so the
+    // caller must call releaseTemporary() once it knows the real operation
+    // has actually finished (see main.cpp's loop()).
     void requestTemporary(std::function<void()> onReady) {
         if (WiFi.status() == WL_CONNECTED) { onReady(); return; }
-        if (!_otaHold) _stateBeforeOta = _state;
+        if (!_otaHold) {
+            _stateBeforeOta    = _state;
+            _otaConnectedFired = false;
+        }
         _otaHold = true;
         // Chain rather than overwrite — a second caller (e.g. a mesh-triggered
         // check arriving alongside a local web request) must still get its
@@ -193,6 +202,32 @@ public:
             _otaCallback = onReady;
         }
         if (!_attempt.active()) _attempt.start([](bool) {});
+    }
+
+    // Call once the operation that needed the temporary connection has
+    // actually finished (e.g. Updater::status() left Checking/Downloading) —
+    // hands the radio back if this device isn't the elected leader. A no-op
+    // before onReady() has actually fired (nothing connected yet to release),
+    // so it's safe to call speculatively/repeatedly from a status poll.
+    void releaseTemporary() {
+        if (!_otaHold || !_otaConnectedFired) return;
+        bool wasLeader = _stateBeforeOta == State::Connected || _state == State::Connected;
+        _otaHold           = false;
+        _otaConnectedFired = false;
+        if (wasLeader) {
+            _state = State::Connected;
+        } else if (_stateBeforeOta != State::Connecting) {
+            if (Config::get().wifiSingleClientMode && WiFi.status() == WL_CONNECTED) {
+                WiFi.disconnect(false);
+                auto& c = Config::get();
+                WiFi.softAP(c.deviceName, c.apPassword, 1);
+                WiFi.setTxPower(WIFI_TX_POWER);
+            }
+            _state = _stateBeforeOta;
+        }
+        // else: _stateBeforeOta was Connecting and we didn't end up the
+        // leader — the piggybacked attempt's own completion already left
+        // _state exactly where it should be (GaveUp or Standby); leave it.
     }
 
     void tick() {
@@ -209,8 +244,31 @@ public:
         _attempt.tick();
 
         if (_otaHold) {
-            if (WiFi.status() == WL_CONNECTED)      { _finishOtaHold(); return; }
-            if (!_attempt.active())                 { _finishOtaHold(); return; }
+            if (WiFi.status() == WL_CONNECTED) {
+                // Connected — notify the caller(s) exactly once and then
+                // just keep holding; releaseTemporary() does the teardown
+                // once the real operation is done, not right after this.
+                if (!_otaConnectedFired) {
+                    _otaConnectedFired = true;
+                    std::function<void()> cb = _otaCallback;
+                    _otaCallback = nullptr;
+                    if (cb) cb();
+                }
+                return;
+            }
+            if (!_attempt.active()) {
+                // Exhausted every configured network without connecting —
+                // nothing to hold onto, so release immediately. Still fire
+                // the callback so the caller's own guard (e.g. Updater)
+                // reports its normal "not connected to WiFi" failure.
+                std::function<void()> cb = _otaCallback;
+                _otaCallback       = nullptr;
+                _otaHold           = false;
+                _otaConnectedFired = false;
+                if (_stateBeforeOta != State::Connecting) _state = _stateBeforeOta;
+                if (cb) cb();
+                return;
+            }
             return; // let the in-flight attempt finish before anything else runs
         }
 
@@ -313,8 +371,9 @@ private:
     State              _state = State::Waiting;
     WifiConnectAttempt _attempt;
 
-    bool                   _otaHold        = false;
-    State                  _stateBeforeOta = State::Waiting;
+    bool                   _otaHold           = false;
+    bool                   _otaConnectedFired = false;
+    State                  _stateBeforeOta    = State::Waiting;
     std::function<void()> _otaCallback;
     std::function<void()> _onAttemptingChanged;
 
@@ -330,43 +389,6 @@ private:
         }
         Logger::w("[wifi-elect] failed to connect (all configured networks exhausted) — giving up until something changes");
         _state = State::GaveUp;
-    }
-
-    void _finishOtaHold() {
-        _otaHold = false;
-        // wasLeader covers two cases: was already the leader before the OTA
-        // request came in (_stateBeforeOta), or the request landed mid-
-        // attempt while this device was itself in the running
-        // (State::Connecting) and that very attempt — which still calls the
-        // normal _onAttemptDone, since requestTemporary() only supplies its
-        // own no-op callback when it has to start a fresh attempt — went on
-        // to succeed (_state).
-        bool wasLeader = _stateBeforeOta == State::Connected || _state == State::Connected;
-        if (wasLeader) {
-            // Already the elected leader — OTA just used the existing
-            // connection, nothing to undo, keep acting as the WiFi client.
-            _state = State::Connected;
-        } else if (_stateBeforeOta != State::Connecting) {
-            // A pure OTA-only connect — this device wasn't itself mid-
-            // election-attempt, so nothing else has touched _state for us.
-            // Hand the radio back if it actually connected, and resume
-            // whatever this device was doing before (including GaveUp,
-            // deliberately not a fresh Waiting turn it hadn't earned).
-            if (Config::get().wifiSingleClientMode && WiFi.status() == WL_CONNECTED) {
-                WiFi.disconnect(false);
-                auto& c = Config::get();
-                WiFi.softAP(c.deviceName, c.apPassword, 1);
-                WiFi.setTxPower(WIFI_TX_POWER);
-            }
-            _state = _stateBeforeOta;
-        }
-        // else: _stateBeforeOta was Connecting and we didn't end up the
-        // leader — the piggybacked attempt's own completion (_onAttemptDone,
-        // or an abort() elsewhere in tick()) already left _state exactly
-        // where it should be (GaveUp or Standby); leave it alone.
-        std::function<void()> cb = _otaCallback;
-        _otaCallback = nullptr;
-        if (cb) cb();
     }
 
     // Excludes self on purpose — callers combine this with their own

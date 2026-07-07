@@ -480,6 +480,16 @@ void loop() {
     webServer.loop();
 
     Updater::State updState = Updater::status().state;
+
+    // Hand back a temporary WiFi connection once the OTA op that needed it
+    // has actually settled (Idle or Error) — not just once it connected,
+    // since Updater's checks/applies run asynchronously on their own task
+    // and need the radio for their whole duration. Must run before the
+    // Downloading/Done early-return below, which skips wifiElection.tick()
+    // (and everything else) entirely while a download is in flight.
+    if (updState == Updater::State::Idle || updState == Updater::State::Error)
+        wifiElection.releaseTemporary();
+
     if (updState == Updater::State::Downloading || updState == Updater::State::Done) {
         int progress = Updater::status().progress;
         if (updState != _lastUpdateState || progress != _lastUpdateProgress) {
