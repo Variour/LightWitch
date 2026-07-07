@@ -177,9 +177,17 @@ public:
     // peer that had the mode turned off remotely (no reboot for it) resumes
     // "everyone connects" immediately instead of being stuck on standby.
     void onPolicyChanged(bool nowEnabled) {
-        if (!nowEnabled && WiFi.status() != WL_CONNECTED && !_attempt.active())
-            _attempt.start([](bool) {});
-        if (nowEnabled) _enterWaiting();
+        if (!nowEnabled) {
+            if (WiFi.status() != WL_CONNECTED && !_attempt.active())
+                _attempt.start([](bool) {});
+            return;
+        }
+
+        // If the mode is re-enabled while a non-OTA background connect from
+        // the old "everyone connects" path is still in flight, abort it so we
+        // don't finish connecting under the wrong policy and only notice later.
+        if (_attempt.active() && !_otaHold) _attempt.abort();
+        if (!_otaHold) _enterWaiting();
     }
 
     // Non-blocking: connects if needed, then invokes onReady once WL_CONNECTED

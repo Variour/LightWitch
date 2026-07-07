@@ -237,25 +237,30 @@ app.post('/api/peers/setgroup', (req, res) => {
 });
 app.post('/api/peers/setscenesync', (_req, res) => res.json({ ok: true }));
 app.post('/api/peers/pushconfig',      (_req, res) => res.json({ ok: true }));
-// Mirrors WebServer.h::_peerUpdateRequest: a standby candidate (single-client
-// mode + hasWifiNetworks) can still connect on demand, so only genuinely
-// unreachable peers are rejected.
-function canReachPeerForOta(peer) {
-  if (!peer) return true;
-  if (peer.wifiConnected) return true;
-  return MOCK_CONFIG.wifiSingleClientMode && peer.hasWifiNetworks;
+// Mirrors WebServer.h::_peerUpdateRequest: an online standby candidate
+// (single-client mode + hasWifiNetworks) can still connect on demand, but an
+// offline peer must still be rejected even if it would otherwise qualify.
+function otaPeerError(peer) {
+  if (!peer) return null;
+  if (peer.online === false) return 'peer offline';
+  if (peer.wifiConnected) return null;
+  return (MOCK_CONFIG.wifiSingleClientMode && peer.hasWifiNetworks)
+    ? null
+    : 'peer not connected to WiFi';
 }
 app.post('/api/peers/triggerupdate', (req, res) => {
   const { mac } = req.body || {};
   const peer = MOCK_PEERS.find(p => p.mac === mac);
-  if (!canReachPeerForOta(peer)) return res.status(409).json({ error: 'peer not connected to WiFi' });
+  const error = otaPeerError(peer);
+  if (error) return res.status(409).json({ error });
   res.json({ ok: true });
   if (peer) simulatePeerUpdateCycle(peer);
 });
 app.post('/api/peers/checkupdate', (req, res) => {
   const { mac } = req.body || {};
   const peer = MOCK_PEERS.find(p => p.mac === mac);
-  if (!canReachPeerForOta(peer)) return res.status(409).json({ error: 'peer not connected to WiFi' });
+  const error = otaPeerError(peer);
+  if (error) return res.status(409).json({ error });
   res.json({ ok: true });
   if (peer) simulatePeerCheckCycle(peer);
 });

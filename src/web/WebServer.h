@@ -1063,12 +1063,15 @@ private:
         if (_peers) {
             for (auto& p : *_peers) {
                 if (p.active && memcmp(p.mac, mac, 6) == 0) {
-                    // In single-client mode, a candidate peer that's merely on
-                    // standby (not currently the elected WiFi client) can still
-                    // connect on demand for this request (see WifiElection::
-                    // requestTemporary) — only reject peers that are genuinely
-                    // unreachable, i.e. not connected and not a WiFi candidate,
-                    // or not connected while the mesh isn't even in that mode.
+                    if (!p.online()) {
+                        auto e = _makeErr("peer offline"); _sendJson(r, 409, e); return;
+                    }
+                    // In single-client mode, an online candidate peer that's
+                    // merely on standby (not currently the elected WiFi client)
+                    // can still connect on demand for this request (see
+                    // WifiElection::requestTemporary) — only reject peers that
+                    // are offline, or online but neither connected nor able to
+                    // join on demand under the current mesh policy.
                     bool canConnectOnDemand = Config::get().wifiSingleClientMode && p.hasWifiNetworks;
                     if (!p.wifiConnected && !canConnectOnDemand) {
                         auto e = _makeErr("peer not connected to WiFi"); _sendJson(r, 409, e); return;

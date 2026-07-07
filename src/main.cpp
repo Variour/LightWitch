@@ -471,8 +471,8 @@ void setup() {
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
     Logger::i("[sys] ready");
-    if (Config::get().checkUpdateOnStartup)
-        wifiElection.requestTemporary([]() { Updater::checkAsync(); });
+    if (Config::get().checkUpdateOnStartup && WiFi.status() == WL_CONNECTED)
+        Updater::checkAsync();
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
