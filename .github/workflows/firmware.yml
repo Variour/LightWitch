@@ -5,7 +5,7 @@ on:
     inputs:
       environments:
         description: 'PlatformIO environments to build (comma-separated)'
-        default: 'esp32dev,esp32c3'
+        default: 'esp32dev,esp32c3,esp32s3'
         required: true
 
 concurrency:
