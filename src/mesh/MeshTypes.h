@@ -23,6 +23,7 @@ enum class MsgType : uint8_t {
     KeyExchangeInit = 18,
     KeyExchangeResp = 19,
     MeshPolicy      = 20,
+    WifiRetry       = 21,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -207,4 +208,12 @@ struct KeyExchangeRespMsg {
 struct MeshPolicyMsg {
     MsgType type = MsgType::MeshPolicy;
     uint8_t wifiSingleClientMode;
+};
+
+// Broadcast by a "Retry WiFi" UI button so every mesh device — including any
+// stuck in WifiElection::State::GaveUp — takes a fresh, immediate shot at
+// connecting instead of waiting for the mesh-wide policy to be toggled off
+// and back on. No payload: every recipient just re-evaluates its own state.
+struct WifiRetryMsg {
+    MsgType type = MsgType::WifiRetry;
 };

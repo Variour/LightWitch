@@ -294,6 +294,18 @@ public:
     // device list can show a distinct "connecting…" state.
     bool isAttempting() const { return _attempt.active(); }
 
+    // Manual nudge — e.g. a "retry WiFi" UI button — for a device stuck in
+    // GaveUp (or just idling in Standby/Waiting) to take a fresh, single-
+    // round shot right now instead of waiting for the mode to be toggled.
+    // No-op while already Connecting or Connected: nothing to retry, and
+    // resetting mid-attempt would desync _state from the still-running
+    // WifiConnectAttempt.
+    void retryNow() {
+        if (_state == State::Connecting || _state == State::Connected) return;
+        Logger::i("[wifi-elect] manual retry requested");
+        _enterWaiting();
+    }
+
 private:
     enum class State { Waiting, Connecting, Connected, Standby, GaveUp };
 

@@ -381,6 +381,7 @@ app.post('/api/mesh/wifipolicy', (req, res) => {
   res.json({ ok: true });
   broadcastPeers();
 });
+app.post('/api/mesh/wifiretry', (_req, res) => res.json({ ok: true }));
 
 app.get('/api/update/status', (_req, res) => {
   const out = {

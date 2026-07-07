@@ -43,6 +43,9 @@ public:
     // Polled once per heartbeat to fill PresenceMsg.wifiConnecting — whether
     // this device is right now mid-attempt to join a WiFi network.
     using WifiAttemptingCb = std::function<bool()>;
+    // Called when a peer (or this device, echoed back) broadcasts a manual
+    // "retry WiFi now" request.
+    using WifiRetryCb      = std::function<void()>;
 
     void setOnPeerHeard(PeerHeardCb cb)           { _onPeerHeard      = cb; }
     void setOnLightConfig(LightConfigCb cb)       { _onLightConfig    = cb; }
@@ -64,6 +67,7 @@ public:
     void setOnTimeSync(TimeSyncCb cb)             { _onTimeSync       = cb; }
     void setOnMeshPolicy(MeshPolicyCb cb)         { _onMeshPolicy     = cb; }
     void setWifiAttemptingProvider(WifiAttemptingCb cb) { _wifiAttemptingProvider = cb; }
+    void setOnWifiRetry(WifiRetryCb cb)           { _onWifiRetry      = cb; }
 
     void begin() {
         _instance = this;
@@ -302,6 +306,13 @@ public:
         _send(&msg, sizeof(msg));
     }
 
+    // Broadcasts a manual "retry WiFi now" request (see WifiElection::retryNow).
+    void broadcastWifiRetry() {
+        if (!_ready) return;
+        WifiRetryMsg msg;
+        _send(&msg, sizeof(msg));
+    }
+
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
             if (Config::get().groups[i].exists)
@@ -339,6 +350,7 @@ private:
     TimeSyncCb      _onTimeSync;
     MeshPolicyCb    _onMeshPolicy;
     WifiAttemptingCb _wifiAttemptingProvider;
+    WifiRetryCb      _onWifiRetry;
 
     // ── Config push encryption (issue #252) ───────────────────────────────────
     static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 3000;
@@ -710,6 +722,10 @@ private:
                 if (len < (int)sizeof(MeshPolicyMsg)) return;
                 auto* m = (MeshPolicyMsg*)data;
                 if (_instance->_onMeshPolicy) _instance->_onMeshPolicy(m->wifiSingleClientMode != 0);
+                break;
+            }
+            case MsgType::WifiRetry: {
+                if (_instance->_onWifiRetry) _instance->_onWifiRetry();
                 break;
             }
             default:

@@ -260,6 +260,7 @@ void setup() {
         Logger::i("[wifi] single-client mode changed to %d via mesh", enabled);
         wifiElection.onPolicyChanged(enabled);
     });
+    mesh.setOnWifiRetry([]() { wifiElection.retryNow(); });
 
     // Wire SceneSyncManager → MeshManager
     sceneSync.setBroadcastFns(
@@ -441,7 +442,12 @@ void setup() {
             wifiElection.onPolicyChanged(enabled);
         },
 
-        []() { return wifiElection.isAttempting(); }
+        []() { return wifiElection.isAttempting(); },
+
+        []() {
+            wifiElection.retryNow();
+            mesh.broadcastWifiRetry();
+        }
     );
 
     auto notifySceneUpdated = [](const char* id) {

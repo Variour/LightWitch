@@ -469,6 +469,7 @@ input[type=checkbox]:active { background-color: #1a5; }
           <input type="checkbox" id="wifiSingleClientToggle" onchange="setWifiSingleClientMode(this.checked)">
           Single WiFi client
         </label>
+        <button class="btn-ghost btn-sm" id="wifiRetryBtn" onclick="retryWifi()" style="display:none" title="Give every mesh device a fresh, immediate shot at connecting — useful if all candidates gave up (e.g. the router was briefly unreachable)">Retry WiFi</button>
         <button class="btn-ghost btn-sm" onclick="meshSearch()" title="Search for mesh peers on other channels">Search channel</button>
         <button class="btn-ghost btn-sm" onclick="openPushModal(null)" title="Push settings to all peers">Push config to all</button>
       </div>
@@ -1567,6 +1568,8 @@ function renderLights(self, peers, wifiSingleClientMode) {
   if (wifiSingleClientMode !== undefined) _wifiSingleClientMode = wifiSingleClientMode;
   const wifiToggle = $('wifiSingleClientToggle');
   if (wifiToggle) wifiToggle.checked = _wifiSingleClientMode;
+  const wifiRetryBtn = $('wifiRetryBtn');
+  if (wifiRetryBtn) wifiRetryBtn.style.display = _wifiSingleClientMode ? '' : 'none';
   _self  = self;
   _peers = peers;
   if (self) _selfMac = self.mac;
@@ -1829,6 +1832,10 @@ async function setWifiSingleClientMode(enabled) {
   // Applies mesh-wide and updates over the websocket, but reflect it in this
   // tab immediately rather than waiting on the round trip.
   renderLights(_self, _peers, enabled);
+}
+
+async function retryWifi() {
+  await _fetchOrToast('/api/mesh/wifiretry', { method: 'POST' }, 'Failed to trigger WiFi retry');
 }
 
 function meshSearch() {

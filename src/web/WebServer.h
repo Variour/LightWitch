@@ -48,6 +48,9 @@ using RequestWifiCb       = std::function<void(std::function<void()>)>;
 using MeshPolicyCb        = std::function<void(bool singleClientMode)>;
 // Polled to report whether this device is right now mid-attempt to join WiFi.
 using WifiAttemptingCb    = std::function<bool()>;
+// Called from the "Retry WiFi" button: give every mesh device (including any
+// stuck in WifiElection::State::GaveUp) a fresh, immediate connect attempt.
+using WifiRetryCb         = std::function<void()>;
 
 class BatteryWebServer {
 private:
@@ -83,7 +86,8 @@ public:
                CheckPeerUpdateCb onCheckPeerUpdate = nullptr,
                RequestWifiCb onRequestWifi = nullptr,
                MeshPolicyCb onMeshPolicyChange = nullptr,
-               WifiAttemptingCb onWifiAttempting = nullptr) {
+               WifiAttemptingCb onWifiAttempting = nullptr,
+               WifiRetryCb onWifiRetry = nullptr) {
         _onGroupChange      = onGroupChange;
         _onGroupLight       = onGroupLight;
         _onGroupSync        = onGroupSync;
@@ -99,6 +103,7 @@ public:
         _onRequestWifi        = onRequestWifi;
         _onMeshPolicyChange   = onMeshPolicyChange;
         _onWifiAttempting     = onWifiAttempting;
+        _onWifiRetry          = onWifiRetry;
 
         Logger::i("[web] starting on port 80");
         _server.addHandler(&_reqLogger);
@@ -344,6 +349,14 @@ public:
         _server.on("/api/mesh/wifipolicy", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _setWifiPolicy(r,d,l); });
 
+        // Manual "retry WiFi now" — applies locally and broadcasts to every
+        // peer, so a mesh where every candidate gave up doesn't need the
+        // mode toggled off and back on to try again.
+        _server.on("/api/mesh/wifiretry", HTTP_POST, [this](AsyncWebServerRequest* r) {
+            if (_onWifiRetry) _onWifiRetry();
+            r->send(200, "application/json", "{\"ok\":true}");
+        });
+
         // Browsers always request a favicon; return 204 so the request doesn't
         // fall through serveStatic's default-file fallback and generate log noise.
         _server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest* r){ r->send(204); });
@@ -397,6 +410,7 @@ private:
     RequestWifiCb       _onRequestWifi;
     MeshPolicyCb        _onMeshPolicyChange;
     WifiAttemptingCb    _onWifiAttempting;
+    WifiRetryCb         _onWifiRetry;
     SceneSyncManager*   _sceneSync = nullptr;
     SceneSavedCb        _onSceneSaved;
     TestLightCb         _onTestLight;
