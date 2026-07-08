@@ -465,7 +465,7 @@ input[type=checkbox]:active { background-color: #1a5; }
     <div class="flex-between" style="margin-bottom:.5rem;gap:.5rem;flex-wrap:wrap">
       <h2 style="margin:0">Connected Lights</h2>
       <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
-        <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.82rem;color:#aaa" title="Only one mesh device connects to WiFi at a time — saves power on the rest. Auto-elected by MAC, with automatic failover.">
+        <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.82rem;color:#aaa" title="Only one mesh device connects to WiFi at a time — saves power on the rest. The first stable connection stays active; MAC only breaks ties if two candidates are already connected. Automatic failover.">
           <input type="checkbox" id="wifiSingleClientToggle" onchange="setWifiSingleClientMode(this.checked)">
           Single WiFi client
         </label>
