@@ -28,7 +28,7 @@ enum class MsgType : uint8_t {
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
 
-static constexpr uint8_t PRESENCE_MSG_VERSION = 5;
+static constexpr uint8_t PRESENCE_MSG_VERSION = 3;
 
 // lightGroupIds: groupId for each light slot; 0xFF means that slot is empty.
 struct PresenceMsg {
@@ -43,11 +43,11 @@ struct PresenceMsg {
     uint8_t lightGroupIds[MAX_LIGHTS];
     char    lightNames[MAX_LIGHTS][20];
     // Whether this device has ≥1 WiFi network configured, i.e. is a candidate to
-    // be the mesh's single WiFi client (see WifiElection.h). Added in version 4.
+    // be the mesh's single WiFi client (see WifiElection.h).
     uint8_t hasWifiNetworks;
     // Whether this device is right now mid-attempt to join a WiFi network
     // (WifiConnectAttempt in flight, either its own election turn or a
-    // temporary OTA connect). Added in version 5.
+    // temporary OTA connect).
     uint8_t wifiConnecting;
 };
 
