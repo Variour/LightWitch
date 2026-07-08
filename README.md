@@ -129,3 +129,4 @@ See [docs/known-issues.md](docs/known-issues.md).
 
 - [docs/development.md](docs/development.md) — building from source, OTA via PlatformIO, running the web UI locally
 - [docs/hosting.md](docs/hosting.md) — deploying the web UI to Azure Container Apps
+- [docs/mesh-compatibility.md](docs/mesh-compatibility.md) — mesh wire-protocol compatibility policy and message inventory
