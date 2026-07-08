@@ -22,6 +22,8 @@ enum class MsgType : uint8_t {
     TimeSync       = 17,
     KeyExchangeInit = 18,
     KeyExchangeResp = 19,
+    MeshPolicy      = 20,
+    WifiRetry       = 21,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -40,6 +42,13 @@ struct PresenceMsg {
     uint8_t lightCount;
     uint8_t lightGroupIds[MAX_LIGHTS];
     char    lightNames[MAX_LIGHTS][20];
+    // Whether this device has ≥1 WiFi network configured, i.e. is a candidate to
+    // be the mesh's single WiFi client (see WifiElection.h).
+    uint8_t hasWifiNetworks;
+    // Whether this device is right now mid-attempt to join a WiFi network
+    // (WifiConnectAttempt in flight, either its own election turn or a
+    // temporary OTA connect).
+    uint8_t wifiConnecting;
 };
 
 struct LightConfigMsg {
@@ -190,4 +199,23 @@ struct KeyExchangeRespMsg {
     uint8_t  targetMac[6];  // = initiator's MAC
     uint32_t sessionId;
     uint8_t  pubKey[ECDH_PUBKEY_LEN];
+};
+
+// ── Mesh-wide WiFi policy ──────────────────────────────────────────────────────
+// Broadcast whenever a device changes the "single WiFi client" mesh setting via
+// its web UI, so the choice applies to the whole mesh rather than just the
+// device it was changed on. See WifiElection.h for the election this enables.
+struct MeshPolicyMsg {
+    MsgType  type = MsgType::MeshPolicy;
+    uint8_t  wifiSingleClientMode;
+    uint32_t revision;
+    uint8_t  originMac[6];
+};
+
+// Broadcast by a "Retry WiFi" UI button so every mesh device — including any
+// stuck in WifiElection::State::GaveUp — takes a fresh, immediate shot at
+// connecting instead of waiting for the mesh-wide policy to be toggled off
+// and back on. No payload: every recipient just re-evaluates its own state.
+struct WifiRetryMsg {
+    MsgType type = MsgType::WifiRetry;
 };

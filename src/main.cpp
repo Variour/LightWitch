@@ -13,6 +13,7 @@
 #include "patterns/PatternRunner.h"
 #include "mesh/MeshManager.h"
 #include "mesh/ChannelManager.h"
+#include "mesh/WifiElection.h"
 #include "web/WebServer.h"
 #include "mqtt/MqttManager.h"
 #include "scenes/SceneSyncManager.h"
@@ -26,6 +27,7 @@ static LedDriver*       _leds[MAX_LIGHTS]    = {};
 static PatternRunner    _runners[MAX_LIGHTS];
 static MeshManager      mesh;
 static ChannelManager   channelMgr;
+static WifiElection     wifiElection;
 static BatteryWebServer webServer;
 static MqttManager      mqtt;
 static SceneSyncManager sceneSync;
@@ -41,8 +43,9 @@ static uint32_t           _lastPatternTickMs        = 0;
 
 // Tracks the last-rendered firmware-update status so the progress fill is
 // only redrawn when it actually changes, not on every loop() iteration.
-static Updater::State     _lastUpdateState    = Updater::State::Idle;
-static int                _lastUpdateProgress = -1;
+static Updater::State     _lastUpdateState           = Updater::State::Idle;
+static int                _lastUpdateProgress        = -1;
+static bool               _startupUpdateCheckPending = false;
 
 // Reassembly buffer for incoming config push chunks
 static String   _cfgSyncBuf;
@@ -88,12 +91,64 @@ static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg
     mqtt.publishState(cfg);
 }
 
+static bool hasWifiPolicyOrigin() {
+    for (uint8_t b : Config::get().wifiPolicyOriginMac)
+        if (b != 0) return true;
+    return false;
+}
+
+static MeshManager::MeshPolicyState currentWifiPolicyState() {
+    MeshManager::MeshPolicyState state;
+    state.singleClientMode = Config::get().wifiSingleClientMode;
+    state.revision         = Config::get().wifiPolicyRevision;
+    memcpy(state.originMac, Config::get().wifiPolicyOriginMac, sizeof(state.originMac));
+    return state;
+}
+
+static void ensureWifiPolicyStateInitialized() {
+    if (hasWifiPolicyOrigin()) return;
+    WiFi.macAddress(Config::get().wifiPolicyOriginMac);
+    Config::save();
+}
+
+static bool applyWifiPolicyState(const MeshManager::MeshPolicyState& state, const char* via) {
+    auto& c = Config::get();
+    bool policyChanged = c.wifiSingleClientMode != state.singleClientMode;
+    bool metaChanged   = c.wifiPolicyRevision != state.revision
+                      || memcmp(c.wifiPolicyOriginMac, state.originMac, sizeof(c.wifiPolicyOriginMac)) != 0;
+    if (!policyChanged && !metaChanged) return false;
+
+    c.wifiSingleClientMode = state.singleClientMode;
+    c.wifiPolicyRevision   = state.revision;
+    memcpy(c.wifiPolicyOriginMac, state.originMac, sizeof(c.wifiPolicyOriginMac));
+    Config::save();
+
+    Logger::i("[wifi] single-client policy synced via %s: enabled=%d rev=%lu",
+              via, state.singleClientMode, (unsigned long)state.revision);
+    if (policyChanged) {
+        wifiElection.onPolicyChanged(state.singleClientMode);
+        webServer.pushPeers();
+    }
+    return true;
+}
+
+static void setLocalWifiPolicy(bool enabled) {
+    if (Config::get().wifiSingleClientMode == enabled) return;
+    MeshManager::MeshPolicyState state = currentWifiPolicyState();
+    state.singleClientMode = enabled;
+    state.revision++;
+    WiFi.macAddress(state.originMac);
+    applyWifiPolicyState(state, "local");
+    mesh.broadcastMeshPolicy(state);
+}
+
 // ── WiFi ─────────────────────────────────────────────────────────────────────
 static void setupWifi() {
     auto& c = Config::get();
 
     WiFi.mode(WIFI_AP_STA);
     WiFi.setAutoReconnect(false);
+    ensureWifiPolicyStateInitialized();
 
     Config::loadWifi();
     uint8_t count = Config::wifiCount();
@@ -102,6 +157,19 @@ static void setupWifi() {
         WiFi.softAP(c.deviceName, c.apPassword, 1);
         WiFi.setTxPower(WIFI_TX_POWER);
         Logger::i("[wifi] No networks configured, AP: %s  IP: %s",
+                  c.deviceName, WiFi.softAPIP().toString().c_str());
+        return;
+    }
+
+    // Single-client mode: don't block here trying to join a network — the
+    // mesh isn't even up yet, so we have no way to know if a lower-MAC peer
+    // should get first shot at the connection. Bring up the local AP for
+    // reachability and let WifiElection (ticked once mesh.begin() has run)
+    // decide non-blockingly whether/when this device should actually connect.
+    if (c.wifiSingleClientMode) {
+        WiFi.softAP(c.deviceName, c.apPassword, 1);
+        WiFi.setTxPower(WIFI_TX_POWER);
+        Logger::i("[wifi] single-client mode: deferring connect decision to WifiElection, AP: %s  IP: %s",
                   c.deviceName, WiFi.softAPIP().toString().c_str());
         return;
     }
@@ -234,7 +302,15 @@ void setup() {
 
     if (Config::get().otaEnabled) setupOta();
     mesh.begin();
+    wifiElection.begin(&mesh.peers);
+    mesh.setWifiAttemptingProvider([]() { return wifiElection.isAttempting(); });
+    mesh.setWifiConnectedProvider([]() { return wifiElection.isAdvertisableConnected(); });
+    wifiElection.setOnAttemptingChanged([]() { webServer.pushPeers(); });
     mesh.setOnPeerHeard([](){ channelMgr.onPeerHeard(); });
+    mesh.setOnMeshPolicy([](const MeshManager::MeshPolicyState& state) {
+        applyWifiPolicyState(state, "mesh");
+    });
+    mesh.setOnWifiRetry([]() { wifiElection.retryNow(); });
 
     // Wire SceneSyncManager → MeshManager
     sceneSync.setBroadcastFns(
@@ -283,8 +359,8 @@ void setup() {
         sceneSync.onSetSceneSync(enabled);
     });
 
-    mesh.setOnTriggerUpdate([]() { Updater::triggerAsync(); });
-    mesh.setOnCheckUpdate([]() { Updater::checkAsync(); });
+    mesh.setOnTriggerUpdate([]() { wifiElection.requestTemporary([]() { Updater::triggerAsync(); }); });
+    mesh.setOnCheckUpdate([]()   { wifiElection.requestTemporary([]() { Updater::checkAsync(); });   });
     mesh.setOnTimeSync([](uint32_t epoch) { TimeSync::onPeerTime(epoch); });
     TimeSync::setBroadcastFn([](uint32_t epoch) { mesh.broadcastTimeSync(epoch); });
 
@@ -407,7 +483,20 @@ void setup() {
 
         []() { channelMgr.beginSearch(); },
 
-        [](const uint8_t* mac) { mesh.broadcastCheckUpdate(mac); }
+        [](const uint8_t* mac) { mesh.broadcastCheckUpdate(mac); },
+
+        [](std::function<void()> onReady) { wifiElection.requestTemporary(onReady); },
+
+        [](bool enabled) {
+            setLocalWifiPolicy(enabled);
+        },
+
+        []() { return wifiElection.isAttempting(); },
+
+        []() {
+            wifiElection.retryNow();
+            mesh.broadcastWifiRetry();
+        }
     );
 
     auto notifySceneUpdated = [](const char* id) {
@@ -430,7 +519,14 @@ void setup() {
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
     Logger::i("[sys] ready");
-    if (Config::get().checkUpdateOnStartup && WiFi.status() == WL_CONNECTED) Updater::checkAsync();
+    if (Config::get().checkUpdateOnStartup) {
+        if (Config::get().wifiSingleClientMode) {
+            _startupUpdateCheckPending = true;
+            Logger::i("[upd] startup check armed; waiting for WiFi election");
+        } else if (WiFi.status() == WL_CONNECTED) {
+            Updater::checkAsync();
+        }
+    }
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
@@ -439,6 +535,16 @@ void loop() {
     webServer.loop();
 
     Updater::State updState = Updater::status().state;
+
+    // Hand back a temporary WiFi connection once the OTA op that needed it
+    // has actually settled (Idle or Error) — not just once it connected,
+    // since Updater's checks/applies run asynchronously on their own task
+    // and need the radio for their whole duration. Must run before the
+    // Downloading/Done early-return below, which skips wifiElection.tick()
+    // (and everything else) entirely while a download is in flight.
+    if (updState == Updater::State::Idle || updState == Updater::State::Error)
+        wifiElection.releaseTemporary();
+
     if (updState == Updater::State::Downloading || updState == Updater::State::Done) {
         int progress = Updater::status().progress;
         if (updState != _lastUpdateState || progress != _lastUpdateProgress) {
@@ -457,6 +563,12 @@ void loop() {
     if (!_otaActive) {
         channelMgr.tick();
         mesh.tick();
+        wifiElection.tick();
+        if (_startupUpdateCheckPending && wifiElection.isAdvertisableConnected()) {
+            _startupUpdateCheckPending = false;
+            Logger::i("[upd] WiFi election connected; running deferred startup check");
+            Updater::checkAsync();
+        }
         TimeSync::tick();
         mqtt.loop();
         buttonManager.tick();

@@ -15,6 +15,8 @@ struct PeerInfo {
     int8_t   rssi                       = -90;
     bool     sceneSyncEnabled           = true;
     bool     wifiConnected              = false;
+    bool     hasWifiNetworks            = false;
+    bool     wifiConnecting             = false;
     char     fwVersion[16]              = {};
     FwState  fwState                    = FwState::Idle;
 
@@ -39,7 +41,8 @@ public:
                 uint8_t lightCount, const uint8_t lightGroupIds[MAX_LIGHTS],
                 const char lightNames_[MAX_LIGHTS][20] = nullptr,
                 bool sceneSyncEnabled = true, bool wifiConnected = false,
-                const char* fwVersion = "", FwState fwState = FwState::Idle) {
+                const char* fwVersion = "", FwState fwState = FwState::Idle,
+                bool hasWifiNetworks = false, bool wifiConnecting = false) {
         PeerInfo* p = _find(mac);
         bool isNew = (p == nullptr || !p->active);
         if (!p) p = _slot();
@@ -66,6 +69,8 @@ public:
         }
         p->sceneSyncEnabled = sceneSyncEnabled;
         p->wifiConnected    = wifiConnected;
+        p->hasWifiNetworks  = hasWifiNetworks;
+        p->wifiConnecting   = wifiConnecting;
         strlcpy(p->fwVersion, fwVersion, sizeof(p->fwVersion));
         p->fwState  = fwState;
         p->lastSeen = millis();

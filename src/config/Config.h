@@ -215,6 +215,13 @@ struct DeviceConfig {
     char        timezone[64]     = "CET-1CEST,M3.5.0,M10.5.0/3";  // POSIX TZ string; default is Europe/Berlin
     bool        sceneSyncEnabled        = true;
     bool        checkUpdateOnStartup    = false;
+    // Mesh-wide policy (see WifiElection.h): when true, only one candidate device
+    // actually joins the configured WiFi network at a time; the rest stay AP-only.
+    // This is synchronized as mesh state, not a one-shot event: revision + origin
+    // metadata are persisted so peers can replay, reconcile, and resolve conflicts.
+    bool        wifiSingleClientMode    = false;
+    uint32_t    wifiPolicyRevision      = 0;
+    uint8_t     wifiPolicyOriginMac[6]  = {};
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];
