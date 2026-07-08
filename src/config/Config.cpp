@@ -141,6 +141,9 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().sceneSyncEnabled     = doc["sceneSyncEnabled"]     | true;
     Config::get().checkUpdateOnStartup = doc["checkUpdateOnStartup"] | false;
     Config::get().wifiSingleClientMode = doc["wifiSingleClientMode"] | false;
+    Config::get().wifiPolicyRevision   = doc["wifiPolicyRevision"]   | (uint32_t)0;
+    for (uint8_t i = 0; i < 6; i++)
+        Config::get().wifiPolicyOriginMac[i] = doc["wifiPolicyOriginMac"][i] | (uint8_t)0;
     Config::get().logLevel  = doc["logLevel"]  | (uint8_t)0;
     strlcpy(Config::get().mqttHost,     doc["mqttHost"]     | "",    sizeof(Config::get().mqttHost));
     Config::get().mqttPort  = doc["mqttPort"]  | (uint16_t)1883;
@@ -239,6 +242,11 @@ bool Config::save() {
     doc["sceneSyncEnabled"]     = _cfg.sceneSyncEnabled;
     doc["checkUpdateOnStartup"] = _cfg.checkUpdateOnStartup;
     doc["wifiSingleClientMode"] = _cfg.wifiSingleClientMode;
+    doc["wifiPolicyRevision"]   = _cfg.wifiPolicyRevision;
+    {
+        JsonArray origin = doc["wifiPolicyOriginMac"].to<JsonArray>();
+        for (uint8_t i = 0; i < 6; i++) origin.add(_cfg.wifiPolicyOriginMac[i]);
+    }
     doc["logLevel"]     = _cfg.logLevel;
     doc["mqttHost"]     = _cfg.mqttHost;
     doc["mqttPort"]     = _cfg.mqttPort;

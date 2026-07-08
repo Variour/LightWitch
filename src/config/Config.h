@@ -216,10 +216,12 @@ struct DeviceConfig {
     bool        sceneSyncEnabled        = true;
     bool        checkUpdateOnStartup    = false;
     // Mesh-wide policy (see WifiElection.h): when true, only one candidate device
-    // (lowest MAC among devices with ≥1 WiFi network configured) actually joins
-    // the configured WiFi network at a time; the rest stay AP-only to save power.
-    // Changing this broadcasts MeshPolicyMsg so the whole mesh adopts it.
+    // actually joins the configured WiFi network at a time; the rest stay AP-only.
+    // This is synchronized as mesh state, not a one-shot event: revision + origin
+    // metadata are persisted so peers can replay, reconcile, and resolve conflicts.
     bool        wifiSingleClientMode    = false;
+    uint32_t    wifiPolicyRevision      = 0;
+    uint8_t     wifiPolicyOriginMac[6]  = {};
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];

@@ -206,8 +206,10 @@ struct KeyExchangeRespMsg {
 // its web UI, so the choice applies to the whole mesh rather than just the
 // device it was changed on. See WifiElection.h for the election this enables.
 struct MeshPolicyMsg {
-    MsgType type = MsgType::MeshPolicy;
-    uint8_t wifiSingleClientMode;
+    MsgType  type = MsgType::MeshPolicy;
+    uint8_t  wifiSingleClientMode;
+    uint32_t revision;
+    uint8_t  originMac[6];
 };
 
 // Broadcast by a "Retry WiFi" UI button so every mesh device — including any

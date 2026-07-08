@@ -44,7 +44,7 @@ using ButtonsChangedCb    = std::function<void()>;
 // (immediately, if already connected).
 using RequestWifiCb       = std::function<void(std::function<void()>)>;
 // Called when wifiSingleClientMode changes via this device's own web UI, so the
-// mesh-wide policy is broadcast to every peer instead of only applying locally.
+// mesh-wide policy state can be advanced, persisted, and synchronized.
 using MeshPolicyCb        = std::function<void(bool singleClientMode)>;
 // Polled to report whether this device is right now mid-attempt to join WiFi.
 using WifiAttemptingCb    = std::function<bool()>;
@@ -1041,9 +1041,11 @@ private:
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
         bool enabled = doc["enabled"] | false;
-        Config::get().wifiSingleClientMode = enabled;
-        Config::save();
         if (_onMeshPolicyChange) _onMeshPolicyChange(enabled);
+        else {
+            Config::get().wifiSingleClientMode = enabled;
+            Config::save();
+        }
         auto ok = _makeOk(); _sendJson(r, 200, ok);
         _pushPeers(); // wifi icon colors in the device list depend on this flag
     }

@@ -17,6 +17,12 @@ class MeshManager {
 public:
     PeerRegistry peers;
 
+    struct MeshPolicyState {
+        bool     singleClientMode = false;
+        uint32_t revision         = 0;
+        uint8_t  originMac[6]     = {};
+    };
+
     using LightConfigCb    = std::function<void(uint8_t groupId, const LightConfig&)>;
     using PresenceCb       = std::function<void(const uint8_t* mac, const char* name, bool isNew)>;
     using SetGroupCb       = std::function<void(const uint8_t* targetMac, uint8_t lightIndex, uint8_t groupId)>;
@@ -37,9 +43,9 @@ public:
     using CheckUpdateCb    = std::function<void()>;
     using PeerHeardCb      = std::function<void()>;
     using TimeSyncCb       = std::function<void(uint32_t epoch)>;
-    // Called when a peer (or this device, echoed back) changes the mesh-wide
-    // single-WiFi-client policy. Receiver should persist and apply it locally.
-    using MeshPolicyCb     = std::function<void(bool singleClientMode)>;
+    // Called when a newer mesh-wide single-WiFi-client policy state is seen.
+    // Receiver should persist and apply the full state locally.
+    using MeshPolicyCb     = std::function<void(const MeshPolicyState& state)>;
     // Polled once per heartbeat to fill PresenceMsg.wifiConnecting — whether
     // this device is right now mid-attempt to join a WiFi network.
     using WifiAttemptingCb = std::function<bool()>;
@@ -105,6 +111,10 @@ public:
         if (now - _lastHeartbeat >= 5000) {
             _lastHeartbeat = now;
             _sendPresence();
+        }
+        if (now - _lastMeshPolicySync >= 15000) {
+            _lastMeshPolicySync = now;
+            broadcastMeshPolicy(_currentMeshPolicyState());
         }
 
         // Proximity: enable sniffer + ping if any light is in proximity mode
@@ -303,12 +313,14 @@ public:
         _send(&msg, sizeof(msg));
     }
 
-    // Broadcasts a change to the mesh-wide single-WiFi-client policy so every
-    // peer adopts the same setting (see WifiElection.h).
-    void broadcastMeshPolicy(bool singleClientMode) {
+    // Broadcasts the current mesh-wide single-WiFi-client policy state so peers
+    // can converge even after missed packets, rejoins, or near-simultaneous edits.
+    void broadcastMeshPolicy(const MeshPolicyState& state) {
         if (!_ready) return;
         MeshPolicyMsg msg;
-        msg.wifiSingleClientMode = singleClientMode ? 1 : 0;
+        msg.wifiSingleClientMode = state.singleClientMode ? 1 : 0;
+        msg.revision             = state.revision;
+        memcpy(msg.originMac, state.originMac, sizeof(msg.originMac));
         _send(&msg, sizeof(msg));
     }
 
@@ -331,6 +343,7 @@ private:
     bool     _ready                = false;
     bool     _snifferRunning       = false;
     uint32_t _lastHeartbeat        = 0;
+    uint32_t _lastMeshPolicySync   = 0;
     uint32_t _lastPhaseBroadcast   = 0;
     uint32_t _lastProximityPing    = 0;
     uint8_t  _lastSentGroup      = 0xFF;
@@ -506,6 +519,40 @@ private:
         return found;
     }
 
+    MeshPolicyState _currentMeshPolicyState() const {
+        MeshPolicyState state;
+        state.singleClientMode = Config::get().wifiSingleClientMode;
+        state.revision         = Config::get().wifiPolicyRevision;
+        memcpy(state.originMac, Config::get().wifiPolicyOriginMac, sizeof(state.originMac));
+        return state;
+    }
+
+    static MeshPolicyState _stateFromMsg(const MeshPolicyMsg& msg) {
+        MeshPolicyState state;
+        state.singleClientMode = msg.wifiSingleClientMode != 0;
+        state.revision         = msg.revision;
+        memcpy(state.originMac, msg.originMac, sizeof(state.originMac));
+        return state;
+    }
+
+    static int _compareMeshPolicyState(const MeshPolicyState& a, const MeshPolicyState& b) {
+        if (a.revision != b.revision) return a.revision > b.revision ? 1 : -1;
+        int macCmp = memcmp(a.originMac, b.originMac, sizeof(a.originMac));
+        if (macCmp != 0) return macCmp > 0 ? 1 : -1;
+        if (a.singleClientMode == b.singleClientMode) return 0;
+        return a.singleClientMode ? 1 : -1;
+    }
+
+    void _reconcileMeshPolicy(const MeshPolicyState& remote) {
+        MeshPolicyState local = _currentMeshPolicyState();
+        int cmp = _compareMeshPolicyState(remote, local);
+        if (cmp > 0) {
+            if (_onMeshPolicy) _onMeshPolicy(remote);
+        } else if (cmp < 0) {
+            broadcastMeshPolicy(local);
+        }
+    }
+
     void _sendPresence() {
         PresenceMsg msg;
         msg.type             = MsgType::Presence;
@@ -591,7 +638,10 @@ private:
                     m->fwVersion, (FwState)m->fwState, m->hasWifiNetworks != 0, m->wifiConnecting != 0);
                 if (_instance->_onPeerHeard) _instance->_onPeerHeard();
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, isNew);
-                if (isNew) _instance->broadcastAllGroups();
+                if (isNew) {
+                    _instance->broadcastAllGroups();
+                    _instance->broadcastMeshPolicy(_instance->_currentMeshPolicyState());
+                }
                 break;
             }
             case MsgType::LightConfig: {
@@ -728,7 +778,7 @@ private:
             case MsgType::MeshPolicy: {
                 if (len < (int)sizeof(MeshPolicyMsg)) return;
                 auto* m = (MeshPolicyMsg*)data;
-                if (_instance->_onMeshPolicy) _instance->_onMeshPolicy(m->wifiSingleClientMode != 0);
+                _instance->_reconcileMeshPolicy(_stateFromMsg(*m));
                 break;
             }
             case MsgType::WifiRetry: {

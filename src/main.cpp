@@ -91,12 +91,64 @@ static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg
     mqtt.publishState(cfg);
 }
 
+static bool hasWifiPolicyOrigin() {
+    for (uint8_t b : Config::get().wifiPolicyOriginMac)
+        if (b != 0) return true;
+    return false;
+}
+
+static MeshManager::MeshPolicyState currentWifiPolicyState() {
+    MeshManager::MeshPolicyState state;
+    state.singleClientMode = Config::get().wifiSingleClientMode;
+    state.revision         = Config::get().wifiPolicyRevision;
+    memcpy(state.originMac, Config::get().wifiPolicyOriginMac, sizeof(state.originMac));
+    return state;
+}
+
+static void ensureWifiPolicyStateInitialized() {
+    if (hasWifiPolicyOrigin()) return;
+    WiFi.macAddress(Config::get().wifiPolicyOriginMac);
+    Config::save();
+}
+
+static bool applyWifiPolicyState(const MeshManager::MeshPolicyState& state, const char* via) {
+    auto& c = Config::get();
+    bool policyChanged = c.wifiSingleClientMode != state.singleClientMode;
+    bool metaChanged   = c.wifiPolicyRevision != state.revision
+                      || memcmp(c.wifiPolicyOriginMac, state.originMac, sizeof(c.wifiPolicyOriginMac)) != 0;
+    if (!policyChanged && !metaChanged) return false;
+
+    c.wifiSingleClientMode = state.singleClientMode;
+    c.wifiPolicyRevision   = state.revision;
+    memcpy(c.wifiPolicyOriginMac, state.originMac, sizeof(c.wifiPolicyOriginMac));
+    Config::save();
+
+    Logger::i("[wifi] single-client policy synced via %s: enabled=%d rev=%lu",
+              via, state.singleClientMode, (unsigned long)state.revision);
+    if (policyChanged) {
+        wifiElection.onPolicyChanged(state.singleClientMode);
+        webServer.pushPeers();
+    }
+    return true;
+}
+
+static void setLocalWifiPolicy(bool enabled) {
+    if (Config::get().wifiSingleClientMode == enabled) return;
+    MeshManager::MeshPolicyState state = currentWifiPolicyState();
+    state.singleClientMode = enabled;
+    state.revision++;
+    WiFi.macAddress(state.originMac);
+    applyWifiPolicyState(state, "local");
+    mesh.broadcastMeshPolicy(state);
+}
+
 // ── WiFi ─────────────────────────────────────────────────────────────────────
 static void setupWifi() {
     auto& c = Config::get();
 
     WiFi.mode(WIFI_AP_STA);
     WiFi.setAutoReconnect(false);
+    ensureWifiPolicyStateInitialized();
 
     Config::loadWifi();
     uint8_t count = Config::wifiCount();
@@ -255,12 +307,8 @@ void setup() {
     mesh.setWifiConnectedProvider([]() { return wifiElection.isAdvertisableConnected(); });
     wifiElection.setOnAttemptingChanged([]() { webServer.pushPeers(); });
     mesh.setOnPeerHeard([](){ channelMgr.onPeerHeard(); });
-    mesh.setOnMeshPolicy([](bool enabled) {
-        if (Config::get().wifiSingleClientMode == enabled) return;
-        Config::get().wifiSingleClientMode = enabled;
-        Config::save();
-        Logger::i("[wifi] single-client mode changed to %d via mesh", enabled);
-        wifiElection.onPolicyChanged(enabled);
+    mesh.setOnMeshPolicy([](const MeshManager::MeshPolicyState& state) {
+        applyWifiPolicyState(state, "mesh");
     });
     mesh.setOnWifiRetry([]() { wifiElection.retryNow(); });
 
@@ -440,8 +488,7 @@ void setup() {
         [](std::function<void()> onReady) { wifiElection.requestTemporary(onReady); },
 
         [](bool enabled) {
-            mesh.broadcastMeshPolicy(enabled);
-            wifiElection.onPolicyChanged(enabled);
+            setLocalWifiPolicy(enabled);
         },
 
         []() { return wifiElection.isAttempting(); },
