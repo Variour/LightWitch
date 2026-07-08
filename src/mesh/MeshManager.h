@@ -553,6 +553,21 @@ private:
         }
     }
 
+    template <typename T>
+    static bool _hasExactLen(int len) {
+        return len == (int)sizeof(T);
+    }
+
+    static bool _hasVariableArrayLen(int len, size_t headerLen, size_t itemCount,
+                                     size_t itemSize, size_t maxCount) {
+        return itemCount <= maxCount && (size_t)len >= headerLen + itemCount * itemSize;
+    }
+
+    static bool _hasVariablePayloadLen(int len, size_t headerLen, size_t payloadLen,
+                                       size_t payloadCap) {
+        return payloadLen <= payloadCap && (size_t)len >= headerLen + payloadLen;
+    }
+
     void _sendPresence() {
         PresenceMsg msg;
         msg.type             = MsgType::Presence;
@@ -629,7 +644,7 @@ private:
 
         switch (type) {
             case MsgType::Presence: {
-                if (len < (int)sizeof(PresenceMsg)) return;
+                if (!_hasExactLen<PresenceMsg>(len)) return;
                 auto* m = (PresenceMsg*)data;
                 if (m->version != PRESENCE_MSG_VERSION) return;
                 bool isNew = _instance->peers.update(mac, m->name,
@@ -680,10 +695,14 @@ private:
                 break;
             }
             case MsgType::ProximityPing:
+                if (!_hasExactLen<ProximityPingMsg>(len)) return;
                 break;
             case MsgType::SceneManifest: {
-                if (len < (int)(sizeof(SceneManifestMsg) - sizeof(SceneManifestEntry) * MANIFEST_ENTRIES_PER_MSG)) return;
+                if (len < (int)offsetof(SceneManifestMsg, entries)) return;
                 auto* m = (SceneManifestMsg*)data;
+                if (!_hasVariableArrayLen(len, offsetof(SceneManifestMsg, entries),
+                                          m->count, sizeof(SceneManifestEntry),
+                                          MANIFEST_ENTRIES_PER_MSG)) return;
                 if (_instance->_onSceneManifest) _instance->_onSceneManifest(mac, m);
                 break;
             }
@@ -694,8 +713,10 @@ private:
                 break;
             }
             case MsgType::SceneChunk: {
-                if (len < (int)(sizeof(SceneChunkMsg) - CHUNK_DATA_SIZE)) return;
+                if (len < (int)offsetof(SceneChunkMsg, data)) return;
                 auto* m = (SceneChunkMsg*)data;
+                if (!_hasVariablePayloadLen(len, offsetof(SceneChunkMsg, data),
+                                            m->dataLen, CHUNK_DATA_SIZE)) return;
                 if (_instance->_onSceneChunk) _instance->_onSceneChunk(m);
                 break;
             }
@@ -712,6 +733,7 @@ private:
                 break;
             }
             case MsgType::RequestManifest: {
+                if (!_hasExactLen<RequestManifestMsg>(len)) return;
                 if (_instance->_onRequestManifest) _instance->_onRequestManifest();
                 break;
             }
@@ -726,8 +748,10 @@ private:
                 break;
             }
             case MsgType::ConfigChunk: {
-                if (len < (int)(sizeof(ConfigChunkMsg) - CONFIG_CHUNK_DATA_SIZE)) return;
+                if (len < (int)offsetof(ConfigChunkMsg, data)) return;
                 auto* m = (ConfigChunkMsg*)data;
+                if (!_hasVariablePayloadLen(len, offsetof(ConfigChunkMsg, data),
+                                            m->dataLen, CONFIG_CHUNK_DATA_SIZE)) return;
                 if (_instance->_onConfigChunk) _instance->_onConfigChunk(mac, m);
                 break;
             }
@@ -782,6 +806,7 @@ private:
                 break;
             }
             case MsgType::WifiRetry: {
+                if (!_hasExactLen<WifiRetryMsg>(len)) return;
                 if (_instance->_onWifiRetry) _instance->_onWifiRetry();
                 break;
             }
