@@ -72,14 +72,23 @@ static void applyAllLights() {
 // Applies a new LightConfig to a group and propagates it everywhere: local
 // runners, Config save, mesh broadcast, MQTT state. Shared by every trigger
 // source (MQTT command, web API, inbound mesh sync) so the sequence — and the
-// seq-based conflict check, matching Config::applyGroupSync — stays consistent
-// regardless of where the change originated.
-static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg) {
+// seq-based staleness check — stays consistent regardless of where the change
+// originated.
+//
+// bumpRevision must be true for genuinely local-origin edits (MQTT/web/button)
+// so the edit can win GroupConfig's mesh-wide revision merge (see
+// Config::applyGroupSync) on other peers. It must be false for edits arriving
+// via the mesh's own LightConfig relay (mesh.setOnLightConfig below) — those
+// are just re-applying a peer's already-attributed edit, and bumping here
+// would incorrectly re-attribute it to this device and inflate the revision
+// on every relay hop.
+static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg, bool bumpRevision) {
     GroupConfig* g = Config::group(groupId);
     if (!g) { Logger::w("[cfg] light config for unknown group %u — ignored", groupId); return; }
     if (cfg.seq < g->light.seq) return;  // stale relative to what we already have
 
     g->light = cfg;
+    if (bumpRevision) Config::bumpGroupRevision(*g);
     Config::save();
 
     Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
@@ -283,7 +292,7 @@ void setup() {
     mqtt.setOnCommand([](const LightConfig& cfg) {
         Config::forEachLightUntil([&](uint8_t i, LightHardwareConfig& l) -> bool {
             if (!_leds[i] || !Config::group(l.groupId)) return true;
-            applyAndPropagateLightConfig(l.groupId, cfg);
+            applyAndPropagateLightConfig(l.groupId, cfg, /*bumpRevision=*/true);
             return false;
         });
     });
@@ -292,7 +301,9 @@ void setup() {
     // Wire the action layer: buttons (and, perspectively, other future trigger
     // sources) execute actions through this, which funnels into the same
     // apply/propagate + mesh-broadcast paths as web/MQTT/mesh already use.
-    actionExecutor.setApplyFn(applyAndPropagateLightConfig);
+    actionExecutor.setApplyFn([](uint8_t groupId, const LightConfig& cfg) {
+        applyAndPropagateLightConfig(groupId, cfg, /*bumpRevision=*/true);
+    });
     actionExecutor.setBroadcastGroupSyncFn([](const GroupConfig& g) { mesh.broadcastGroupSync(g); });
     buttonManager.setExecutor(&actionExecutor);
     buttonManager.begin();
@@ -329,7 +340,9 @@ void setup() {
     // ── Mesh callbacks ────────────────────────────────────────────────────────
 
     mesh.setOnLightConfig([](uint8_t groupId, const LightConfig& cfg) {
-        applyAndPropagateLightConfig(groupId, cfg);
+        // Relaying a peer's already-attributed edit — don't bump, see
+        // applyAndPropagateLightConfig's comment on bumpRevision.
+        applyAndPropagateLightConfig(groupId, cfg, /*bumpRevision=*/false);
     });
 
     mesh.setOnPresence([](const uint8_t* mac, const char*, bool isNew) {
@@ -412,10 +425,10 @@ void setup() {
     });
 
     mesh.setOnGroupSync([](const GroupConfig& g) {
-        bool lightUpdated = Config::applyGroupSync(g);
+        bool didApply = Config::applyGroupSync(g);
         // Re-check the actual local state after the merge: a stale tombstone
-        // can lose the metadata-revision race (group still exists locally),
-        // and a stale recreate can equally lose to an already-applied delete.
+        // can lose the revision race (group still exists locally), and a
+        // stale recreate can equally lose to an already-applied delete.
         GroupConfig* applied = Config::group(g.id);
         Config::save();
         if (!applied) {
@@ -425,7 +438,10 @@ void setup() {
             });
             Config::save();
             applyAllLights();
-        } else if (lightUpdated) {
+        } else if (didApply) {
+            // Merge was adopted — light may or may not actually differ, but
+            // reapplying is cheap and name/exists/light always move together
+            // now, so there's no cheaper way to tell them apart here.
             Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
                 if (l.groupId == g.id && _leds[i])
                     _runners[i].applyConfig(applied->light);
@@ -454,7 +470,7 @@ void setup() {
         []() { applyAllLights(); },
 
         [](uint8_t groupId, const LightConfig& cfg) {
-            applyAndPropagateLightConfig(groupId, cfg);
+            applyAndPropagateLightConfig(groupId, cfg, /*bumpRevision=*/true);
         },
 
         [](const GroupConfig& g) { mesh.broadcastGroupSync(g); },

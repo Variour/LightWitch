@@ -339,13 +339,17 @@ uint8_t Config::createGroup(const char* name) {
         if (!_cfg.groups[i].exists) {
             // Preserve the slot's revision counter across delete/recreate cycles —
             // it must stay monotonic so a peer that cached the previous occupant's
-            // (higher) revision can't reject this new group forever.
+            // (higher) revision can't reject this new group forever. bumpGroupRevision
+            // below re-bumps past whatever we just preserved and stamps our MAC, so
+            // the returned group is fully ready to broadcast without any further
+            // caller action.
             uint32_t prevRevision = _cfg.groups[i].revision;
             _cfg.groups[i]          = GroupConfig{};
             _cfg.groups[i].id       = i;
             _cfg.groups[i].exists   = true;
             _cfg.groups[i].revision = prevRevision;
             strlcpy(_cfg.groups[i].name, name, sizeof(_cfg.groups[i].name));
+            bumpGroupRevision(_cfg.groups[i]);
             return i;
         }
     }
@@ -367,25 +371,16 @@ bool Config::applyGroupSync(const GroupConfig& g) {
     if (g.id >= MAX_GROUPS) return false;
     GroupConfig& local = _cfg.groups[g.id];
 
-    bool hadGroup   = local.exists;
-    uint32_t ourSeq = hadGroup ? local.light.seq : 0;
-    bool lightWins  = !hadGroup || g.light.seq >= ourSeq;
-
-    // name/exists/syncEnabled are reconciled by revision, independent of
-    // light.seq — this is also what resolves a delete-vs-recreate race on the
-    // same slot, since exists is just another revision-guarded field now.
-    if (compareGroupRevision(g, local) >= 0) {
-        local.id          = g.id;
-        local.exists      = g.exists;
-        local.syncEnabled = g.syncEnabled;
-        local.revision    = g.revision;
-        memcpy(local.originMac, g.originMac, sizeof(local.originMac));
-        strlcpy(local.name, g.name, sizeof(local.name));
-    }
-
-    if (lightWins) local.light = g.light;
-
-    return lightWins;
+    // A single revision+originMac governs the whole group now — name, exists,
+    // syncEnabled, and light all move and reconcile together as one unit, so
+    // a rename and a light edit made on the same device always converge as
+    // one coherent update, and a freshly-created group (see createGroup,
+    // which preserves+bumps revision across delete/recreate on a reused
+    // slot) can never be out-ranked by a stale peer's cached data for
+    // whatever used to occupy that slot — light included.
+    if (compareGroupRevision(g, local) <= 0) return false;
+    local = g;
+    return true;
 }
 
 void Config::applyConfigSync(const char* json, size_t len) {

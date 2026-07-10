@@ -73,12 +73,12 @@ struct SetGroupMsg {
     uint8_t groupId;
 };
 
-// Sent when a group is created, renamed, deleted, or syncEnabled toggled;
-// replayed to newly-seen peers and periodically re-advertised (see
-// MeshManager::tick) so an already-known peer that missed an update
-// self-heals. exists=false acts as a tombstone (delete). name/exists/
-// syncEnabled are reconciled by GroupConfig::revision+originMac (see
-// Config::applyGroupSync), independent of light.seq.
+// Sent when a group is created, renamed, deleted, syncEnabled toggled, or its
+// light changed; replayed to newly-seen peers and periodically re-advertised
+// (see MeshManager::tick) so an already-known peer that missed an update
+// self-heals. exists=false acts as a tombstone (delete). The whole group —
+// name/exists/syncEnabled/light together — is reconciled as one unit by
+// GroupConfig::revision+originMac (see Config::applyGroupSync).
 struct GroupSyncMsg {
     MsgType     type;
     GroupConfig group;

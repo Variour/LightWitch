@@ -610,8 +610,7 @@ private:
         if (id == 0xFF) {
             auto e = _makeErr("group limit reached"); _sendJson(r, 400, e); return;
         }
-        GroupConfig& g = Config::get().groups[id];
-        Config::bumpGroupRevision(g);
+        const GroupConfig& g = Config::get().groups[id];
         Config::save();
         if (_onGroupSync) _onGroupSync(g);
 
@@ -662,12 +661,10 @@ private:
             g->light.seq++;
             if (_onGroupLight) _onGroupLight(id, g->light);
         }
-        if (nameChanged) {
-            Config::bumpGroupRevision(*g);
-            if (_onGroupSync) _onGroupSync(*g);
-        }
+        if (nameChanged) Config::bumpGroupRevision(*g);
 
         Config::save();
+        if (nameChanged && _onGroupSync) _onGroupSync(*g);
         auto ok = _makeOk(); _sendJson(r, 200, ok);
         if (nameChanged) _pushGroups();
     }
