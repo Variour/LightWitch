@@ -163,6 +163,30 @@ input[type=checkbox]:active { background-color: #1a5; }
 .group-header input[type=text] { margin-bottom: 0; flex: 1; }
 .group-controls { display: grid; gap: .4rem; }
 .pattern-desc { font-size: .75rem; color: #555; margin-top: -.35rem; margin-bottom: .4rem; }
+
+/* Unified info tooltip: small trigger + shared floating bubble.
+   Desktop gets hover; touch devices (no hover) get tap-to-toggle; both get click. */
+.info-tip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.15rem; height: 1.15rem; flex-shrink: 0;
+  border-radius: 50%; border: 1px solid #444; background: transparent;
+  color: #777; font-size: .68rem; font-weight: 700; font-style: italic;
+  font-family: Georgia, serif; line-height: 1; cursor: pointer; padding: 0;
+}
+.info-tip:hover, .info-tip:focus-visible { border-color: #2a6; color: #2a6; }
+.info-tip:focus-visible { outline: 2px solid #2a6; outline-offset: 1px; }
+/* Bare interaction hook for status icons that carry their own tooltip text
+   without a separate ⓘ badge (no unrelated click action to conflict with). */
+.tip-target { cursor: pointer; border-radius: 3px; }
+.tip-target:focus-visible { outline: 2px solid #2a6; outline-offset: 2px; }
+#tooltip-bubble {
+  position: fixed; z-index: 1000; max-width: 260px;
+  background: #222; color: #eee; border: 1px solid #333; border-radius: 8px;
+  padding: .5rem .65rem; font-size: .78rem; line-height: 1.35;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4); pointer-events: none;
+  opacity: 0; transform: translateY(2px); transition: opacity .12s ease, transform .12s ease;
+}
+#tooltip-bubble.show { opacity: 1; transform: translateY(0); }
 .sync-row { display: flex; align-items: center; gap: .5rem; font-size: .8rem; color: #777;
             margin-top: .2rem; }
 
@@ -465,18 +489,28 @@ input[type=checkbox]:active { background-color: #1a5; }
     <div class="flex-between" style="margin-bottom:.5rem;gap:.5rem;flex-wrap:wrap">
       <h2 style="margin:0">Connected Lights</h2>
       <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
-        <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.82rem;color:#aaa" title="Only one mesh device connects to WiFi at a time — saves power on the rest. The first stable connection stays active; MAC only breaks ties if two candidates are already connected. Automatic failover.">
+        <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.82rem;color:#aaa">
           <input type="checkbox" id="wifiSingleClientToggle" onchange="setWifiSingleClientMode(this.checked)">
           Single WiFi client
+          <button type="button" class="info-tip" aria-label="Only one mesh device connects to WiFi at a time — saves power on the rest. The first stable connection stays active; MAC only breaks ties if two candidates are already connected. Automatic failover." data-tip="Only one mesh device connects to WiFi at a time — saves power on the rest. The first stable connection stays active; MAC only breaks ties if two candidates are already connected. Automatic failover.">i</button>
         </label>
-        <button class="btn-ghost btn-sm" id="wifiRetryBtn" onclick="retryWifi()" style="display:none" title="Give every mesh device a fresh, immediate shot at connecting — useful if all candidates gave up (e.g. the router was briefly unreachable)">Retry WiFi</button>
-        <button class="btn-ghost btn-sm" onclick="meshSearch()" title="Search for mesh peers on other channels">Search channel</button>
-        <button class="btn-ghost btn-sm" onclick="openPushModal(null)" title="Push settings to all peers">Push config to all</button>
+        <span id="wifiRetryWrap" style="display:none;align-items:center;gap:.3rem">
+          <button class="btn-ghost btn-sm" id="wifiRetryBtn" onclick="retryWifi()">Retry WiFi</button>
+          <button type="button" class="info-tip" aria-label="Give every mesh device a fresh, immediate shot at connecting — useful if all candidates gave up (e.g. the router was briefly unreachable)" data-tip="Give every mesh device a fresh, immediate shot at connecting — useful if all candidates gave up (e.g. the router was briefly unreachable)">i</button>
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:.3rem">
+          <button class="btn-ghost btn-sm" onclick="meshSearch()">Search channel</button>
+          <button type="button" class="info-tip" aria-label="Search for mesh peers on other channels" data-tip="Search for mesh peers on other channels">i</button>
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:.3rem">
+          <button class="btn-ghost btn-sm" onclick="openPushModal(null)">Push config to all</button>
+          <button type="button" class="info-tip" aria-label="Push settings to all peers" data-tip="Push settings to all peers">i</button>
+        </span>
       </div>
     </div>
     <div class="lights-table-wrap">
       <table class="lights-table">
-        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th title="Scene sync: share and receive scene files with other mesh peers">Sync</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync <button type="button" class="info-tip" aria-label="Scene sync: share and receive scene files with other mesh peers" data-tip="Scene sync: share and receive scene files with other mesh peers">i</button></th><th></th></tr></thead>
         <tbody id="lights-body"><tr><td colspan="7" style="color:#444">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -605,7 +639,7 @@ input[type=checkbox]:active { background-color: #1a5; }
         <input type="text" id="se-name" placeholder="Scene name" oninput="_markModified()">
       </div>
       <div class="card scene-editor-undo-card">
-        <button id="se-undo-btn" class="btn-ghost btn-sm" onclick="undoScene()" disabled title="Undo (Ctrl+Z)">↩ Undo <span id="se-undo-count" style="opacity:.5"></span></button>
+        <button id="se-undo-btn" class="btn-ghost btn-sm" onclick="undoScene()" disabled aria-label="Undo (keyboard shortcut: Ctrl+Z)">↩ Undo <span id="se-undo-count" style="opacity:.5"></span> <small style="opacity:.6;font-weight:normal">(Ctrl+Z)</small></button>
       </div>
       <div class="card scene-editor-save-card">
         <button id="se-save-btn" class="btn-ghost btn-sm" onclick="saveScene()" disabled>Save</button>
@@ -621,8 +655,8 @@ input[type=checkbox]:active { background-color: #1a5; }
         <h2>Paint color</h2>
         <!-- Swatch + hex + brightness on one line -->
         <div style="display:flex;align-items:center;gap:.5rem;overflow:hidden">
-          <button id="fill-mode-eyedropper" class="cp-tool-btn" onclick="setMode('eyedropper')" title="Pick color from canvas" style="width:2.6rem;height:2.6rem;padding:0;flex-shrink:0;font-size:1.1rem">&#x1F489;</button>
-          <div class="color-swatch" id="se-swatch" title="Current paint color" style="flex-shrink:0"></div>
+          <button id="fill-mode-eyedropper" class="cp-tool-btn" onclick="setMode('eyedropper')" aria-label="Pick color from canvas" style="width:2.6rem;height:2.6rem;padding:0;flex-shrink:0;font-size:1.1rem">&#x1F489;</button>
+          <div class="color-swatch" id="se-swatch" aria-label="Current paint color" style="flex-shrink:0"></div>
           <input type="text" id="se-hex-input" class="cp-hex-input" value="#ff0000"
                  maxlength="7" placeholder="#rrggbb" style="flex-shrink:0"
                  oninput="_onHexInput(this.value)"
@@ -661,13 +695,14 @@ input[type=checkbox]:active { background-color: #1a5; }
           <button id="fill-mode-gradient"   class="cp-tool-btn"        onclick="setMode('gradient')">⋯ Gradient</button>
           <button id="fill-mode-wrap"       class="cp-tool-btn"        onclick="setMode('wrap')">↺ Wrap blend</button>
         </div>
+        <p class="pattern-desc" style="margin-top:.4rem">Tap a row (→) or column (↓) header on the canvas to fill it; tap the corner (↘) to fill the whole frame.</p>
         <!-- Gradient context -->
         <div id="fill-context-gradient" style="display:none">
           <div class="grad-swatch-pair" style="margin-top:.3rem">
-            <div class="grad-swatch" id="grad-swatch-a" title="Color A — click to set to current paint color"
+            <div class="grad-swatch" id="grad-swatch-a" aria-label="Color A — click to set to current paint color"
                  onclick="_setGradColor('a')" style="background:#ff0000"></div>
             <span style="font-size:.75rem;color:#777;flex:1;text-align:center">A → B</span>
-            <div class="grad-swatch" id="grad-swatch-b" title="Color B — click to set to current paint color"
+            <div class="grad-swatch" id="grad-swatch-b" aria-label="Color B — click to set to current paint color"
                  onclick="_setGradColor('b')" style="background:#0000ff"></div>
           </div>
           <small style="color:#666">Click a swatch to capture the current paint color. Row/col headers on the canvas fill with gradient. Use ↔ ↕ ↙ buttons on each frame for full-frame fills.</small>
@@ -768,7 +803,7 @@ input[type=checkbox]:active { background-color: #1a5; }
           <div id="se-frames"></div>
           <div style="display:flex;gap:.4rem;margin-top:.5rem">
             <button class="btn-primary btn-sm" style="flex:1" onclick="addFrame()">+ Add Frame</button>
-            <button class="btn-ghost btn-sm" title="Import image as frame" onclick="$('sei-file').click()">🖼 Import</button>
+            <button class="btn-ghost btn-sm" aria-label="Import image as frame" onclick="$('sei-file').click()">🖼 Import</button>
           </div>
           <input type="file" id="sei-file" accept="image/jpeg,image/png,image/gif,image/webp"
                  style="display:none" onchange="importImageAsFrame(event)">
@@ -781,8 +816,8 @@ input[type=checkbox]:active { background-color: #1a5; }
           <div class="flex-between" style="margin-bottom:.5rem">
             <h2 style="margin:0">Canvas</h2>
             <div style="display:flex;gap:.25rem">
-              <button class="btn-ghost btn-sm" onclick="zoomOut()" title="Zoom out">−</button>
-              <button class="btn-ghost btn-sm" onclick="zoomIn()" title="Zoom in">+</button>
+              <button class="btn-ghost btn-sm" onclick="zoomOut()" aria-label="Zoom out">−</button>
+              <button class="btn-ghost btn-sm" onclick="zoomIn()" aria-label="Zoom in">+</button>
             </div>
           </div>
           <div id="se-grid"></div>
@@ -1568,8 +1603,8 @@ function renderLights(self, peers, wifiSingleClientMode) {
   if (wifiSingleClientMode !== undefined) _wifiSingleClientMode = wifiSingleClientMode;
   const wifiToggle = $('wifiSingleClientToggle');
   if (wifiToggle) wifiToggle.checked = _wifiSingleClientMode;
-  const wifiRetryBtn = $('wifiRetryBtn');
-  if (wifiRetryBtn) wifiRetryBtn.style.display = _wifiSingleClientMode ? '' : 'none';
+  const wifiRetryWrap = $('wifiRetryWrap');
+  if (wifiRetryWrap) wifiRetryWrap.style.display = _wifiSingleClientMode ? 'inline-flex' : 'none';
   _self  = self;
   _peers = peers;
   if (self) _selfMac = self.mac;
@@ -1596,12 +1631,15 @@ function renderLights(self, peers, wifiSingleClientMode) {
 
   const rendered = all.map(p => {
     const online = p.online !== false;
-    const dot = `<span class="dot ${online?'dot-on':'dot-off'}" title="${online?'Online':'Offline'}"></span>`;
+    const dot = `<span class="dot ${online?'dot-on':'dot-off'}" aria-label="${online?'Online':'Offline'}"></span>`;
     const selfTag = p.isSelf ? `<span class="self-tag">(this)</span>` : '';
     const mac = p.mac || '';
     const rssiText = (!p.isSelf && online && p.rssi != null) ? `${p.rssi} dBm` : '–';
     const syncEnabled = p.sceneSyncEnabled !== false;
-    const syncCell = `<input type="checkbox" title="Scene sync: share and receive scene files with other mesh peers" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
+    const syncTip = 'Scene sync: share and receive scene files with other mesh peers';
+    const syncCell = `<input type="checkbox" aria-label="${esc(syncTip)}" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
+    // Mobile card list has no column header, so the checkbox needs its own inline info trigger.
+    const syncCellMobile = syncCell + tipIcon(syncTip);
 
     const wifiOn = p.wifiConnected === true;
     const wifiConnecting = !wifiOn && p.wifiConnecting === true;
@@ -1614,9 +1652,10 @@ function renderLights(self, peers, wifiSingleClientMode) {
                     : wifiConnecting ? 'WiFi connecting…'
                     : wifiStandby ? 'WiFi standby (single-client mode — another device is/should be connected)'
                     : 'WiFi not connected';
-    const wifiIcon = `<span title="${wifiTitle}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle" class="${wifiConnecting ? 'wifi-connecting' : ''}"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
+    const wifiIcon = `<span class="tip-target" tabindex="0" role="button" aria-label="${esc(wifiTitle)}" data-tip="${esc(wifiTitle)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle" class="${wifiConnecting ? 'wifi-connecting' : ''}"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
+    const signalTip = `Signal: ${rssiText}`;
     const signalIcon = showSignal && !p.isSelf
-      ? `<span title="Signal: ${rssiText}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
+      ? `<span class="tip-target" tabindex="0" role="button" aria-label="${esc(signalTip)}" data-tip="${esc(signalTip)}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
       : '';
 
     const ver = p.version || '';
@@ -1646,18 +1685,18 @@ function renderLights(self, peers, wifiSingleClientMode) {
         const handler = p.isSelf
           ? `triggerSelfUpdate(this,'${mac}')`
           : `triggerPeerUpdate(this,'${mac}')`;
-        fwIconHtml = `<button class="btn-fw-trigger" title="${fwTitle}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
+        fwIconHtml = `<button class="btn-fw-trigger" aria-label="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>` + tipIcon(fwTitle);
       } else if (canCheck) {
         const handler = p.isSelf
           ? `checkSelfUpdate(this,'${mac}')`
           : `checkPeerUpdate(this,'${mac}')`;
-        fwIconHtml = `<button class="btn-fw-trigger" title="${fwTitle}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
+        fwIconHtml = `<button class="btn-fw-trigger" aria-label="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>` + tipIcon(fwTitle);
       } else {
-        fwIconHtml = `<span title="${fwTitle}">${fwSvg(fwColor)}</span>`;
+        fwIconHtml = `<span class="tip-target" tabindex="0" role="button" aria-label="${esc(fwTitle)}" data-tip="${esc(fwTitle)}">${fwSvg(fwColor)}</span>`;
       }
     }
 
-    const pushCell = p.isSelf ? '' : `<button class="btn-ghost btn-sm" onclick="openPushModal('${mac}','${esc(p.name)}')" title="Push settings to this device">Push</button>`;
+    const pushCell = p.isSelf ? '' : `<button class="btn-ghost btn-sm" onclick="openPushModal('${mac}','${esc(p.name)}')">Push</button>`;
     const lights = p.lights || [];
     const groupSelects = lights.length === 0
       ? '<span style="color:#555;font-size:.78rem">no lights</span>'
@@ -1684,7 +1723,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
       wifiIcon,
       signalIcon,
       ver ? fwIconHtml : '',
-      syncCell
+      syncCellMobile
     ].filter(Boolean).join('');
 
     const mobileActions = pushCell
@@ -2327,6 +2366,73 @@ function hexToRgb(hex) {
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// ── Unified tooltip (hover on desktop, tap on touch, keyboard-accessible) ──
+function tipIcon(text) {
+  return `<button type="button" class="info-tip" aria-label="${esc(text)}" data-tip="${esc(text)}">i</button>`;
+}
+(() => {
+  let bubble = null, openFor = null, hoverTimer = null;
+  const ensureBubble = () => {
+    if (!bubble) {
+      bubble = document.createElement('div');
+      bubble.id = 'tooltip-bubble';
+      bubble.setAttribute('role', 'tooltip');
+      document.body.appendChild(bubble);
+    }
+    return bubble;
+  };
+  const position = (trigger) => {
+    const el = ensureBubble();
+    const r = trigger.getBoundingClientRect();
+    const margin = 8;
+    const tw = el.offsetWidth, th = el.offsetHeight;
+    let left = r.left + r.width / 2 - tw / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - tw - margin));
+    let top = r.top - th - margin;
+    if (top < margin) top = r.bottom + margin;
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+  };
+  const show = (trigger) => {
+    const text = trigger.getAttribute('data-tip') || trigger.getAttribute('title') || '';
+    if (!text) return;
+    const el = ensureBubble();
+    el.textContent = text;
+    el.classList.add('show');
+    openFor = trigger;
+    position(trigger);
+  };
+  const hide = () => {
+    if (bubble) bubble.classList.remove('show');
+    openFor = null;
+  };
+  const hoverCapable = window.matchMedia('(hover: hover)').matches;
+  if (hoverCapable) {
+    document.addEventListener('mouseover', e => {
+      const t = e.target.closest('.info-tip, .tip-target');
+      if (t) { clearTimeout(hoverTimer); hoverTimer = setTimeout(() => show(t), 150); }
+    });
+    document.addEventListener('mouseout', e => {
+      const t = e.target.closest('.info-tip, .tip-target');
+      if (t) { clearTimeout(hoverTimer); hide(); }
+    });
+  }
+  document.addEventListener('click', e => {
+    const t = e.target.closest('.info-tip, .tip-target');
+    if (t) {
+      e.preventDefault(); e.stopPropagation();
+      openFor === t ? hide() : show(t);
+      return;
+    }
+    if (openFor) hide();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && openFor) hide();
+  });
+  window.addEventListener('scroll', () => { if (openFor) position(openFor); }, true);
+  window.addEventListener('resize', () => { if (openFor) hide(); });
+})();
 
 function showToast(message, isError = true) {
   let el = $('toast');
@@ -3106,14 +3212,14 @@ function _renderFrameList() {
   }
   el.innerHTML = frames.map((_, i) => {
     const upBtn  = i > 0
-      ? `<button class="btn-ghost btn-sm" title="Move up"   onclick="moveFrame(${i},-1);event.stopPropagation()">↑</button>` : '';
+      ? `<button class="btn-ghost btn-sm" aria-label="Move up"   onclick="moveFrame(${i},-1);event.stopPropagation()">↑</button>` : '';
     const dnBtn  = i < frames.length - 1
-      ? `<button class="btn-ghost btn-sm" title="Move down" onclick="moveFrame(${i},1);event.stopPropagation()">↓</button>` : '';
+      ? `<button class="btn-ghost btn-sm" aria-label="Move down" onclick="moveFrame(${i},1);event.stopPropagation()">↓</button>` : '';
     return `<div class="frame-item">
       <span>Frame ${i + 1}</span>
       <div class="frame-btns">
         ${upBtn}${dnBtn}
-        <button class="btn-danger btn-sm" title="Delete" onclick="deleteFrame(${i});event.stopPropagation()">✕</button>
+        <button class="btn-danger btn-sm" aria-label="Delete" onclick="deleteFrame(${i});event.stopPropagation()">✕</button>
       </div>
     </div>`;
   }).join('');
@@ -3184,7 +3290,7 @@ function _renderGrid() {
     html += `<tr class="sg-row-frame-h">`;
     html += `<th style="border-style:hidden;background:transparent;padding:0"></th>`;  // spacer for ↕ col
     html += `<th class="sg-corner" style="border-color:transparent;background:transparent"></th>`;  // spacer for corner col
-    html += `<th class="sg-hdr sg-hdr-frame" data-frame="${i}" data-frameh="1" colspan="${w}" title="Gradient fill frame horizontally">↔</th>`;
+    html += `<th class="sg-hdr sg-hdr-frame" data-frame="${i}" data-frameh="1" colspan="${w}" aria-label="Gradient fill frame horizontally">↔</th>`;
     html += `</tr>`;
 
     // Row 1: spacer for ↕ col + corner + col fill targets
@@ -3193,9 +3299,9 @@ function _renderGrid() {
     const cornerTitle = isGradient ? 'Diagonal gradient fill frame' : 'Fill frame with current color';
     const cornerClick = isGradient ? `gradFillFrameDiagonal(${i})` : `fillFrameFor(${i})`;
     const cornerClass = isGradient ? 'sg-corner sg-hdr-frame' : 'sg-corner';
-    html += `<th class="${cornerClass}" onclick="${cornerClick}" title="${cornerTitle}">↘</th>`;
+    html += `<th class="${cornerClass}" onclick="${cornerClick}" aria-label="${esc(cornerTitle)}">↘</th>`;
     for (let c = 0; c < w; c++) {
-      html += `<th class="sg-hdr" data-frame="${i}" data-col="${c}" title="Fill column ${c}">↓</th>`;
+      html += `<th class="sg-hdr" data-frame="${i}" data-col="${c}" aria-label="Fill column ${c}">↓</th>`;
     }
     html += '</tr>';
 
@@ -3203,9 +3309,9 @@ function _renderGrid() {
     for (let r = 0; r < h; r++) {
       html += '<tr>';
       if (r === 0) {
-        html += `<th class="sg-hdr sg-hdr-frame sg-hdr-frame-v" data-frame="${i}" data-framev="1" rowspan="${h}" title="Gradient fill frame vertically">↕</th>`;
+        html += `<th class="sg-hdr sg-hdr-frame sg-hdr-frame-v" data-frame="${i}" data-framev="1" rowspan="${h}" aria-label="Gradient fill frame vertically">↕</th>`;
       }
-      html += `<th class="sg-hdr" data-frame="${i}" data-row="${r}" title="Fill row ${r}">→</th>`;
+      html += `<th class="sg-hdr" data-frame="${i}" data-row="${r}" aria-label="Fill row ${r}">→</th>`;
       for (let c = 0; c < w; c++) {
         const idx = r * w + c;
         html += `<td class="sg-cell" data-frame="${i}" data-idx="${idx}" style="background:${frame[idx] || '#000000'}"></td>`;
@@ -3352,7 +3458,7 @@ function _renderPresets() {
   const el = $('se-presets');
   if (!el) return;
   el.innerHTML = _PRESETS.map(c =>
-    `<div class="cp-mini-swatch" style="background:${c}" title="${c}"
+    `<div class="cp-mini-swatch" style="background:${c}" aria-label="${c}"
           onclick="setPaintColor('${c}')"></div>`
   ).join('');
 }
@@ -3365,7 +3471,7 @@ function _renderRecents() {
     return;
   }
   el.innerHTML = _recentColors.map(c =>
-    `<div class="cp-mini-swatch" style="background:${c}" title="${c}"
+    `<div class="cp-mini-swatch" style="background:${c}" aria-label="${c}"
           onclick="setPaintColor('${c}')"></div>`
   ).join('');
 }
@@ -4130,7 +4236,7 @@ function renderLightsHw(lights) {
       : `data GPIO${l.dataPin}`;
     const label = l.name ? l.name : `Light ${l.index}`;
     const testBtn = l.height > 1
-      ? `<button class="btn-ghost btn-sm" onclick="testLight(${l.index})" title="Flash a test pattern to verify matrix orientation">Test</button>`
+      ? `<button class="btn-ghost btn-sm" onclick="testLight(${l.index})">Test</button>` + tipIcon('Flash a test pattern to verify matrix orientation')
       : '';
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div class="flex-between">
