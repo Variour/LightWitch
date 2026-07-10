@@ -164,19 +164,13 @@ input[type=checkbox]:active { background-color: #1a5; }
 .group-controls { display: grid; gap: .4rem; }
 .pattern-desc { font-size: .75rem; color: #555; margin-top: -.35rem; margin-bottom: .4rem; }
 
-/* Unified info tooltip: shared floating bubble, shown by the informative
-   element itself (no separate icon/badge). Desktop hovers it; touch devices
-   tap it — see the .tip-target/.tip-action click handling below. */
-.tip-target { cursor: pointer; border-radius: 3px; }
-.tip-target:focus-visible { outline: 2px solid #2a6; outline-offset: 2px; }
-#tooltip-bubble {
-  position: fixed; z-index: 1000; max-width: 260px;
-  background: #222; color: #eee; border: 1px solid #333; border-radius: 8px;
-  padding: .5rem .65rem; font-size: .78rem; line-height: 1.35;
-  box-shadow: 0 4px 16px rgba(0,0,0,.4); pointer-events: none;
-  opacity: 0; transform: translateY(2px); transition: opacity .12s ease, transform .12s ease;
-}
-#tooltip-bubble.show { opacity: 1; transform: translateY(0); }
+/* Always-visible legend: explains icons/colors/actions in a section instead of
+   a per-element hover/tap tooltip, so it reads the same on desktop and mobile
+   and every control keeps its normal single-tap behavior. */
+.legend { font-size: .75rem; color: #666; line-height: 1.7; margin: -.15rem 0 .6rem; }
+.legend b { color: #999; font-weight: 600; }
+.legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 .3em 0 .7em; vertical-align: middle; }
+.legend-dot:first-child { margin-left: 0; }
 .sync-row { display: flex; align-items: center; gap: .5rem; font-size: .8rem; color: #777;
             margin-top: .2rem; }
 
@@ -479,15 +473,33 @@ input[type=checkbox]:active { background-color: #1a5; }
     <div class="flex-between" style="margin-bottom:.5rem;gap:.5rem;flex-wrap:wrap">
       <h2 style="margin:0">Connected Lights</h2>
       <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
-        <label class="tip-action" aria-label="Only one mesh device connects to WiFi at a time — saves power on the rest. The first stable connection stays active; MAC only breaks ties if two candidates are already connected. Automatic failover." data-tip="Only one mesh device connects to WiFi at a time — saves power on the rest. The first stable connection stays active; MAC only breaks ties if two candidates are already connected. Automatic failover." style="display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.82rem;color:#aaa">
+        <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.82rem;color:#aaa">
           <input type="checkbox" id="wifiSingleClientToggle" onchange="setWifiSingleClientMode(this.checked)">
           Single WiFi client
         </label>
-        <button class="btn-ghost btn-sm tip-action" id="wifiRetryBtn" onclick="retryWifi()" style="display:none" aria-label="Give every mesh device a fresh, immediate shot at connecting — useful if all candidates gave up (e.g. the router was briefly unreachable)" data-tip="Give every mesh device a fresh, immediate shot at connecting — useful if all candidates gave up (e.g. the router was briefly unreachable)">Retry WiFi</button>
-        <button class="btn-ghost btn-sm tip-action" onclick="meshSearch()" aria-label="Search for mesh peers on other channels" data-tip="Search for mesh peers on other channels">Search channel</button>
-        <button class="btn-ghost btn-sm tip-action" onclick="openPushModal(null)" aria-label="Push settings to all peers" data-tip="Push settings to all peers">Push config to all</button>
+        <button class="btn-ghost btn-sm" id="wifiRetryBtn" onclick="retryWifi()" style="display:none">Retry WiFi</button>
+        <button class="btn-ghost btn-sm" onclick="meshSearch()">Search channel</button>
+        <button class="btn-ghost btn-sm" onclick="openPushModal(null)">Push config to all</button>
       </div>
     </div>
+    <p class="legend">
+      <b>Single WiFi client</b> only one device connects to WiFi at a time to save power — others stand by and take over automatically.
+      <b>Retry WiFi</b> gives every device a fresh attempt if all gave up.
+      <b>Search channel</b> looks for mesh peers on other WiFi channels.
+      <b>Push</b> copies this device's settings (WiFi, MQTT, GitHub token, etc.) to another.<br>
+      <b>Icons —</b>
+      <span class="legend-dot" style="background:#4f4"></span>online
+      <span class="legend-dot" style="background:#444"></span>offline
+      <span class="legend-dot" style="background:#4c4"></span>WiFi connected
+      <span class="legend-dot" style="background:#fa4"></span>connecting
+      <span class="legend-dot" style="background:#48a"></span>standby
+      <span class="legend-dot" style="background:#555"></span>not connected
+      <span class="legend-dot" style="background:#4c4"></span>Fw up to date, tap to check
+      <span class="legend-dot" style="background:#c84"></span>update available, tap to install
+      <span class="legend-dot" style="background:#4af"></span>installing
+      <span class="legend-dot" style="background:#c44"></span>failed, tap to retry
+      &nbsp; <b>Sync</b> checkbox shares/receives scene files with that peer.
+    </p>
     <div class="lights-table-wrap">
       <table class="lights-table">
         <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
@@ -830,6 +842,7 @@ input[type=checkbox]:active { background-color: #1a5; }
 
     <hr class="section-divider">
     <h3>Lights</h3>
+    <p class="legend"><b>Test</b> (matrix lights only) flashes a test pattern to verify orientation.</p>
     <div id="lights-hw-list" style="margin-bottom:.75rem"></div>
     <button class="btn-ghost" style="width:100%" id="add-light-btn" onclick="openAddLightModal()">Add light</button>
 
@@ -1617,7 +1630,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
     const rssiText = (!p.isSelf && online && p.rssi != null) ? `${p.rssi} dBm` : '–';
     const syncEnabled = p.sceneSyncEnabled !== false;
     const syncTip = 'Scene sync: share and receive scene files with other mesh peers';
-    const syncCell = `<input type="checkbox" class="tip-action" aria-label="${esc(syncTip)}" data-tip="${esc(syncTip)}" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
+    const syncCell = `<input type="checkbox" aria-label="${esc(syncTip)}" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
 
     const wifiOn = p.wifiConnected === true;
     const wifiConnecting = !wifiOn && p.wifiConnecting === true;
@@ -1630,10 +1643,10 @@ function renderLights(self, peers, wifiSingleClientMode) {
                     : wifiConnecting ? 'WiFi connecting…'
                     : wifiStandby ? 'WiFi standby (single-client mode — another device is/should be connected)'
                     : 'WiFi not connected';
-    const wifiIcon = `<span class="tip-target" tabindex="0" role="button" aria-label="${esc(wifiTitle)}" data-tip="${esc(wifiTitle)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle" class="${wifiConnecting ? 'wifi-connecting' : ''}"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
+    const wifiIcon = `<span aria-label="${esc(wifiTitle)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle" class="${wifiConnecting ? 'wifi-connecting' : ''}"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
     const signalTip = `Signal: ${rssiText}`;
     const signalIcon = showSignal && !p.isSelf
-      ? `<span class="tip-target" tabindex="0" role="button" aria-label="${esc(signalTip)}" data-tip="${esc(signalTip)}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
+      ? `<span aria-label="${esc(signalTip)}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
       : '';
 
     const ver = p.version || '';
@@ -1663,14 +1676,14 @@ function renderLights(self, peers, wifiSingleClientMode) {
         const handler = p.isSelf
           ? `triggerSelfUpdate(this,'${mac}')`
           : `triggerPeerUpdate(this,'${mac}')`;
-        fwIconHtml = `<button class="btn-fw-trigger tip-action" aria-label="${esc(fwTitle)}" data-tip="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
+        fwIconHtml = `<button class="btn-fw-trigger" aria-label="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
       } else if (canCheck) {
         const handler = p.isSelf
           ? `checkSelfUpdate(this,'${mac}')`
           : `checkPeerUpdate(this,'${mac}')`;
-        fwIconHtml = `<button class="btn-fw-trigger tip-action" aria-label="${esc(fwTitle)}" data-tip="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
+        fwIconHtml = `<button class="btn-fw-trigger" aria-label="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
       } else {
-        fwIconHtml = `<span class="tip-target" tabindex="0" role="button" aria-label="${esc(fwTitle)}" data-tip="${esc(fwTitle)}">${fwSvg(fwColor)}</span>`;
+        fwIconHtml = `<span aria-label="${esc(fwTitle)}">${fwSvg(fwColor)}</span>`;
       }
     }
 
@@ -2344,97 +2357,6 @@ function hexToRgb(hex) {
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-
-// ── Unified tooltip (hover on desktop, tap on touch, keyboard-accessible) ──
-(() => {
-  let bubble = null, openFor = null, hoverTimer = null;
-  const ensureBubble = () => {
-    if (!bubble) {
-      bubble = document.createElement('div');
-      bubble.id = 'tooltip-bubble';
-      bubble.setAttribute('role', 'tooltip');
-      document.body.appendChild(bubble);
-    }
-    return bubble;
-  };
-  const position = (trigger) => {
-    const el = ensureBubble();
-    const r = trigger.getBoundingClientRect();
-    const margin = 8;
-    const tw = el.offsetWidth, th = el.offsetHeight;
-    let left = r.left + r.width / 2 - tw / 2;
-    left = Math.max(margin, Math.min(left, window.innerWidth - tw - margin));
-    let top = r.top - th - margin;
-    if (top < margin) top = r.bottom + margin;
-    el.style.left = left + 'px';
-    el.style.top = top + 'px';
-  };
-  const show = (trigger) => {
-    const text = trigger.getAttribute('data-tip') || trigger.getAttribute('title') || '';
-    if (!text) return;
-    const el = ensureBubble();
-    el.textContent = text;
-    el.classList.add('show');
-    openFor = trigger;
-    position(trigger);
-  };
-  const hide = () => {
-    if (bubble) bubble.classList.remove('show');
-    openFor = null;
-  };
-  const hoverCapable = window.matchMedia('(hover: hover)').matches;
-  if (hoverCapable) {
-    document.addEventListener('mouseover', e => {
-      const t = e.target.closest('.tip-target, .tip-action');
-      if (t) { clearTimeout(hoverTimer); hoverTimer = setTimeout(() => show(t), 150); }
-    });
-    document.addEventListener('mouseout', e => {
-      const t = e.target.closest('.tip-target, .tip-action');
-      if (t) { clearTimeout(hoverTimer); hide(); }
-    });
-  }
-  // .tip-action elements (buttons/checkboxes that also have their own click/change
-  // action) get a two-stage tap on touch devices: first tap previews the tooltip
-  // and swallows the action, a second tap on the same element lets the action
-  // through natively (button onclick fires, checkbox toggles). Runs in the
-  // capture phase so it can veto the element's own handler before it fires.
-  // Hover-capable devices skip this entirely — hover already previewed the
-  // info, so a click just performs the action.
-  let suppressForward = null;
-  if (!hoverCapable) {
-    document.addEventListener('click', e => {
-      const t = e.target.closest('.tip-action');
-      if (!t) return;
-      // An un-prevented click on a <label> makes the browser fire a *second*,
-      // separate click directly on its checkbox to forward the activation.
-      // Without this, that follow-up click re-enters here and gets mistaken
-      // for a brand new first tap instead of the checkbox just toggling.
-      if (suppressForward === t && e.target !== t) { suppressForward = null; return; }
-      if (openFor !== t) {
-        e.preventDefault();
-        e.stopPropagation();
-        show(t);
-        return;
-      }
-      hide();
-      if (t.tagName === 'LABEL' && e.target === t) suppressForward = t;
-    }, true);
-  }
-  document.addEventListener('click', e => {
-    const t = e.target.closest('.tip-target');
-    if (t) {
-      e.preventDefault(); e.stopPropagation();
-      openFor === t ? hide() : show(t);
-      return;
-    }
-    if (openFor) hide();
-  });
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && openFor) hide();
-  });
-  window.addEventListener('scroll', () => { if (openFor) position(openFor); }, true);
-  window.addEventListener('resize', () => { if (openFor) hide(); });
-})();
 
 function showToast(message, isError = true) {
   let el = $('toast');
@@ -4238,7 +4160,7 @@ function renderLightsHw(lights) {
       : `data GPIO${l.dataPin}`;
     const label = l.name ? l.name : `Light ${l.index}`;
     const testBtn = l.height > 1
-      ? `<button class="btn-ghost btn-sm tip-action" onclick="testLight(${l.index})" aria-label="Flash a test pattern to verify matrix orientation" data-tip="Flash a test pattern to verify matrix orientation">Test</button>`
+      ? `<button class="btn-ghost btn-sm" onclick="testLight(${l.index})">Test</button>`
       : '';
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div class="flex-between">
