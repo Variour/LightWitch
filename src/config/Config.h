@@ -300,5 +300,4 @@ private:
     static uint8_t      _wifiCount;
     static uint8_t      _wifiLast;
     static void _ensureDefaultGroup();
-    static void _ensureDefaultLight();
 };

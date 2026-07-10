@@ -81,6 +81,51 @@ After reboot the device joins your WiFi and is reachable at **http://\<devicenam
 
 ---
 
+## Configuring your first light
+
+A fresh device starts with one group (**Default**) but no lights configured — add your hardware before anything lights up.
+
+1. Go to **Settings → Lights** and click **Add light**.
+2. Choose the **LED type** (WS2812B single-wire or WS2801 two-wire), the **data pin** (and **clock pin** for WS2801), and the light's **length** (LED count, or columns/rows for a matrix).
+3. Click **Save & Reboot** — hardware changes require a restart to take effect.
+4. Back on the main tab, use the **Group** dropdown in the Connected Lights table to assign the light to a group (new lights start in **Default**).
+
+Repeat for each physical light attached to the device (up to 4).
+
+### Groups
+
+A **group** holds the pattern/scene/color state — lights don't have their own; they display whatever their assigned group is set to. Put multiple lights in the same group to keep them in sync, or in separate groups to control them independently. Each group can run a static color, a built-in pattern (breathing, color cycle, strobe, candle), a custom scene, proximity-reactive brightness, a gradient, or — on matrix lights — scrolling text or a clock.
+
+**Default** cannot be deleted; deleting any other group moves its lights back to Default.
+
+---
+
+## Device settings
+
+After first boot, go to **Settings** to review:
+
+| Setting | Why |
+|---|---|
+| **Device name** | mDNS hostname (`http://<name>.local`) and OTA target name; defaults to a MAC-based name like `light-a1b2c3`. |
+| **AP password** | Defaults to `batterylight` (published in this README) — change it if the device's AP could ever be reachable by others. |
+| **Timezone** | Only used by the Time-mode pattern; skip it if you don't use that mode. |
+| **MQTT** | Optional home-automation integration — leave the broker host blank to disable it. |
+| **Firmware updates** | Optional GitHub-releases integration — see [below](#firmware-updates-from-github-releases-device-web-ui). |
+
+Log level, OTA port, and buttons can be left at their defaults unless you have a specific reason to change them.
+
+---
+
+## Adding more devices to the mesh
+
+Devices on the same WiFi network discover each other automatically and form a mesh (scene sync, pattern sync, etc.). To set up additional devices without re-entering every field by hand:
+
+1. Flash and boot the new device as described above; it appears in the first device's **Connected Lights** table once discovered.
+2. Click **Push config to all** (or the per-device push button next to a specific peer) to send WiFi networks, AP password, MQTT settings, GitHub repo/token, and OTA-enabled to the target(s) in one step.
+3. Any field left unchecked in the push dialog is skipped on the target. Sensitive fields (AP password, MQTT password, GitHub token) are filled in by the firmware itself and never appear in the browser.
+
+---
+
 ## Firmware updates from GitHub releases (device web UI)
 
 Devices can check for and install new firmware directly from GitHub releases without a computer attached.

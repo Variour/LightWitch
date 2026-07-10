@@ -199,7 +199,6 @@ bool Config::load() {
             if (ok && migrateDoc(doc)) {
                 applyDoc(doc);
                 _ensureDefaultGroup();
-                _ensureDefaultLight();
                 Logger::d("[cfg] loaded from LittleFS");
                 return true;
             }
@@ -215,7 +214,6 @@ bool Config::load() {
             if (!deserializeJson(doc, json) && migrateDoc(doc)) {
                 applyDoc(doc);
                 _ensureDefaultGroup();
-                _ensureDefaultLight();
                 Logger::i("[cfg] no LittleFS config — restored from NVS");
                 save();
                 return true;
@@ -225,7 +223,6 @@ bool Config::load() {
 
     Logger::w("[cfg] no saved config — using defaults");
     _ensureDefaultGroup();
-    _ensureDefaultLight();
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
     snprintf(_cfg.deviceName, sizeof(_cfg.deviceName), "light-%02x%02x%02x", mac[3], mac[4], mac[5]);
@@ -512,17 +509,3 @@ void Config::_ensureDefaultGroup() {
     }
 }
 
-void Config::_ensureDefaultLight() {
-    // If no lights are configured, create one with hardware defaults.
-    bool any = false;
-    for (uint8_t i = 0; i < MAX_LIGHTS; i++) if (_cfg.lights[i].exists) { any = true; break; }
-    if (!any) {
-        _cfg.lights[0].exists   = true;
-        _cfg.lights[0].ledType  = LedType::WS2812B;
-        _cfg.lights[0].dataPin  = LED_DATA_PIN;
-        _cfg.lights[0].clockPin = LED_CLOCK_PIN;
-        _cfg.lights[0].width    = 1;
-        _cfg.lights[0].height   = 1;
-        _cfg.lights[0].groupId  = 0;
-    }
-}
