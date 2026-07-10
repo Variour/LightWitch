@@ -662,12 +662,10 @@ private:
             g->light.seq++;
             if (_onGroupLight) _onGroupLight(id, g->light);
         }
-        if (nameChanged) {
-            Config::bumpGroupRevision(*g);
-            if (_onGroupSync) _onGroupSync(*g);
-        }
+        if (nameChanged) Config::bumpGroupRevision(*g);
 
         Config::save();
+        if (nameChanged && _onGroupSync) _onGroupSync(*g);
         auto ok = _makeOk(); _sendJson(r, 200, ok);
         if (nameChanged) _pushGroups();
     }
