@@ -164,10 +164,23 @@ input[type=checkbox]:active { background-color: #1a5; }
 .group-controls { display: grid; gap: .4rem; }
 .pattern-desc { font-size: .75rem; color: #555; margin-top: -.35rem; margin-bottom: .4rem; }
 
-/* Always-visible legend: explains icons/colors/actions in a section instead of
-   a per-element hover/tap tooltip, so it reads the same on desktop and mobile
-   and every control keeps its normal single-tap behavior. */
-.legend { font-size: .75rem; color: #666; line-height: 1.7; margin: -.15rem 0 .6rem; }
+/* Legend: explains icons/colors/actions in a section instead of a per-element
+   hover/tap tooltip, so it reads the same on desktop and mobile and every
+   control keeps its normal single-tap behavior. Hidden behind a single
+   info-indicator toggle per section rather than shown permanently. */
+.legend-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.15rem; height: 1.15rem; flex-shrink: 0;
+  border-radius: 50%; border: 1px solid #444; background: transparent;
+  color: #777; font-size: .68rem; font-weight: 700; font-style: italic;
+  font-family: Georgia, serif; line-height: 1; cursor: pointer; padding: 0;
+}
+.legend-toggle:hover, .legend-toggle:focus-visible, .legend-toggle[aria-expanded="true"] {
+  border-color: #2a6; color: #2a6;
+}
+.legend-toggle:focus-visible { outline: 2px solid #2a6; outline-offset: 1px; }
+.legend { display: none; font-size: .75rem; color: #666; line-height: 1.7; margin: -.15rem 0 .6rem; }
+.legend.show { display: block; }
 .legend b { color: #999; font-weight: 600; }
 .legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 .3em 0 .7em; vertical-align: middle; }
 .legend-dot:first-child { margin-left: 0; }
@@ -471,7 +484,9 @@ input[type=checkbox]:active { background-color: #1a5; }
   <!-- CONNECTED LIGHTS -->
   <div class="card">
     <div class="flex-between" style="margin-bottom:.5rem;gap:.5rem;flex-wrap:wrap">
-      <h2 style="margin:0">Connected Lights</h2>
+      <h2 style="margin:0;display:flex;align-items:center;gap:.4rem">Connected Lights
+        <button type="button" class="legend-toggle" aria-expanded="false" aria-controls="lights-legend" aria-label="What do these controls and icons mean?" onclick="toggleLegend('lights-legend')">i</button>
+      </h2>
       <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
         <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.82rem;color:#aaa">
           <input type="checkbox" id="wifiSingleClientToggle" onchange="setWifiSingleClientMode(this.checked)">
@@ -482,7 +497,7 @@ input[type=checkbox]:active { background-color: #1a5; }
         <button class="btn-ghost btn-sm" onclick="openPushModal(null)">Push config to all</button>
       </div>
     </div>
-    <p class="legend">
+    <p class="legend" id="lights-legend">
       <b>Single WiFi client</b> only one device connects to WiFi at a time to save power — others stand by and take over automatically.
       <b>Retry WiFi</b> gives every device a fresh attempt if all gave up.
       <b>Search channel</b> looks for mesh peers on other WiFi channels.
@@ -841,8 +856,10 @@ input[type=checkbox]:active { background-color: #1a5; }
     <select id="timezone"></select>
 
     <hr class="section-divider">
-    <h3>Lights</h3>
-    <p class="legend"><b>Test</b> (matrix lights only) flashes a test pattern to verify orientation.</p>
+    <h3 style="display:flex;align-items:center;gap:.4rem">Lights
+      <button type="button" class="legend-toggle" aria-expanded="false" aria-controls="lights-hw-legend" aria-label="What does Test do?" onclick="toggleLegend('lights-hw-legend')">i</button>
+    </h3>
+    <p class="legend" id="lights-hw-legend"><b>Test</b> (matrix lights only) flashes a test pattern to verify orientation.</p>
     <div id="lights-hw-list" style="margin-bottom:.75rem"></div>
     <button class="btn-ghost" style="width:100%" id="add-light-btn" onclick="openAddLightModal()">Add light</button>
 
@@ -2356,6 +2373,14 @@ function hexToRgb(hex) {
 }
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toggleLegend(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const show = el.classList.toggle('show');
+  const btn = document.querySelector(`[aria-controls="${id}"]`);
+  if (btn) btn.setAttribute('aria-expanded', show ? 'true' : 'false');
 }
 
 function showToast(message, isError = true) {
