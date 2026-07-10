@@ -413,18 +413,22 @@ void setup() {
 
     mesh.setOnGroupSync([](const GroupConfig& g) {
         bool lightUpdated = Config::applyGroupSync(g);
+        // Re-check the actual local state after the merge: a stale tombstone
+        // can lose the metadata-revision race (group still exists locally),
+        // and a stale recreate can equally lose to an already-applied delete.
+        GroupConfig* applied = Config::group(g.id);
         Config::save();
-        if (!g.exists) {
+        if (!applied) {
             // Group deleted — move any lights in it to Default
             Config::forEachLight([&](uint8_t, LightHardwareConfig& l) {
                 if (l.groupId == g.id) l.groupId = 0;
             });
             Config::save();
             applyAllLights();
-        } else if (lightUpdated && g.exists) {
+        } else if (lightUpdated) {
             Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
                 if (l.groupId == g.id && _leds[i])
-                    _runners[i].applyConfig(g.light);
+                    _runners[i].applyConfig(applied->light);
             });
         }
         webServer.pushGroups();

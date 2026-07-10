@@ -155,6 +155,13 @@ struct GroupConfig {
     LightConfig light;
     bool        exists      = false;
     bool        syncEnabled = true;
+    // Revision + origin for name/exists/syncEnabled, independent of light.seq —
+    // same convergence pattern as DeviceConfig::wifiPolicyRevision/wifiPolicyOriginMac
+    // (see MeshManager::MeshPolicyState). Monotonic per group id: survives
+    // delete/recreate cycles so a stale cached peer can never out-rank a new
+    // group created in a reused slot.
+    uint32_t    revision     = 0;
+    uint8_t     originMac[6] = {};
 };
 
 // Shared JSON (de)serialization for LightConfig/GroupConfig fields, used by both
@@ -252,6 +259,10 @@ public:
 
     static uint8_t createGroup(const char* name);
 
+    // Bumps a group's metadata revision and stamps it as originating from this
+    // device. Call before broadcasting any name/exists/syncEnabled change.
+    static void bumpGroupRevision(GroupConfig& g);
+
     // Invoke fn(index, light) for every configured light where light.exists is true.
     static void forEachLight(const std::function<void(uint8_t, LightHardwareConfig&)>& fn) {
         for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
@@ -284,7 +295,16 @@ public:
         }
     }
 
+    // Merges an incoming GroupSync against local state. name/exists/syncEnabled
+    // are reconciled by revision, light by light.seq — independently of each
+    // other. Returns true if light was applied (caller should re-apply it to
+    // the runners).
     static bool applyGroupSync(const GroupConfig& g);
+
+    // Compares only the metadata-revision fields (revision, then originMac as a
+    // deterministic tie-break) of two GroupConfigs for the same group id.
+    // >0 if a is ahead of b, <0 if behind, 0 if identical.
+    static int compareGroupRevision(const GroupConfig& a, const GroupConfig& b);
 
     static void applyConfigSync(const char* json, size_t len);
 

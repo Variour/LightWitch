@@ -610,8 +610,9 @@ private:
         if (id == 0xFF) {
             auto e = _makeErr("group limit reached"); _sendJson(r, 400, e); return;
         }
+        GroupConfig& g = Config::get().groups[id];
+        Config::bumpGroupRevision(g);
         Config::save();
-        const GroupConfig& g = Config::get().groups[id];
         if (_onGroupSync) _onGroupSync(g);
 
         JsonDocument resp;
@@ -638,6 +639,7 @@ private:
 
         if (!doc["syncEnabled"].isNull()) {
             g->syncEnabled = (bool)doc["syncEnabled"];
+            Config::bumpGroupRevision(*g);
             Config::save();
             if (_onGroupSync) _onGroupSync(*g);
             auto ok = _makeOk(); _sendJson(r, 200, ok);
@@ -661,6 +663,7 @@ private:
             if (_onGroupLight) _onGroupLight(id, g->light);
         }
         if (nameChanged) {
+            Config::bumpGroupRevision(*g);
             if (_onGroupSync) _onGroupSync(*g);
         }
 
@@ -678,6 +681,7 @@ private:
         GroupConfig* g = Config::group(id);
         if (!g) { auto e = _makeErr("not found"); _sendJson(r, 404, e); return; }
 
+        Config::bumpGroupRevision(*g);
         GroupConfig tombstone = *g;
         tombstone.exists = false;
         g->exists = false;

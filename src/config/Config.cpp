@@ -2,6 +2,7 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <esp_mac.h>
+#include <WiFi.h>
 #include "../logging/Logger.h"
 
 DeviceConfig    Config::_cfg;
@@ -67,6 +68,9 @@ void serializeGroup(JsonObject o, const GroupConfig& g) {
     o["name"]        = g.name;
     o["exists"]      = g.exists;
     o["syncEnabled"] = g.syncEnabled;
+    o["revision"]    = g.revision;
+    JsonArray origin = o["originMac"].to<JsonArray>();
+    for (uint8_t i = 0; i < 6; i++) origin.add(g.originMac[i]);
     serializeLightConfig(o, g.light);
 }
 
@@ -74,6 +78,8 @@ void deserializeGroup(JsonVariant o, GroupConfig& g) {
     g.id          = o["id"]          | (uint8_t)0;
     g.exists      = o["exists"]      | false;
     g.syncEnabled = o["syncEnabled"] | true;
+    g.revision    = o["revision"]    | (uint32_t)0;
+    for (uint8_t i = 0; i < 6; i++) g.originMac[i] = o["originMac"][i] | (uint8_t)0;
     strlcpy(g.name, o["name"] | "Default", sizeof(g.name));
     g.light = deserializeLightConfig(o, LightConfig{});
 }
@@ -315,9 +321,14 @@ void Config::reset() {
 uint8_t Config::createGroup(const char* name) {
     for (uint8_t i = 1; i < MAX_GROUPS; i++) {
         if (!_cfg.groups[i].exists) {
-            _cfg.groups[i] = GroupConfig{};
-            _cfg.groups[i].id     = i;
-            _cfg.groups[i].exists = true;
+            // Preserve the slot's revision counter across delete/recreate cycles —
+            // it must stay monotonic so a peer that cached the previous occupant's
+            // (higher) revision can't reject this new group forever.
+            uint32_t prevRevision = _cfg.groups[i].revision;
+            _cfg.groups[i]          = GroupConfig{};
+            _cfg.groups[i].id       = i;
+            _cfg.groups[i].exists   = true;
+            _cfg.groups[i].revision = prevRevision;
             strlcpy(_cfg.groups[i].name, name, sizeof(_cfg.groups[i].name));
             return i;
         }
@@ -325,19 +336,38 @@ uint8_t Config::createGroup(const char* name) {
     return 0xFF;
 }
 
+void Config::bumpGroupRevision(GroupConfig& g) {
+    g.revision++;
+    WiFi.macAddress(g.originMac);
+}
+
+int Config::compareGroupRevision(const GroupConfig& a, const GroupConfig& b) {
+    if (a.revision != b.revision) return a.revision > b.revision ? 1 : -1;
+    int macCmp = memcmp(a.originMac, b.originMac, sizeof(a.originMac));
+    return macCmp > 0 ? 1 : (macCmp < 0 ? -1 : 0);
+}
+
 bool Config::applyGroupSync(const GroupConfig& g) {
     if (g.id >= MAX_GROUPS) return false;
-    if (!g.exists) {
-        _cfg.groups[g.id].exists = false;
-        return false;
-    }
-    bool hadGroup   = _cfg.groups[g.id].exists;
-    uint32_t ourSeq = hadGroup ? _cfg.groups[g.id].light.seq : 0;
+    GroupConfig& local = _cfg.groups[g.id];
+
+    bool hadGroup   = local.exists;
+    uint32_t ourSeq = hadGroup ? local.light.seq : 0;
     bool lightWins  = !hadGroup || g.light.seq >= ourSeq;
 
-    LightConfig savedLight = _cfg.groups[g.id].light;
-    _cfg.groups[g.id] = g;
-    if (!lightWins) _cfg.groups[g.id].light = savedLight;
+    // name/exists/syncEnabled are reconciled by revision, independent of
+    // light.seq — this is also what resolves a delete-vs-recreate race on the
+    // same slot, since exists is just another revision-guarded field now.
+    if (compareGroupRevision(g, local) >= 0) {
+        local.id          = g.id;
+        local.exists      = g.exists;
+        local.syncEnabled = g.syncEnabled;
+        local.revision    = g.revision;
+        memcpy(local.originMac, g.originMac, sizeof(local.originMac));
+        strlcpy(local.name, g.name, sizeof(local.name));
+    }
+
+    if (lightWins) local.light = g.light;
 
     return lightWins;
 }

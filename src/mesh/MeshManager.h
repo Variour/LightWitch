@@ -116,6 +116,13 @@ public:
             _lastMeshPolicySync = now;
             broadcastMeshPolicy(_currentMeshPolicyState());
         }
+        // Periodically re-advertise every existing group so an already-known
+        // peer that missed a GroupSync (dropped packet) self-heals without
+        // waiting for an unrelated group mutation.
+        if (now - _lastGroupSync >= 15000) {
+            _lastGroupSync = now;
+            broadcastAllGroups();
+        }
 
         // Proximity: enable sniffer + ping if any light is in proximity mode
         bool inProximity = _anyProximity();
@@ -344,6 +351,7 @@ private:
     bool     _snifferRunning       = false;
     uint32_t _lastHeartbeat        = 0;
     uint32_t _lastMeshPolicySync   = 0;
+    uint32_t _lastGroupSync        = 0;
     uint32_t _lastPhaseBroadcast   = 0;
     uint32_t _lastProximityPing    = 0;
     uint8_t  _lastSentGroup      = 0xFF;
@@ -553,6 +561,17 @@ private:
         }
     }
 
+    // Merges an incoming GroupSync via Config::applyGroupSync, then — if our
+    // metadata revision turned out to be ahead of the sender's — re-broadcasts
+    // our (winning) local state so the sender/mesh self-heals immediately
+    // instead of waiting for the next periodic re-advertisement.
+    void _reconcileGroupSync(const GroupConfig& remote) {
+        if (remote.id >= MAX_GROUPS || !_onGroupSync) return;
+        _onGroupSync(remote);
+        const GroupConfig& local = Config::get().groups[remote.id];
+        if (Config::compareGroupRevision(local, remote) > 0) broadcastGroupSync(local);
+    }
+
     template <typename T>
     static bool _hasExactLen(int len) {
         return len == (int)sizeof(T);
@@ -683,9 +702,9 @@ private:
             case MsgType::GroupSync: {
                 if (len < (int)sizeof(GroupSyncMsg)) return;
                 auto* m = (GroupSyncMsg*)data;
-                Logger::i("[mesh] group-sync rx: group %u \"%s\" exists=%d",
-                          m->group.id, m->group.name, m->group.exists);
-                if (_instance->_onGroupSync) _instance->_onGroupSync(m->group);
+                Logger::i("[mesh] group-sync rx: group %u \"%s\" exists=%d rev=%lu",
+                          m->group.id, m->group.name, m->group.exists, (unsigned long)m->group.revision);
+                _instance->_reconcileGroupSync(m->group);
                 break;
             }
             case MsgType::PhaseSync: {
