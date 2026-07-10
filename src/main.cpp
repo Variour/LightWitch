@@ -41,6 +41,27 @@ static bool             _otaActive = false;
 static constexpr uint32_t PATTERN_TICK_INTERVAL_MS = 1000 / 60;
 static uint32_t           _lastPatternTickMs        = 0;
 
+// Caps how often the background subsystems below (OTA polling, web server
+// housekeeping, mesh, wifi election, time sync, MQTT, buttons, scene sync)
+// are ticked. Unthrottled, loop() spins as fast as the CPU allows and calls
+// all of them — GPIO reads, socket polls, WiFi.status() — on every single
+// pass. 5 ms (200 Hz) comfortably oversamples the tightest consumers: button
+// debounce (30 ms, see ButtonManager::DEBOUNCE_MS) and scene-sync's chunk
+// pacing (20 ms, see SYNC_CHUNK_SEND_INTERVAL_MS); every other subsystem's
+// own internal timers run in the hundreds/thousands of ms. A live OTA
+// transfer bypasses this for ArduinoOTA.handle() so flashing stays full-speed.
+static constexpr uint32_t BACKGROUND_TICK_INTERVAL_MS = 5;
+static uint32_t           _lastBackgroundTickMs        = 0;
+
+// Second, slower tier for the subsystems whose own timers are all in the
+// hundreds-of-ms-to-seconds range: mesh's tightest is a 500 ms proximity
+// ping, wifi election's tightest is a 100 ms pre-connect delay, channel scan
+// dwells 6-9 s, MQTT's keepalive is 30 s. 20 Hz oversamples all of them with
+// room to spare. Buttons and scene sync stay on the faster tier above since
+// their own timers (30 ms debounce, 20 ms chunk pacing) can't tolerate this.
+static constexpr uint32_t SLOW_TICK_INTERVAL_MS = 50;
+static uint32_t           _lastSlowTickMs        = 0;
+
 // Tracks the last-rendered firmware-update status so the progress fill is
 // only redrawn when it actually changes, not on every loop() iteration.
 static Updater::State     _lastUpdateState           = Updater::State::Idle;
@@ -551,8 +572,16 @@ void setup() {
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 void loop() {
-    if (Config::get().otaEnabled) ArduinoOTA.handle();
-    webServer.loop();
+    uint32_t now            = millis();
+    bool     backgroundTick = now - _lastBackgroundTickMs >= BACKGROUND_TICK_INTERVAL_MS;
+    if (backgroundTick) _lastBackgroundTickMs = now;
+    bool     slowTick       = now - _lastSlowTickMs >= SLOW_TICK_INTERVAL_MS;
+    if (slowTick) _lastSlowTickMs = now;
+
+    // Idle OTA polling is throttled with everything else; once a transfer is
+    // actually in flight (_otaActive), run every pass so flashing isn't slowed.
+    if (Config::get().otaEnabled && (slowTick || _otaActive)) ArduinoOTA.handle();
+    if (slowTick) webServer.loop();
 
     Updater::State updState = Updater::status().state;
 
@@ -580,7 +609,7 @@ void loop() {
     }
     _lastUpdateState = updState;
 
-    if (!_otaActive) {
+    if (!_otaActive && slowTick) {
         channelMgr.tick();
         mesh.tick();
         wifiElection.tick();
@@ -591,13 +620,15 @@ void loop() {
         }
         TimeSync::tick();
         mqtt.loop();
+    }
+    if (!_otaActive && backgroundTick) {
         buttonManager.tick();
-        uint32_t now = millis();
-        if (now - _lastPatternTickMs >= PATTERN_TICK_INTERVAL_MS) {
-            _lastPatternTickMs = now;
-            for (uint8_t i = 0; i < MAX_LIGHTS; i++)
-                if (_leds[i]) _runners[i].tick();
-        }
         sceneSync.tick();
+    }
+
+    if (!_otaActive && now - _lastPatternTickMs >= PATTERN_TICK_INTERVAL_MS) {
+        _lastPatternTickMs = now;
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+            if (_leds[i]) _runners[i].tick();
     }
 }
