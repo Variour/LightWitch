@@ -2,6 +2,7 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <esp_mac.h>
+#include <WiFi.h>
 #include "../logging/Logger.h"
 
 DeviceConfig    Config::_cfg;
@@ -181,6 +182,16 @@ static void applyDoc(JsonDocument& doc) {
         }
     }
 
+    if (doc["groupRevisions"].is<JsonArray>()) {
+        for (JsonVariant v : doc["groupRevisions"].as<JsonArray>()) {
+            uint8_t id = v["id"] | (uint8_t)0;
+            if (id >= MAX_GROUPS) continue;
+            auto& g = Config::get().groups[id];
+            g.revision = v["revision"] | (uint32_t)0;
+            for (uint8_t b = 0; b < 6; b++) g.originMac[b] = v["originMac"][b] | (uint8_t)0;
+        }
+    }
+
     if (doc["buttons"].is<JsonArray>()) {
         for (JsonVariant v : doc["buttons"].as<JsonArray>()) {
             uint8_t idx = v["index"] | (uint8_t)0;
@@ -281,6 +292,20 @@ bool Config::save() {
     for (uint8_t i = 0; i < MAX_GROUPS; i++)
         if (_cfg.groups[i].exists) serializeGroup(arr.add<JsonObject>(), _cfg.groups[i]);
 
+    // Mesh-internal only (not part of the API-facing group shape, unlike the
+    // "groups" array above) — every slot is saved regardless of exists, so a
+    // group's revision counter survives both a delete and a reboot, staying
+    // monotonic if the slot is later reused. Mirrors wifiPolicyRevision/
+    // wifiPolicyOriginMac above, just indexed per group.
+    JsonArray revArr = doc["groupRevisions"].to<JsonArray>();
+    for (uint8_t i = 0; i < MAX_GROUPS; i++) {
+        JsonObject o = revArr.add<JsonObject>();
+        o["id"]       = i;
+        o["revision"] = _cfg.groups[i].revision;
+        JsonArray origin = o["originMac"].to<JsonArray>();
+        for (uint8_t b = 0; b < 6; b++) origin.add(_cfg.groups[i].originMac[b]);
+    }
+
     JsonArray buttonsArr = doc["buttons"].to<JsonArray>();
     for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
         if (!_cfg.buttons[i].exists) continue;
@@ -315,9 +340,14 @@ void Config::reset() {
 uint8_t Config::createGroup(const char* name) {
     for (uint8_t i = 1; i < MAX_GROUPS; i++) {
         if (!_cfg.groups[i].exists) {
-            _cfg.groups[i] = GroupConfig{};
-            _cfg.groups[i].id     = i;
-            _cfg.groups[i].exists = true;
+            // Preserve the slot's revision counter across delete/recreate cycles —
+            // it must stay monotonic so a peer that cached the previous occupant's
+            // (higher) revision can't reject this new group forever.
+            uint32_t prevRevision = _cfg.groups[i].revision;
+            _cfg.groups[i]          = GroupConfig{};
+            _cfg.groups[i].id       = i;
+            _cfg.groups[i].exists   = true;
+            _cfg.groups[i].revision = prevRevision;
             strlcpy(_cfg.groups[i].name, name, sizeof(_cfg.groups[i].name));
             return i;
         }
@@ -325,19 +355,38 @@ uint8_t Config::createGroup(const char* name) {
     return 0xFF;
 }
 
+void Config::bumpGroupRevision(GroupConfig& g) {
+    g.revision++;
+    WiFi.macAddress(g.originMac);
+}
+
+int Config::compareGroupRevision(const GroupConfig& a, const GroupConfig& b) {
+    if (a.revision != b.revision) return a.revision > b.revision ? 1 : -1;
+    int macCmp = memcmp(a.originMac, b.originMac, sizeof(a.originMac));
+    return macCmp > 0 ? 1 : (macCmp < 0 ? -1 : 0);
+}
+
 bool Config::applyGroupSync(const GroupConfig& g) {
     if (g.id >= MAX_GROUPS) return false;
-    if (!g.exists) {
-        _cfg.groups[g.id].exists = false;
-        return false;
-    }
-    bool hadGroup   = _cfg.groups[g.id].exists;
-    uint32_t ourSeq = hadGroup ? _cfg.groups[g.id].light.seq : 0;
+    GroupConfig& local = _cfg.groups[g.id];
+
+    bool hadGroup   = local.exists;
+    uint32_t ourSeq = hadGroup ? local.light.seq : 0;
     bool lightWins  = !hadGroup || g.light.seq >= ourSeq;
 
-    LightConfig savedLight = _cfg.groups[g.id].light;
-    _cfg.groups[g.id] = g;
-    if (!lightWins) _cfg.groups[g.id].light = savedLight;
+    // name/exists/syncEnabled are reconciled by revision, independent of
+    // light.seq — this is also what resolves a delete-vs-recreate race on the
+    // same slot, since exists is just another revision-guarded field now.
+    if (compareGroupRevision(g, local) >= 0) {
+        local.id          = g.id;
+        local.exists      = g.exists;
+        local.syncEnabled = g.syncEnabled;
+        local.revision    = g.revision;
+        memcpy(local.originMac, g.originMac, sizeof(local.originMac));
+        strlcpy(local.name, g.name, sizeof(local.name));
+    }
+
+    if (lightWins) local.light = g.light;
 
     return lightWins;
 }

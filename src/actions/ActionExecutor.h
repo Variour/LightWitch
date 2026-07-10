@@ -31,6 +31,7 @@ public:
 
         if (action.action == ActionId::GroupSyncToggle) {
             g->syncEnabled = !g->syncEnabled;
+            Config::bumpGroupRevision(*g);
             Config::save();
             if (_broadcastGroupSync) _broadcastGroupSync(*g);
             return;
