@@ -510,7 +510,7 @@ input[type=checkbox]:active { background-color: #1a5; }
     </div>
     <div class="lights-table-wrap">
       <table class="lights-table">
-        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync <button type="button" class="info-tip" aria-label="Scene sync: share and receive scene files with other mesh peers" data-tip="Scene sync: share and receive scene files with other mesh peers">i</button></th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
         <tbody id="lights-body"><tr><td colspan="7" style="color:#444">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -1637,9 +1637,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
     const rssiText = (!p.isSelf && online && p.rssi != null) ? `${p.rssi} dBm` : '–';
     const syncEnabled = p.sceneSyncEnabled !== false;
     const syncTip = 'Scene sync: share and receive scene files with other mesh peers';
-    const syncCell = `<input type="checkbox" aria-label="${esc(syncTip)}" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
-    // Mobile card list has no column header, so the checkbox needs its own inline info trigger.
-    const syncCellMobile = syncCell + tipIcon(syncTip);
+    const syncCell = `<input type="checkbox" class="tip-action" aria-label="${esc(syncTip)}" data-tip="${esc(syncTip)}" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
 
     const wifiOn = p.wifiConnected === true;
     const wifiConnecting = !wifiOn && p.wifiConnecting === true;
@@ -1685,12 +1683,12 @@ function renderLights(self, peers, wifiSingleClientMode) {
         const handler = p.isSelf
           ? `triggerSelfUpdate(this,'${mac}')`
           : `triggerPeerUpdate(this,'${mac}')`;
-        fwIconHtml = `<button class="btn-fw-trigger" aria-label="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>` + tipIcon(fwTitle);
+        fwIconHtml = `<button class="btn-fw-trigger tip-action" aria-label="${esc(fwTitle)}" data-tip="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
       } else if (canCheck) {
         const handler = p.isSelf
           ? `checkSelfUpdate(this,'${mac}')`
           : `checkPeerUpdate(this,'${mac}')`;
-        fwIconHtml = `<button class="btn-fw-trigger" aria-label="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>` + tipIcon(fwTitle);
+        fwIconHtml = `<button class="btn-fw-trigger tip-action" aria-label="${esc(fwTitle)}" data-tip="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
       } else {
         fwIconHtml = `<span class="tip-target" tabindex="0" role="button" aria-label="${esc(fwTitle)}" data-tip="${esc(fwTitle)}">${fwSvg(fwColor)}</span>`;
       }
@@ -1723,7 +1721,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
       wifiIcon,
       signalIcon,
       ver ? fwIconHtml : '',
-      syncCellMobile
+      syncCell
     ].filter(Boolean).join('');
 
     const mobileActions = pushCell
@@ -2410,13 +2408,32 @@ function tipIcon(text) {
   const hoverCapable = window.matchMedia('(hover: hover)').matches;
   if (hoverCapable) {
     document.addEventListener('mouseover', e => {
-      const t = e.target.closest('.info-tip, .tip-target');
+      const t = e.target.closest('.info-tip, .tip-target, .tip-action');
       if (t) { clearTimeout(hoverTimer); hoverTimer = setTimeout(() => show(t), 150); }
     });
     document.addEventListener('mouseout', e => {
-      const t = e.target.closest('.info-tip, .tip-target');
+      const t = e.target.closest('.info-tip, .tip-target, .tip-action');
       if (t) { clearTimeout(hoverTimer); hide(); }
     });
+  }
+  // .tip-action elements (buttons/checkboxes that also have their own click/change
+  // action) get a two-stage tap on touch devices: first tap previews the tooltip
+  // and swallows the action, a second tap on the same element lets it through.
+  // Runs in the capture phase so it can veto the element's own click handler
+  // before that handler ever fires. Hover-capable devices skip this entirely —
+  // hover already previewed the info, so a click just performs the action.
+  if (!hoverCapable) {
+    document.addEventListener('click', e => {
+      const t = e.target.closest('.tip-action');
+      if (!t) return;
+      if (openFor !== t) {
+        e.preventDefault();
+        e.stopPropagation();
+        show(t);
+      } else {
+        hide();
+      }
+    }, true);
   }
   document.addEventListener('click', e => {
     const t = e.target.closest('.info-tip, .tip-target');
