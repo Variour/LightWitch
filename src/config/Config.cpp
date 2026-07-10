@@ -339,13 +339,17 @@ uint8_t Config::createGroup(const char* name) {
         if (!_cfg.groups[i].exists) {
             // Preserve the slot's revision counter across delete/recreate cycles —
             // it must stay monotonic so a peer that cached the previous occupant's
-            // (higher) revision can't reject this new group forever.
+            // (higher) revision can't reject this new group forever. bumpGroupRevision
+            // below re-bumps past whatever we just preserved and stamps our MAC, so
+            // the returned group is fully ready to broadcast without any further
+            // caller action.
             uint32_t prevRevision = _cfg.groups[i].revision;
             _cfg.groups[i]          = GroupConfig{};
             _cfg.groups[i].id       = i;
             _cfg.groups[i].exists   = true;
             _cfg.groups[i].revision = prevRevision;
             strlcpy(_cfg.groups[i].name, name, sizeof(_cfg.groups[i].name));
+            bumpGroupRevision(_cfg.groups[i]);
             return i;
         }
     }

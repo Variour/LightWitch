@@ -610,8 +610,7 @@ private:
         if (id == 0xFF) {
             auto e = _makeErr("group limit reached"); _sendJson(r, 400, e); return;
         }
-        GroupConfig& g = Config::get().groups[id];
-        Config::bumpGroupRevision(g);
+        const GroupConfig& g = Config::get().groups[id];
         Config::save();
         if (_onGroupSync) _onGroupSync(g);
 

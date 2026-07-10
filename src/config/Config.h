@@ -260,10 +260,15 @@ public:
         return nullptr;
     }
 
+    // Creates a group in the first free slot (never slot 0, the permanent
+    // Default group). Internally calls bumpGroupRevision on it, so the
+    // returned group's revision/originMac are already ready to broadcast —
+    // callers must not call bumpGroupRevision again for the creation itself.
     static uint8_t createGroup(const char* name);
 
     // Bumps a group's metadata revision and stamps it as originating from this
-    // device. Call before broadcasting any name/exists/syncEnabled change.
+    // device. Call before broadcasting any name/exists/syncEnabled change —
+    // except right after createGroup(), which already does this internally.
     static void bumpGroupRevision(GroupConfig& g);
 
     // Invoke fn(index, light) for every configured light where light.exists is true.
