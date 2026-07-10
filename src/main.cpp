@@ -53,6 +53,15 @@ static uint32_t           _lastPatternTickMs        = 0;
 static constexpr uint32_t BACKGROUND_TICK_INTERVAL_MS = 5;
 static uint32_t           _lastBackgroundTickMs        = 0;
 
+// Second, slower tier for the subsystems whose own timers are all in the
+// hundreds-of-ms-to-seconds range: mesh's tightest is a 500 ms proximity
+// ping, wifi election's tightest is a 100 ms pre-connect delay, channel scan
+// dwells 6-9 s, MQTT's keepalive is 30 s. 20 Hz oversamples all of them with
+// room to spare. Buttons and scene sync stay on the faster tier above since
+// their own timers (30 ms debounce, 20 ms chunk pacing) can't tolerate this.
+static constexpr uint32_t SLOW_TICK_INTERVAL_MS = 50;
+static uint32_t           _lastSlowTickMs        = 0;
+
 // Tracks the last-rendered firmware-update status so the progress fill is
 // only redrawn when it actually changes, not on every loop() iteration.
 static Updater::State     _lastUpdateState           = Updater::State::Idle;
@@ -563,14 +572,16 @@ void setup() {
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 void loop() {
-    uint32_t now           = millis();
+    uint32_t now            = millis();
     bool     backgroundTick = now - _lastBackgroundTickMs >= BACKGROUND_TICK_INTERVAL_MS;
     if (backgroundTick) _lastBackgroundTickMs = now;
+    bool     slowTick       = now - _lastSlowTickMs >= SLOW_TICK_INTERVAL_MS;
+    if (slowTick) _lastSlowTickMs = now;
 
     // Idle OTA polling is throttled with everything else; once a transfer is
     // actually in flight (_otaActive), run every pass so flashing isn't slowed.
-    if (Config::get().otaEnabled && (backgroundTick || _otaActive)) ArduinoOTA.handle();
-    if (backgroundTick) webServer.loop();
+    if (Config::get().otaEnabled && (slowTick || _otaActive)) ArduinoOTA.handle();
+    if (slowTick) webServer.loop();
 
     Updater::State updState = Updater::status().state;
 
@@ -598,7 +609,7 @@ void loop() {
     }
     _lastUpdateState = updState;
 
-    if (!_otaActive && backgroundTick) {
+    if (!_otaActive && slowTick) {
         channelMgr.tick();
         mesh.tick();
         wifiElection.tick();
@@ -609,6 +620,8 @@ void loop() {
         }
         TimeSync::tick();
         mqtt.loop();
+    }
+    if (!_otaActive && backgroundTick) {
         buttonManager.tick();
         sceneSync.tick();
     }
