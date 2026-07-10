@@ -562,20 +562,18 @@ private:
     }
 
     // Merges an incoming GroupSync via Config::applyGroupSync, then — if our
-    // metadata revision turned out to be ahead of the sender's — re-broadcasts
-    // our (winning) local state so the sender/mesh self-heals immediately
-    // instead of waiting for the next periodic re-advertisement.
+    // revision turned out to be ahead of the sender's — re-broadcasts our
+    // (winning) local state so the sender/mesh self-heals immediately instead
+    // of waiting for the next periodic re-advertisement.
     //
     // Skips the merge (and its Config::save()) entirely when remote has
-    // nothing newer than what we already have on either axis — otherwise the
-    // 15s periodic re-advertisement from every peer would trigger a flash
-    // write here on every tick even when nothing actually changed.
+    // nothing newer than what we already have — otherwise the 15s periodic
+    // re-advertisement from every peer would trigger a flash write here on
+    // every tick even when nothing actually changed.
     void _reconcileGroupSync(const GroupConfig& remote) {
         if (remote.id >= MAX_GROUPS || !_onGroupSync) return;
         const GroupConfig& local = Config::get().groups[remote.id];
-        bool remoteAhead = Config::compareGroupRevision(remote, local) > 0
-                         || !local.exists
-                         || remote.light.seq > local.light.seq;
+        bool remoteAhead = !local.exists || Config::compareGroupRevision(remote, local) > 0;
         if (remoteAhead) _onGroupSync(remote);
         if (Config::compareGroupRevision(local, remote) > 0) broadcastGroupSync(local);
     }

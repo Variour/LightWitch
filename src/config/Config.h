@@ -107,6 +107,10 @@ struct LightConfig {
     Color     color             = Color{255, 255, 255};
     uint8_t   brightness        = 255;
     float     speed             = 1.0f;
+    // Monotonic per group id; NOT used for GroupSync-level conflict resolution
+    // (see GroupConfig::revision for that) — only for the standalone
+    // LightConfigMsg mesh channel's staleness check and mesh self-echo
+    // suppression (see MeshManager), and to order same-device local edits.
     uint32_t  seq               = 0;
     bool      transitionEnabled = false;
     bool      sceneUniformColor = false;  // string lights: whole string shares one random scene color
@@ -155,12 +159,15 @@ struct GroupConfig {
     LightConfig light;
     bool        exists      = false;
     bool        syncEnabled = true;
-    // Mesh-internal revision + origin for name/exists/syncEnabled, independent
-    // of light.seq — same convergence pattern as DeviceConfig::wifiPolicyRevision/
-    // wifiPolicyOriginMac (see MeshManager::MeshPolicyState). Monotonic per
-    // group id: survives delete/recreate cycles (persisted separately in
-    // Config::save/load as "groupRevisions", not via serializeGroup) so a stale
-    // cached peer can never out-rank a new group created in a reused slot.
+    // Mesh-internal revision + origin governing the *whole* group (name,
+    // exists, syncEnabled, and light all move together as one unit — see
+    // Config::applyGroupSync) — same convergence pattern as
+    // DeviceConfig::wifiPolicyRevision/wifiPolicyOriginMac (see
+    // MeshManager::MeshPolicyState). Monotonic per group id: survives
+    // delete/recreate cycles (persisted separately in Config::save/load as
+    // "groupRevisions", not via serializeGroup) so a stale cached peer can
+    // never out-rank a new group created in a reused slot — including its
+    // light, which shares this same counter.
     // Deliberately not part of serializeGroup/deserializeGroup — like the
     // wifiPolicy fields, this stays out of the REST/WebSocket API surface.
     uint32_t    revision     = 0;
@@ -266,8 +273,8 @@ public:
     // callers must not call bumpGroupRevision again for the creation itself.
     static uint8_t createGroup(const char* name);
 
-    // Bumps a group's metadata revision and stamps it as originating from this
-    // device. Call before broadcasting any name/exists/syncEnabled change —
+    // Bumps a group's revision and stamps it as originating from this device.
+    // Call before broadcasting any name/exists/syncEnabled/light change —
     // except right after createGroup(), which already does this internally.
     static void bumpGroupRevision(GroupConfig& g);
 
@@ -303,13 +310,14 @@ public:
         }
     }
 
-    // Merges an incoming GroupSync against local state. name/exists/syncEnabled
-    // are reconciled by revision, light by light.seq — independently of each
-    // other. Returns true if light was applied (caller should re-apply it to
-    // the runners).
+    // Merges an incoming GroupSync against local state. A single revision +
+    // originMac now governs the whole group (see GroupConfig::revision), so
+    // this either adopts the incoming group wholesale or rejects it wholesale
+    // — no per-field splitting. Returns true if it was adopted (caller should
+    // re-apply light to the runners and persist).
     static bool applyGroupSync(const GroupConfig& g);
 
-    // Compares only the metadata-revision fields (revision, then originMac as a
+    // Compares only the revision fields (revision, then originMac as a
     // deterministic tie-break) of two GroupConfigs for the same group id.
     // >0 if a is ahead of b, <0 if behind, 0 if identical.
     static int compareGroupRevision(const GroupConfig& a, const GroupConfig& b);
