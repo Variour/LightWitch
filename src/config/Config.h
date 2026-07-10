@@ -155,11 +155,14 @@ struct GroupConfig {
     LightConfig light;
     bool        exists      = false;
     bool        syncEnabled = true;
-    // Revision + origin for name/exists/syncEnabled, independent of light.seq —
-    // same convergence pattern as DeviceConfig::wifiPolicyRevision/wifiPolicyOriginMac
-    // (see MeshManager::MeshPolicyState). Monotonic per group id: survives
-    // delete/recreate cycles so a stale cached peer can never out-rank a new
-    // group created in a reused slot.
+    // Mesh-internal revision + origin for name/exists/syncEnabled, independent
+    // of light.seq — same convergence pattern as DeviceConfig::wifiPolicyRevision/
+    // wifiPolicyOriginMac (see MeshManager::MeshPolicyState). Monotonic per
+    // group id: survives delete/recreate cycles (persisted separately in
+    // Config::save/load as "groupRevisions", not via serializeGroup) so a stale
+    // cached peer can never out-rank a new group created in a reused slot.
+    // Deliberately not part of serializeGroup/deserializeGroup — like the
+    // wifiPolicy fields, this stays out of the REST/WebSocket API surface.
     uint32_t    revision     = 0;
     uint8_t     originMac[6] = {};
 };

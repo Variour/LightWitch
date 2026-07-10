@@ -68,9 +68,6 @@ void serializeGroup(JsonObject o, const GroupConfig& g) {
     o["name"]        = g.name;
     o["exists"]      = g.exists;
     o["syncEnabled"] = g.syncEnabled;
-    o["revision"]    = g.revision;
-    JsonArray origin = o["originMac"].to<JsonArray>();
-    for (uint8_t i = 0; i < 6; i++) origin.add(g.originMac[i]);
     serializeLightConfig(o, g.light);
 }
 
@@ -78,8 +75,6 @@ void deserializeGroup(JsonVariant o, GroupConfig& g) {
     g.id          = o["id"]          | (uint8_t)0;
     g.exists      = o["exists"]      | false;
     g.syncEnabled = o["syncEnabled"] | true;
-    g.revision    = o["revision"]    | (uint32_t)0;
-    for (uint8_t i = 0; i < 6; i++) g.originMac[i] = o["originMac"][i] | (uint8_t)0;
     strlcpy(g.name, o["name"] | "Default", sizeof(g.name));
     g.light = deserializeLightConfig(o, LightConfig{});
 }
@@ -187,6 +182,16 @@ static void applyDoc(JsonDocument& doc) {
         }
     }
 
+    if (doc["groupRevisions"].is<JsonArray>()) {
+        for (JsonVariant v : doc["groupRevisions"].as<JsonArray>()) {
+            uint8_t id = v["id"] | (uint8_t)0;
+            if (id >= MAX_GROUPS) continue;
+            auto& g = Config::get().groups[id];
+            g.revision = v["revision"] | (uint32_t)0;
+            for (uint8_t b = 0; b < 6; b++) g.originMac[b] = v["originMac"][b] | (uint8_t)0;
+        }
+    }
+
     if (doc["buttons"].is<JsonArray>()) {
         for (JsonVariant v : doc["buttons"].as<JsonArray>()) {
             uint8_t idx = v["index"] | (uint8_t)0;
@@ -286,6 +291,20 @@ bool Config::save() {
     JsonArray arr = doc["groups"].to<JsonArray>();
     for (uint8_t i = 0; i < MAX_GROUPS; i++)
         if (_cfg.groups[i].exists) serializeGroup(arr.add<JsonObject>(), _cfg.groups[i]);
+
+    // Mesh-internal only (not part of the API-facing group shape, unlike the
+    // "groups" array above) — every slot is saved regardless of exists, so a
+    // group's revision counter survives both a delete and a reboot, staying
+    // monotonic if the slot is later reused. Mirrors wifiPolicyRevision/
+    // wifiPolicyOriginMac above, just indexed per group.
+    JsonArray revArr = doc["groupRevisions"].to<JsonArray>();
+    for (uint8_t i = 0; i < MAX_GROUPS; i++) {
+        JsonObject o = revArr.add<JsonObject>();
+        o["id"]       = i;
+        o["revision"] = _cfg.groups[i].revision;
+        JsonArray origin = o["originMac"].to<JsonArray>();
+        for (uint8_t b = 0; b < 6; b++) origin.add(_cfg.groups[i].originMac[b]);
+    }
 
     JsonArray buttonsArr = doc["buttons"].to<JsonArray>();
     for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
