@@ -120,7 +120,7 @@ Repeat for each physical light attached to the device (up to 4).
 
 ### Groups
 
-A **group** holds the pattern/scene/color state — lights don't have their own; they display whatever their assigned group is set to. Put multiple lights in the same group to keep them in sync, or in separate groups to control them independently. Each group can run a static color, a built-in pattern (breathing, color cycle, strobe, candle), a custom scene, proximity-reactive brightness, a gradient, or — on matrix lights — scrolling text or a clock.
+A **group** holds the pattern/scene/color state — lights don't have their own; they display whatever their assigned group is set to. Put multiple lights in the same group to keep them in sync, or in separate groups to control them independently.
 
 **Default** cannot be deleted; deleting any other group moves its lights back to Default.
 
