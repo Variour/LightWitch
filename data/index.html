@@ -164,19 +164,9 @@ input[type=checkbox]:active { background-color: #1a5; }
 .group-controls { display: grid; gap: .4rem; }
 .pattern-desc { font-size: .75rem; color: #555; margin-top: -.35rem; margin-bottom: .4rem; }
 
-/* Unified info tooltip: small trigger + shared floating bubble.
-   Desktop gets hover; touch devices (no hover) get tap-to-toggle; both get click. */
-.info-tip {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 1.15rem; height: 1.15rem; flex-shrink: 0;
-  border-radius: 50%; border: 1px solid #444; background: transparent;
-  color: #777; font-size: .68rem; font-weight: 700; font-style: italic;
-  font-family: Georgia, serif; line-height: 1; cursor: pointer; padding: 0;
-}
-.info-tip:hover, .info-tip:focus-visible { border-color: #2a6; color: #2a6; }
-.info-tip:focus-visible { outline: 2px solid #2a6; outline-offset: 1px; }
-/* Bare interaction hook for status icons that carry their own tooltip text
-   without a separate ⓘ badge (no unrelated click action to conflict with). */
+/* Unified info tooltip: shared floating bubble, shown by the informative
+   element itself (no separate icon/badge). Desktop hovers it; touch devices
+   tap it — see the .tip-target/.tip-action click handling below. */
 .tip-target { cursor: pointer; border-radius: 3px; }
 .tip-target:focus-visible { outline: 2px solid #2a6; outline-offset: 2px; }
 #tooltip-bubble {
@@ -489,23 +479,13 @@ input[type=checkbox]:active { background-color: #1a5; }
     <div class="flex-between" style="margin-bottom:.5rem;gap:.5rem;flex-wrap:wrap">
       <h2 style="margin:0">Connected Lights</h2>
       <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
-        <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.82rem;color:#aaa">
+        <label class="tip-action" aria-label="Only one mesh device connects to WiFi at a time — saves power on the rest. The first stable connection stays active; MAC only breaks ties if two candidates are already connected. Automatic failover." data-tip="Only one mesh device connects to WiFi at a time — saves power on the rest. The first stable connection stays active; MAC only breaks ties if two candidates are already connected. Automatic failover." style="display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.82rem;color:#aaa">
           <input type="checkbox" id="wifiSingleClientToggle" onchange="setWifiSingleClientMode(this.checked)">
           Single WiFi client
-          <button type="button" class="info-tip" aria-label="Only one mesh device connects to WiFi at a time — saves power on the rest. The first stable connection stays active; MAC only breaks ties if two candidates are already connected. Automatic failover." data-tip="Only one mesh device connects to WiFi at a time — saves power on the rest. The first stable connection stays active; MAC only breaks ties if two candidates are already connected. Automatic failover.">i</button>
         </label>
-        <span id="wifiRetryWrap" style="display:none;align-items:center;gap:.3rem">
-          <button class="btn-ghost btn-sm" id="wifiRetryBtn" onclick="retryWifi()">Retry WiFi</button>
-          <button type="button" class="info-tip" aria-label="Give every mesh device a fresh, immediate shot at connecting — useful if all candidates gave up (e.g. the router was briefly unreachable)" data-tip="Give every mesh device a fresh, immediate shot at connecting — useful if all candidates gave up (e.g. the router was briefly unreachable)">i</button>
-        </span>
-        <span style="display:inline-flex;align-items:center;gap:.3rem">
-          <button class="btn-ghost btn-sm" onclick="meshSearch()">Search channel</button>
-          <button type="button" class="info-tip" aria-label="Search for mesh peers on other channels" data-tip="Search for mesh peers on other channels">i</button>
-        </span>
-        <span style="display:inline-flex;align-items:center;gap:.3rem">
-          <button class="btn-ghost btn-sm" onclick="openPushModal(null)">Push config to all</button>
-          <button type="button" class="info-tip" aria-label="Push settings to all peers" data-tip="Push settings to all peers">i</button>
-        </span>
+        <button class="btn-ghost btn-sm tip-action" id="wifiRetryBtn" onclick="retryWifi()" style="display:none" aria-label="Give every mesh device a fresh, immediate shot at connecting — useful if all candidates gave up (e.g. the router was briefly unreachable)" data-tip="Give every mesh device a fresh, immediate shot at connecting — useful if all candidates gave up (e.g. the router was briefly unreachable)">Retry WiFi</button>
+        <button class="btn-ghost btn-sm tip-action" onclick="meshSearch()" aria-label="Search for mesh peers on other channels" data-tip="Search for mesh peers on other channels">Search channel</button>
+        <button class="btn-ghost btn-sm tip-action" onclick="openPushModal(null)" aria-label="Push settings to all peers" data-tip="Push settings to all peers">Push config to all</button>
       </div>
     </div>
     <div class="lights-table-wrap">
@@ -1603,8 +1583,8 @@ function renderLights(self, peers, wifiSingleClientMode) {
   if (wifiSingleClientMode !== undefined) _wifiSingleClientMode = wifiSingleClientMode;
   const wifiToggle = $('wifiSingleClientToggle');
   if (wifiToggle) wifiToggle.checked = _wifiSingleClientMode;
-  const wifiRetryWrap = $('wifiRetryWrap');
-  if (wifiRetryWrap) wifiRetryWrap.style.display = _wifiSingleClientMode ? 'inline-flex' : 'none';
+  const wifiRetryBtn = $('wifiRetryBtn');
+  if (wifiRetryBtn) wifiRetryBtn.style.display = _wifiSingleClientMode ? '' : 'none';
   _self  = self;
   _peers = peers;
   if (self) _selfMac = self.mac;
@@ -2366,9 +2346,6 @@ function esc(s) {
 }
 
 // ── Unified tooltip (hover on desktop, tap on touch, keyboard-accessible) ──
-function tipIcon(text) {
-  return `<button type="button" class="info-tip" aria-label="${esc(text)}" data-tip="${esc(text)}">i</button>`;
-}
 (() => {
   let bubble = null, openFor = null, hoverTimer = null;
   const ensureBubble = () => {
@@ -2408,35 +2385,43 @@ function tipIcon(text) {
   const hoverCapable = window.matchMedia('(hover: hover)').matches;
   if (hoverCapable) {
     document.addEventListener('mouseover', e => {
-      const t = e.target.closest('.info-tip, .tip-target, .tip-action');
+      const t = e.target.closest('.tip-target, .tip-action');
       if (t) { clearTimeout(hoverTimer); hoverTimer = setTimeout(() => show(t), 150); }
     });
     document.addEventListener('mouseout', e => {
-      const t = e.target.closest('.info-tip, .tip-target, .tip-action');
+      const t = e.target.closest('.tip-target, .tip-action');
       if (t) { clearTimeout(hoverTimer); hide(); }
     });
   }
   // .tip-action elements (buttons/checkboxes that also have their own click/change
   // action) get a two-stage tap on touch devices: first tap previews the tooltip
-  // and swallows the action, a second tap on the same element lets it through.
-  // Runs in the capture phase so it can veto the element's own click handler
-  // before that handler ever fires. Hover-capable devices skip this entirely —
-  // hover already previewed the info, so a click just performs the action.
+  // and swallows the action, a second tap on the same element lets the action
+  // through natively (button onclick fires, checkbox toggles). Runs in the
+  // capture phase so it can veto the element's own handler before it fires.
+  // Hover-capable devices skip this entirely — hover already previewed the
+  // info, so a click just performs the action.
+  let suppressForward = null;
   if (!hoverCapable) {
     document.addEventListener('click', e => {
       const t = e.target.closest('.tip-action');
       if (!t) return;
+      // An un-prevented click on a <label> makes the browser fire a *second*,
+      // separate click directly on its checkbox to forward the activation.
+      // Without this, that follow-up click re-enters here and gets mistaken
+      // for a brand new first tap instead of the checkbox just toggling.
+      if (suppressForward === t && e.target !== t) { suppressForward = null; return; }
       if (openFor !== t) {
         e.preventDefault();
         e.stopPropagation();
         show(t);
-      } else {
-        hide();
+        return;
       }
+      hide();
+      if (t.tagName === 'LABEL' && e.target === t) suppressForward = t;
     }, true);
   }
   document.addEventListener('click', e => {
-    const t = e.target.closest('.info-tip, .tip-target');
+    const t = e.target.closest('.tip-target');
     if (t) {
       e.preventDefault(); e.stopPropagation();
       openFor === t ? hide() : show(t);
@@ -4253,7 +4238,7 @@ function renderLightsHw(lights) {
       : `data GPIO${l.dataPin}`;
     const label = l.name ? l.name : `Light ${l.index}`;
     const testBtn = l.height > 1
-      ? `<button class="btn-ghost btn-sm" onclick="testLight(${l.index})">Test</button>` + tipIcon('Flash a test pattern to verify matrix orientation')
+      ? `<button class="btn-ghost btn-sm tip-action" onclick="testLight(${l.index})" aria-label="Flash a test pattern to verify matrix orientation" data-tip="Flash a test pattern to verify matrix orientation">Test</button>`
       : '';
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div class="flex-between">
