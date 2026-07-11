@@ -179,11 +179,13 @@ input[type=checkbox]:active { background-color: #1a5; }
   border-color: #2a6; color: #2a6;
 }
 .legend-toggle:focus-visible { outline: 2px solid #2a6; outline-offset: 1px; }
-.legend { display: none; font-size: .75rem; color: #666; line-height: 1.7; margin: -.15rem 0 .6rem; }
-.legend.show { display: block; }
+.legend { display: none; font-size: .75rem; color: #666; margin: -.15rem 0 .6rem; }
+.legend.show { display: flex; flex-direction: column; gap: .3rem; }
 .legend b { color: #999; font-weight: 600; }
-.legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 .3em 0 .7em; vertical-align: middle; }
-.legend-dot:first-child { margin-left: 0; }
+.legend-row { display: flex; align-items: center; gap: .45rem; }
+.legend-row svg, .legend-row .dot, .legend-row input[type=checkbox] { flex-shrink: 0; }
+.legend-row .dot { margin-right: 0; }
+.legend-row input[type=checkbox] { width: 1rem; height: 1rem; margin: 0; pointer-events: none; }
 .sync-row { display: flex; align-items: center; gap: .5rem; font-size: .8rem; color: #777;
             margin-top: .2rem; }
 
@@ -497,24 +499,23 @@ input[type=checkbox]:active { background-color: #1a5; }
         <button class="btn-ghost btn-sm" onclick="openPushModal(null)">Push config to all</button>
       </div>
     </div>
-    <p class="legend" id="lights-legend">
-      <b>Single WiFi client</b> only one device connects to WiFi at a time to save power — others stand by and take over automatically.
-      <b>Retry WiFi</b> gives every device a fresh attempt if all gave up.
-      <b>Search channel</b> looks for mesh peers on other WiFi channels.
-      <b>Push</b> copies this device's settings (WiFi, MQTT, GitHub token, etc.) to another.<br>
-      <b>Icons —</b>
-      <span class="legend-dot" style="background:#4f4"></span>online
-      <span class="legend-dot" style="background:#444"></span>offline
-      <span class="legend-dot" style="background:#4c4"></span>WiFi connected
-      <span class="legend-dot" style="background:#fa4"></span>connecting
-      <span class="legend-dot" style="background:#48a"></span>standby
-      <span class="legend-dot" style="background:#555"></span>not connected
-      <span class="legend-dot" style="background:#4c4"></span>Fw up to date, tap to check
-      <span class="legend-dot" style="background:#c84"></span>update available, tap to install
-      <span class="legend-dot" style="background:#4af"></span>installing
-      <span class="legend-dot" style="background:#c44"></span>failed, tap to retry
-      &nbsp; <b>Sync</b> checkbox shares/receives scene files with that peer.
-    </p>
+    <div class="legend" id="lights-legend">
+      <div class="legend-row"><b>Single WiFi client</b> — only one device connects to WiFi at a time to save power; others stand by and take over automatically.</div>
+      <div class="legend-row"><b>Retry WiFi</b> — gives every device a fresh attempt if all gave up.</div>
+      <div class="legend-row"><b>Search channel</b> — looks for mesh peers on other WiFi channels.</div>
+      <div class="legend-row"><b>Push</b> — copies this device's settings (WiFi, MQTT, GitHub token, etc.) to another.</div>
+      <div class="legend-row"><span class="dot dot-on"></span> online</div>
+      <div class="legend-row"><span class="dot dot-off"></span> offline</div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4c4" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#4c4" stroke="none"/></svg> WiFi connected</div>
+      <div class="legend-row"><svg class="wifi-connecting" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fa4" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#fa4" stroke="none"/></svg> WiFi connecting</div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#48a" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#48a" stroke="none"/></svg> WiFi standby (single-client mode)</div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#555" stroke="none"/></svg> WiFi not connected</div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4c4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg> Fw up to date — tap to check for updates</div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg> Fw update available — tap to install</div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg> Fw installing</div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c44" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg> Fw failed — tap to retry</div>
+      <div class="legend-row"><input type="checkbox" checked disabled aria-hidden="true"> <b>Sync</b> — shares/receives scene files with that peer.</div>
+    </div>
     <div class="lights-table-wrap">
       <table class="lights-table">
         <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
