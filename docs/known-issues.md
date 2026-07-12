@@ -12,9 +12,9 @@ This means setups that rely on non-standard 2.4 GHz channels such as `2–5`, `7
 
 In practice, the system is most reliable when the WiFi network uses channel `1`, `6`, or `11`.
 
-## Mesh channel islands: devices can end up on different channels and never learn about each other
+## Mesh channel islands: devices not currently WiFi-connected can split across channels
 
-This happens when devices don't all converge on one channel: either none of them have a router in range to connect to (independent search can still split them despite the mitigations in place — see #321), or different devices are connected to *different* WiFi networks on different channels. The second case has no mitigation at all — a WiFi-connected device locks straight to its router's channel and never re-checks, so two devices each successfully connected to their own network simply never share a channel, and a manual **Search devices** click doesn't help either (it snaps straight back to the router's channel on the next tick).
+A device that isn't currently connected to WiFi — for any reason: nothing configured, the configured network unreachable, wrong credentials, or simply not connected yet — searches independently for a channel with no coordination from other devices. Multiple such devices can each lock onto a different channel before ever hearing each other, forming separate mesh islands that don't know about each other. A manual **Search devices** re-search reduces the odds of this but isn't a guarantee. See #321.
 
 ## OTA filesystem update: scene backup limited by available heap
 
