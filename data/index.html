@@ -163,6 +163,33 @@ input[type=checkbox]:active { background-color: #1a5; }
 .group-header input[type=text] { margin-bottom: 0; flex: 1; }
 .group-controls { display: grid; gap: .4rem; }
 .pattern-desc { font-size: .75rem; color: #555; margin-top: -.35rem; margin-bottom: .4rem; }
+
+/* Legend: explains icons/colors/actions in a section instead of a per-element
+   hover/tap tooltip, so it reads the same on desktop and mobile and every
+   control keeps its normal single-tap behavior. Hidden behind a single
+   info-indicator toggle per section rather than shown permanently. */
+.legend-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.15rem; height: 1.15rem; flex-shrink: 0;
+  border-radius: 50%; border: 1px solid #444; background: transparent;
+  color: #777; font-size: .68rem; font-weight: 700; font-style: italic;
+  font-family: Georgia, serif; line-height: 1; cursor: pointer; padding: 0;
+}
+.legend-toggle:hover, .legend-toggle:focus-visible, .legend-toggle[aria-expanded="true"] {
+  border-color: #2a6; color: #2a6;
+}
+.legend-toggle:focus-visible { outline: 2px solid #2a6; outline-offset: 1px; }
+.legend {
+  display: none; font-size: .75rem; color: #666; margin-bottom: .6rem;
+  background: #242424; border: 1px solid #333; border-radius: 8px; padding: .6rem .75rem;
+}
+.legend.show { display: grid; grid-template-columns: max-content 1fr; column-gap: .6rem; row-gap: .35rem; }
+.legend b { color: #999; font-weight: 600; }
+.legend-row { display: contents; }
+.legend-row > * { align-self: center; }
+.legend-row svg, .legend-row .dot, .legend-row input[type=checkbox] { flex-shrink: 0; }
+.legend-row .dot { margin-right: 0; }
+.legend-row input[type=checkbox] { width: 1rem; height: 1rem; margin: 0; pointer-events: none; }
 .sync-row { display: flex; align-items: center; gap: .5rem; font-size: .8rem; color: #777;
             margin-top: .2rem; }
 
@@ -462,21 +489,38 @@ input[type=checkbox]:active { background-color: #1a5; }
 
   <!-- CONNECTED LIGHTS -->
   <div class="card">
-    <div class="flex-between" style="margin-bottom:.5rem;gap:.5rem;flex-wrap:wrap">
-      <h2 style="margin:0">Connected Lights</h2>
-      <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
-        <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.82rem;color:#aaa" title="Only one mesh device connects to WiFi at a time — saves power on the rest. The first stable connection stays active; MAC only breaks ties if two candidates are already connected. Automatic failover.">
-          <input type="checkbox" id="wifiSingleClientToggle" onchange="setWifiSingleClientMode(this.checked)">
-          Single WiFi client
-        </label>
-        <button class="btn-ghost btn-sm" id="wifiRetryBtn" onclick="retryWifi()" style="display:none" title="Give every mesh device a fresh, immediate shot at connecting — useful if all candidates gave up (e.g. the router was briefly unreachable)">Retry WiFi</button>
-        <button class="btn-ghost btn-sm" onclick="meshSearch()" title="Search for mesh peers on other channels">Search channel</button>
-        <button class="btn-ghost btn-sm" onclick="openPushModal(null)" title="Push settings to all peers">Push config to all</button>
-      </div>
+    <h2 style="margin:0 0 .5rem;display:flex;align-items:center;gap:.4rem">Connected Lights
+      <button type="button" class="legend-toggle" aria-expanded="false" aria-controls="lights-legend" aria-label="What do these controls and icons mean?" onclick="toggleLegend('lights-legend')">i</button>
+    </h2>
+    <div class="legend" id="lights-legend">
+      <div class="legend-row"><b>Single WiFi client</b><span>When enabled only one device connects to WiFi at a time.</span></div>
+      <div class="legend-row"><b>Retry WiFi</b><span>Triggers wifi connection retry on all devices in the mesh.</span></div>
+      <div class="legend-row"><b>Search devices</b><span>Looks for mesh peers on other WiFi channels. Use in case you dont see any devices in the list.</span></div>
+      <div class="legend-row"><b>Push</b><span>Pushes this device's settings (WiFi, MQTT, GitHub token, etc.) to another one on the mesh.</span></div>
+      <div class="legend-row"><span class="dot dot-on"></span><span>online</span></div>
+      <div class="legend-row"><span class="dot dot-off"></span><span>offline</span></div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4c4" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#4c4" stroke="none"/></svg><span>WiFi connected</span></div>
+      <div class="legend-row"><svg class="wifi-connecting" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fa4" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#fa4" stroke="none"/></svg><span>WiFi connecting</span></div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#48a" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#48a" stroke="none"/></svg><span>WiFi standby (single-client mode)</span></div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#555" stroke="none"/></svg><span>WiFi not connected</span></div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4c4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg><span>Fw up to date — tap to check for updates</span></div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg><span>Fw update available — tap to install</span></div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg><span>Fw installing</span></div>
+      <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c44" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg><span>Fw failed — tap to retry</span></div>
+      <div class="legend-row"><span><input type="checkbox" checked disabled aria-hidden="true"> <b>Sync</b></span><span>Shares/receives scene files with that peer.</span></div>
+    </div>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem">
+      <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.82rem;color:#aaa">
+        <input type="checkbox" id="wifiSingleClientToggle" onchange="setWifiSingleClientMode(this.checked)">
+        Single WiFi client
+      </label>
+      <button class="btn-ghost btn-sm" id="wifiRetryBtn" onclick="retryWifi()" style="display:none">Retry WiFi</button>
+      <button class="btn-ghost btn-sm" onclick="meshSearch()">Search devices</button>
+      <button class="btn-ghost btn-sm" onclick="openPushModal(null)">Push config to all</button>
     </div>
     <div class="lights-table-wrap">
       <table class="lights-table">
-        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th title="Scene sync: share and receive scene files with other mesh peers">Sync</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
         <tbody id="lights-body"><tr><td colspan="7" style="color:#444">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -605,7 +649,7 @@ input[type=checkbox]:active { background-color: #1a5; }
         <input type="text" id="se-name" placeholder="Scene name" oninput="_markModified()">
       </div>
       <div class="card scene-editor-undo-card">
-        <button id="se-undo-btn" class="btn-ghost btn-sm" onclick="undoScene()" disabled title="Undo (Ctrl+Z)">↩ Undo <span id="se-undo-count" style="opacity:.5"></span></button>
+        <button id="se-undo-btn" class="btn-ghost btn-sm" onclick="undoScene()" disabled aria-label="Undo (keyboard shortcut: Ctrl+Z)">↩ Undo <span id="se-undo-count" style="opacity:.5"></span> <small style="opacity:.6;font-weight:normal">(Ctrl+Z)</small></button>
       </div>
       <div class="card scene-editor-save-card">
         <button id="se-save-btn" class="btn-ghost btn-sm" onclick="saveScene()" disabled>Save</button>
@@ -621,8 +665,8 @@ input[type=checkbox]:active { background-color: #1a5; }
         <h2>Paint color</h2>
         <!-- Swatch + hex + brightness on one line -->
         <div style="display:flex;align-items:center;gap:.5rem;overflow:hidden">
-          <button id="fill-mode-eyedropper" class="cp-tool-btn" onclick="setMode('eyedropper')" title="Pick color from canvas" style="width:2.6rem;height:2.6rem;padding:0;flex-shrink:0;font-size:1.1rem">&#x1F489;</button>
-          <div class="color-swatch" id="se-swatch" title="Current paint color" style="flex-shrink:0"></div>
+          <button id="fill-mode-eyedropper" class="cp-tool-btn" onclick="setMode('eyedropper')" aria-label="Pick color from canvas" style="width:2.6rem;height:2.6rem;padding:0;flex-shrink:0;font-size:1.1rem">&#x1F489;</button>
+          <div class="color-swatch" id="se-swatch" aria-label="Current paint color" style="flex-shrink:0"></div>
           <input type="text" id="se-hex-input" class="cp-hex-input" value="#ff0000"
                  maxlength="7" placeholder="#rrggbb" style="flex-shrink:0"
                  oninput="_onHexInput(this.value)"
@@ -661,13 +705,14 @@ input[type=checkbox]:active { background-color: #1a5; }
           <button id="fill-mode-gradient"   class="cp-tool-btn"        onclick="setMode('gradient')">⋯ Gradient</button>
           <button id="fill-mode-wrap"       class="cp-tool-btn"        onclick="setMode('wrap')">↺ Wrap blend</button>
         </div>
+        <p class="pattern-desc" style="margin-top:.4rem">Tap a row (→) or column (↓) header on the canvas to fill it; tap the corner (↘) to fill the whole frame.</p>
         <!-- Gradient context -->
         <div id="fill-context-gradient" style="display:none">
           <div class="grad-swatch-pair" style="margin-top:.3rem">
-            <div class="grad-swatch" id="grad-swatch-a" title="Color A — click to set to current paint color"
+            <div class="grad-swatch" id="grad-swatch-a" aria-label="Color A — click to set to current paint color"
                  onclick="_setGradColor('a')" style="background:#ff0000"></div>
             <span style="font-size:.75rem;color:#777;flex:1;text-align:center">A → B</span>
-            <div class="grad-swatch" id="grad-swatch-b" title="Color B — click to set to current paint color"
+            <div class="grad-swatch" id="grad-swatch-b" aria-label="Color B — click to set to current paint color"
                  onclick="_setGradColor('b')" style="background:#0000ff"></div>
           </div>
           <small style="color:#666">Click a swatch to capture the current paint color. Row/col headers on the canvas fill with gradient. Use ↔ ↕ ↙ buttons on each frame for full-frame fills.</small>
@@ -768,7 +813,7 @@ input[type=checkbox]:active { background-color: #1a5; }
           <div id="se-frames"></div>
           <div style="display:flex;gap:.4rem;margin-top:.5rem">
             <button class="btn-primary btn-sm" style="flex:1" onclick="addFrame()">+ Add Frame</button>
-            <button class="btn-ghost btn-sm" title="Import image as frame" onclick="$('sei-file').click()">🖼 Import</button>
+            <button class="btn-ghost btn-sm" aria-label="Import image as frame" onclick="$('sei-file').click()">🖼 Import</button>
           </div>
           <input type="file" id="sei-file" accept="image/jpeg,image/png,image/gif,image/webp"
                  style="display:none" onchange="importImageAsFrame(event)">
@@ -781,8 +826,8 @@ input[type=checkbox]:active { background-color: #1a5; }
           <div class="flex-between" style="margin-bottom:.5rem">
             <h2 style="margin:0">Canvas</h2>
             <div style="display:flex;gap:.25rem">
-              <button class="btn-ghost btn-sm" onclick="zoomOut()" title="Zoom out">−</button>
-              <button class="btn-ghost btn-sm" onclick="zoomIn()" title="Zoom in">+</button>
+              <button class="btn-ghost btn-sm" onclick="zoomOut()" aria-label="Zoom out">−</button>
+              <button class="btn-ghost btn-sm" onclick="zoomIn()" aria-label="Zoom in">+</button>
             </div>
           </div>
           <div id="se-grid"></div>
@@ -814,7 +859,10 @@ input[type=checkbox]:active { background-color: #1a5; }
     <select id="timezone"></select>
 
     <hr class="section-divider">
-    <h3>Lights</h3>
+    <h3 style="display:flex;align-items:center;gap:.4rem">Lights
+      <button type="button" class="legend-toggle" aria-expanded="false" aria-controls="lights-hw-legend" aria-label="What does Test do?" onclick="toggleLegend('lights-hw-legend')">i</button>
+    </h3>
+    <p class="legend" id="lights-hw-legend"><span style="grid-column:1/-1"><b>Test</b> (matrix lights only) flashes a test pattern to verify orientation.</span></p>
     <div id="lights-hw-list" style="margin-bottom:.75rem"></div>
     <button class="btn-ghost" style="width:100%" id="add-light-btn" onclick="openAddLightModal()">Add light</button>
 
@@ -1569,7 +1617,13 @@ function renderLights(self, peers, wifiSingleClientMode) {
   const wifiToggle = $('wifiSingleClientToggle');
   if (wifiToggle) wifiToggle.checked = _wifiSingleClientMode;
   const wifiRetryBtn = $('wifiRetryBtn');
-  if (wifiRetryBtn) wifiRetryBtn.style.display = _wifiSingleClientMode ? '' : 'none';
+  if (wifiRetryBtn) {
+    // Retrying only ever does something when nobody currently holds the
+    // connection — a connected leader ignores the request and everyone else
+    // is already correctly on standby — so don't show the button otherwise.
+    const anyWifiConnected = (self && self.wifiConnected === true) || (peers || []).some(p => p.wifiConnected === true);
+    wifiRetryBtn.style.display = (_wifiSingleClientMode && !anyWifiConnected) ? '' : 'none';
+  }
   _self  = self;
   _peers = peers;
   if (self) _selfMac = self.mac;
@@ -1596,12 +1650,13 @@ function renderLights(self, peers, wifiSingleClientMode) {
 
   const rendered = all.map(p => {
     const online = p.online !== false;
-    const dot = `<span class="dot ${online?'dot-on':'dot-off'}" title="${online?'Online':'Offline'}"></span>`;
+    const dot = `<span class="dot ${online?'dot-on':'dot-off'}" aria-label="${online?'Online':'Offline'}"></span>`;
     const selfTag = p.isSelf ? `<span class="self-tag">(this)</span>` : '';
     const mac = p.mac || '';
     const rssiText = (!p.isSelf && online && p.rssi != null) ? `${p.rssi} dBm` : '–';
     const syncEnabled = p.sceneSyncEnabled !== false;
-    const syncCell = `<input type="checkbox" title="Scene sync: share and receive scene files with other mesh peers" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
+    const syncTip = 'Scene sync: share and receive scene files with other mesh peers';
+    const syncCell = `<input type="checkbox" aria-label="${esc(syncTip)}" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
 
     const wifiOn = p.wifiConnected === true;
     const wifiConnecting = !wifiOn && p.wifiConnecting === true;
@@ -1614,9 +1669,10 @@ function renderLights(self, peers, wifiSingleClientMode) {
                     : wifiConnecting ? 'WiFi connecting…'
                     : wifiStandby ? 'WiFi standby (single-client mode — another device is/should be connected)'
                     : 'WiFi not connected';
-    const wifiIcon = `<span title="${wifiTitle}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle" class="${wifiConnecting ? 'wifi-connecting' : ''}"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
+    const wifiIcon = `<span aria-label="${esc(wifiTitle)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle" class="${wifiConnecting ? 'wifi-connecting' : ''}"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
+    const signalTip = `Signal: ${rssiText}`;
     const signalIcon = showSignal && !p.isSelf
-      ? `<span title="Signal: ${rssiText}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
+      ? `<span aria-label="${esc(signalTip)}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
       : '';
 
     const ver = p.version || '';
@@ -1646,18 +1702,18 @@ function renderLights(self, peers, wifiSingleClientMode) {
         const handler = p.isSelf
           ? `triggerSelfUpdate(this,'${mac}')`
           : `triggerPeerUpdate(this,'${mac}')`;
-        fwIconHtml = `<button class="btn-fw-trigger" title="${fwTitle}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
+        fwIconHtml = `<button class="btn-fw-trigger" aria-label="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
       } else if (canCheck) {
         const handler = p.isSelf
           ? `checkSelfUpdate(this,'${mac}')`
           : `checkPeerUpdate(this,'${mac}')`;
-        fwIconHtml = `<button class="btn-fw-trigger" title="${fwTitle}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
+        fwIconHtml = `<button class="btn-fw-trigger" aria-label="${esc(fwTitle)}" onclick="${handler}">${fwSvg(fwColor)}</button>`;
       } else {
-        fwIconHtml = `<span title="${fwTitle}">${fwSvg(fwColor)}</span>`;
+        fwIconHtml = `<span aria-label="${esc(fwTitle)}">${fwSvg(fwColor)}</span>`;
       }
     }
 
-    const pushCell = p.isSelf ? '' : `<button class="btn-ghost btn-sm" onclick="openPushModal('${mac}','${esc(p.name)}')" title="Push settings to this device">Push</button>`;
+    const pushCell = p.isSelf ? '' : `<button class="btn-ghost btn-sm" onclick="openPushModal('${mac}','${esc(p.name)}')">Push</button>`;
     const lights = p.lights || [];
     const groupSelects = lights.length === 0
       ? '<span style="color:#555;font-size:.78rem">no lights</span>'
@@ -2326,6 +2382,14 @@ function hexToRgb(hex) {
 }
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toggleLegend(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const show = el.classList.toggle('show');
+  const btn = document.querySelector(`[aria-controls="${id}"]`);
+  if (btn) btn.setAttribute('aria-expanded', show ? 'true' : 'false');
 }
 
 function showToast(message, isError = true) {
@@ -3106,14 +3170,14 @@ function _renderFrameList() {
   }
   el.innerHTML = frames.map((_, i) => {
     const upBtn  = i > 0
-      ? `<button class="btn-ghost btn-sm" title="Move up"   onclick="moveFrame(${i},-1);event.stopPropagation()">↑</button>` : '';
+      ? `<button class="btn-ghost btn-sm" aria-label="Move up"   onclick="moveFrame(${i},-1);event.stopPropagation()">↑</button>` : '';
     const dnBtn  = i < frames.length - 1
-      ? `<button class="btn-ghost btn-sm" title="Move down" onclick="moveFrame(${i},1);event.stopPropagation()">↓</button>` : '';
+      ? `<button class="btn-ghost btn-sm" aria-label="Move down" onclick="moveFrame(${i},1);event.stopPropagation()">↓</button>` : '';
     return `<div class="frame-item">
       <span>Frame ${i + 1}</span>
       <div class="frame-btns">
         ${upBtn}${dnBtn}
-        <button class="btn-danger btn-sm" title="Delete" onclick="deleteFrame(${i});event.stopPropagation()">✕</button>
+        <button class="btn-danger btn-sm" aria-label="Delete" onclick="deleteFrame(${i});event.stopPropagation()">✕</button>
       </div>
     </div>`;
   }).join('');
@@ -3184,7 +3248,7 @@ function _renderGrid() {
     html += `<tr class="sg-row-frame-h">`;
     html += `<th style="border-style:hidden;background:transparent;padding:0"></th>`;  // spacer for ↕ col
     html += `<th class="sg-corner" style="border-color:transparent;background:transparent"></th>`;  // spacer for corner col
-    html += `<th class="sg-hdr sg-hdr-frame" data-frame="${i}" data-frameh="1" colspan="${w}" title="Gradient fill frame horizontally">↔</th>`;
+    html += `<th class="sg-hdr sg-hdr-frame" data-frame="${i}" data-frameh="1" colspan="${w}" aria-label="Gradient fill frame horizontally">↔</th>`;
     html += `</tr>`;
 
     // Row 1: spacer for ↕ col + corner + col fill targets
@@ -3193,9 +3257,9 @@ function _renderGrid() {
     const cornerTitle = isGradient ? 'Diagonal gradient fill frame' : 'Fill frame with current color';
     const cornerClick = isGradient ? `gradFillFrameDiagonal(${i})` : `fillFrameFor(${i})`;
     const cornerClass = isGradient ? 'sg-corner sg-hdr-frame' : 'sg-corner';
-    html += `<th class="${cornerClass}" onclick="${cornerClick}" title="${cornerTitle}">↘</th>`;
+    html += `<th class="${cornerClass}" onclick="${cornerClick}" aria-label="${esc(cornerTitle)}">↘</th>`;
     for (let c = 0; c < w; c++) {
-      html += `<th class="sg-hdr" data-frame="${i}" data-col="${c}" title="Fill column ${c}">↓</th>`;
+      html += `<th class="sg-hdr" data-frame="${i}" data-col="${c}" aria-label="Fill column ${c}">↓</th>`;
     }
     html += '</tr>';
 
@@ -3203,9 +3267,9 @@ function _renderGrid() {
     for (let r = 0; r < h; r++) {
       html += '<tr>';
       if (r === 0) {
-        html += `<th class="sg-hdr sg-hdr-frame sg-hdr-frame-v" data-frame="${i}" data-framev="1" rowspan="${h}" title="Gradient fill frame vertically">↕</th>`;
+        html += `<th class="sg-hdr sg-hdr-frame sg-hdr-frame-v" data-frame="${i}" data-framev="1" rowspan="${h}" aria-label="Gradient fill frame vertically">↕</th>`;
       }
-      html += `<th class="sg-hdr" data-frame="${i}" data-row="${r}" title="Fill row ${r}">→</th>`;
+      html += `<th class="sg-hdr" data-frame="${i}" data-row="${r}" aria-label="Fill row ${r}">→</th>`;
       for (let c = 0; c < w; c++) {
         const idx = r * w + c;
         html += `<td class="sg-cell" data-frame="${i}" data-idx="${idx}" style="background:${frame[idx] || '#000000'}"></td>`;
@@ -3352,7 +3416,7 @@ function _renderPresets() {
   const el = $('se-presets');
   if (!el) return;
   el.innerHTML = _PRESETS.map(c =>
-    `<div class="cp-mini-swatch" style="background:${c}" title="${c}"
+    `<div class="cp-mini-swatch" style="background:${c}" aria-label="${c}"
           onclick="setPaintColor('${c}')"></div>`
   ).join('');
 }
@@ -3365,7 +3429,7 @@ function _renderRecents() {
     return;
   }
   el.innerHTML = _recentColors.map(c =>
-    `<div class="cp-mini-swatch" style="background:${c}" title="${c}"
+    `<div class="cp-mini-swatch" style="background:${c}" aria-label="${c}"
           onclick="setPaintColor('${c}')"></div>`
   ).join('');
 }
@@ -4130,7 +4194,7 @@ function renderLightsHw(lights) {
       : `data GPIO${l.dataPin}`;
     const label = l.name ? l.name : `Light ${l.index}`;
     const testBtn = l.height > 1
-      ? `<button class="btn-ghost btn-sm" onclick="testLight(${l.index})" title="Flash a test pattern to verify matrix orientation">Test</button>`
+      ? `<button class="btn-ghost btn-sm" onclick="testLight(${l.index})">Test</button>`
       : '';
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div class="flex-between">
