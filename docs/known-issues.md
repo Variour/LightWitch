@@ -12,20 +12,9 @@ This means setups that rely on non-standard 2.4 GHz channels such as `2–5`, `7
 
 In practice, the system is most reliable when the WiFi network uses channel `1`, `6`, or `11`.
 
-## Mesh channel islands: simultaneous multi-device boot without WiFi can split the mesh
+## Mesh channel islands: multiple devices can split into separate meshes on boot
 
-`ChannelManager` elects an ESP-NOW channel by having WiFi-less devices search `[stored, 1, 6, 11]` (deduplicated) and lock onto whichever channel they first hear a peer heartbeat on. This works reliably when at least one device is actually WiFi-connected — it locks straight to the router's real channel, and everyone else eventually finds it during their own search. There is no such anchor in a common field scenario: several battery-powered devices with no WiFi configured, powered on together away from any router. Each device searches independently with its own randomized dwell time and no coordination between devices, so two (or more) subsets can each find each other and lock before ever overlapping with the other subset — producing multiple separate, internally-connected mesh islands that never learn about each other.
-
-This is distinct from the non-standard-channel limitation above: it can happen purely within channels `1`/`6`/`11`, with no WiFi involved at all. It is also distinct from ordinary peer loss — once a device is `Locked`, it never re-checks whether it's still actually hearing anyone; only an active search (at boot, or a manual **Search devices** click in the web UI) re-evaluates the channel.
-
-Mitigation in place (`ChannelManager`, #321):
-- Per-channel dwell nudged up slightly, 6–9 s → 7–10 s (`_randomDwell`) — still comfortably covers the 5 s heartbeat period.
-- Search now runs **two full passes** over `[stored, 1, 6, 11]` (`SEARCH_ROUNDS`) before giving up, not one — a second pass gives devices on a different boot phase, or a different stored-channel search order, another independent chance to land on the same channel at the same time.
-- If both passes end with no peer heard, every device falls back to one **common channel (`COMMON_FALLBACK_CHANNEL`, currently `1`)** rather than each device's own stored channel. Devices with different WiFi history that never overlapped during search still converge on a shared channel instead of a silent, permanent split.
-- The **Search devices** button now triggers a **mesh-wide** re-search (`MeshSearchMsg`, broadcast the same way `WifiRetryMsg` is, sent before the local device retunes its own radio so the request actually reaches its still-there island-mates), not just the one device whose web UI it was clicked on — clicking it on a single already-Locked device only ever moved that one device, which doesn't reconcile two already-formed islands. Every device that re-searches (whether from the local click or the broadcast) starts on the channel *after* the one it's currently on, rather than checking its current channel first — otherwise a still-mutually-in-range island would just immediately re-hear each other and re-lock right back where they started, without ever looking elsewhere.
-- A re-search also ignores heartbeats from peers it already knew about *before* that search started (`ChannelManager::onPeerHeard` snapshots the current peer list at search start). Without this, a small island that wanders onto some other free channel together would just re-hear each other there and immediately re-lock, having never actually reached whatever bigger or different group the search was meant to find.
-
-This reduces but does not eliminate the odds of island formation during search — it's a boot-time probability improvement, not a guarantee, and none of it costs anything once a device is `Locked`. See #321 for the fuller design discussion, including automatic-detection approaches (periodic re-scan while locked, gossip/anti-entropy peer-count checks) that were considered and deferred as disproportionate to a battery-powered device's power budget.
+If several battery-powered devices with no WiFi configured are powered on together away from any router, independent subsets can each lock onto a different channel before ever hearing each other, forming separate mesh islands that don't know about each other. A manual **Search devices** re-search reduces the odds of this but isn't a guarantee. See #321.
 
 ## OTA filesystem update: scene backup limited by available heap
 
