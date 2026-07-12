@@ -14,7 +14,7 @@ In practice, the system is most reliable when the WiFi network uses channel `1`,
 
 ## Mesh channel islands: devices not currently WiFi-connected can split across channels
 
-A device that isn't currently connected to WiFi — for any reason: nothing configured, the configured network unreachable, wrong credentials, or simply not connected yet — searches independently for a channel with no coordination from other devices. Multiple such devices can each lock onto a different channel before ever hearing each other, forming separate mesh islands that don't know about each other. A manual **Search devices** re-search reduces the odds of this but isn't a guarantee. See #321.
+A device that isn't currently connected to WiFi searches independently for a channel with no coordination from other devices. Multiple such devices can each lock onto a different channel before ever hearing each other, forming separate mesh islands that don't know about each other. A manual **Search devices** re-search can merge those islands but isn't guaranteed to do so. See #321.
 
 ## OTA filesystem update: scene backup limited by available heap
 
