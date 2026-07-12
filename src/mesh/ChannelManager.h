@@ -177,7 +177,13 @@ private:
     }
 
     uint32_t _randomDwell() {
-        // 6000–9000 ms: guarantees ≥1 heartbeat (period 5 s) per dwell window
-        return 6000 + (uint32_t)(esp_random() % 3001);
+        // 12000–18000 ms: widened from the original 6–9 s (#153) so two
+        // independently-booting devices get a bigger window to overlap on a
+        // shared channel — reduces (does not eliminate) disjoint subsets
+        // each locking to a different channel before ever hearing each other
+        // (#321). Still comfortably covers the 5 s heartbeat period; the
+        // trade-off is a lone device takes longer to give up and fall back
+        // (~36–54 s full 3-channel cycle instead of ~18–27 s).
+        return 12000 + (uint32_t)(esp_random() % 6001);
     }
 };

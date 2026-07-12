@@ -12,6 +12,14 @@ This means setups that rely on non-standard 2.4 GHz channels such as `2–5`, `7
 
 In practice, the system is most reliable when the WiFi network uses channel `1`, `6`, or `11`.
 
+## Mesh channel islands: simultaneous multi-device boot without WiFi can split the mesh
+
+`ChannelManager` elects an ESP-NOW channel by having WiFi-less devices search `[stored, 1, 6, 11]` (deduplicated) and lock onto whichever channel they first hear a peer heartbeat on. This works reliably when at least one device is actually WiFi-connected — it locks straight to the router's real channel, and everyone else eventually finds it during their own search. There is no such anchor in a common field scenario: several battery-powered devices with no WiFi configured, powered on together away from any router. Each device searches independently with its own randomized dwell time and no coordination between devices, so two (or more) subsets can each find each other and lock before ever overlapping with the other subset — producing multiple separate, internally-connected mesh islands that never learn about each other.
+
+This is distinct from the non-standard-channel limitation above: it can happen purely within channels `1`/`6`/`11`, with no WiFi involved at all. It is also distinct from ordinary peer loss — once a device is `Locked`, it never re-checks whether it's still actually hearing anyone; only an active search (at boot, or a manual **Search devices** click in the web UI) re-evaluates the channel.
+
+Mitigation in place: the per-channel search dwell was widened (6–9 s → 12–18 s, see `ChannelManager::_randomDwell`) to give independently-booting devices a bigger window to overlap on a shared channel. This reduces but does not eliminate the odds of island formation — it's a boot-time probability improvement, not a guarantee. The escape hatch remains the **Search devices** button. See #321 for the fuller design discussion, including automatic-detection approaches (periodic re-scan while locked, gossip/anti-entropy peer-count checks) that were considered and deferred as disproportionate to a battery-powered device's power budget.
+
 ## OTA filesystem update: scene backup limited by available heap
 
 When a firmware update includes a `littlefs.bin` asset, custom scenes are read into heap memory before the filesystem is flashed and written back afterwards. If the total size of all scene files exceeds available heap (typically ~150–200 KB free on ESP32), the backup will silently drop scenes that could not be allocated. In practice, current scenes are a few KB in total and this limit is not a concern, but very large or numerous scenes could be lost.
