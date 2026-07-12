@@ -524,8 +524,12 @@ void setup() {
         [](const uint8_t* mac) { mesh.broadcastTriggerUpdate(mac); },
 
         []() {
-            channelMgr.beginSearch();
+            // Broadcast first, while still on the current channel -- beginSearch()
+            // retunes the radio immediately, and once that's happened this
+            // device is no longer on the channel its own former island-mates
+            // are still listening on.
             mesh.broadcastMeshSearch();
+            channelMgr.beginSearch();
         },
 
         [](const uint8_t* mac) { mesh.broadcastCheckUpdate(mac); },
