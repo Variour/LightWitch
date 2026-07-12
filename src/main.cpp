@@ -56,7 +56,7 @@ static uint32_t           _lastBackgroundTickMs        = 0;
 // Second, slower tier for the subsystems whose own timers are all in the
 // hundreds-of-ms-to-seconds range: mesh's tightest is a 500 ms proximity
 // ping, wifi election's tightest is a 100 ms pre-connect delay, channel scan
-// dwells 6-9 s, MQTT's keepalive is 30 s. 20 Hz oversamples all of them with
+// dwells 7-10 s, MQTT's keepalive is 30 s. 20 Hz oversamples all of them with
 // room to spare. Buttons and scene sync stay on the faster tier above since
 // their own timers (30 ms debounce, 20 ms chunk pacing) can't tolerate this.
 static constexpr uint32_t SLOW_TICK_INTERVAL_MS = 50;
@@ -278,7 +278,7 @@ void setup() {
 
     setupWifi();
     TimeSync::begin(Config::get().timezone);
-    channelMgr.begin();
+    channelMgr.begin(&mesh.peers);
 
     // Initialise one driver + runner per configured light
     Config::forEachLight([](uint8_t i, LightHardwareConfig& l) {
@@ -338,11 +338,12 @@ void setup() {
     mesh.setWifiAttemptingProvider([]() { return wifiElection.isAttempting(); });
     mesh.setWifiConnectedProvider([]() { return wifiElection.isAdvertisableConnected(); });
     wifiElection.setOnAttemptingChanged([]() { webServer.pushPeers(); });
-    mesh.setOnPeerHeard([](){ channelMgr.onPeerHeard(); });
+    mesh.setOnPeerHeard([](const uint8_t* mac){ channelMgr.onPeerHeard(mac); });
     mesh.setOnMeshPolicy([](const MeshManager::MeshPolicyState& state) {
         applyWifiPolicyState(state, "mesh");
     });
     mesh.setOnWifiRetry([]() { wifiElection.retryNow(); });
+    mesh.setOnMeshSearch([]() { channelMgr.beginSearch(); });
 
     // Wire SceneSyncManager → MeshManager
     sceneSync.setBroadcastFns(
@@ -522,7 +523,14 @@ void setup() {
 
         [](const uint8_t* mac) { mesh.broadcastTriggerUpdate(mac); },
 
-        []() { channelMgr.beginSearch(); },
+        []() {
+            // Broadcast first, while still on the current channel -- beginSearch()
+            // retunes the radio immediately, and once that's happened this
+            // device is no longer on the channel its own former island-mates
+            // are still listening on.
+            mesh.broadcastMeshSearch();
+            channelMgr.beginSearch();
+        },
 
         [](const uint8_t* mac) { mesh.broadcastCheckUpdate(mac); },
 

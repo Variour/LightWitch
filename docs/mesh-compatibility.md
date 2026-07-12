@@ -74,6 +74,7 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `KeyExchangeResp` | `KeyExchangeRespMsg` fixed-size | `len >= sizeof(KeyExchangeRespMsg)` | Raw fixed struct; target filtering happens after parse. |
 | `MeshPolicy` | `MeshPolicyMsg` fixed-size | `len >= sizeof(MeshPolicyMsg)` | Raw fixed struct representing replicated state. |
 | `WifiRetry` | `WifiRetryMsg` fixed-size | exact `sizeof(WifiRetryMsg)` | No payload beyond message type. |
+| `MeshSearch` | `MeshSearchMsg` fixed-size | exact `sizeof(MeshSearchMsg)` | No payload beyond message type. |
 
 ## Audit conclusions
 

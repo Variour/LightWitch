@@ -12,6 +12,10 @@ This means setups that rely on non-standard 2.4 GHz channels such as `2–5`, `7
 
 In practice, the system is most reliable when the WiFi network uses channel `1`, `6`, or `11`.
 
+## Mesh channel islands: devices not currently WiFi-connected can split across channels
+
+A device that isn't currently connected to WiFi searches independently for a channel with no coordination from other devices. Multiple such devices can each lock onto a different channel before ever hearing each other, forming separate mesh islands that don't know about each other. A manual **Search devices** re-search can merge those islands but isn't guaranteed to do so. See #321.
+
 ## OTA filesystem update: scene backup limited by available heap
 
 When a firmware update includes a `littlefs.bin` asset, custom scenes are read into heap memory before the filesystem is flashed and written back afterwards. If the total size of all scene files exceeds available heap (typically ~150–200 KB free on ESP32), the backup will silently drop scenes that could not be allocated. In practice, current scenes are a few KB in total and this limit is not a concern, but very large or numerous scenes could be lost.
