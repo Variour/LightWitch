@@ -1615,7 +1615,13 @@ function renderLights(self, peers, wifiSingleClientMode) {
   const wifiToggle = $('wifiSingleClientToggle');
   if (wifiToggle) wifiToggle.checked = _wifiSingleClientMode;
   const wifiRetryBtn = $('wifiRetryBtn');
-  if (wifiRetryBtn) wifiRetryBtn.style.display = _wifiSingleClientMode ? '' : 'none';
+  if (wifiRetryBtn) {
+    // Retrying only ever does something when nobody currently holds the
+    // connection — a connected leader ignores the request and everyone else
+    // is already correctly on standby — so don't show the button otherwise.
+    const anyWifiConnected = (self && self.wifiConnected === true) || (peers || []).some(p => p.wifiConnected === true);
+    wifiRetryBtn.style.display = (_wifiSingleClientMode && !anyWifiConnected) ? '' : 'none';
+  }
   _self  = self;
   _peers = peers;
   if (self) _selfMac = self.mac;
