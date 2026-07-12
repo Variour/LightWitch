@@ -9,7 +9,10 @@
 //
 // Call begin() after setupWifi() and before MeshManager::begin().
 // Call tick() from loop().
-// Call beginSearch() to trigger a manual re-search from the web UI.
+// Call beginSearch() to trigger a re-search: from the local "Search devices"
+// web UI click, and again on every device that receives the resulting
+// mesh-wide MeshSearchMsg broadcast (see MeshManager::broadcastMeshSearch),
+// so a click on any one device reconciles the whole mesh, not just itself.
 //
 // State machine:
 //   WiFi connected    → LOCKED (channel saved to NVS)
@@ -17,7 +20,7 @@
 //   SEARCH + peer heard  → LOCKED (channel saved to NVS)
 //   SEARCH + 2 full cycles, no peers → LOCKED (NVS unchanged, fall back to common ch 1)
 //   SEARCH + WiFi reconnects → LOCKED (channel saved to NVS)
-//   LOCKED + beginSearch()   → SEARCH
+//   LOCKED + beginSearch()   → SEARCH (starting on the channel after the current one)
 
 class ChannelManager {
 public:
@@ -107,11 +110,16 @@ public:
         Logger::i("[ch] search: ch %u (dwell %u ms)", _searchSeq[_searchIdx], _dwellMs);
     }
 
-    // Trigger a manual re-search (called from web UI endpoint).
-    // Bypasses the SoftAP client guard — user explicitly confirmed disruption.
+    // Trigger a manual, mesh-wide re-search (called from web UI endpoint and
+    // from every device that receives the resulting MeshSearchMsg broadcast —
+    // see MeshManager::broadcastMeshSearch). Bypasses the SoftAP client guard
+    // — user explicitly confirmed disruption. Starts on the channel *after*
+    // the one this device is currently on (see _buildSearchSeq) so a mesh
+    // that's already split doesn't just immediately re-form the same islands.
     void beginSearch() {
-        Logger::i("[ch] manual re-search triggered");
-        _startSearch();
+        uint8_t leaveFrom = _currentChannel();
+        Logger::i("[ch] manual re-search triggered, leaving ch %u", leaveFrom);
+        _startSearch(leaveFrom);
     }
 
     uint8_t lockedChannel() const { return _lockedChannel; }
@@ -168,21 +176,37 @@ private:
         _storedChannel = ch;
     }
 
-    void _buildSearchSeq() {
+    // leaveFrom == 0: boot-time search — stored channel first (most likely to
+    // reconnect fast if nothing has actually changed).
+    // leaveFrom != 0: reconciliation search (beginSearch(), #321) — start on
+    // the *next* channel after the one we're leaving, standard triple rotated
+    // accordingly. A device that's Locked and gets told to re-search is, by
+    // definition, already parked with whoever it currently hears — searching
+    // that same channel first would just re-lock the same group immediately
+    // without ever looking elsewhere, which defeats the point of a mesh-wide
+    // reconciliation search (see MeshManager::broadcastMeshSearch).
+    void _buildSearchSeq(uint8_t leaveFrom = 0) {
         _searchLen = 0;
         static const uint8_t standard[] = {1, 6, 11};
-        // Stored channel first (if set)
-        if (_storedChannel > 0) _searchSeq[_searchLen++] = _storedChannel;
-        for (uint8_t ch : standard) {
-            if (ch != _storedChannel) _searchSeq[_searchLen++] = ch;
+        if (leaveFrom == 0) {
+            if (_storedChannel > 0) _searchSeq[_searchLen++] = _storedChannel;
+            for (uint8_t ch : standard) {
+                if (ch != _storedChannel) _searchSeq[_searchLen++] = ch;
+            }
+            return;
         }
+        uint8_t startIdx = 0;
+        for (uint8_t i = 0; i < 3; i++) {
+            if (standard[i] == leaveFrom) { startIdx = (i + 1) % 3; break; }
+        }
+        for (uint8_t i = 0; i < 3; i++) _searchSeq[_searchLen++] = standard[(startIdx + i) % 3];
     }
 
-    void _startSearch() {
+    void _startSearch(uint8_t leaveFrom = 0) {
         _state     = State::Searching;
         _searchIdx = 0;
         _round     = 0;
-        _buildSearchSeq();
+        _buildSearchSeq(leaveFrom);
         _applyChannel(_searchSeq[0]);
         _dwellStart = millis();
         _dwellMs    = _randomDwell();

@@ -343,6 +343,7 @@ void setup() {
         applyWifiPolicyState(state, "mesh");
     });
     mesh.setOnWifiRetry([]() { wifiElection.retryNow(); });
+    mesh.setOnMeshSearch([]() { channelMgr.beginSearch(); });
 
     // Wire SceneSyncManager → MeshManager
     sceneSync.setBroadcastFns(
@@ -522,7 +523,10 @@ void setup() {
 
         [](const uint8_t* mac) { mesh.broadcastTriggerUpdate(mac); },
 
-        []() { channelMgr.beginSearch(); },
+        []() {
+            channelMgr.beginSearch();
+            mesh.broadcastMeshSearch();
+        },
 
         [](const uint8_t* mac) { mesh.broadcastCheckUpdate(mac); },
 

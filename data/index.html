@@ -1895,7 +1895,7 @@ async function retryWifi() {
 }
 
 function meshSearch() {
-  _confirmAction('Re-searching for mesh peers will disconnect active peers temporarily and may drop your connection to this device. Continue?', () => {
+  _confirmAction('Re-searching for mesh peers triggers every device in the mesh to re-search, temporarily disconnecting peers (including possibly your connection to this device). Continue?', () => {
     fetch('/api/mesh/search', { method: 'POST' });
   });
 }

@@ -57,6 +57,9 @@ public:
     // Called when a peer (or this device, echoed back) broadcasts a manual
     // "retry WiFi now" request.
     using WifiRetryCb      = std::function<void()>;
+    // Called when a peer broadcasts a manual "search devices" request, so
+    // this device re-searches too (see ChannelManager::beginSearch).
+    using MeshSearchCb     = std::function<void()>;
 
     void setOnPeerHeard(PeerHeardCb cb)           { _onPeerHeard      = cb; }
     void setOnLightConfig(LightConfigCb cb)       { _onLightConfig    = cb; }
@@ -80,6 +83,7 @@ public:
     void setWifiAttemptingProvider(WifiAttemptingCb cb) { _wifiAttemptingProvider = cb; }
     void setWifiConnectedProvider(WifiConnectedCb cb)   { _wifiConnectedProvider  = cb; }
     void setOnWifiRetry(WifiRetryCb cb)           { _onWifiRetry      = cb; }
+    void setOnMeshSearch(MeshSearchCb cb)         { _onMeshSearch     = cb; }
 
     void begin() {
         _instance = this;
@@ -338,6 +342,13 @@ public:
         _send(&msg, sizeof(msg));
     }
 
+    // Broadcasts a manual "search devices" request (see ChannelManager::beginSearch).
+    void broadcastMeshSearch() {
+        if (!_ready) return;
+        MeshSearchMsg msg;
+        _send(&msg, sizeof(msg));
+    }
+
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
             if (Config::get().groups[i].exists)
@@ -379,6 +390,7 @@ private:
     WifiAttemptingCb _wifiAttemptingProvider;
     WifiConnectedCb  _wifiConnectedProvider;
     WifiRetryCb      _onWifiRetry;
+    MeshSearchCb     _onMeshSearch;
 
     // ── Config push encryption (issue #252) ───────────────────────────────────
     static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 3000;
@@ -833,6 +845,11 @@ private:
             case MsgType::WifiRetry: {
                 if (!_hasExactLen<WifiRetryMsg>(len)) return;
                 if (_instance->_onWifiRetry) _instance->_onWifiRetry();
+                break;
+            }
+            case MsgType::MeshSearch: {
+                if (!_hasExactLen<MeshSearchMsg>(len)) return;
+                if (_instance->_onMeshSearch) _instance->_onMeshSearch();
                 break;
             }
             default:

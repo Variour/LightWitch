@@ -30,6 +30,7 @@ enum class MsgType : uint8_t {
     KeyExchangeResp = 19,
     MeshPolicy      = 20,
     WifiRetry       = 21,
+    MeshSearch      = 22,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -230,4 +231,14 @@ struct MeshPolicyMsg {
 // and back on. No payload: every recipient just re-evaluates its own state.
 struct WifiRetryMsg {
     MsgType type = MsgType::WifiRetry;
+};
+
+// Broadcast by a "Search devices" UI click so every mesh device re-searches
+// together, not just the one whose web UI the click happened on — clicking
+// on a single device only ever moves that one device, which doesn't reconcile
+// a mesh that's already split into islands (#321). No payload: every
+// recipient re-searches starting from its own current channel, see
+// ChannelManager::beginSearch.
+struct MeshSearchMsg {
+    MsgType type = MsgType::MeshSearch;
 };
