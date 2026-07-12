@@ -4,10 +4,11 @@
 #include <esp_wifi.h>
 #include <Preferences.h>
 #include "../logging/Logger.h"
+#include "PeerRegistry.h"
 
 // Coordinates the ESP-NOW radio channel so all mesh peers stay on the same channel.
 //
-// Call begin() after setupWifi() and before MeshManager::begin().
+// Call begin(peers) after setupWifi() and before MeshManager::begin().
 // Call tick() from loop().
 // Call beginSearch() to trigger a re-search: from the local "Search devices"
 // web UI click, and again on every device that receives the resulting
@@ -17,24 +18,34 @@
 // State machine:
 //   WiFi connected    → LOCKED (channel saved to NVS)
 //   WiFi failed       → SEARCH (stored channel first, then 1/6/11)
-//   SEARCH + peer heard  → LOCKED (channel saved to NVS)
-//   SEARCH + 2 full cycles, no peers → LOCKED (NVS unchanged, fall back to common ch 1)
+//   SEARCH + new peer heard  → LOCKED (channel saved to NVS)
+//   SEARCH + already-known peer heard → ignored, keep searching (#321)
+//   SEARCH + 2 full cycles, no new peer → LOCKED (NVS unchanged, fall back to common ch 1)
 //   SEARCH + WiFi reconnects → LOCKED (channel saved to NVS)
 //   LOCKED + beginSearch()   → SEARCH (starting on the channel after the current one)
 
 class ChannelManager {
 public:
-    // Called by MeshManager when a heartbeat is received. During SEARCH, signals
-    // that the current channel has a live peer.
-    void onPeerHeard() {
+    // Called by MeshManager when a heartbeat is received, with the sender's
+    // MAC. During SEARCH, signals that the current channel has a live peer —
+    // unless that peer is one we already knew about before this search
+    // started (see _snapshotKnownPeers), in which case it's not new
+    // information and we keep looking. Without this, two devices that were
+    // already locked together can wander onto some other free channel,
+    // still hear each other there, and immediately re-lock to each other
+    // without ever reaching whatever bigger/different group this search was
+    // actually meant to find (#321).
+    void onPeerHeard(const uint8_t* mac) {
         if (_state != State::Searching) return;
+        if (_isAlreadyKnown(mac)) return;
         uint8_t ch = _currentChannel();
         _saveChannel(ch);
         Logger::i("[ch] peer heard on ch %u — locked", ch);
         _lock(ch);
     }
 
-    void begin() {
+    void begin(PeerRegistry* peers) {
+        _peers = peers;
         _loadChannel();
         _lastWifiState = WiFi.status();
 
@@ -136,6 +147,15 @@ private:
     uint8_t  _storedChannel = 0;   // 0 = nothing stored
     wl_status_t _lastWifiState = WL_IDLE_STATUS;
 
+    PeerRegistry* _peers = nullptr;
+
+    // Snapshot of peers already known when the current search began (#321) —
+    // see onPeerHeard. Sized to PeerRegistry's own cap since it can never
+    // hold more entries than that.
+    static constexpr uint8_t MAX_KNOWN = PeerRegistry::MAX_PEERS;
+    uint8_t _knownMacs[MAX_KNOWN][6];
+    uint8_t _knownCount = 0;
+
     // Search sequence: [stored, 1, 6, 11] deduplicated
     static constexpr uint8_t MAX_SEQ = 4;
     uint8_t _searchSeq[MAX_SEQ];
@@ -206,11 +226,33 @@ private:
         _state     = State::Searching;
         _searchIdx = 0;
         _round     = 0;
+        _snapshotKnownPeers();
         _buildSearchSeq(leaveFrom);
         _applyChannel(_searchSeq[0]);
         _dwellStart = millis();
         _dwellMs    = _randomDwell();
         Logger::i("[ch] search start: ch %u (dwell %u ms)", _searchSeq[0], _dwellMs);
+    }
+
+    // Records who we already knew about right before this search started, so
+    // onPeerHeard can tell "new peer" apart from "someone I already had".
+    // At boot this runs before MeshManager has received anything, so it's
+    // naturally empty and every peer heard during a boot search is new —
+    // this only changes behavior for a reconciliation search (#321).
+    void _snapshotKnownPeers() {
+        _knownCount = 0;
+        if (!_peers) return;
+        for (auto& p : *_peers) {
+            if (!p.active) continue;
+            if (_knownCount >= MAX_KNOWN) break;
+            memcpy(_knownMacs[_knownCount++], p.mac, 6);
+        }
+    }
+
+    bool _isAlreadyKnown(const uint8_t* mac) const {
+        for (uint8_t i = 0; i < _knownCount; i++)
+            if (memcmp(_knownMacs[i], mac, 6) == 0) return true;
+        return false;
     }
 
     void _lock(uint8_t ch) {

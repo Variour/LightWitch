@@ -278,7 +278,7 @@ void setup() {
 
     setupWifi();
     TimeSync::begin(Config::get().timezone);
-    channelMgr.begin();
+    channelMgr.begin(&mesh.peers);
 
     // Initialise one driver + runner per configured light
     Config::forEachLight([](uint8_t i, LightHardwareConfig& l) {
@@ -338,7 +338,7 @@ void setup() {
     mesh.setWifiAttemptingProvider([]() { return wifiElection.isAttempting(); });
     mesh.setWifiConnectedProvider([]() { return wifiElection.isAdvertisableConnected(); });
     wifiElection.setOnAttemptingChanged([]() { webServer.pushPeers(); });
-    mesh.setOnPeerHeard([](){ channelMgr.onPeerHeard(); });
+    mesh.setOnPeerHeard([](const uint8_t* mac){ channelMgr.onPeerHeard(mac); });
     mesh.setOnMeshPolicy([](const MeshManager::MeshPolicyState& state) {
         applyWifiPolicyState(state, "mesh");
     });

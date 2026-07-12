@@ -41,7 +41,7 @@ public:
     using TriggerUpdateCb  = std::function<void()>;
     // Called when this device is told to check for a firmware update (no auto-install)
     using CheckUpdateCb    = std::function<void()>;
-    using PeerHeardCb      = std::function<void()>;
+    using PeerHeardCb      = std::function<void(const uint8_t* mac)>;
     using TimeSyncCb       = std::function<void(uint32_t epoch)>;
     // Called when a newer mesh-wide single-WiFi-client policy state is seen.
     // Receiver should persist and apply the full state locally.
@@ -688,7 +688,7 @@ private:
                     m->lightCount, m->lightGroupIds, m->lightNames,
                     m->sceneSyncEnabled != 0, m->wifiConnected != 0,
                     m->fwVersion, (FwState)m->fwState, m->hasWifiNetworks != 0, m->wifiConnecting != 0);
-                if (_instance->_onPeerHeard) _instance->_onPeerHeard();
+                if (_instance->_onPeerHeard) _instance->_onPeerHeard(mac);
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, isNew);
                 if (isNew) {
                     _instance->broadcastAllGroups();
