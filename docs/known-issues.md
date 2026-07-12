@@ -14,7 +14,7 @@ In practice, the system is most reliable when the WiFi network uses channel `1`,
 
 ## Mesh channel islands: multiple devices can split into separate meshes on boot
 
-If several battery-powered devices with no WiFi configured are powered on together away from any router, independent subsets can each lock onto a different channel before ever hearing each other, forming separate mesh islands that don't know about each other. A manual **Search devices** re-search reduces the odds of this but isn't a guarantee. See #321.
+If several devices with no WiFi configured are powered on together away from any router, independent subsets can each lock onto a different channel before ever hearing each other, forming separate mesh islands that don't know about each other. A manual **Search devices** re-search reduces the odds of this but isn't a guarantee. See #321.
 
 ## OTA filesystem update: scene backup limited by available heap
 
