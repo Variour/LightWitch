@@ -18,7 +18,12 @@ In practice, the system is most reliable when the WiFi network uses channel `1`,
 
 This is distinct from the non-standard-channel limitation above: it can happen purely within channels `1`/`6`/`11`, with no WiFi involved at all. It is also distinct from ordinary peer loss — once a device is `Locked`, it never re-checks whether it's still actually hearing anyone; only an active search (at boot, or a manual **Search devices** click in the web UI) re-evaluates the channel.
 
-Mitigation in place: the per-channel search dwell was widened (6–9 s → 12–18 s, see `ChannelManager::_randomDwell`) to give independently-booting devices a bigger window to overlap on a shared channel. This reduces but does not eliminate the odds of island formation — it's a boot-time probability improvement, not a guarantee. The escape hatch remains the **Search devices** button. See #321 for the fuller design discussion, including automatic-detection approaches (periodic re-scan while locked, gossip/anti-entropy peer-count checks) that were considered and deferred as disproportionate to a battery-powered device's power budget.
+Mitigation in place (`ChannelManager`, #321):
+- Per-channel dwell nudged up slightly, 6–9 s → 7–10 s (`_randomDwell`) — still comfortably covers the 5 s heartbeat period.
+- Search now runs **two full passes** over `[stored, 1, 6, 11]` (`SEARCH_ROUNDS`) before giving up, not one — a second pass gives devices on a different boot phase, or a different stored-channel search order, another independent chance to land on the same channel at the same time.
+- If both passes end with no peer heard, every device falls back to one **common channel (`COMMON_FALLBACK_CHANNEL`, currently `1`)** rather than each device's own stored channel. Devices with different WiFi history that never overlapped during search still converge on a shared channel instead of a silent, permanent split.
+
+This reduces but does not eliminate the odds of island formation during search — it's a boot-time probability improvement, not a guarantee, and none of it costs anything once a device is `Locked`. The escape hatch remains the **Search devices** button. See #321 for the fuller design discussion, including automatic-detection approaches (periodic re-scan while locked, gossip/anti-entropy peer-count checks) that were considered and deferred as disproportionate to a battery-powered device's power budget.
 
 ## OTA filesystem update: scene backup limited by available heap
 

@@ -56,7 +56,7 @@ static uint32_t           _lastBackgroundTickMs        = 0;
 // Second, slower tier for the subsystems whose own timers are all in the
 // hundreds-of-ms-to-seconds range: mesh's tightest is a 500 ms proximity
 // ping, wifi election's tightest is a 100 ms pre-connect delay, channel scan
-// dwells 12-18 s, MQTT's keepalive is 30 s. 20 Hz oversamples all of them with
+// dwells 7-10 s, MQTT's keepalive is 30 s. 20 Hz oversamples all of them with
 // room to spare. Buttons and scene sync stay on the faster tier above since
 // their own timers (30 ms debounce, 20 ms chunk pacing) can't tolerate this.
 static constexpr uint32_t SLOW_TICK_INTERVAL_MS = 50;

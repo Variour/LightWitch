@@ -15,7 +15,7 @@
 //   WiFi connected    → LOCKED (channel saved to NVS)
 //   WiFi failed       → SEARCH (stored channel first, then 1/6/11)
 //   SEARCH + peer heard  → LOCKED (channel saved to NVS)
-//   SEARCH + full cycle  → LOCKED (NVS unchanged, fall back to stored or ch 1)
+//   SEARCH + 2 full cycles, no peers → LOCKED (NVS unchanged, fall back to common ch 1)
 //   SEARCH + WiFi reconnects → LOCKED (channel saved to NVS)
 //   LOCKED + beginSearch()   → SEARCH
 
@@ -77,10 +77,27 @@ public:
         // Advance to next channel in sequence
         _searchIdx++;
         if (_searchIdx >= _searchLen) {
-            // Full cycle with no peer heard — lock to stored channel or ch 1, NVS unchanged
-            uint8_t fallback = _storedChannel > 0 ? _storedChannel : 1;
-            Logger::i("[ch] search complete, no peers — locking to ch %u", fallback);
-            _lock(fallback);
+            _round++;
+            if (_round < SEARCH_ROUNDS) {
+                // Full pass, no peer heard — go again before giving up. A second
+                // pass gives a device on a different phase (staggered boot) or a
+                // different stored-channel order another chance to overlap (#321).
+                _searchIdx = 0;
+                _applyChannel(_searchSeq[0]);
+                _dwellStart = now;
+                _dwellMs    = _randomDwell();
+                Logger::i("[ch] search round %u/%u complete, no peers — retrying: ch %u (dwell %u ms)",
+                          _round, SEARCH_ROUNDS, _searchSeq[0], _dwellMs);
+                return;
+            }
+            // Both rounds exhausted, no peer heard — lock to a common fallback
+            // channel, not this device's own stored channel. Devices with
+            // different stored-channel history that never overlapped during
+            // search still converge on one shared channel this way instead of
+            // a silent, permanent split (#321). NVS unchanged.
+            Logger::i("[ch] search exhausted (%u rounds), no peers — locking to common ch %u",
+                      SEARCH_ROUNDS, COMMON_FALLBACK_CHANNEL);
+            _lock(COMMON_FALLBACK_CHANNEL);
             return;
         }
 
@@ -116,6 +133,16 @@ private:
     uint8_t _searchSeq[MAX_SEQ];
     uint8_t _searchLen  = 0;
     uint8_t _searchIdx  = 0;
+
+    // Number of full passes through _searchSeq before giving up (#321).
+    static constexpr uint8_t SEARCH_ROUNDS = 2;
+    uint8_t _round = 0;
+
+    // Shared channel every device falls back to once search is exhausted with
+    // no peer heard — deliberately not each device's own stored channel, so a
+    // mesh with mixed stored-channel history still has one common rendezvous
+    // point instead of each device silently parking on a different channel.
+    static constexpr uint8_t COMMON_FALLBACK_CHANNEL = 1;
 
     uint32_t _dwellStart = 0;
     uint32_t _dwellMs    = 0;
@@ -154,6 +181,7 @@ private:
     void _startSearch() {
         _state     = State::Searching;
         _searchIdx = 0;
+        _round     = 0;
         _buildSearchSeq();
         _applyChannel(_searchSeq[0]);
         _dwellStart = millis();
@@ -177,13 +205,12 @@ private:
     }
 
     uint32_t _randomDwell() {
-        // 12000–18000 ms: widened from the original 6–9 s (#153) so two
-        // independently-booting devices get a bigger window to overlap on a
-        // shared channel — reduces (does not eliminate) disjoint subsets
-        // each locking to a different channel before ever hearing each other
-        // (#321). Still comfortably covers the 5 s heartbeat period; the
-        // trade-off is a lone device takes longer to give up and fall back
-        // (~36–54 s full 3-channel cycle instead of ~18–27 s).
-        return 12000 + (uint32_t)(esp_random() % 6001);
+        // 7000–10000 ms: nudged up from the original 6–9 s (#153), still
+        // comfortably covering the 5 s heartbeat period per dwell. Island-
+        // formation odds (#321) are mainly addressed by SEARCH_ROUNDS and
+        // COMMON_FALLBACK_CHANNEL below, not by widening this further —
+        // repeating the whole sequence gives more independent chances to
+        // land on a shared channel than one long dwell does.
+        return 7000 + (uint32_t)(esp_random() % 3001);
     }
 };
