@@ -1625,7 +1625,7 @@ function _renderLightBrightnessOverride(light) {
   const value = light.brightnessOverride != null ? light.brightnessOverride : 255;
   const tip = "Override this light's own brightness, independent of its group";
   return `<div class="lbr-row" style="display:flex;align-items:center;gap:.35rem;margin-top:.15rem" title="${esc(tip)}">
-    <span style="font-size:.72rem;color:#888;white-space:nowrap">Override</span>
+    <span style="font-size:.72rem;color:#888;white-space:nowrap">Brightness override</span>
     <input type="checkbox" class="lbr-enable" ${enabled ? 'checked' : ''}
            aria-label="${esc(tip)}"
            onchange="onLightBrightnessOverrideToggle(${light.index}, this)">
