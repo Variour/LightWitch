@@ -215,9 +215,9 @@ input[type=checkbox]:active { background-color: #1a5; }
 /* Responsive two-column layout for larger screens */
 .layout { display: grid; grid-template-columns: 1fr; gap: .75rem; }
 @media (max-width: 640px) {
-  #tab-dashboard { margin-inline: -1rem; }
+  #tab-dashboard, #tab-scenes, #tab-settings { margin-inline: -1rem; }
   #tab-dashboard .layout { gap: .5rem; }
-  #tab-dashboard .card { border-radius: 0; }
+  #tab-dashboard .card, #tab-scenes .card, #tab-settings .card { border-radius: 0; }
   .lights-table-wrap { display: none; }
   .lights-mobile-list { display: grid; }
   .scene-item { flex-direction: column; align-items: stretch; }
