@@ -16,6 +16,15 @@ In practice, the system is most reliable when the WiFi network uses channel `1`,
 
 A device that isn't currently connected to WiFi searches independently for a channel with no coordination from other devices. Multiple such devices can each lock onto a different channel before ever hearing each other, forming separate mesh islands that don't know about each other. A manual **Search devices** re-search can merge those islands but isn't guaranteed to do so. See #321.
 
+## Mesh channel split: devices connected to different WiFi networks never converge
+
+`ChannelManager::begin()` locks straight to `WiFi.channel()` whenever WiFi is already connected at boot, with no search phase at all. If two or more devices are each configured for, and successfully connected to, a *different* WiFi network whose router happens to operate on a different channel, each device locks to its own router's channel and never re-evaluates:
+
+- a continuously-connected device only reacts to a `WL_CONNECTED` *transition* in `tick()`, which already happened once at boot — it never re-checks after that
+- a manual **Search devices** click doesn't help either: it flips the device to searching, but the very next `tick()` sees `WiFi.status()` is still connected and immediately re-locks to `WiFi.channel()` before ever looking elsewhere
+
+Unlike the mesh channel islands case above, this is a permanent, deterministic split, not a probabilistic one — there is no automatic escape hatch. Two devices legitimately, correctly connected to their own configured routers simply never share ESP-NOW airtime. See #323.
+
 ## OTA filesystem update: scene backup limited by available heap
 
 When a firmware update includes a `littlefs.bin` asset, custom scenes are read into heap memory before the filesystem is flashed and written back afterwards. If the total size of all scene files exceeds available heap (typically ~150–200 KB free on ESP32), the backup will silently drop scenes that could not be allocated. In practice, current scenes are a few KB in total and this limit is not a concern, but very large or numerous scenes could be lost.
