@@ -198,6 +198,16 @@ app.post('/api/config', (req, res) => {
   res.json({ ok: true });
 });
 
+// Mirrors WebServer.h::_clearMqtt — removes the broker config. The real
+// device also clears retained MQTT topics on the broker itself, which has
+// no equivalent in this HTTP/WS mock.
+app.post('/api/mqtt/clear', (_req, res) => {
+  MOCK_CONFIG.mqttHost = '';
+  MOCK_CONFIG.mqttPort = 1883;
+  MOCK_CONFIG.mqttUser = '';
+  res.json({ ok: true });
+});
+
 app.get('/api/wifi', (_req, res) => res.json({
   connected: wifiConnected,
   networks: wifiNetworks.map(n => n.ssid),
