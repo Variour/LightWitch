@@ -254,6 +254,7 @@ public:
     static bool    saveWifi();
     static bool    addWifiNetwork(const char* ssid, const char* password);
     static bool    deleteWifiNetwork(const char* ssid);
+    static bool    moveWifiNetwork(const char* ssid, int8_t direction);
 
     static WifiNetwork* wifiNetworks() { return _wifiNetworks; }
     static uint8_t      wifiCount()    { return _wifiCount; }

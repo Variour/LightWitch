@@ -60,7 +60,7 @@ const mockButtons = [
   },
 ];
 
-const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.06.27.0', fwState: 'checking' };
+const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, channel: 6, channelSearching: false, version: '2026.06.27.0', fwState: 'checking' };
 const MOCK_PEERS = [
   { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle'  },
   { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle'  },
@@ -216,6 +216,20 @@ app.post('/api/wifi/delete', (req, res) => {
   const idx = wifiNetworks.findIndex(n => n.ssid === ssid);
   if (idx !== -1) wifiNetworks.splice(idx, 1);
   if (wifiConnected === ssid) wifiConnected = null;
+  res.json({ ok: true });
+});
+app.post('/api/wifi/move', (req, res) => {
+  const { ssid, direction } = req.body;
+  if (!ssid) return res.status(400).json({ error: 'ssid required' });
+  if (direction !== 'up' && direction !== 'down') {
+    return res.status(400).json({ error: 'direction must be up or down' });
+  }
+  const i = wifiNetworks.findIndex(n => n.ssid === ssid);
+  const j = i + (direction === 'up' ? -1 : 1);
+  if (i === -1 || j < 0 || j >= wifiNetworks.length) {
+    return res.status(400).json({ error: 'cannot move' });
+  }
+  [wifiNetworks[i], wifiNetworks[j]] = [wifiNetworks[j], wifiNetworks[i]];
   res.json({ ok: true });
 });
 

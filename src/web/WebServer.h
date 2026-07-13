@@ -5,6 +5,7 @@
 #include <functional>
 #include "../config/Config.h"
 #include "../mesh/PeerRegistry.h"
+#include "../mesh/ChannelManager.h"
 #include "../logging/Logger.h"
 #include "../version.h"
 #include "../scenes/SceneManager.h"
@@ -87,7 +88,8 @@ public:
                RequestWifiCb onRequestWifi = nullptr,
                MeshPolicyCb onMeshPolicyChange = nullptr,
                WifiAttemptingCb onWifiAttempting = nullptr,
-               WifiRetryCb onWifiRetry = nullptr) {
+               WifiRetryCb onWifiRetry = nullptr,
+               ChannelManager* channelMgr = nullptr) {
         _onGroupChange      = onGroupChange;
         _onGroupLight       = onGroupLight;
         _onGroupSync        = onGroupSync;
@@ -104,6 +106,7 @@ public:
         _onMeshPolicyChange   = onMeshPolicyChange;
         _onWifiAttempting     = onWifiAttempting;
         _onWifiRetry          = onWifiRetry;
+        _channelMgr           = channelMgr;
 
         Logger::i("[web] starting on port 80");
         _server.addHandler(&_reqLogger);
@@ -130,6 +133,8 @@ public:
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _addWifi(r,d,l); });
         _server.on("/api/wifi/delete", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _deleteWifi(r,d,l); });
+        _server.on("/api/wifi/move", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _moveWifi(r,d,l); });
 
         _server.on("/api/peers", HTTP_GET, [this](AsyncWebServerRequest* r){ _getPeers(r); });
 
@@ -396,6 +401,7 @@ private:
     AsyncWebSocket*  _ws = nullptr;
     RequestLogger    _reqLogger;
     PeerRegistry*    _peers = nullptr;
+    ChannelManager*  _channelMgr = nullptr;
 
     GroupChangeCb     _onGroupChange;
     GroupLightCb      _onGroupLight;
@@ -559,6 +565,8 @@ private:
         self["wifiConnected"]    = (WiFi.status() == WL_CONNECTED);
         self["hasWifiNetworks"]  = Config::wifiCount() > 0;
         self["wifiConnecting"]   = _onWifiAttempting && _onWifiAttempting();
+        self["channel"]          = _channelMgr ? _channelMgr->lockedChannel() : 0;
+        self["channelSearching"] = _channelMgr && _channelMgr->isSearching();
         self["version"]          = FW_VERSION;
         self["fwState"]          = _fwStateToString(us.state);
         {
@@ -908,6 +916,29 @@ private:
             auto e = _makeErr("ssid required"); _sendJson(r, 400, e); return;
         }
         Config::deleteWifiNetwork(ssid);
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/wifi/move ───────────────────────────────────────────────────
+    // Body: {ssid, direction: "up"|"down"} — swaps ssid with its immediate
+    // neighbor; connect order is list order, so this changes priority.
+    void _moveWifi(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        const char* ssid = doc["ssid"]      | "";
+        const char* dir  = doc["direction"] | "";
+        if (strlen(ssid) == 0) {
+            auto e = _makeErr("ssid required"); _sendJson(r, 400, e); return;
+        }
+        int8_t direction;
+        if (strcmp(dir, "up") == 0)        direction = -1;
+        else if (strcmp(dir, "down") == 0) direction = 1;
+        else {
+            auto e = _makeErr("direction must be up or down"); _sendJson(r, 400, e); return;
+        }
+        if (!Config::moveWifiNetwork(ssid, direction)) {
+            auto e = _makeErr("cannot move"); _sendJson(r, 400, e); return;
+        }
         auto ok = _makeOk(); _sendJson(r, 200, ok);
     }
 

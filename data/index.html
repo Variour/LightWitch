@@ -508,6 +508,7 @@ input[type=checkbox]:active { background-color: #1a5; }
       <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg><span>Fw installing</span></div>
       <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c44" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg><span>Fw failed — tap to retry</span></div>
       <div class="legend-row"><span><input type="checkbox" checked disabled aria-hidden="true"> <b>Sync</b></span><span>Shares/receives scene files with that peer.</span></div>
+      <div class="legend-row"><b>Channel</b><span>The ESP-NOW radio channel this device is currently locked to (only shown for this device — peers can't report their own channel over the mesh). Compare it against other devices' own pages to spot a permanent mesh split.</span></div>
     </div>
     <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem">
       <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.82rem;color:#aaa">
@@ -520,8 +521,8 @@ input[type=checkbox]:active { background-color: #1a5; }
     </div>
     <div class="lights-table-wrap">
       <table class="lights-table">
-        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
-        <tbody id="lights-body"><tr><td colspan="7" style="color:#444">Loading…</td></tr></tbody>
+        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th>Channel</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
+        <tbody id="lights-body"><tr><td colspan="8" style="color:#444">Loading…</td></tr></tbody>
       </table>
     </div>
     <div class="lights-mobile-list" id="lights-mobile-list"><div style="color:#444">Loading…</div></div>
@@ -873,6 +874,7 @@ input[type=checkbox]:active { background-color: #1a5; }
 
     <hr class="section-divider">
     <h3>WiFi</h3>
+    <div style="font-size:.78rem;color:#666;margin-bottom:.35rem">Tried in order, top to bottom, until one connects.</div>
     <div id="wifi-list" style="margin-bottom:.5rem"></div>
     <div style="display:flex;flex-direction:column;gap:.4rem">
       <label>SSID</label>
@@ -1636,7 +1638,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
   const showSignal = _groups.some(g => g.mode === 2);
 
   if (!all.length) {
-    body.innerHTML = '<tr><td colspan="7" style="color:#444">No lights found</td></tr>';
+    body.innerHTML = '<tr><td colspan="8" style="color:#444">No lights found</td></tr>';
     mobile.innerHTML = '<div class="light-device-empty">No lights found</div>';
     return;
   }
@@ -1670,6 +1672,13 @@ function renderLights(self, peers, wifiSingleClientMode) {
                     : wifiStandby ? 'WiFi standby (single-client mode — another device is/should be connected)'
                     : 'WiFi not connected';
     const wifiIcon = `<span aria-label="${esc(wifiTitle)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle" class="${wifiConnecting ? 'wifi-connecting' : ''}"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
+    const channelText = p.isSelf ? (p.channelSearching ? 'searching…' : (p.channel ? `${p.channel}` : '–')) : '–';
+    const channelTip = p.isSelf
+      ? (p.channelSearching ? 'Searching for a shared ESP-NOW channel' : `ESP-NOW channel ${p.channel}`)
+      : 'Peers can\'t report their own channel over the mesh — open that device\'s own page to check it';
+    const channelLabel = p.isSelf ? (p.channelSearching ? 'searching…' : `ch ${channelText}`) : '';
+    const channelBadge = channelLabel ? `<span style="font-size:.7rem;color:#666;margin-left:.35rem" title="${esc(channelTip)}">${channelLabel}</span>` : '';
+
     const signalTip = `Signal: ${rssiText}`;
     const signalIcon = showSignal && !p.isSelf
       ? `<span aria-label="${esc(signalTip)}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
@@ -1753,6 +1762,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
         <td>${dot}${esc(p.name)}${selfTag}</td>
         <td>${groupSelects}</td>
         <td style="text-align:center">${wifiIcon}</td>
+        <td style="text-align:center;font-size:.78rem;color:#666;white-space:nowrap" title="${esc(channelTip)}">${channelText}</td>
         <td style="text-align:right;font-size:.78rem;color:#666;white-space:nowrap">${rssiText}</td>
         <td style="text-align:center;color:#444;font-size:.78rem">${fwIconHtml}</td>
         <td style="text-align:center">${syncCell}</td>
@@ -1761,7 +1771,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
         <div class="light-device-header">
           <div class="light-device-title">
             <div class="light-device-title-line">
-              <span class="light-device-name">${esc(p.name)}</span>${selfTag}
+              <span class="light-device-name">${esc(p.name)}</span>${selfTag}${channelBadge}
               <span class="light-device-icons">${mobileIcons}</span>
             </div>
           </div>
@@ -2235,13 +2245,31 @@ function renderWifiList(networks, connected) {
     el.innerHTML = '<div style="font-size:.82rem;color:#555;margin-bottom:.25rem">(no networks saved — device runs in AP mode)</div>';
     return;
   }
-  el.innerHTML = networks.map(ssid => {
+  el.innerHTML = networks.map((ssid, i) => {
     const isConn = ssid === connected;
+    const q = JSON.stringify(ssid).replace(/"/g,'&quot;');
+    const upBtn = i > 0
+      ? `<button class="btn-ghost btn-sm" title="Move up" aria-label="Move ${esc(ssid)} up" onclick="moveWifiNetwork(${q},'up')">▲</button>`
+      : '';
+    const downBtn = i < networks.length - 1
+      ? `<button class="btn-ghost btn-sm" title="Move down" aria-label="Move ${esc(ssid)} down" onclick="moveWifiNetwork(${q},'down')">▼</button>`
+      : '';
     return `<div class="flex-between" style="padding:.3rem 0;border-bottom:1px solid #222">
       <span style="font-size:.9rem">${esc(ssid)}${isConn ? ' <small style="color:#4c4">(connected)</small>' : ''}</span>
-      <button class="btn-ghost btn-sm" onclick="deleteWifiNetwork(${JSON.stringify(ssid).replace(/"/g,'&quot;')})">Delete</button>
+      <span style="display:flex;gap:.25rem">${upBtn}${downBtn}<button class="btn-ghost btn-sm" onclick="deleteWifiNetwork(${q})">Delete</button></span>
     </div>`;
   }).join('');
+}
+
+async function moveWifiNetwork(ssid, direction) {
+  const res = await _fetchOrAlert('/api/wifi/move', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ssid, direction})
+  });
+  if (!res) return;
+  const wr = await fetch('/api/wifi');
+  const wd = await wr.json();
+  renderWifiList(wd.networks || [], wd.connected || null);
 }
 
 async function addWifiNetwork() {

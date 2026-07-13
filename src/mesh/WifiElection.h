@@ -11,9 +11,9 @@
 // stalls loop() — needed because, unlike at boot, WifiElection drives this
 // while the mesh, patterns and web UI are all live.
 //
-// Mirrors the original retry shape: try each configured network (last-known-
-// good first), 3 attempts of up to 10s each, with a short settle delay
-// between attempts.
+// Mirrors the original retry shape: try each configured network in list
+// order (first to last, no "last known good" stickiness — see #323), 3
+// attempts of up to 10s each, with a short settle delay between attempts.
 class WifiConnectAttempt {
 public:
     using DoneCb = std::function<void(bool success)>;
@@ -26,7 +26,6 @@ public:
         _onDone = onDone;
         _count  = Config::wifiCount();
         if (_count == 0) { _active = false; if (_onDone) _onDone(false); return; }
-        _buildOrder();
         _netIdx     = 0;
         _attemptNum = 0;
         _active     = true;
@@ -62,9 +61,8 @@ public:
         // Phase::Connecting
         if (WiFi.status() == WL_CONNECTED) {
             WiFi.softAPdisconnect(false);
-            uint8_t ni = _tryOrder[_netIdx];
-            if (ni != Config::wifiLast()) {
-                Config::setWifiLast(ni);
+            if (_netIdx != Config::wifiLast()) {
+                Config::setWifiLast(_netIdx);
                 Config::saveWifi();
             }
             _finish(true);
@@ -89,22 +87,13 @@ private:
     Phase    _phase      = Phase::PreDelay;
     uint32_t _phaseStart = 0;
     uint32_t _preDelayMs = 0;
-    uint8_t  _tryOrder[MAX_WIFI_NETWORKS] = {};
     uint8_t  _count      = 0;
     uint8_t  _netIdx     = 0;
     uint8_t  _attemptNum = 0;
     DoneCb   _onDone;
 
-    const char* _ssid() const { return Config::wifiNetworks()[_tryOrder[_netIdx]].ssid; }
-    const char* _pass() const { return Config::wifiNetworks()[_tryOrder[_netIdx]].password; }
-
-    void _buildOrder() {
-        uint8_t last = Config::wifiLast();
-        uint8_t idx  = 0;
-        _tryOrder[idx++] = last;
-        for (uint8_t i = 0; i < _count; i++)
-            if (i != last) _tryOrder[idx++] = i;
-    }
+    const char* _ssid() const { return Config::wifiNetworks()[_netIdx].ssid; }
+    const char* _pass() const { return Config::wifiNetworks()[_netIdx].password; }
 
     void _beginPreDelay(uint32_t ms) {
         _preDelayMs = ms;

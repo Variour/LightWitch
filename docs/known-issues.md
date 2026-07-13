@@ -25,6 +25,11 @@ A device that isn't currently connected to WiFi searches independently for a cha
 
 Unlike the mesh channel islands case above, this is a permanent, deterministic split, not a probabilistic one — there is no automatic escape hatch. Two devices legitimately, correctly connected to their own configured routers simply never share ESP-NOW airtime. See #323.
 
+Mitigations available today, neither of which is automatic detection or reconciliation:
+
+- The devices list shows this device's own current ESP-NOW channel (only this device's — a peer can't report its own channel over the mesh, since a split peer is by definition unreachable over ESP-NOW in the first place). Open each device's own page and compare channels by hand to confirm a split.
+- WiFi networks are configured as an ordered, reorderable list and are always tried strictly first-to-last on connect (see the WiFi section of the settings panel). Giving every device in a fleet the same priority order makes them more likely to try, and land on, the same network — and therefore the same channel — without relying on which network last happened to work on each device individually. This reduces the odds of a split; it does not guarantee convergence when devices have genuinely different network reachability.
+
 ## OTA filesystem update: scene backup limited by available heap
 
 When a firmware update includes a `littlefs.bin` asset, custom scenes are read into heap memory before the filesystem is flashed and written back afterwards. If the total size of all scene files exceeds available heap (typically ~150–200 KB free on ESP32), the backup will silently drop scenes that could not be allocated. In practice, current scenes are a few KB in total and this limit is not a concern, but very large or numerous scenes could be lost.
