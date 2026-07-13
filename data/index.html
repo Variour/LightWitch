@@ -1623,12 +1623,14 @@ function _renderLightGroupSelect(mac, light) {
 function _renderLightBrightnessOverride(light) {
   const enabled = light.brightnessOverrideEnabled === true;
   const value = light.brightnessOverride != null ? light.brightnessOverride : 255;
-  return `<div class="lbr-row" style="display:flex;align-items:center;gap:.35rem;margin-top:.15rem">
+  const tip = "Override this light's own brightness, independent of its group";
+  return `<div class="lbr-row" style="display:flex;align-items:center;gap:.35rem;margin-top:.15rem" title="${esc(tip)}">
+    <span style="font-size:.72rem;color:#888;white-space:nowrap">Override</span>
     <input type="checkbox" class="lbr-enable" ${enabled ? 'checked' : ''}
-           aria-label="Override this light's brightness"
+           aria-label="${esc(tip)}"
            onchange="onLightBrightnessOverrideToggle(${light.index}, this)">
     <input type="range" class="lbr-value" min="0" max="255" value="${value}" ${enabled ? '' : 'disabled'}
-           style="flex:1;min-width:60px" aria-label="Brightness override value"
+           style="flex:1;min-width:60px;margin:0" aria-label="Brightness override value"
            oninput="onLightBrightnessOverrideInput(${light.index}, this)">
   </div>`;
 }
