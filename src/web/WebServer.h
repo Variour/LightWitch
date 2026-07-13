@@ -42,6 +42,12 @@ using OrientationChangeCb = std::function<void(uint8_t)>;
 using LightBrightnessChangeCb = std::function<void(uint8_t)>;
 // Called after a button is added/updated/deleted, so GPIO pin modes can be re-applied live
 using ButtonsChangedCb    = std::function<void()>;
+// Called whenever the group list changes (create/rename/delete, local or mesh-synced) —
+// fired from the same point as the groups WebSocket push, so MQTT discovery can resync too.
+using GroupsChangedCb     = std::function<void()>;
+// Called after a scene is created or deleted (not edited — see SceneSavedCb for that),
+// so MQTT group discovery's scene-derived effect list can be rebuilt.
+using SceneListChangedCb  = std::function<void()>;
 // Called before a local OTA action so this device can connect to WiFi first if it's
 // currently on single-WiFi-client standby; invokes the given callback once ready
 // (immediately, if already connected).
@@ -398,6 +404,8 @@ public:
     void setOnOrientationChange(OrientationChangeCb cb) { _onOrientationChange = cb; }
     void setOnLightBrightnessChange(LightBrightnessChangeCb cb) { _onLightBrightnessChange = cb; }
     void setOnButtonsChanged(ButtonsChangedCb cb)       { _onButtonsChanged    = cb; }
+    void setOnGroupsChanged(GroupsChangedCb cb)         { _onGroupsChanged     = cb; }
+    void setOnSceneListChanged(SceneListChangedCb cb)   { _onSceneListChanged  = cb; }
 
 private:
     AsyncWebServer   _server{80};
@@ -426,6 +434,8 @@ private:
     OrientationChangeCb _onOrientationChange;
     LightBrightnessChangeCb _onLightBrightnessChange;
     ButtonsChangedCb    _onButtonsChanged;
+    GroupsChangedCb     _onGroupsChanged;
+    SceneListChangedCb  _onSceneListChanged;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -757,6 +767,7 @@ private:
     }
 
     void _pushGroups() {
+        if (_onGroupsChanged) _onGroupsChanged();
         if (!_ws || _ws->count() == 0) return;
         JsonDocument doc;
         doc["t"] = "groups";
@@ -818,6 +829,7 @@ private:
             auto e = _makeErr("create failed"); _sendJson(r, 500, e); return;
         }
         Logger::i("[scene] create: ok id=%s", id.c_str());
+        if (_onSceneListChanged) _onSceneListChanged();
         JsonDocument resp;
         resp["ok"] = true;
         resp["id"] = id;
@@ -835,6 +847,7 @@ private:
         Logger::i("[scene] delete: id=%s", id);
         bool ok = _sceneSync ? _sceneSync->deleteScene(id) : SceneManager::remove(id);
         Logger::i("[scene] delete: %s", ok ? "ok" : "not found");
+        if (ok && _onSceneListChanged) _onSceneListChanged();
         JsonDocument resp;
         if (ok) resp["ok"] = true; else resp["error"] = "not found";
         _sendJson(r, ok ? 200 : 404, resp);
