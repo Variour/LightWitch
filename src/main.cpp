@@ -205,15 +205,11 @@ static void setupWifi() {
     }
 
     uint8_t last = Config::wifiLast();
-    uint8_t tryOrder[MAX_WIFI_NETWORKS];
-    uint8_t idx = 0;
-    tryOrder[idx++] = last;
-    for (uint8_t i = 0; i < count; i++) {
-        if (i != last) tryOrder[idx++] = i;
-    }
 
-    for (uint8_t t = 0; t < count; t++) {
-        uint8_t ni = tryOrder[t];
+    // Strict list order, first to last — no "last known good" stickiness.
+    // A fleet configured with the same priority order is then more likely to
+    // try the same network first and converge on the same channel (#323).
+    for (uint8_t ni = 0; ni < count; ni++) {
         const char* ssid = Config::wifiNetworks()[ni].ssid;
         const char* pass = Config::wifiNetworks()[ni].password;
         for (uint8_t attempt = 0; attempt < 3; attempt++) {
@@ -545,7 +541,9 @@ void setup() {
         []() {
             wifiElection.retryNow();
             mesh.broadcastWifiRetry();
-        }
+        },
+
+        &channelMgr
     );
 
     auto notifySceneUpdated = [](const char* id) {

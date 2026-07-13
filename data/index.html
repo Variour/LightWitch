@@ -508,6 +508,7 @@ input[type=checkbox]:active { background-color: #1a5; }
       <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg><span>Fw installing</span></div>
       <div class="legend-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c44" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 9H4M7 12H4M7 15H4M17 9h3M17 12h3M17 15h3M9 7V4M12 7V4M15 7V4M9 17v3M12 17v3M15 17v3"/></svg><span>Fw failed — tap to retry</span></div>
       <div class="legend-row"><span><input type="checkbox" checked disabled aria-hidden="true"> <b>Sync</b></span><span>Shares/receives scene files with that peer.</span></div>
+      <div class="legend-row"><b>Channel</b><span>The ESP-NOW radio channel this device is currently locked to, shown above — it's a property of this device's mesh connection, not of any one row. Compare it against other devices' own pages to spot a permanent mesh split.</span></div>
     </div>
     <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem">
       <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.82rem;color:#aaa">
@@ -517,6 +518,7 @@ input[type=checkbox]:active { background-color: #1a5; }
       <button class="btn-ghost btn-sm" id="wifiRetryBtn" onclick="retryWifi()" style="display:none">Retry WiFi</button>
       <button class="btn-ghost btn-sm" onclick="meshSearch()">Search devices</button>
       <button class="btn-ghost btn-sm" onclick="openPushModal(null)">Push config to all</button>
+      <span id="meshChannelBadge" style="font-size:.82rem;color:#888;margin-left:auto"></span>
     </div>
     <div class="lights-table-wrap">
       <table class="lights-table">
@@ -873,6 +875,7 @@ input[type=checkbox]:active { background-color: #1a5; }
 
     <hr class="section-divider">
     <h3>WiFi</h3>
+    <div style="font-size:.78rem;color:#666;margin-bottom:.35rem">Tried in order, top to bottom, until one connects.</div>
     <div id="wifi-list" style="margin-bottom:.5rem"></div>
     <div style="display:flex;flex-direction:column;gap:.4rem">
       <label>SSID</label>
@@ -1624,6 +1627,19 @@ function renderLights(self, peers, wifiSingleClientMode) {
     const anyWifiConnected = (self && self.wifiConnected === true) || (peers || []).some(p => p.wifiConnected === true);
     wifiRetryBtn.style.display = (_wifiSingleClientMode && !anyWifiConnected) ? '' : 'none';
   }
+  const channelBadge = $('meshChannelBadge');
+  if (channelBadge) {
+    if (self && self.channelSearching) {
+      channelBadge.textContent = 'Channel: searching…';
+      channelBadge.title = 'Searching for a shared ESP-NOW channel';
+    } else if (self && self.channel) {
+      channelBadge.textContent = `Channel: ${self.channel}`;
+      channelBadge.title = 'This device’s current ESP-NOW channel. Mesh peers must share it to see each other here — compare against other devices’ own pages to spot a permanent split.';
+    } else {
+      channelBadge.textContent = '';
+      channelBadge.title = '';
+    }
+  }
   _self  = self;
   _peers = peers;
   if (self) _selfMac = self.mac;
@@ -2235,13 +2251,31 @@ function renderWifiList(networks, connected) {
     el.innerHTML = '<div style="font-size:.82rem;color:#555;margin-bottom:.25rem">(no networks saved — device runs in AP mode)</div>';
     return;
   }
-  el.innerHTML = networks.map(ssid => {
+  el.innerHTML = networks.map((ssid, i) => {
     const isConn = ssid === connected;
+    const q = JSON.stringify(ssid).replace(/"/g,'&quot;');
+    const upBtn = i > 0
+      ? `<button class="btn-ghost btn-sm" title="Move up" aria-label="Move ${esc(ssid)} up" onclick="moveWifiNetwork(${q},'up')">▲</button>`
+      : '';
+    const downBtn = i < networks.length - 1
+      ? `<button class="btn-ghost btn-sm" title="Move down" aria-label="Move ${esc(ssid)} down" onclick="moveWifiNetwork(${q},'down')">▼</button>`
+      : '';
     return `<div class="flex-between" style="padding:.3rem 0;border-bottom:1px solid #222">
       <span style="font-size:.9rem">${esc(ssid)}${isConn ? ' <small style="color:#4c4">(connected)</small>' : ''}</span>
-      <button class="btn-ghost btn-sm" onclick="deleteWifiNetwork(${JSON.stringify(ssid).replace(/"/g,'&quot;')})">Delete</button>
+      <span style="display:flex;gap:.25rem">${upBtn}${downBtn}<button class="btn-ghost btn-sm" onclick="deleteWifiNetwork(${q})">Delete</button></span>
     </div>`;
   }).join('');
+}
+
+async function moveWifiNetwork(ssid, direction) {
+  const res = await _fetchOrAlert('/api/wifi/move', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ssid, direction})
+  });
+  if (!res) return;
+  const wr = await fetch('/api/wifi');
+  const wd = await wr.json();
+  renderWifiList(wd.networks || [], wd.connected || null);
 }
 
 async function addWifiNetwork() {

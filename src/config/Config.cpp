@@ -532,6 +532,29 @@ bool Config::deleteWifiNetwork(const char* ssid) {
     return false;
 }
 
+// Swaps ssid with its immediate neighbor in the given direction (-1 = up /
+// earlier, +1 = down / later). Connect order is list order (see setupWifi()
+// and WifiConnectAttempt), so this is how priority is changed.
+bool Config::moveWifiNetwork(const char* ssid, int8_t direction) {
+    int8_t i = -1;
+    for (uint8_t k = 0; k < _wifiCount; k++) {
+        if (strcmp(_wifiNetworks[k].ssid, ssid) == 0) { i = (int8_t)k; break; }
+    }
+    if (i < 0) return false;
+
+    int8_t j = i + (direction < 0 ? -1 : 1);
+    if (j < 0 || j >= (int8_t)_wifiCount) return false;
+
+    WifiNetwork tmp  = _wifiNetworks[i];
+    _wifiNetworks[i] = _wifiNetworks[j];
+    _wifiNetworks[j] = tmp;
+
+    if (_wifiLast == (uint8_t)i)      _wifiLast = (uint8_t)j;
+    else if (_wifiLast == (uint8_t)j) _wifiLast = (uint8_t)i;
+
+    return saveWifi();
+}
+
 bool Config::isPinInUse(uint8_t pin, int8_t excludeButtonIndex) {
     for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
         auto& l = _cfg.lights[i];
