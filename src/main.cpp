@@ -109,10 +109,14 @@ static void publishTelemetry() {
     mqtt.publishPeers(channelMgr.lockedChannel());
 }
 
-// Broadcasts a GroupConfig change over mesh and republishes its MQTT state.
+// Broadcasts a GroupConfig change over mesh and republishes its MQTT state —
+// or, for a tombstone (g.exists == false, i.e. this group was just deleted),
+// clears its retained MQTT topics instead of trying to publish content for
+// a group Config no longer has.
 static void publishGroupSync(const GroupConfig& g) {
     mesh.broadcastGroupSync(g);
-    mqtt.publishGroupState(g.id);
+    if (g.exists) mqtt.publishGroupState(g.id);
+    else          mqtt.clearGroupRetained(g.id);
 }
 
 // Re-applies a single light's effective brightness (its group's brightness,
@@ -496,6 +500,7 @@ void setup() {
             });
             Config::save();
             applyAllLights();
+            mqtt.clearGroupRetained(g.id);
         } else if (didApply) {
             // Merge was adopted — light may or may not actually differ, but
             // reapplying is cheap and name/exists/light always move together

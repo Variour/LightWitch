@@ -137,7 +137,7 @@ public:
             char t[112];
             _groupTopic(i, "state", t, sizeof(t));
             _client.publish(t, "", /*retain=*/true);
-            snprintf(topic, sizeof(topic), "homeassistant/light/%s/g%u/config", _uniqueId, i);
+            _groupDiscoveryTopic(i, topic, sizeof(topic));
             _client.publish(topic, "", /*retain=*/true);
         }
         for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
@@ -149,6 +149,26 @@ public:
         Logger::i("[mqtt] retained messages cleared, disabling");
         _client.disconnect();
         _enabled = false;
+    }
+
+    // Clears one group's retained state + HA discovery topics — call right
+    // after a group is deleted (locally or via mesh sync), since Config no
+    // longer has it by then, so the normal publishGroupState()/loop() flush
+    // path silently no-ops for it (_doPublishGroup bails when Config::group()
+    // returns null) and would otherwise leave the group's entities stuck in
+    // Home Assistant / retained on the broker forever. Unlike the other
+    // publish* setters, this publishes immediately rather than deferring to
+    // loop() — callers must not invoke it from within _handleMsg (no group
+    // command currently deletes a group, so this isn't reachable from there).
+    void clearGroupRetained(uint8_t groupId) {
+        if (!_enabled || !_client.connected() || groupId >= MAX_GROUPS) return;
+        char t[112];
+        _groupTopic(groupId, "state", t, sizeof(t));
+        _client.publish(t, "", /*retain=*/true);
+        char topic[128];
+        _groupDiscoveryTopic(groupId, topic, sizeof(topic));
+        _client.publish(topic, "", /*retain=*/true);
+        Logger::i("[mqtt] cleared retained topics for deleted group %u", groupId);
     }
 
 private:
@@ -197,6 +217,9 @@ private:
     }
     void _lightTopic(uint8_t idx, const char* suffix, char* out, size_t outLen) {
         snprintf(out, outLen, "%s%u/%s", _lightPrefix, idx, suffix);
+    }
+    void _groupDiscoveryTopic(uint8_t id, char* out, size_t outLen) {
+        snprintf(out, outLen, "homeassistant/light/%s/g%u/config", _uniqueId, id);
     }
 
     void _connect() {
@@ -253,7 +276,7 @@ private:
 
     void _publishGroupDiscovery(uint8_t id, const GroupConfig& g) {
         char discTopic[128];
-        snprintf(discTopic, sizeof(discTopic), "homeassistant/light/%s/g%u/config", _uniqueId, id);
+        _groupDiscoveryTopic(id, discTopic, sizeof(discTopic));
         char stateTopic[112], setTopic[112];
         _groupTopic(id, "state", stateTopic, sizeof(stateTopic));
         _groupTopic(id, "set",   setTopic,   sizeof(setTopic));
