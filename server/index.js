@@ -71,6 +71,7 @@ const MOCK_PEERS = [
 const wifiNetworks = [
   { ssid: 'HomeNetwork', password: 'secret1' },
   { ssid: 'WorkWifi',    password: 'secret2' },
+  { ssid: 'GuestWifi',   password: 'secret3' },
 ];
 let wifiConnected = 'HomeNetwork';
 
