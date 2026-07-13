@@ -37,6 +37,8 @@ using SceneSavedCb        = std::function<void(const char* sceneId)>;
 using TestLightCb         = std::function<void(uint8_t)>;
 // Called when matrix orientation (matrixStart/matrixDir) or wrap topology changes without reboot
 using OrientationChangeCb = std::function<void(uint8_t)>;
+// Called when a light's own brightnessOverride(Enabled) changes without reboot
+using LightBrightnessChangeCb = std::function<void(uint8_t)>;
 // Called after a button is added/updated/deleted, so GPIO pin modes can be re-applied live
 using ButtonsChangedCb    = std::function<void()>;
 // Called before a local OTA action so this device can connect to WiFi first if it's
@@ -389,6 +391,7 @@ public:
     void setOnSceneSaved(SceneSavedCb cb)           { _onSceneSaved          = cb; }
     void setOnTestLight(TestLightCb cb)              { _onTestLight           = cb; }
     void setOnOrientationChange(OrientationChangeCb cb) { _onOrientationChange = cb; }
+    void setOnLightBrightnessChange(LightBrightnessChangeCb cb) { _onLightBrightnessChange = cb; }
     void setOnButtonsChanged(ButtonsChangedCb cb)       { _onButtonsChanged    = cb; }
 
 private:
@@ -415,6 +418,7 @@ private:
     SceneSavedCb        _onSceneSaved;
     TestLightCb         _onTestLight;
     OrientationChangeCb _onOrientationChange;
+    LightBrightnessChangeCb _onLightBrightnessChange;
     ButtonsChangedCb    _onButtonsChanged;
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -490,6 +494,8 @@ private:
             lo["wrapWidth"]   = l.wrapWidth;
             lo["wrapHeight"]  = l.wrapHeight;
             lo["groupId"]     = l.groupId;
+            lo["brightnessOverrideEnabled"] = l.brightnessOverrideEnabled;
+            lo["brightnessOverride"]        = l.brightnessOverride;
         }
 
         JsonArray arr = doc["groups"].to<JsonArray>();
@@ -572,6 +578,8 @@ private:
                 lo["width"]     = c.lights[i].width;
                 lo["height"]    = c.lights[i].height;
                 lo["wrapWidth"] = c.lights[i].wrapWidth;
+                lo["brightnessOverrideEnabled"] = c.lights[i].brightnessOverrideEnabled;
+                lo["brightnessOverride"]        = c.lights[i].brightnessOverride;
             }
         }
 
@@ -1120,6 +1128,8 @@ private:
             o["wrapWidth"]   = l.wrapWidth;
             o["wrapHeight"]  = l.wrapHeight;
             o["groupId"]     = l.groupId;
+            o["brightnessOverrideEnabled"] = l.brightnessOverrideEnabled;
+            o["brightnessOverride"]        = l.brightnessOverride;
         }
         _sendJson(r, 200, doc);
     }
@@ -1193,10 +1203,21 @@ private:
                 if (_onGroupChange) _onGroupChange();
             }
         }
+        // brightness override: soft config, no restart needed
+        bool brightnessOverrideChanged = false;
+        if (!doc["brightnessOverrideEnabled"].isNull()) {
+            l.brightnessOverrideEnabled = (bool)doc["brightnessOverrideEnabled"];
+            brightnessOverrideChanged = true;
+        }
+        if (!doc["brightnessOverride"].isNull()) {
+            l.brightnessOverride = (uint8_t)constrain((int)doc["brightnessOverride"], 0, 255);
+            brightnessOverrideChanged = true;
+        }
         Config::save();
         auto ok = _makeOk(); _sendJson(r, 200, ok);
-        if (hwChanged) { delay(200); ESP.restart(); }
-        else if (orientationChanged && _onOrientationChange) _onOrientationChange(idx);
+        if (hwChanged) { delay(200); ESP.restart(); return; }
+        if (orientationChanged && _onOrientationChange) _onOrientationChange(idx);
+        if (brightnessOverrideChanged && _onLightBrightnessChange) _onLightBrightnessChange(idx);
     }
 
     // ── POST /api/lights/test ─────────────────────────────────────────────────

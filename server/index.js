@@ -9,17 +9,17 @@ import { authRouter, requireAuth } from './auth.js';
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 const mockLights = [
-  { index: 0, name: 'Living room', ledType: 0, dataPin: 13, clockPin: 14, width: 1,  height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 0 },
-  { index: 1, name: 'Bedroom',     ledType: 1, dataPin: 25, clockPin: 26, width: 8,  height: 8, matrixStart: 2, matrixDir: 1, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 1 },
-  { index: 2, name: 'Patio',       ledType: 0, dataPin: 27, clockPin: 32, width: 12, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: true,  wrapHeight: false, groupId: 2 },
+  { index: 0, name: 'Living room', ledType: 0, dataPin: 13, clockPin: 14, width: 1,  height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 0, brightnessOverrideEnabled: false, brightnessOverride: 255 },
+  { index: 1, name: 'Bedroom',     ledType: 1, dataPin: 25, clockPin: 26, width: 8,  height: 8, matrixStart: 2, matrixDir: 1, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 1, brightnessOverrideEnabled: true,  brightnessOverride: 120 },
+  { index: 2, name: 'Patio',       ledType: 0, dataPin: 27, clockPin: 32, width: 12, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: true,  wrapHeight: false, groupId: 2, brightnessOverrideEnabled: false, brightnessOverride: 255 },
 ];
 
 // The real device derives self.lights in /api/peers straight from the live
 // hardware config on every request (see WebServer.h::_buildPeersJson), so it
 // can never drift. Mirror that here instead of keeping a second static copy.
 function mockSelfLights() {
-  return mockLights.map(({ index, name, groupId, ledType, width, height, wrapWidth }) =>
-    ({ index, name, groupId, ledType, width, height, wrapWidth }));
+  return mockLights.map(({ index, name, groupId, ledType, width, height, wrapWidth, brightnessOverrideEnabled, brightnessOverride }) =>
+    ({ index, name, groupId, ledType, width, height, wrapWidth, brightnessOverrideEnabled, brightnessOverride }));
 }
 
 const MOCK_CONFIG = {
@@ -49,14 +49,14 @@ const MOCK_CONFIG = {
 // One pre-populated button so the Buttons UI has something to show/edit by default.
 const mockButtons = [
   { index: 0, name: 'Wall switch', pin: 4, activeLow: true, exists: true,
-    onShortPress:  { action: 1, groupId: 0, numberValue: 20, stringValue: '', r: 255, g: 255, b: 255 }, // BrightnessStep
-    onLongPress:   { action: 6, groupId: 0, numberValue: 0,  stringValue: '', r: 255, g: 255, b: 255 }, // PatternNext
-    onDoubleClick: { action: 3, groupId: 0, numberValue: 0,  stringValue: '', r: 0,   g: 150, b: 255 }, // ColorSet
+    onShortPress:  { action: 1, groupId: 0, lightIndex: 0, numberValue: 20, stringValue: '', r: 255, g: 255, b: 255 }, // BrightnessStep
+    onLongPress:   { action: 6, groupId: 0, lightIndex: 0, numberValue: 0,  stringValue: '', r: 255, g: 255, b: 255 }, // PatternNext
+    onDoubleClick: { action: 3, groupId: 0, lightIndex: 0, numberValue: 0,  stringValue: '', r: 0,   g: 150, b: 255 }, // ColorSet
   },
   { index: 1, name: 'Nightstand', pin: 5, activeLow: true, exists: true,
-    onShortPress:  { action: 12, groupId: 1, numberValue: 0, stringValue: '0002ee38f7ce6ab7acd6a859', r: 255, g: 255, b: 255 }, // SceneSet
-    onLongPress:   { action: 5,  groupId: 1, numberValue: 1, stringValue: '', r: 255, g: 255, b: 255 }, // ModeSet → Scene
-    onDoubleClick: { action: 0,  groupId: 1, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 }, // none
+    onShortPress:  { action: 12, groupId: 1, lightIndex: 0, numberValue: 0, stringValue: '0002ee38f7ce6ab7acd6a859', r: 255, g: 255, b: 255 }, // SceneSet
+    onLongPress:   { action: 5,  groupId: 1, lightIndex: 0, numberValue: 1, stringValue: '', r: 255, g: 255, b: 255 }, // ModeSet → Scene
+    onDoubleClick: { action: 29, groupId: 0, lightIndex: 1, numberValue: 20, stringValue: '', r: 255, g: 255, b: 255 }, // LightBrightnessOverrideStep on Bedroom
   },
 ];
 
@@ -316,6 +316,11 @@ app.post('/api/lights/update', (req, res) => {
   if (!light) return res.status(404).json({ error: 'not found' });
   Object.assign(light, fields);
   res.json({ ok: true });
+  // Mirrors WebServer.h::_updateLight: a brightness override change is a live
+  // update (no reboot) that pushes to the dashboard via WS, unlike other
+  // hardware-config fields on this endpoint (which trigger ESP.restart() on
+  // real hardware and so never round-trip back to the dashboard mid-session).
+  if ('brightnessOverrideEnabled' in fields || 'brightnessOverride' in fields) broadcastPeers();
 });
 app.post('/api/lights/delete', (req, res) => {
   const { index } = req.body || {};
@@ -343,7 +348,7 @@ app.post('/api/buttons/add', (req, res) => {
   if (free === undefined) return res.status(400).json({ error: 'button limit reached' });
   const { name = '', pin = 0, activeLow = true, onShortPress, onLongPress, onDoubleClick } = req.body || {};
   if (isButtonPinInUse(pin, free)) return res.status(400).json({ error: 'pin already in use' });
-  const blankAction = () => ({ action: 0, groupId: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 });
+  const blankAction = () => ({ action: 0, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 });
   mockButtons.push({
     index: free, name, pin, activeLow, exists: true,
     onShortPress:  onShortPress  || blankAction(),

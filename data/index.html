@@ -1016,6 +1016,7 @@ const $ = id => document.getElementById(id);
 // ── Dashboard state ───────────────────────────────────────────────────────────
 let _groups      = [];
 let _peers       = [];
+let _lights      = [];
 let _localConfig = {};
 let _pushTarget  = null; // null = all peers, string = specific MAC
 let _self    = null;
@@ -1612,6 +1613,47 @@ function _renderLightGroupSelect(mac, light) {
   return `<select onchange="assignGroup('${mac}',${light.index},parseInt(this.value))">${_renderGroupOptions(light.groupId)}</select>`;
 }
 
+// Ad-hoc per-light brightness override — only ever shown for this device's own
+// lights (see renderLights): overriding a remote peer's light isn't wired up,
+// the override is local-only hardware config, not a mesh-synced setting.
+// renderLights renders both a desktop table row and a mobile list row for
+// every light at once (CSS picks which is visible), so this can't use ids —
+// two rows with the same id would collide — and instead locates its sibling
+// control via .lbr-row, same as the rest of that dual layout.
+function _renderLightBrightnessOverride(light) {
+  const enabled = light.brightnessOverrideEnabled === true;
+  const value = light.brightnessOverride != null ? light.brightnessOverride : 255;
+  return `<div class="lbr-row" style="display:flex;align-items:center;gap:.35rem;margin-top:.15rem">
+    <input type="checkbox" class="lbr-enable" ${enabled ? 'checked' : ''}
+           aria-label="Override this light's brightness"
+           onchange="onLightBrightnessOverrideToggle(${light.index}, this)">
+    <input type="range" class="lbr-value" min="0" max="255" value="${value}" ${enabled ? '' : 'disabled'}
+           style="flex:1;min-width:60px" aria-label="Brightness override value"
+           oninput="onLightBrightnessOverrideInput(${light.index}, this)">
+  </div>`;
+}
+
+function onLightBrightnessOverrideToggle(index, checkboxEl) {
+  const slider = checkboxEl.closest('.lbr-row')?.querySelector('.lbr-value');
+  if (slider) slider.disabled = !checkboxEl.checked;
+  setLightBrightnessOverride(index, checkboxEl.checked, parseInt(slider?.value ?? 255));
+}
+
+function onLightBrightnessOverrideInput(index, sliderEl) {
+  const checkbox = sliderEl.closest('.lbr-row')?.querySelector('.lbr-enable');
+  if (checkbox && !checkbox.checked) checkbox.checked = true;
+  clearTimeout(_debounce['light-' + index]);
+  _debounce['light-' + index] = setTimeout(
+    () => setLightBrightnessOverride(index, true, parseInt(sliderEl.value)), 300);
+}
+
+async function setLightBrightnessOverride(index, enabled, value) {
+  await _fetchOrToast('/api/lights/update', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({index, brightnessOverrideEnabled: enabled, brightnessOverride: value})
+  }, "Failed to update light's brightness override");
+}
+
 function renderLights(self, peers, wifiSingleClientMode) {
   if (wifiSingleClientMode !== undefined) _wifiSingleClientMode = wifiSingleClientMode;
   const wifiToggle = $('wifiSingleClientToggle');
@@ -1720,18 +1762,24 @@ function renderLights(self, peers, wifiSingleClientMode) {
       : lights.map(l => {
           const lightLabel = l.name ? esc(l.name) : `L${l.index}`;
           const label = `<span style="font-size:.72rem;color:#888;margin-right:.25rem">${lightLabel}</span>`;
-          return `<div style="display:flex;align-items:center;gap:.25rem;margin-bottom:.2rem">${label}${_renderLightGroupSelect(mac, l)}</div>`;
+          const override = p.isSelf ? _renderLightBrightnessOverride(l) : '';
+          return `<div style="margin-bottom:.2rem">
+            <div style="display:flex;align-items:center;gap:.25rem">${label}${_renderLightGroupSelect(mac, l)}</div>
+            ${override}
+          </div>`;
         }).join('');
 
     const mobileLights = lights.length === 0
       ? '<div class="light-device-empty">No lights exposed</div>'
       : lights.map(l => {
           const lightLabel = l.name ? esc(l.name) : `Light ${l.index}`;
+          const override = p.isSelf ? _renderLightBrightnessOverride(l) : '';
           return `<div class="light-device-light">
             <div class="light-device-light-head">
               <span class="light-device-light-name">${lightLabel}</span>
             </div>
             ${_renderLightGroupSelect(mac, l)}
+            ${override}
           </div>`;
         }).join('');
 
@@ -4181,6 +4229,7 @@ window.addEventListener('popstate', () => {
 const LED_TYPE_NAMES = ['WS2812B — single wire', 'WS2801 — two wire'];
 
 function renderLightsHw(lights) {
+  _lights = lights || [];
   const el = $('lights-hw-list');
   if (!el) return;
   if (!lights || !lights.length) {
@@ -4408,6 +4457,9 @@ const ACTION_CATALOG = [
   {id:26, label:'Text animation set',         cat:'Text',      param:'enum', hint:'Animation',
     options:[[0,'Scroll'],[1,'Bounce']]},
   {id:27, label:'24h/12h toggle',             cat:'Time',      param:'none'},
+  {id:29, label:'Light brightness override step',  cat:'Light', param:'number', hint:'± step, e.g. 20 or -20', target:'light'},
+  {id:30, label:'Light brightness override set',   cat:'Light', param:'number', hint:'0–255',                  target:'light'},
+  {id:31, label:'Light brightness override clear', cat:'Light', param:'none',                                  target:'light'},
 ];
 
 function _actionMeta(id) { return ACTION_CATALOG.find(a => a.id === id); }
@@ -4454,16 +4506,33 @@ function _buildParamHtml(prefix, action, existing) {
   return '';
 }
 
-// Re-renders the target-group and param controls for one action slot after
-// the user changes its action dropdown (existing = null → blank defaults).
+// Builds the target-picker for one action slot: most actions target a group
+// (existing behavior), but the light-scoped actions (see ACTION_CATALOG's
+// target:'light') target a specific physical light instead.
+function _renderTargetHtml(prefix, action, existing) {
+  const meta = _actionMeta(action);
+  if (!meta) return '';
+  if (meta.target === 'light') {
+    if (!_lights.length) return '<p style="color:#c84;font-size:.78rem">No lights configured</p>';
+    const sel = existing ? existing.lightIndex : 0;
+    return `<label>Target light</label><select id="${prefix}-lightIndex">${
+      _lights.map(l => `<option value="${l.index}"${l.index === sel ? ' selected' : ''}>${esc(l.name || ('Light ' + l.index))}</option>`).join('')
+    }</select>`;
+  }
+  return `<label>Target group</label><select id="${prefix}-groupId">${_renderGroupOptions(existing ? existing.groupId : 0)}</select>`;
+}
+
+// Re-renders the target and param controls for one action slot after the
+// user changes its action dropdown (existing = null → blank defaults).
 function _updateActionParamVisibility(prefix, action, existing) {
   const meta = _actionMeta(action);
   $(prefix + '-target-wrap').style.display = meta ? '' : 'none';
+  $(prefix + '-target-wrap').innerHTML = _renderTargetHtml(prefix, action, existing);
   $(prefix + '-param-wrap').innerHTML = _buildParamHtml(prefix, action, existing);
 }
 
 function _renderActionSlot(prefix, label, a) {
-  a = a || {action: 0, groupId: 0};
+  a = a || {action: 0, groupId: 0, lightIndex: 0};
   const meta = _actionMeta(a.action);
   return `<div class="card" style="margin-bottom:.5rem;padding:.5rem .6rem">
     <strong style="font-size:.85rem">${esc(label)}</strong>
@@ -4472,19 +4541,18 @@ function _renderActionSlot(prefix, label, a) {
       <option value="0"${!a.action ? ' selected' : ''}>— none —</option>
       ${_renderActionOptions(a.action)}
     </select>
-    <div id="${prefix}-target-wrap" style="${meta ? '' : 'display:none'}">
-      <label>Target group</label>
-      <select id="${prefix}-groupId">${_renderGroupOptions(a.groupId)}</select>
-    </div>
+    <div id="${prefix}-target-wrap" style="${meta ? '' : 'display:none'}">${_renderTargetHtml(prefix, a.action, a)}</div>
     <div id="${prefix}-param-wrap">${_buildParamHtml(prefix, a.action, a)}</div>
   </div>`;
 }
 
 function _readActionSlot(prefix) {
   const action  = parseInt($(prefix + '-action').value) || 0;
-  const groupId = parseInt($(prefix + '-groupId')?.value) || 0;
-  const out = {action, groupId, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255};
   const meta = _actionMeta(action);
+  const isLightTarget = !!meta && meta.target === 'light';
+  const groupId    = isLightTarget ? 0 : (parseInt($(prefix + '-groupId')?.value) || 0);
+  const lightIndex = isLightTarget ? (parseInt($(prefix + '-lightIndex')?.value) || 0) : 0;
+  const out = {action, groupId, lightIndex, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255};
   if (!meta) return out;
   if (meta.param === 'number') out.numberValue = parseFloat($(prefix + '-param-number').value) || 0;
   else if (meta.param === 'enum') out.numberValue = parseInt($(prefix + '-param-enum').value) || 0;

@@ -81,13 +81,38 @@ static void serialSink(LogLevel level, const char* msg) {
 
 // ── Light / group helpers ─────────────────────────────────────────────────────
 
+// Substitutes a light's own brightness override (local to this device, not
+// mesh-synced) for its group's brightness, when enabled. Every path that
+// applies a group's LightConfig to a light's runner must go through this so
+// the override survives group brightness changes, mesh syncs, and reboots.
+static LightConfig withBrightnessOverride(const LightConfig& cfg, const LightHardwareConfig& l) {
+    if (!l.brightnessOverrideEnabled) return cfg;
+    LightConfig c = cfg;
+    c.brightness = l.brightnessOverride;
+    return c;
+}
+
 // Apply each light's group config to its runner
 static void applyAllLights() {
     Config::forEachLight([](uint8_t i, LightHardwareConfig& l) {
         if (!_leds[i]) return;
         auto* g = Config::group(l.groupId);
-        if (g) _runners[i].applyConfig(g->light);
+        if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
     });
+}
+
+// Re-applies a single light's effective brightness (its group's brightness,
+// or its own override if enabled) to its runner and pushes state to the
+// dashboard. Used after a light's own brightnessOverride(Enabled) changes —
+// group brightness itself is unaffected, so this doesn't go through
+// applyAndPropagateLightConfig/mesh broadcast.
+static void applyLightBrightnessOverride(uint8_t lightIndex) {
+    if (lightIndex >= MAX_LIGHTS || !_leds[lightIndex]) return;
+    auto& l = Config::get().lights[lightIndex];
+    GroupConfig* g = Config::group(l.groupId);
+    if (!g) return;
+    _runners[lightIndex].applyConfig(withBrightnessOverride(g->light, l));
+    webServer.pushPeers();
 }
 
 // Applies a new LightConfig to a group and propagates it everywhere: local
@@ -113,7 +138,7 @@ static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg
     Config::save();
 
     Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
-        if (l.groupId == groupId && _leds[i]) _runners[i].applyConfig(cfg);
+        if (l.groupId == groupId && _leds[i]) _runners[i].applyConfig(withBrightnessOverride(cfg, l));
     });
 
     mesh.broadcastLightConfig(groupId, cfg);
@@ -306,7 +331,7 @@ void setup() {
         _runners[i].setPeerRegistry(&mesh.peers);
         _runners[i].setGroupId(l.groupId);
         auto* g = Config::group(l.groupId);
-        if (g) _runners[i].applyConfig(g->light);
+        if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
     });
 
     // Wire MQTT to the first active light's group for now
@@ -326,6 +351,7 @@ void setup() {
         applyAndPropagateLightConfig(groupId, cfg, /*bumpRevision=*/true);
     });
     actionExecutor.setBroadcastGroupSyncFn([](const GroupConfig& g) { mesh.broadcastGroupSync(g); });
+    actionExecutor.setApplyLightBrightnessFn([](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
     buttonManager.setExecutor(&actionExecutor);
     buttonManager.begin();
 
@@ -437,7 +463,7 @@ void setup() {
                 if (_leds[lightIndex]) {
                     _runners[lightIndex].setGroupId(groupId);
                     auto* g = Config::group(groupId);
-                    if (g) _runners[lightIndex].applyConfig(g->light);
+                    if (g) _runners[lightIndex].applyConfig(withBrightnessOverride(g->light, Config::get().lights[lightIndex]));
                 }
                 Logger::i("[mesh] light %u moved to group %u", lightIndex, groupId);
             }
@@ -466,7 +492,7 @@ void setup() {
             // now, so there's no cheaper way to tell them apart here.
             Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
                 if (l.groupId == g.id && _leds[i])
-                    _runners[i].applyConfig(applied->light);
+                    _runners[i].applyConfig(withBrightnessOverride(applied->light, l));
             });
         }
         webServer.pushGroups();
@@ -564,6 +590,7 @@ void setup() {
             _runners[idx].setWrap(l.wrapWidth, l.wrapHeight);
         }
     });
+    webServer.setOnLightBrightnessChange([](uint8_t idx) { applyLightBrightnessOverride(idx); });
     webServer.setOnButtonsChanged([]() { buttonManager.reconfigure(); });
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
