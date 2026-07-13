@@ -1,5 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "repositories": ["Variour/batteryLight"],
   "extends": ["config:recommended"],
   "schedule": ["before 6am on monday"],
   "timezone": "UTC",
@@ -7,7 +8,7 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["^platformio\\.ini$"],
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
       "matchStrings": ["platform\\s*=\\s*espressif32\\s*@\\s*(?<currentValue>[\\d.]+)"],
       "depNameTemplate": "espressif32",
       "packageNameTemplate": "platformio/platform-espressif32",
@@ -16,7 +17,7 @@
     },
     {
       "customType": "regex",
-      "fileMatch": ["^platformio\\.ini$"],
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
       "matchStrings": ["esp32async/ESPAsyncWebServer\\s*@\\s*(?<currentValue>[\\d.]+)"],
       "depNameTemplate": "esp32async/ESPAsyncWebServer",
       "datasourceTemplate": "github-tags",
@@ -24,7 +25,7 @@
     },
     {
       "customType": "regex",
-      "fileMatch": ["^platformio\\.ini$"],
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
       "matchStrings": ["esp32async/AsyncTCP\\s*@\\s*(?<currentValue>[\\d.]+)"],
       "depNameTemplate": "esp32async/AsyncTCP",
       "datasourceTemplate": "github-tags",
@@ -32,7 +33,7 @@
     },
     {
       "customType": "regex",
-      "fileMatch": ["^platformio\\.ini$"],
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
       "matchStrings": ["\\bArduinoJson\\s*@\\s*(?<currentValue>[\\d.]+)"],
       "depNameTemplate": "ArduinoJson",
       "packageNameTemplate": "bblanchon/ArduinoJson",
@@ -41,7 +42,7 @@
     },
     {
       "customType": "regex",
-      "fileMatch": ["^platformio\\.ini$"],
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
       "matchStrings": ["adafruit/Adafruit NeoPixel\\s*@\\s*(?<currentValue>[\\d.]+)"],
       "depNameTemplate": "adafruit/Adafruit NeoPixel",
       "packageNameTemplate": "adafruit/Adafruit_NeoPixel",
@@ -50,7 +51,7 @@
     },
     {
       "customType": "regex",
-      "fileMatch": ["^platformio\\.ini$"],
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
       "matchStrings": ["adafruit/Adafruit WS2801 Library\\s*@\\s*(?<currentValue>[\\d.]+)"],
       "depNameTemplate": "adafruit/Adafruit WS2801 Library",
       "packageNameTemplate": "adafruit/Adafruit-WS2801-Library",
@@ -59,7 +60,7 @@
     },
     {
       "customType": "regex",
-      "fileMatch": ["^platformio\\.ini$"],
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
       "matchStrings": ["knolleary/PubSubClient\\s*@\\s*(?<currentValue>[\\d.]+)"],
       "depNameTemplate": "knolleary/PubSubClient",
       "packageNameTemplate": "knolleary/pubsubclient",
