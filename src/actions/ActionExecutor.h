@@ -16,6 +16,7 @@ class ActionExecutor {
 public:
     using ApplyFn              = std::function<void(uint8_t groupId, const LightConfig&)>;
     using BroadcastGroupSyncFn = std::function<void(const GroupConfig&)>;
+    using ApplyLightBrightnessFn = std::function<void(uint8_t lightIndex)>;
 
     // Applies + propagates a LightConfig change for a group (e.g. main.cpp's
     // applyAndPropagateLightConfig — save, runners, mesh broadcast, mqtt publish).
@@ -23,9 +24,21 @@ public:
     // Broadcasts a GroupConfig change over mesh (used only by GroupSyncToggle,
     // which mutates GroupConfig.syncEnabled rather than LightConfig).
     void setBroadcastGroupSyncFn(BroadcastGroupSyncFn fn) { _broadcastGroupSync = fn; }
+    // Re-applies a light's effective brightness (group brightness + its own
+    // override, if enabled) to its runner and pushes it to the dashboard.
+    // Used only by the LightBrightnessOverride* actions.
+    void setApplyLightBrightnessFn(ApplyLightBrightnessFn fn) { _applyLightBrightness = fn; }
 
     void execute(const ButtonAction& action) {
         if (action.action == ActionId::None) return;
+
+        if (action.action == ActionId::LightBrightnessOverrideStep ||
+            action.action == ActionId::LightBrightnessOverrideSet  ||
+            action.action == ActionId::LightBrightnessOverrideClear) {
+            _executeLightBrightnessOverride(action);
+            return;
+        }
+
         GroupConfig* g = Config::group(action.groupId);
         if (!g) { Logger::w("[action] group %u not found — ignored", action.groupId); return; }
 
@@ -119,8 +132,47 @@ public:
     }
 
 private:
-    ApplyFn              _apply;
-    BroadcastGroupSyncFn _broadcastGroupSync;
+    ApplyFn                _apply;
+    BroadcastGroupSyncFn   _broadcastGroupSync;
+    ApplyLightBrightnessFn _applyLightBrightness;
+
+    // Mutates a light's own brightness override (not its group's LightConfig)
+    // per ActionId::LightBrightnessOverride{Step,Set,Clear}. Step/Set enable
+    // the override; Clear reverts the light to following its group.
+    void _executeLightBrightnessOverride(const ButtonAction& action) {
+        if (action.lightIndex >= MAX_LIGHTS) {
+            Logger::w("[action] light %u not found — ignored", action.lightIndex);
+            return;
+        }
+        auto& l = Config::get().lights[action.lightIndex];
+        if (!l.exists) {
+            Logger::w("[action] light %u not found — ignored", action.lightIndex);
+            return;
+        }
+
+        switch (action.action) {
+            case ActionId::LightBrightnessOverrideStep: {
+                GroupConfig* g = Config::group(l.groupId);
+                int base = l.brightnessOverrideEnabled ? l.brightnessOverride
+                         : g ? g->light.brightness : 255;
+                l.brightnessOverride = (uint8_t)constrain(base + (int)action.params.numberValue, 0, 255);
+                l.brightnessOverrideEnabled = true;
+                break;
+            }
+            case ActionId::LightBrightnessOverrideSet:
+                l.brightnessOverride = (uint8_t)constrain((int)action.params.numberValue, 0, 255);
+                l.brightnessOverrideEnabled = true;
+                break;
+            case ActionId::LightBrightnessOverrideClear:
+                l.brightnessOverrideEnabled = false;
+                break;
+            default:
+                return;
+        }
+
+        Config::save();
+        if (_applyLightBrightness) _applyLightBrightness(action.lightIndex);
+    }
 
     // Next/Prev/Random cycle through scene files as returned by SceneManager's
     // directory listing (shared by Scene and Gradient modes — both reference

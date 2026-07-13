@@ -52,7 +52,9 @@ enum class TextAnimation : uint8_t {
 // Actions a button (or, perspectively, any other trigger source — MQTT/API/mesh)
 // can invoke against a group's LightConfig. Every action targets a group id;
 // GroupSyncToggle is the one exception that mutates GroupConfig.syncEnabled
-// instead of LightConfig.
+// instead of LightConfig. The LightBrightnessOverride* actions are a second
+// exception: they target a specific physical light (ButtonAction::lightIndex)
+// and mutate LightHardwareConfig::brightnessOverride(Enabled) instead.
 enum class ActionId : uint8_t {
     None = 0,
     BrightnessStep,
@@ -83,6 +85,9 @@ enum class ActionId : uint8_t {
     TextAnimationSet,
     Time24hToggle,
     GroupSyncToggle,
+    LightBrightnessOverrideStep,
+    LightBrightnessOverrideSet,
+    LightBrightnessOverrideClear,
 };
 
 struct Color {
@@ -141,10 +146,12 @@ struct ActionParams {
 
 // One action assignment: what to do (ActionId), which group to do it to,
 // and any parameters the action needs. action == ActionId::None means the
-// slot is unassigned.
+// slot is unassigned. lightIndex is only meaningful for the light-targeted
+// actions (see ActionId) — every other action targets groupId instead.
 struct ButtonAction {
-    ActionId     action  = ActionId::None;
-    uint8_t      groupId = 0;
+    ActionId     action     = ActionId::None;
+    uint8_t      groupId    = 0;
+    uint8_t      lightIndex = 0;
     ActionParams params;
 };
 
@@ -214,6 +221,12 @@ struct LightHardwareConfig {
     bool            wrapWidth   = false; // true = last LED on a row/string connects back to the first (ring)
     bool            wrapHeight  = false; // true = last row wraps to the first (matrix only, height > 1)
     uint8_t         groupId     = 0;    // which group's LightConfig this light follows
+    // When enabled, this light renders at brightnessOverride instead of the
+    // group's LightConfig::brightness — local to this device only, not
+    // synced over mesh (unlike GroupConfig). Disabling reverts the light to
+    // following the group's brightness.
+    bool            brightnessOverrideEnabled = false;
+    uint8_t         brightnessOverride        = 255;
     bool            exists      = false;
 };
 

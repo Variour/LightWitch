@@ -82,6 +82,7 @@ void deserializeGroup(JsonVariant o, GroupConfig& g) {
 void serializeButtonAction(JsonObject o, const ButtonAction& a) {
     o["action"]      = (uint8_t)a.action;
     o["groupId"]     = a.groupId;
+    o["lightIndex"]  = a.lightIndex;
     o["numberValue"] = a.params.numberValue;
     o["stringValue"] = a.params.stringValue;
     o["r"]           = a.params.colorValue.r;
@@ -93,6 +94,7 @@ ButtonAction deserializeButtonAction(JsonVariant j, const ButtonAction& def) {
     ButtonAction a = def;
     a.action             = (ActionId)(uint8_t)(j["action"]  | (uint8_t)def.action);
     a.groupId            = j["groupId"]     | def.groupId;
+    a.lightIndex         = j["lightIndex"]  | def.lightIndex;
     a.params.numberValue = j["numberValue"] | def.params.numberValue;
     strlcpy(a.params.stringValue, j["stringValue"] | def.params.stringValue, sizeof(a.params.stringValue));
     a.params.colorValue.r = j["r"] | def.params.colorValue.r;
@@ -171,6 +173,8 @@ static void applyDoc(JsonDocument& doc) {
             l.wrapWidth  = v["wrapWidth"]  | false;
             l.wrapHeight = v["wrapHeight"] | false;
             l.groupId  = v["groupId"]  | (uint8_t)0;
+            l.brightnessOverrideEnabled = v["brightnessOverrideEnabled"] | false;
+            l.brightnessOverride        = v["brightnessOverride"]        | (uint8_t)255;
             if (!v["name"].isNull()) strlcpy(l.name, v["name"] | "", sizeof(l.name));
         }
     }
@@ -283,6 +287,8 @@ bool Config::save() {
         o["wrapWidth"]  = l.wrapWidth;
         o["wrapHeight"] = l.wrapHeight;
         o["groupId"]    = l.groupId;
+        o["brightnessOverrideEnabled"] = l.brightnessOverrideEnabled;
+        o["brightnessOverride"]        = l.brightnessOverride;
     }
 
     JsonArray arr = doc["groups"].to<JsonArray>();
