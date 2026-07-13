@@ -18,6 +18,9 @@ If a commit spans multiple scopes, use a more general scope, list both separated
 ## General guidance
 - Never make assumptions, ask to clarify
 - Challenge requests if necessary, be critical
+- If a simpler approach exists, say so. Push back when warranted.
+- No features beyond what was asked
+- No "flexibility" or "configurability" that wasn't requested.
 - Never assume default states
 - Surface all missing tools, dependencies, commands, or capabilities you encounter. Do not silently work around them, and do not stop after reporting only the first missing item when more are known.
 - Never run full PlatformIO builds (`pio run`, `pio run -e <env>` for all targets, or equivalent whole-project firmware builds) unless the user explicitly asks for them. Prefer narrower checks such as targeted file inspection, unit tests, linting, or other scoped validation. If a full build seems necessary, ask first.
