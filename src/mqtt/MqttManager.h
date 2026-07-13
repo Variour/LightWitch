@@ -105,6 +105,52 @@ public:
     bool connected() { return _enabled && _client.connected(); }
     bool enabled() const { return _enabled; }
 
+    // Clears every retained topic this device may have published — state,
+    // mesh telemetry, update state, and HA discovery — then disconnects and
+    // disables MQTT for the rest of this session. Clears every possible
+    // group/light slot (not just the ones that currently exist), since a
+    // since-deleted group's stale discovery entry is never otherwise cleaned
+    // up. Connects using the still-configured broker first if not already
+    // connected — the caller is expected to wipe the broker config in
+    // Config *after* this returns. No-op if MQTT was never configured.
+    void clearRetainedAndDisable() {
+        if (strlen(_host) == 0) { _enabled = false; return; }
+        if (!_client.connected()) {
+            bool ok = (strlen(_user) > 0)
+                ? _client.connect(_deviceName, _user, _pass)
+                : _client.connect(_deviceName, nullptr, nullptr);
+            if (!ok) {
+                Logger::w("[mqtt] clear: connect failed rc=%d — retained messages left in place", _client.state());
+                _enabled = false;
+                return;
+            }
+        }
+
+        _client.publish(_availTopic,       "", /*retain=*/true);
+        _client.publish(_meshStateTopic,   "", /*retain=*/true);
+        _client.publish(_updateStateTopic, "", /*retain=*/true);
+        char topic[128];
+        snprintf(topic, sizeof(topic), "homeassistant/update/%s/fw/config", _uniqueId);
+        _client.publish(topic, "", /*retain=*/true);
+
+        for (uint8_t i = 0; i < MAX_GROUPS; i++) {
+            char t[112];
+            _groupTopic(i, "state", t, sizeof(t));
+            _client.publish(t, "", /*retain=*/true);
+            snprintf(topic, sizeof(topic), "homeassistant/light/%s/g%u/config", _uniqueId, i);
+            _client.publish(topic, "", /*retain=*/true);
+        }
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            char t[112];
+            _lightTopic(i, "state", t, sizeof(t));
+            _client.publish(t, "", /*retain=*/true);
+        }
+
+        Logger::i("[mqtt] retained messages cleared, disabling");
+        _client.disconnect();
+        _enabled = false;
+    }
+
 private:
     inline static MqttManager* _instance = nullptr;
 

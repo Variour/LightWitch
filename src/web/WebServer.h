@@ -48,6 +48,9 @@ using GroupsChangedCb     = std::function<void()>;
 // Called after a scene is created or deleted (not edited — see SceneSavedCb for that),
 // so MQTT group discovery's scene-derived effect list can be rebuilt.
 using SceneListChangedCb  = std::function<void()>;
+// Called before the MQTT broker config is wiped, so retained messages
+// (state, discovery, telemetry) can be cleared from the broker first.
+using ClearMqttCb         = std::function<void()>;
 // Called before a local OTA action so this device can connect to WiFi first if it's
 // currently on single-WiFi-client standby; invokes the given callback once ready
 // (immediately, if already connected).
@@ -135,6 +138,8 @@ public:
         _server.on("/api/config", HTTP_GET,  [this](AsyncWebServerRequest* r){ _getConfig(r); });
         _server.on("/api/config", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t){ _postConfig(r,d,l); });
+
+        _server.on("/api/mqtt/clear", HTTP_POST, [this](AsyncWebServerRequest* r){ _clearMqtt(r); });
 
         _server.on("/api/wifi", HTTP_GET, [this](AsyncWebServerRequest* r){ _getWifi(r); });
         _server.on("/api/wifi/add", HTTP_POST, [](AsyncWebServerRequest*){}, nullptr,
@@ -406,6 +411,7 @@ public:
     void setOnButtonsChanged(ButtonsChangedCb cb)       { _onButtonsChanged    = cb; }
     void setOnGroupsChanged(GroupsChangedCb cb)         { _onGroupsChanged     = cb; }
     void setOnSceneListChanged(SceneListChangedCb cb)   { _onSceneListChanged  = cb; }
+    void setOnClearMqtt(ClearMqttCb cb)                 { _onClearMqtt         = cb; }
 
 private:
     AsyncWebServer   _server{80};
@@ -436,6 +442,7 @@ private:
     ButtonsChangedCb    _onButtonsChanged;
     GroupsChangedCb     _onGroupsChanged;
     SceneListChangedCb  _onSceneListChanged;
+    ClearMqttCb         _onClearMqtt;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -559,6 +566,24 @@ private:
         Config::save();
         auto ok = _makeOk(); _sendJson(r, 200, ok);
         delay(200); ESP.restart();
+    }
+
+    // ── POST /api/mqtt/clear ─────────────────────────────────────────────────
+    // Removes the MQTT broker config and clears every retained message this
+    // device may have published (state, discovery, telemetry) — a plain
+    // /api/config save with an emptied mqttHost would leave all of that
+    // stale on the broker forever, since nothing else ever cleans it up.
+    // Runtime-safe, like the dedicated /api/mesh/wifipolicy endpoint — no
+    // reboot needed, MqttManager just disables itself for the rest of this session.
+    void _clearMqtt(AsyncWebServerRequest* r) {
+        if (_onClearMqtt) _onClearMqtt();
+        auto& c = Config::get();
+        c.mqttHost[0]     = '\0';
+        c.mqttPort         = 1883;
+        c.mqttUser[0]      = '\0';
+        c.mqttPassword[0]  = '\0';
+        Config::save();
+        auto ok = _makeOk(); _sendJson(r, 200, ok);
     }
 
     // ── GET /api/peers ───────────────────────────────────────────────────────

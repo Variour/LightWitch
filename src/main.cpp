@@ -598,6 +598,7 @@ void setup() {
     webServer.setOnGroupsChanged([]() { mqtt.resyncGroupDiscovery(); });
     webServer.setOnSceneListChanged([]() { mqtt.resyncGroupDiscovery(); });
     sceneSync.setOnSceneListChanged([]() { mqtt.resyncGroupDiscovery(); });
+    webServer.setOnClearMqtt([]() { mqtt.clearRetainedAndDisable(); });
 
     webServer.setOnTestLight([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx]) _runners[idx].showTest(5000);
