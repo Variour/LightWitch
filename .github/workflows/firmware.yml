@@ -126,7 +126,7 @@ jobs:
           path: .pio/build/esp32dev/littlefs.bin
 
   release:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main'
     needs: [setup, build, build-fs]
     runs-on: ubuntu-latest
     permissions:
