@@ -36,7 +36,7 @@ jobs:
     steps:
       - id: matrix
         run: |
-          ENVIRONMENTS="${{ github.event.inputs.environments || 'esp32dev,esp32c3,esp32s3' }}"
+          ENVIRONMENTS="${{ github.event_name == 'pull_request' && 'esp32dev' || github.event.inputs.environments || 'esp32dev,esp32c3,esp32s3' }}"
           JSON=$(echo "$ENVIRONMENTS" \
             | tr ',' '\n' | sed 's/[[:space:]]//g' | jq -R . | jq -sc .)
           echo "value={\"env\":${JSON}}" >> "$GITHUB_OUTPUT"
