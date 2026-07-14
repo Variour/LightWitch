@@ -193,6 +193,11 @@ private:
     bool _discoveryDirty            = false;
     bool _groupDirty[MAX_GROUPS]    = {};
     bool _lightDirty[MAX_LIGHTS]    = {};
+    // Last non-zero brightness observed per group (from any source, via
+    // _doPublishGroup) — restores HA's on/off toggle, which sends a bare
+    // {"state":"ON"} with no brightness and would otherwise leave the group
+    // at brightness 0 forever. 0 means "never observed"; falls back to 255.
+    uint8_t _lastOnBrightness[MAX_GROUPS] = {};
     bool _updateDirty               = false;
 
     char     _deviceName[32] = {};
@@ -471,6 +476,7 @@ private:
     void _doPublishGroup(uint8_t id) {
         GroupConfig* g = Config::group(id);
         if (!g) return;
+        if (g->light.brightness > 0) _lastOnBrightness[id] = g->light.brightness;
         JsonDocument doc;
         JsonObject o = doc.to<JsonObject>();
         serializeGroup(o, *g);
@@ -592,8 +598,16 @@ private:
 
         LightConfig cfg = deserializeLightConfig(doc, g->light);
 
-        if (!doc["state"].isNull() && strcmp((const char*)doc["state"], "OFF") == 0)
+        const char* state = doc["state"] | "";
+        if (strcmp(state, "OFF") == 0) {
             cfg.brightness = 0;
+        } else if (strcmp(state, "ON") == 0 && doc["brightness"].isNull() && cfg.brightness == 0) {
+            // HA's on/off toggle sends a bare {"state":"ON"} with no brightness —
+            // deserializeLightConfig above defaulted the missing field to the
+            // group's *current* (0, since it's off) brightness, which would
+            // otherwise leave the light dark. Restore whatever it was last on at.
+            cfg.brightness = _lastOnBrightness[id] > 0 ? _lastOnBrightness[id] : 255;
+        }
 
         if (!doc["effect"].isNull()) _applyEffectName(doc["effect"], cfg);
 
