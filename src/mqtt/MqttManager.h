@@ -390,12 +390,18 @@ private:
             d["manufacturer"] = "DIY";
             d["identifiers"].to<JsonArray>().add(_uniqueId);
         };
+        // Falls back to "Light <idx>" — the light's own name (set in the web
+        // UI) is optional and empty by default.
+        const char* lightName = Config::get().lights[idx].name;
+        char label[32];
+        if (lightName[0]) strlcpy(label, lightName, sizeof(label));
+        else              snprintf(label, sizeof(label), "Light %u", idx);
 
         {
             char discTopic[128];
             _lightSwitchDiscoveryTopic(idx, discTopic, sizeof(discTopic));
             JsonDocument doc;
-            char name[48]; snprintf(name, sizeof(name), "Light %u Brightness Override Enabled", idx);
+            char name[64]; snprintf(name, sizeof(name), "%s: Brightness Override Enabled", label);
             doc["name"] = String(name);
             char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_briEn", _uniqueId, idx);
             doc["unique_id"]       = String(uniq);
@@ -411,7 +417,7 @@ private:
             char discTopic[128];
             _lightNumberDiscoveryTopic(idx, discTopic, sizeof(discTopic));
             JsonDocument doc;
-            char name[48]; snprintf(name, sizeof(name), "Light %u Brightness Override", idx);
+            char name[64]; snprintf(name, sizeof(name), "%s: Brightness Override", label);
             doc["name"] = String(name);
             char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_bri", _uniqueId, idx);
             doc["unique_id"]       = String(uniq);
@@ -434,7 +440,7 @@ private:
             char discTopic[128];
             _lightGroupDiscoveryTopic(idx, discTopic, sizeof(discTopic));
             JsonDocument doc;
-            char name[48]; snprintf(name, sizeof(name), "Light %u Group", idx);
+            char name[64]; snprintf(name, sizeof(name), "%s: Group", label);
             doc["name"] = String(name);
             char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_group", _uniqueId, idx);
             doc["unique_id"]       = String(uniq);
