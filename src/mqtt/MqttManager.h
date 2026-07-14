@@ -356,7 +356,7 @@ private:
         _groupTime24hDiscoveryTopic(id, discTopic, sizeof(discTopic));
 
         JsonDocument doc;
-        doc["name"] = String(g.name) + " 24h Time Format";
+        doc["name"] = String(g.name) + ": Use 24h Time";
         char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_g%u_time24h", _uniqueId, id);
         doc["unique_id"]        = String(uniq);
         doc["state_topic"]      = String(stateTopic);
