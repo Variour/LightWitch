@@ -101,6 +101,24 @@ static void applyAllLights() {
     });
 }
 
+// Publishes mesh + MQTT telemetry together — every place that used to just
+// push peers over the dashboard WebSocket now also refreshes MQTT's mesh
+// telemetry topic.
+static void publishTelemetry() {
+    webServer.pushPeers();
+    mqtt.publishPeers(channelMgr.lockedChannel());
+}
+
+// Broadcasts a GroupConfig change over mesh and republishes its MQTT state —
+// or, for a tombstone (g.exists == false, i.e. this group was just deleted),
+// clears its retained MQTT topics instead of trying to publish content for
+// a group Config no longer has.
+static void publishGroupSync(const GroupConfig& g) {
+    mesh.broadcastGroupSync(g);
+    if (g.exists) mqtt.publishGroupState(g.id);
+    else          mqtt.clearGroupRetained(g.id);
+}
+
 // Re-applies a single light's effective brightness (its group's brightness,
 // or its own override if enabled) to its runner and pushes state to the
 // dashboard. Used after a light's own brightnessOverride(Enabled) changes —
@@ -112,7 +130,8 @@ static void applyLightBrightnessOverride(uint8_t lightIndex) {
     GroupConfig* g = Config::group(l.groupId);
     if (!g) return;
     _runners[lightIndex].applyConfig(withBrightnessOverride(g->light, l));
-    webServer.pushPeers();
+    mqtt.publishLightOverride(lightIndex);
+    publishTelemetry();
 }
 
 // Applies a new LightConfig to a group and propagates it everywhere: local
@@ -142,8 +161,7 @@ static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg
     });
 
     mesh.broadcastLightConfig(groupId, cfg);
-    mesh.broadcastGroupSync(*g);
-    mqtt.publishState(cfg);
+    publishGroupSync(*g);
 }
 
 static bool hasWifiPolicyOrigin() {
@@ -182,7 +200,7 @@ static bool applyWifiPolicyState(const MeshManager::MeshPolicyState& state, cons
               via, state.singleClientMode, (unsigned long)state.revision);
     if (policyChanged) {
         wifiElection.onPolicyChanged(state.singleClientMode);
-        webServer.pushPeers();
+        publishTelemetry();
     }
     return true;
 }
@@ -330,14 +348,14 @@ void setup() {
         if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
     });
 
-    // Wire MQTT to the first active light's group for now
-    mqtt.setOnCommand([](const LightConfig& cfg) {
-        Config::forEachLightUntil([&](uint8_t i, LightHardwareConfig& l) -> bool {
-            if (!_leds[i] || !Config::group(l.groupId)) return true;
-            applyAndPropagateLightConfig(l.groupId, cfg, /*bumpRevision=*/true);
-            return false;
-        });
+    // Wire MQTT: every group and light gets its own topic (see MqttManager.h) —
+    // funnels into the same apply/propagate + mesh-broadcast paths web/buttons use.
+    mqtt.setOnGroupLight([](uint8_t groupId, const LightConfig& cfg) {
+        applyAndPropagateLightConfig(groupId, cfg, /*bumpRevision=*/true);
     });
+    mqtt.setOnGroupSyncToggle([](const GroupConfig& g) { publishGroupSync(g); });
+    mqtt.setOnLightOverride([](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
+    mqtt.setPeerRegistry(&mesh.peers);
     mqtt.begin(Config::get());
 
     // Wire the action layer: buttons (and, perspectively, other future trigger
@@ -346,7 +364,7 @@ void setup() {
     actionExecutor.setApplyFn([](uint8_t groupId, const LightConfig& cfg) {
         applyAndPropagateLightConfig(groupId, cfg, /*bumpRevision=*/true);
     });
-    actionExecutor.setBroadcastGroupSyncFn([](const GroupConfig& g) { mesh.broadcastGroupSync(g); });
+    actionExecutor.setBroadcastGroupSyncFn([](const GroupConfig& g) { publishGroupSync(g); });
     actionExecutor.setApplyLightBrightnessFn([](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
     buttonManager.setExecutor(&actionExecutor);
     buttonManager.begin();
@@ -359,7 +377,7 @@ void setup() {
     wifiElection.begin(&mesh.peers);
     mesh.setWifiAttemptingProvider([]() { return wifiElection.isAttempting(); });
     mesh.setWifiConnectedProvider([]() { return wifiElection.isAdvertisableConnected(); });
-    wifiElection.setOnAttemptingChanged([]() { webServer.pushPeers(); });
+    wifiElection.setOnAttemptingChanged([]() { publishTelemetry(); });
     mesh.setOnPeerHeard([](const uint8_t* mac){ channelMgr.onPeerHeard(mac); });
     mesh.setOnMeshPolicy([](const MeshManager::MeshPolicyState& state) {
         applyWifiPolicyState(state, "mesh");
@@ -390,7 +408,7 @@ void setup() {
     });
 
     mesh.setOnPresence([](const uint8_t* mac, const char*, bool isNew) {
-        webServer.pushPeers();
+        publishTelemetry();
         if (isNew) sceneSync.onNewPeer(mac);
     });
 
@@ -465,7 +483,7 @@ void setup() {
             }
         }
         mesh.peers.updateLightGroup(targetMac, lightIndex, groupId);
-        webServer.pushPeers();
+        publishTelemetry();
     });
 
     mesh.setOnGroupSync([](const GroupConfig& g) {
@@ -482,6 +500,7 @@ void setup() {
             });
             Config::save();
             applyAllLights();
+            mqtt.clearGroupRetained(g.id);
         } else if (didApply) {
             // Merge was adopted — light may or may not actually differ, but
             // reapplying is cheap and name/exists/light always move together
@@ -491,6 +510,7 @@ void setup() {
                     _runners[i].applyConfig(withBrightnessOverride(applied->light, l));
             });
         }
+        if (applied) mqtt.publishGroupState(applied->id);
         webServer.pushGroups();
     });
 
@@ -517,7 +537,7 @@ void setup() {
             applyAndPropagateLightConfig(groupId, cfg, /*bumpRevision=*/true);
         },
 
-        [](const GroupConfig& g) { mesh.broadcastGroupSync(g); },
+        [](const GroupConfig& g) { publishGroupSync(g); },
 
         [](const uint8_t* mac, uint8_t lightIndex, uint8_t groupId) {
             mesh.broadcastSetGroup(mac, lightIndex, groupId);
@@ -575,8 +595,15 @@ void setup() {
     auto notifySceneUpdated = [](const char* id) {
         for (uint8_t i = 0; i < MAX_LIGHTS; i++)
             if (_leds[i]) _runners[i].notifySceneUpdated(id);
+        // A save can also be a rename, which changes the scene's display name
+        // in every group's MQTT effect_list — resync discovery to match.
+        mqtt.resyncGroupDiscovery();
     };
     webServer.setOnSceneSaved(notifySceneUpdated);
+    webServer.setOnGroupsChanged([]() { mqtt.resyncGroupDiscovery(); });
+    webServer.setOnSceneListChanged([]() { mqtt.resyncGroupDiscovery(); });
+    sceneSync.setOnSceneListChanged([]() { mqtt.resyncGroupDiscovery(); });
+    webServer.setOnClearMqtt([]() { mqtt.clearRetainedAndDisable(); });
 
     webServer.setOnTestLight([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx]) _runners[idx].showTest(5000);
@@ -632,6 +659,7 @@ void loop() {
         if (updState != _lastUpdateState || progress != _lastUpdateProgress) {
             _lastUpdateState    = updState;
             _lastUpdateProgress = progress;
+            mqtt.publishUpdateState();
             for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
                 if (!_leds[i]) continue;
                 if (updState == Updater::State::Done) _runners[i].showUpdateDone();
@@ -640,6 +668,7 @@ void loop() {
         }
         return;
     }
+    if (updState != _lastUpdateState) mqtt.publishUpdateState();
     _lastUpdateState = updState;
 
     if (!_otaActive && slowTick) {

@@ -31,6 +31,10 @@ static constexpr uint8_t  SYNC_MAX_RECV_SLOTS = 2;
 class SceneSyncManager {
 public:
     void setOnSceneSaved(std::function<void(const char*)> cb) { _onSceneSaved = cb; }
+    // Called when a scene is removed via mesh sync (SceneForceSet with hash==0) —
+    // WebServer's own local delete path fires its own SceneListChangedCb already,
+    // this covers the mesh-originated case, which doesn't go through it.
+    void setOnSceneListChanged(std::function<void()> cb) { _onSceneListChanged = cb; }
 
     // Called from MeshManager when a SceneManifest packet arrives
     void onManifest(const uint8_t* senderMac, const SceneManifestMsg* msg) {
@@ -98,6 +102,7 @@ public:
         if (localHash == hash) return;  // already have it
         if (hash == 0) {
             SceneManager::remove(id);
+            if (_onSceneListChanged) _onSceneListChanged();
             return;
         }
         setForcedAccept(id);
@@ -749,4 +754,5 @@ private:
     EditPushFn                           _broadcastEditPush;
     RequestManFn                         _broadcastRequestManifest;
     std::function<void(const char*)>     _onSceneSaved;
+    std::function<void()>                _onSceneListChanged;
 };

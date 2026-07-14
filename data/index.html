@@ -903,6 +903,7 @@ input[type=checkbox]:active { background-color: #1a5; }
     <input type="text" id="mqttUser" placeholder="">
     <label>Password</label>
     <input type="password" id="mqttPassword" placeholder="(unchanged if empty)">
+    <button class="btn-danger btn-sm" style="width:100%;margin-top:.5rem" onclick="clearMqtt()">Remove MQTT &amp; clear retained messages</button>
 
     <hr class="section-divider">
     <h3>Firmware updates <small>(GitHub releases)</small></h3>
@@ -2198,6 +2199,17 @@ async function _waitForDeviceOnline(timeoutMs = 60_000) {
     await new Promise(r => setTimeout(r, 2000));
   }
   return false;
+}
+
+async function clearMqtt() {
+  await _confirmAction('Remove the MQTT broker configuration and clear all retained messages (state, discovery, telemetry) from the broker? This cannot be undone.', async () => {
+    const res = await _fetchOrToast('/api/mqtt/clear', {method:'POST'}, 'Failed to clear MQTT');
+    if (res) {
+      $('mqttPassword').value = '';
+      await loadConfig();
+      showToast('MQTT removed and retained messages cleared', false);
+    }
+  });
 }
 
 async function factoryReset() {
