@@ -7,13 +7,24 @@ on:
         description: 'PlatformIO environments to build (comma-separated)'
         default: 'esp32dev,esp32c3,esp32s3'
         required: true
+  pull_request:
+    paths:
+      - 'platformio.ini'
+      - 'partitions.csv'
+      - 'requirements.txt'
+      - 'src/**'
+      - 'include/**'
+      - 'lib/**'
+      - 'scripts/**'
+      - 'data/**'
+      - '.github/workflows/firmware.yml'
 
 concurrency:
-  group: firmware-build
+  group: firmware-build-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   setup:
@@ -25,7 +36,8 @@ jobs:
     steps:
       - id: matrix
         run: |
-          JSON=$(echo "${{ github.event.inputs.environments }}" \
+          ENVIRONMENTS="${{ github.event_name == 'pull_request' && 'esp32dev' || github.event.inputs.environments || 'esp32dev,esp32c3,esp32s3' }}"
+          JSON=$(echo "$ENVIRONMENTS" \
             | tr ',' '\n' | sed 's/[[:space:]]//g' | jq -R . | jq -sc .)
           echo "value={\"env\":${JSON}}" >> "$GITHUB_OUTPUT"
 
@@ -114,8 +126,11 @@ jobs:
           path: .pio/build/esp32dev/littlefs.bin
 
   release:
+    if: github.ref == 'refs/heads/main'
     needs: [setup, build, build-fs]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
