@@ -101,12 +101,9 @@ static void applyAllLights() {
     });
 }
 
-// Publishes mesh + MQTT telemetry together — every place that used to just
-// push peers over the dashboard WebSocket now also refreshes MQTT's mesh
-// telemetry topic.
+// Pushes mesh peers over the dashboard WebSocket.
 static void publishTelemetry() {
     webServer.pushPeers();
-    mqtt.publishPeers(channelMgr.lockedChannel());
 }
 
 // Broadcasts a GroupConfig change over mesh and republishes its MQTT state —
@@ -355,7 +352,6 @@ void setup() {
     });
     mqtt.setOnGroupSyncToggle([](const GroupConfig& g) { publishGroupSync(g); });
     mqtt.setOnLightOverride([](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
-    mqtt.setPeerRegistry(&mesh.peers);
     mqtt.begin(Config::get());
 
     // Wire the action layer: buttons (and, perspectively, other future trigger
