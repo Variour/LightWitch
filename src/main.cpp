@@ -101,12 +101,9 @@ static void applyAllLights() {
     });
 }
 
-// Publishes mesh + MQTT telemetry together — every place that used to just
-// push peers over the dashboard WebSocket now also refreshes MQTT's mesh
-// telemetry topic.
+// Pushes mesh peers over the dashboard WebSocket.
 static void publishTelemetry() {
     webServer.pushPeers();
-    mqtt.publishPeers(channelMgr.lockedChannel());
 }
 
 // Broadcasts a GroupConfig change over mesh and republishes its MQTT state —
@@ -119,10 +116,11 @@ static void publishGroupSync(const GroupConfig& g) {
     else          mqtt.clearGroupRetained(g.id);
 }
 
-// Re-applies a single light's effective brightness (its group's brightness,
-// or its own override if enabled) to its runner and pushes state to the
-// dashboard. Used after a light's own brightnessOverride(Enabled) changes —
-// group brightness itself is unaffected, so this doesn't go through
+// Re-applies a single light's effective config — its (possibly just
+// reassigned) group's config, with its own brightness override layered on
+// top if enabled — to its runner and pushes state to the dashboard. Used
+// after a light's own brightnessOverride(Enabled) or groupId changes via
+// MQTT; group config itself is unaffected, so this doesn't go through
 // applyAndPropagateLightConfig/mesh broadcast.
 static void applyLightBrightnessOverride(uint8_t lightIndex) {
     if (lightIndex >= MAX_LIGHTS || !_leds[lightIndex]) return;
@@ -355,7 +353,6 @@ void setup() {
     });
     mqtt.setOnGroupSyncToggle([](const GroupConfig& g) { publishGroupSync(g); });
     mqtt.setOnLightOverride([](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
-    mqtt.setPeerRegistry(&mesh.peers);
     mqtt.begin(Config::get());
 
     // Wire the action layer: buttons (and, perspectively, other future trigger

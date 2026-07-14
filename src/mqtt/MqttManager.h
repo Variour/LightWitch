@@ -7,13 +7,13 @@
 #include <functional>
 #include "../config/Config.h"
 #include "../logging/Logger.h"
-#include "../mesh/PeerRegistry.h"
 #include "../scenes/SceneManager.h"
 #include "../update/Updater.h"
 
 // Publishes/subscribes one MQTT "light" per group (not just the first one),
-// plus per-light brightness-override topics, mesh telemetry, and a Home
+// plus per-light brightness-override entities (switch + number), and a Home
 // Assistant "update" entity wired to the existing GitHub-release OTA flow.
+// Every entity is announced via HA MQTT discovery.
 // Mirrors WebServer.h's group/light update handlers (_updateGroup/_updateLight)
 // rather than ActionExecutor — MQTT commands are absolute "set" operations,
 // not the relative step/toggle actions ActionExecutor models for buttons.
@@ -28,10 +28,8 @@ public:
     void setOnGroupLight(GroupApplyFn fn) { _onGroupLight = fn; }
     // A group's syncEnabled was toggled via MQTT (broadcast over mesh).
     void setOnGroupSyncToggle(GroupSyncToggleFn fn) { _onGroupSyncToggle = fn; }
-    // A light's brightness override changed (re-apply to its runner).
+    // A light's brightness override or group assignment changed (re-apply to its runner).
     void setOnLightOverride(LightOverrideFn fn) { _onLightOverride = fn; }
-    // Peer registry to read from when publishing mesh telemetry.
-    void setPeerRegistry(PeerRegistry* peers) { _peers = peers; }
 
     void begin(const DeviceConfig& cfg) {
         if (strlen(cfg.mqttHost) == 0) return;
@@ -48,10 +46,8 @@ public:
 
         char base[96];
         snprintf(base, sizeof(base), "batterylight/%s", _deviceName);
-        snprintf(_availTopic,      sizeof(_availTopic),      "%s/availability", base);
         snprintf(_groupPrefix,     sizeof(_groupPrefix),     "%s/group/",       base);
         snprintf(_lightPrefix,     sizeof(_lightPrefix),     "%s/light/",       base);
-        snprintf(_meshStateTopic,  sizeof(_meshStateTopic),  "%s/mesh/state",   base);
         snprintf(_updateSetTopic,  sizeof(_updateSetTopic),  "%s/update/set",   base);
         snprintf(_updateStateTopic,sizeof(_updateStateTopic),"%s/update/state", base);
         snprintf(_groupSubWildcard,sizeof(_groupSubWildcard),"%s+/set", _groupPrefix);
@@ -85,7 +81,6 @@ public:
             if (_groupDirty[i]) { _groupDirty[i] = false; _doPublishGroup(i); }
         for (uint8_t i = 0; i < MAX_LIGHTS; i++)
             if (_lightDirty[i]) { _lightDirty[i] = false; _doPublishLight(i); }
-        if (_peersDirty)  { _peersDirty  = false; _doPublishPeers(); }
         if (_updateDirty) { _updateDirty = false; _doPublishUpdate(); }
     }
 
@@ -95,7 +90,6 @@ public:
     // PubSubClient's own callback dispatch.
     void publishGroupState(uint8_t groupId)        { if (groupId    < MAX_GROUPS) _groupDirty[groupId]    = true; }
     void publishLightOverride(uint8_t lightIndex)  { if (lightIndex < MAX_LIGHTS) _lightDirty[lightIndex] = true; }
-    void publishPeers(uint8_t channel)             { _lastChannel = channel; _peersDirty  = true; }
     void publishUpdateState()                      { _updateDirty = true; }
     // Republishes HA discovery (incl. the scene-derived effect list) for
     // every existing group — call after a group or scene is added/renamed/
@@ -106,11 +100,11 @@ public:
     bool enabled() const { return _enabled; }
 
     // Clears every retained topic this device may have published — state,
-    // mesh telemetry, update state, and HA discovery — then disconnects and
-    // disables MQTT for the rest of this session. Clears every possible
-    // group/light slot (not just the ones that currently exist), since a
-    // since-deleted group's stale discovery entry is never otherwise cleaned
-    // up. Connects using the still-configured broker first if not already
+    // update state, and HA discovery — then disconnects and disables MQTT
+    // for the rest of this session. Clears every possible group/light slot
+    // (not just the ones that currently exist), since a since-deleted
+    // group's stale discovery entry is never otherwise cleaned up.
+    // Connects using the still-configured broker first if not already
     // connected — the caller is expected to wipe the broker config in
     // Config *after* this returns. No-op if MQTT was never configured.
     void clearRetainedAndDisable() {
@@ -126,8 +120,6 @@ public:
             }
         }
 
-        _client.publish(_availTopic,       "", /*retain=*/true);
-        _client.publish(_meshStateTopic,   "", /*retain=*/true);
         _client.publish(_updateStateTopic, "", /*retain=*/true);
         char topic[128];
         snprintf(topic, sizeof(topic), "homeassistant/update/%s/fw/config", _uniqueId);
@@ -139,11 +131,19 @@ public:
             _client.publish(t, "", /*retain=*/true);
             _groupDiscoveryTopic(i, topic, sizeof(topic));
             _client.publish(topic, "", /*retain=*/true);
+            _groupTime24hDiscoveryTopic(i, topic, sizeof(topic));
+            _client.publish(topic, "", /*retain=*/true);
         }
         for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
             char t[112];
             _lightTopic(i, "state", t, sizeof(t));
             _client.publish(t, "", /*retain=*/true);
+            _lightSwitchDiscoveryTopic(i, topic, sizeof(topic));
+            _client.publish(topic, "", /*retain=*/true);
+            _lightNumberDiscoveryTopic(i, topic, sizeof(topic));
+            _client.publish(topic, "", /*retain=*/true);
+            _lightGroupDiscoveryTopic(i, topic, sizeof(topic));
+            _client.publish(topic, "", /*retain=*/true);
         }
 
         Logger::i("[mqtt] retained messages cleared, disabling");
@@ -168,6 +168,8 @@ public:
         char topic[128];
         _groupDiscoveryTopic(groupId, topic, sizeof(topic));
         _client.publish(topic, "", /*retain=*/true);
+        _groupTime24hDiscoveryTopic(groupId, topic, sizeof(topic));
+        _client.publish(topic, "", /*retain=*/true);
         Logger::i("[mqtt] cleared retained topics for deleted group %u", groupId);
     }
 
@@ -184,16 +186,18 @@ private:
     GroupApplyFn      _onGroupLight;
     GroupSyncToggleFn _onGroupSyncToggle;
     LightOverrideFn   _onLightOverride;
-    PeerRegistry*     _peers = nullptr;
 
     bool     _enabled     = false;
     uint32_t _lastAttempt = 0;
-    uint8_t  _lastChannel = 0;
 
     bool _discoveryDirty            = false;
     bool _groupDirty[MAX_GROUPS]    = {};
     bool _lightDirty[MAX_LIGHTS]    = {};
-    bool _peersDirty                = false;
+    // Last non-zero brightness observed per group (from any source, via
+    // _doPublishGroup) — restores HA's on/off toggle, which sends a bare
+    // {"state":"ON"} with no brightness and would otherwise leave the group
+    // at brightness 0 forever. 0 means "never observed"; falls back to 255.
+    uint8_t _lastOnBrightness[MAX_GROUPS] = {};
     bool _updateDirty               = false;
 
     char     _deviceName[32] = {};
@@ -203,12 +207,10 @@ private:
     char     _user[32]       = {};
     char     _pass[64]       = {};
 
-    char _availTopic[96]        = {};
     char _groupPrefix[80]       = {};   // "batterylight/<dev>/group/"
     char _lightPrefix[80]       = {};   // "batterylight/<dev>/light/"
     char _groupSubWildcard[96]  = {};   // "batterylight/<dev>/group/+/set"
     char _lightSubWildcard[96]  = {};   // "batterylight/<dev>/light/+/set"
-    char _meshStateTopic[112]   = {};
     char _updateSetTopic[112]   = {};
     char _updateStateTopic[112] = {};
 
@@ -221,18 +223,29 @@ private:
     void _groupDiscoveryTopic(uint8_t id, char* out, size_t outLen) {
         snprintf(out, outLen, "homeassistant/light/%s/g%u/config", _uniqueId, id);
     }
+    void _groupTime24hDiscoveryTopic(uint8_t id, char* out, size_t outLen) {
+        snprintf(out, outLen, "homeassistant/switch/%s/g%u_time24h/config", _uniqueId, id);
+    }
+    void _lightSwitchDiscoveryTopic(uint8_t idx, char* out, size_t outLen) {
+        snprintf(out, outLen, "homeassistant/switch/%s/l%u_briEn/config", _uniqueId, idx);
+    }
+    void _lightNumberDiscoveryTopic(uint8_t idx, char* out, size_t outLen) {
+        snprintf(out, outLen, "homeassistant/number/%s/l%u_bri/config", _uniqueId, idx);
+    }
+    void _lightGroupDiscoveryTopic(uint8_t idx, char* out, size_t outLen) {
+        snprintf(out, outLen, "homeassistant/select/%s/l%u_group/config", _uniqueId, idx);
+    }
 
     void _connect() {
         Logger::i("[mqtt] connecting to %s:%u ...", _host, _port);
         bool ok = (strlen(_user) > 0)
-            ? _client.connect(_deviceName, _user, _pass, _availTopic, 0, true, "offline")
-            : _client.connect(_deviceName, nullptr, nullptr, _availTopic, 0, true, "offline");
+            ? _client.connect(_deviceName, _user, _pass)
+            : _client.connect(_deviceName, nullptr, nullptr);
         if (!ok) {
             Logger::w("[mqtt] connect failed rc=%d — retry in 10s", _client.state());
             return;
         }
         Logger::i("[mqtt] connected");
-        _client.publish(_availTopic, "online", /*retain=*/true);
         _client.subscribe(_groupSubWildcard);
         _client.subscribe(_lightSubWildcard);
         _client.subscribe(_updateSetTopic);
@@ -249,6 +262,7 @@ private:
             GroupConfig* g = Config::group(i);
             if (g) _publishGroupDiscovery(i, *g);
         }
+        Config::forEachLight([this](uint8_t i, LightHardwareConfig&) { _publishLightDiscovery(i); });
         _publishUpdateDiscovery();
         Logger::i("[mqtt] discovery published");
     }
@@ -288,9 +302,6 @@ private:
         doc["schema"]     = "json";
         doc["state_topic"]           = String(stateTopic);
         doc["command_topic"]         = String(setTopic);
-        doc["availability_topic"]    = _availTopic;
-        doc["payload_available"]     = "online";
-        doc["payload_not_available"] = "offline";
         doc["brightness"] = true;
         doc["color_mode"] = true;
         doc["supported_color_modes"].to<JsonArray>().add("rgb");
@@ -304,6 +315,119 @@ private:
 
         String s; serializeJson(doc, s);
         _client.publish(discTopic, s.c_str(), /*retain=*/true);
+
+        _publishGroupTime24hDiscovery(id, g, stateTopic, setTopic);
+    }
+
+    // The group's Time-mode 12h/24h display setting, exposed as a switch
+    // sharing the group's state/set topic. "time24h" is already a plain
+    // field on the group's JSON light config (see serializeLightConfig /
+    // deserializeLightConfig in Config.cpp), so no extra command handling
+    // is needed — _handleGroupSet already merges it in via
+    // deserializeLightConfig(doc, g->light), leaving every other field
+    // untouched.
+    void _publishGroupTime24hDiscovery(uint8_t id, const GroupConfig& g, const char* stateTopic, const char* setTopic) {
+        char discTopic[128];
+        _groupTime24hDiscoveryTopic(id, discTopic, sizeof(discTopic));
+
+        JsonDocument doc;
+        doc["name"] = String(g.name) + " 24h Time Format";
+        char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_g%u_time24h", _uniqueId, id);
+        doc["unique_id"]        = String(uniq);
+        doc["state_topic"]      = String(stateTopic);
+        doc["command_topic"]    = String(setTopic);
+        doc["value_template"]   = "{{ 'ON' if value_json.time24h else 'OFF' }}";
+        doc["command_template"] = "{\"time24h\": {{ (value == \"ON\") | lower }}}";
+        auto dev = doc["device"].to<JsonObject>();
+        dev["name"]         = _deviceName;
+        dev["model"]        = "Battery Light";
+        dev["manufacturer"] = "DIY";
+        dev["identifiers"].to<JsonArray>().add(_uniqueId);
+
+        String s; serializeJson(doc, s);
+        _client.publish(discTopic, s.c_str(), /*retain=*/true);
+    }
+
+    // A physical light's brightness override and group assignment, exposed
+    // as three entities that share its state/set topic: a switch for
+    // brightnessOverrideEnabled, a 0-255 number for brightnessOverride, and
+    // a select for which group it belongs to. command_template wraps each
+    // entity's raw HA payload into the JSON _handleLightSet expects;
+    // value_template picks the matching field back out of the shared state.
+    void _publishLightDiscovery(uint8_t idx) {
+        char stateTopic[112], setTopic[112];
+        _lightTopic(idx, "state", stateTopic, sizeof(stateTopic));
+        _lightTopic(idx, "set",   setTopic,   sizeof(setTopic));
+        auto dev = [&](JsonDocument& doc) {
+            auto d = doc["device"].to<JsonObject>();
+            d["name"]         = _deviceName;
+            d["model"]        = "Battery Light";
+            d["manufacturer"] = "DIY";
+            d["identifiers"].to<JsonArray>().add(_uniqueId);
+        };
+
+        {
+            char discTopic[128];
+            _lightSwitchDiscoveryTopic(idx, discTopic, sizeof(discTopic));
+            JsonDocument doc;
+            char name[48]; snprintf(name, sizeof(name), "Light %u Brightness Override Enabled", idx);
+            doc["name"] = String(name);
+            char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_briEn", _uniqueId, idx);
+            doc["unique_id"]       = String(uniq);
+            doc["state_topic"]     = String(stateTopic);
+            doc["command_topic"]   = String(setTopic);
+            doc["value_template"]  = "{{ 'ON' if value_json.brightnessOverrideEnabled else 'OFF' }}";
+            doc["command_template"] = "{\"brightnessOverrideEnabled\": {{ (value == \"ON\") | lower }}}";
+            dev(doc);
+            String s; serializeJson(doc, s);
+            _client.publish(discTopic, s.c_str(), /*retain=*/true);
+        }
+        {
+            char discTopic[128];
+            _lightNumberDiscoveryTopic(idx, discTopic, sizeof(discTopic));
+            JsonDocument doc;
+            char name[48]; snprintf(name, sizeof(name), "Light %u Brightness Override", idx);
+            doc["name"] = String(name);
+            char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_bri", _uniqueId, idx);
+            doc["unique_id"]       = String(uniq);
+            doc["state_topic"]     = String(stateTopic);
+            doc["command_topic"]   = String(setTopic);
+            doc["value_template"]  = "{{ value_json.brightnessOverride }}";
+            doc["command_template"] = "{\"brightnessOverride\": {{ value }}}";
+            doc["min"]  = 0;
+            doc["max"]  = 255;
+            doc["step"] = 1;
+            dev(doc);
+            String s; serializeJson(doc, s);
+            _client.publish(discTopic, s.c_str(), /*retain=*/true);
+        }
+        {
+            // Options/state are "<id>: <name>" strings so the command_template
+            // can recover the numeric groupId with a plain split — avoids
+            // having to build a name<->id Jinja lookup (and escape group
+            // names, which are free-text) inside the template itself.
+            char discTopic[128];
+            _lightGroupDiscoveryTopic(idx, discTopic, sizeof(discTopic));
+            JsonDocument doc;
+            char name[48]; snprintf(name, sizeof(name), "Light %u Group", idx);
+            doc["name"] = String(name);
+            char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_group", _uniqueId, idx);
+            doc["unique_id"]       = String(uniq);
+            doc["state_topic"]     = String(stateTopic);
+            doc["command_topic"]   = String(setTopic);
+            doc["value_template"]  = "{{ value_json.group }}";
+            doc["command_template"] = "{\"groupId\": {{ value.split(':')[0] | int }}}";
+            JsonArray opts = doc["options"].to<JsonArray>();
+            for (uint8_t g = 0; g < MAX_GROUPS; g++) {
+                GroupConfig* gc = Config::group(g);
+                if (!gc) continue;
+                char opt[48]; snprintf(opt, sizeof(opt), "%u: %s", g, gc->name);
+                opts.add(String(opt));
+            }
+            dev(doc);
+            String s; serializeJson(doc, s);
+            _client.publish(discTopic, s.c_str(), /*retain=*/true);
+        }
     }
 
     void _publishUpdateDiscovery() {
@@ -316,11 +440,9 @@ private:
         doc["unique_id"]     = String(uniq);
         doc["state_topic"]   = _updateStateTopic;
         doc["command_topic"] = _updateSetTopic;
-        doc["payload_install"]       = "INSTALL";
-        doc["availability_topic"]    = _availTopic;
-        doc["payload_available"]     = "online";
-        doc["payload_not_available"] = "offline";
-        doc["device_class"] = "firmware";
+        doc["payload_install"] = "INSTALL";
+        doc["device_class"]  = "firmware";
+        doc["entity_category"] = "config";
         auto dev = doc["device"].to<JsonObject>();
         dev["name"]         = _deviceName;
         dev["model"]        = "Battery Light";
@@ -354,6 +476,7 @@ private:
     void _doPublishGroup(uint8_t id) {
         GroupConfig* g = Config::group(id);
         if (!g) return;
+        if (g->light.brightness > 0) _lastOnBrightness[id] = g->light.brightness;
         JsonDocument doc;
         JsonObject o = doc.to<JsonObject>();
         serializeGroup(o, *g);
@@ -376,38 +499,12 @@ private:
         JsonDocument doc;
         doc["brightnessOverrideEnabled"] = l.brightnessOverrideEnabled;
         doc["brightnessOverride"]        = l.brightnessOverride;
+        GroupConfig* g = Config::group(l.groupId);
+        char group[48]; snprintf(group, sizeof(group), "%u: %s", l.groupId, g ? g->name : "");
+        doc["group"] = String(group);
         char topic[112]; _lightTopic(idx, "state", topic, sizeof(topic));
         String s; serializeJson(doc, s);
         _client.publish(topic, s.c_str(), /*retain=*/true);
-    }
-
-    static const char* _fwStateStr(FwState s) {
-        static const char* kNames[] = { "idle", "checking", "downloading", "error", "done" };
-        uint8_t v = (uint8_t)s;
-        return v < 5 ? kNames[v] : "idle";
-    }
-
-    void _doPublishPeers() {
-        JsonDocument doc;
-        doc["channel"] = _lastChannel;
-        uint8_t count = 0;
-        JsonArray arr = doc["peers"].to<JsonArray>();
-        if (_peers) {
-            for (auto* p = _peers->begin(); p != _peers->end(); ++p) {
-                if (!p->active) continue;
-                count++;
-                auto o = arr.add<JsonObject>();
-                o["mac"]     = p->macStr();
-                o["name"]    = p->name;
-                o["online"]  = p->online();
-                o["rssi"]    = p->rssi;
-                o["version"] = p->fwVersion;
-                o["fwState"] = _fwStateStr(p->fwState);
-            }
-        }
-        doc["peerCount"] = count;
-        String s; serializeJson(doc, s);
-        _client.publish(_meshStateTopic, s.c_str(), /*retain=*/true);
     }
 
     void _doPublishUpdate() {
@@ -501,8 +598,16 @@ private:
 
         LightConfig cfg = deserializeLightConfig(doc, g->light);
 
-        if (!doc["state"].isNull() && strcmp((const char*)doc["state"], "OFF") == 0)
+        const char* state = doc["state"] | "";
+        if (strcmp(state, "OFF") == 0) {
             cfg.brightness = 0;
+        } else if (strcmp(state, "ON") == 0 && doc["brightness"].isNull() && cfg.brightness == 0) {
+            // HA's on/off toggle sends a bare {"state":"ON"} with no brightness —
+            // deserializeLightConfig above defaulted the missing field to the
+            // group's *current* (0, since it's off) brightness, which would
+            // otherwise leave the light dark. Restore whatever it was last on at.
+            cfg.brightness = _lastOnBrightness[id] > 0 ? _lastOnBrightness[id] : 255;
+        }
 
         if (!doc["effect"].isNull()) _applyEffectName(doc["effect"], cfg);
 
@@ -527,6 +632,11 @@ private:
         if (!doc["brightnessOverride"].isNull()) {
             l.brightnessOverride = (uint8_t)constrain((int)doc["brightnessOverride"], 0, 255);
             changed = true;
+        }
+        if (!doc["groupId"].isNull()) {
+            uint8_t gid = doc["groupId"];
+            if (Config::group(gid)) { l.groupId = gid; changed = true; }
+            else Logger::w("[mqtt] light %u: groupId %u not found", idx, gid);
         }
         if (!changed) return;
         Config::save();
