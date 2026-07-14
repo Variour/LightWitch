@@ -366,6 +366,7 @@ private:
         doc["command_topic"] = _updateSetTopic;
         doc["payload_install"] = "INSTALL";
         doc["device_class"]  = "firmware";
+        doc["entity_category"] = "config";
         auto dev = doc["device"].to<JsonObject>();
         dev["name"]         = _deviceName;
         dev["model"]        = "Battery Light";
