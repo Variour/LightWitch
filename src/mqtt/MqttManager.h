@@ -28,7 +28,7 @@ public:
     void setOnGroupLight(GroupApplyFn fn) { _onGroupLight = fn; }
     // A group's syncEnabled was toggled via MQTT (broadcast over mesh).
     void setOnGroupSyncToggle(GroupSyncToggleFn fn) { _onGroupSyncToggle = fn; }
-    // A light's brightness override changed (re-apply to its runner).
+    // A light's brightness override or group assignment changed (re-apply to its runner).
     void setOnLightOverride(LightOverrideFn fn) { _onLightOverride = fn; }
 
     void begin(const DeviceConfig& cfg) {
@@ -131,6 +131,8 @@ public:
             _client.publish(t, "", /*retain=*/true);
             _groupDiscoveryTopic(i, topic, sizeof(topic));
             _client.publish(topic, "", /*retain=*/true);
+            _groupTime24hDiscoveryTopic(i, topic, sizeof(topic));
+            _client.publish(topic, "", /*retain=*/true);
         }
         for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
             char t[112];
@@ -139,6 +141,8 @@ public:
             _lightSwitchDiscoveryTopic(i, topic, sizeof(topic));
             _client.publish(topic, "", /*retain=*/true);
             _lightNumberDiscoveryTopic(i, topic, sizeof(topic));
+            _client.publish(topic, "", /*retain=*/true);
+            _lightGroupDiscoveryTopic(i, topic, sizeof(topic));
             _client.publish(topic, "", /*retain=*/true);
         }
 
@@ -163,6 +167,8 @@ public:
         _client.publish(t, "", /*retain=*/true);
         char topic[128];
         _groupDiscoveryTopic(groupId, topic, sizeof(topic));
+        _client.publish(topic, "", /*retain=*/true);
+        _groupTime24hDiscoveryTopic(groupId, topic, sizeof(topic));
         _client.publish(topic, "", /*retain=*/true);
         Logger::i("[mqtt] cleared retained topics for deleted group %u", groupId);
     }
@@ -212,11 +218,17 @@ private:
     void _groupDiscoveryTopic(uint8_t id, char* out, size_t outLen) {
         snprintf(out, outLen, "homeassistant/light/%s/g%u/config", _uniqueId, id);
     }
+    void _groupTime24hDiscoveryTopic(uint8_t id, char* out, size_t outLen) {
+        snprintf(out, outLen, "homeassistant/switch/%s/g%u_time24h/config", _uniqueId, id);
+    }
     void _lightSwitchDiscoveryTopic(uint8_t idx, char* out, size_t outLen) {
         snprintf(out, outLen, "homeassistant/switch/%s/l%u_briEn/config", _uniqueId, idx);
     }
     void _lightNumberDiscoveryTopic(uint8_t idx, char* out, size_t outLen) {
         snprintf(out, outLen, "homeassistant/number/%s/l%u_bri/config", _uniqueId, idx);
+    }
+    void _lightGroupDiscoveryTopic(uint8_t idx, char* out, size_t outLen) {
+        snprintf(out, outLen, "homeassistant/select/%s/l%u_group/config", _uniqueId, idx);
     }
 
     void _connect() {
@@ -298,11 +310,43 @@ private:
 
         String s; serializeJson(doc, s);
         _client.publish(discTopic, s.c_str(), /*retain=*/true);
+
+        _publishGroupTime24hDiscovery(id, g, stateTopic, setTopic);
     }
 
-    // A physical light's brightness override, exposed as two entities that
-    // share its state/set topic: a switch for brightnessOverrideEnabled and
-    // a 0-255 number for brightnessOverride. command_template wraps each
+    // The group's Time-mode 12h/24h display setting, exposed as a switch
+    // sharing the group's state/set topic. "time24h" is already a plain
+    // field on the group's JSON light config (see serializeLightConfig /
+    // deserializeLightConfig in Config.cpp), so no extra command handling
+    // is needed — _handleGroupSet already merges it in via
+    // deserializeLightConfig(doc, g->light), leaving every other field
+    // untouched.
+    void _publishGroupTime24hDiscovery(uint8_t id, const GroupConfig& g, const char* stateTopic, const char* setTopic) {
+        char discTopic[128];
+        _groupTime24hDiscoveryTopic(id, discTopic, sizeof(discTopic));
+
+        JsonDocument doc;
+        doc["name"] = String(g.name) + " 24h Time Format";
+        char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_g%u_time24h", _uniqueId, id);
+        doc["unique_id"]        = String(uniq);
+        doc["state_topic"]      = String(stateTopic);
+        doc["command_topic"]    = String(setTopic);
+        doc["value_template"]   = "{{ 'ON' if value_json.time24h else 'OFF' }}";
+        doc["command_template"] = "{\"time24h\": {{ (value == \"ON\") | lower }}}";
+        auto dev = doc["device"].to<JsonObject>();
+        dev["name"]         = _deviceName;
+        dev["model"]        = "Battery Light";
+        dev["manufacturer"] = "DIY";
+        dev["identifiers"].to<JsonArray>().add(_uniqueId);
+
+        String s; serializeJson(doc, s);
+        _client.publish(discTopic, s.c_str(), /*retain=*/true);
+    }
+
+    // A physical light's brightness override and group assignment, exposed
+    // as three entities that share its state/set topic: a switch for
+    // brightnessOverrideEnabled, a 0-255 number for brightnessOverride, and
+    // a select for which group it belongs to. command_template wraps each
     // entity's raw HA payload into the JSON _handleLightSet expects;
     // value_template picks the matching field back out of the shared state.
     void _publishLightDiscovery(uint8_t idx) {
@@ -348,6 +392,33 @@ private:
             doc["min"]  = 0;
             doc["max"]  = 255;
             doc["step"] = 1;
+            dev(doc);
+            String s; serializeJson(doc, s);
+            _client.publish(discTopic, s.c_str(), /*retain=*/true);
+        }
+        {
+            // Options/state are "<id>: <name>" strings so the command_template
+            // can recover the numeric groupId with a plain split — avoids
+            // having to build a name<->id Jinja lookup (and escape group
+            // names, which are free-text) inside the template itself.
+            char discTopic[128];
+            _lightGroupDiscoveryTopic(idx, discTopic, sizeof(discTopic));
+            JsonDocument doc;
+            char name[48]; snprintf(name, sizeof(name), "Light %u Group", idx);
+            doc["name"] = String(name);
+            char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_group", _uniqueId, idx);
+            doc["unique_id"]       = String(uniq);
+            doc["state_topic"]     = String(stateTopic);
+            doc["command_topic"]   = String(setTopic);
+            doc["value_template"]  = "{{ value_json.group }}";
+            doc["command_template"] = "{\"groupId\": {{ value.split(':')[0] | int }}}";
+            JsonArray opts = doc["options"].to<JsonArray>();
+            for (uint8_t g = 0; g < MAX_GROUPS; g++) {
+                GroupConfig* gc = Config::group(g);
+                if (!gc) continue;
+                char opt[48]; snprintf(opt, sizeof(opt), "%u: %s", g, gc->name);
+                opts.add(String(opt));
+            }
             dev(doc);
             String s; serializeJson(doc, s);
             _client.publish(discTopic, s.c_str(), /*retain=*/true);
@@ -422,6 +493,9 @@ private:
         JsonDocument doc;
         doc["brightnessOverrideEnabled"] = l.brightnessOverrideEnabled;
         doc["brightnessOverride"]        = l.brightnessOverride;
+        GroupConfig* g = Config::group(l.groupId);
+        char group[48]; snprintf(group, sizeof(group), "%u: %s", l.groupId, g ? g->name : "");
+        doc["group"] = String(group);
         char topic[112]; _lightTopic(idx, "state", topic, sizeof(topic));
         String s; serializeJson(doc, s);
         _client.publish(topic, s.c_str(), /*retain=*/true);
@@ -544,6 +618,11 @@ private:
         if (!doc["brightnessOverride"].isNull()) {
             l.brightnessOverride = (uint8_t)constrain((int)doc["brightnessOverride"], 0, 255);
             changed = true;
+        }
+        if (!doc["groupId"].isNull()) {
+            uint8_t gid = doc["groupId"];
+            if (Config::group(gid)) { l.groupId = gid; changed = true; }
+            else Logger::w("[mqtt] light %u: groupId %u not found", idx, gid);
         }
         if (!changed) return;
         Config::save();

@@ -116,10 +116,11 @@ static void publishGroupSync(const GroupConfig& g) {
     else          mqtt.clearGroupRetained(g.id);
 }
 
-// Re-applies a single light's effective brightness (its group's brightness,
-// or its own override if enabled) to its runner and pushes state to the
-// dashboard. Used after a light's own brightnessOverride(Enabled) changes —
-// group brightness itself is unaffected, so this doesn't go through
+// Re-applies a single light's effective config — its (possibly just
+// reassigned) group's config, with its own brightness override layered on
+// top if enabled — to its runner and pushes state to the dashboard. Used
+// after a light's own brightnessOverride(Enabled) or groupId changes via
+// MQTT; group config itself is unaffected, so this doesn't go through
 // applyAndPropagateLightConfig/mesh broadcast.
 static void applyLightBrightnessOverride(uint8_t lightIndex) {
     if (lightIndex >= MAX_LIGHTS || !_leds[lightIndex]) return;
