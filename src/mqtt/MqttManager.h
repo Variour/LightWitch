@@ -11,9 +11,10 @@
 #include "../update/Updater.h"
 
 // Publishes/subscribes one MQTT "light" per group (not just the first one),
-// plus per-light brightness-override entities (switch + number), and a Home
-// Assistant "update" entity wired to the existing GitHub-release OTA flow.
-// Every entity is announced via HA MQTT discovery.
+// plus per-light brightness-override entities (switch + number), a Home
+// Assistant "update" entity wired to the existing GitHub-release OTA flow,
+// and a device-wide "scene sync" switch. Every entity is announced via HA
+// MQTT discovery.
 // Mirrors WebServer.h's group/light update handlers (_updateGroup/_updateLight)
 // rather than ActionExecutor — MQTT commands are absolute "set" operations,
 // not the relative step/toggle actions ActionExecutor models for buttons.
@@ -22,6 +23,7 @@ public:
     using GroupApplyFn      = std::function<void(uint8_t groupId, const LightConfig&)>;
     using GroupSyncToggleFn = std::function<void(const GroupConfig&)>;
     using LightOverrideFn   = std::function<void(uint8_t lightIndex)>;
+    using SceneSyncToggleFn = std::function<void()>;
 
     // Applies + propagates a group's LightConfig change (e.g. main.cpp's
     // applyAndPropagateLightConfig).
@@ -30,6 +32,9 @@ public:
     void setOnGroupSyncToggle(GroupSyncToggleFn fn) { _onGroupSyncToggle = fn; }
     // A light's brightness override or group assignment changed (re-apply to its runner).
     void setOnLightOverride(LightOverrideFn fn) { _onLightOverride = fn; }
+    // The device's own sceneSyncEnabled was just turned on via MQTT (was off before) —
+    // mirrors WebServer's _postConfig/_setRemoteSceneSync: kick off a re-sync.
+    void setOnSceneSyncEnabled(SceneSyncToggleFn fn) { _onSceneSyncEnabled = fn; }
 
     void begin(const DeviceConfig& cfg) {
         if (strlen(cfg.mqttHost) == 0) return;
@@ -50,6 +55,8 @@ public:
         snprintf(_lightPrefix,     sizeof(_lightPrefix),     "%s/light/",       base);
         snprintf(_updateSetTopic,  sizeof(_updateSetTopic),  "%s/update/set",   base);
         snprintf(_updateStateTopic,sizeof(_updateStateTopic),"%s/update/state", base);
+        snprintf(_sceneSyncSetTopic,  sizeof(_sceneSyncSetTopic),  "%s/scenesync/set",   base);
+        snprintf(_sceneSyncStateTopic,sizeof(_sceneSyncStateTopic),"%s/scenesync/state", base);
         snprintf(_groupSubWildcard,sizeof(_groupSubWildcard),"%s+/set", _groupPrefix);
         snprintf(_lightSubWildcard,sizeof(_lightSubWildcard),"%s+/set", _lightPrefix);
 
@@ -82,6 +89,7 @@ public:
         for (uint8_t i = 0; i < MAX_LIGHTS; i++)
             if (_lightDirty[i]) { _lightDirty[i] = false; _doPublishLight(i); }
         if (_updateDirty) { _updateDirty = false; _doPublishUpdate(); }
+        if (_sceneSyncDirty) { _sceneSyncDirty = false; _doPublishSceneSync(); }
     }
 
     // All publish* calls are safe from any context (including from within
@@ -91,6 +99,9 @@ public:
     void publishGroupState(uint8_t groupId)        { if (groupId    < MAX_GROUPS) _groupDirty[groupId]    = true; }
     void publishLightOverride(uint8_t lightIndex)  { if (lightIndex < MAX_LIGHTS) _lightDirty[lightIndex] = true; }
     void publishUpdateState()                      { _updateDirty = true; }
+    // Call after Config::get().sceneSyncEnabled changes via any non-MQTT path
+    // (web UI, peer-toggle-self) so the retained MQTT state doesn't go stale.
+    void publishSceneSyncState()                    { _sceneSyncDirty = true; }
     // Republishes HA discovery (incl. the scene-derived effect list) for
     // every existing group — call after a group or scene is added/renamed/
     // removed/deleted.
@@ -123,6 +134,10 @@ public:
         _client.publish(_updateStateTopic, "", /*retain=*/true);
         char topic[128];
         snprintf(topic, sizeof(topic), "homeassistant/update/%s/fw/config", _uniqueId);
+        _client.publish(topic, "", /*retain=*/true);
+
+        _client.publish(_sceneSyncStateTopic, "", /*retain=*/true);
+        _sceneSyncDiscoveryTopic(topic, sizeof(topic));
         _client.publish(topic, "", /*retain=*/true);
 
         for (uint8_t i = 0; i < MAX_GROUPS; i++) {
@@ -186,6 +201,7 @@ private:
     GroupApplyFn      _onGroupLight;
     GroupSyncToggleFn _onGroupSyncToggle;
     LightOverrideFn   _onLightOverride;
+    SceneSyncToggleFn _onSceneSyncEnabled;
 
     bool     _enabled     = false;
     uint32_t _lastAttempt = 0;
@@ -199,6 +215,7 @@ private:
     // at brightness 0 forever. 0 means "never observed"; falls back to 255.
     uint8_t _lastOnBrightness[MAX_GROUPS] = {};
     bool _updateDirty               = false;
+    bool _sceneSyncDirty             = false;
 
     char     _deviceName[32] = {};
     char     _uniqueId[24]   = {};
@@ -213,6 +230,8 @@ private:
     char _lightSubWildcard[96]  = {};   // "batterylight/<dev>/light/+/set"
     char _updateSetTopic[112]   = {};
     char _updateStateTopic[112] = {};
+    char _sceneSyncSetTopic[112]   = {};
+    char _sceneSyncStateTopic[112] = {};
 
     void _groupTopic(uint8_t id, const char* suffix, char* out, size_t outLen) {
         snprintf(out, outLen, "%s%u/%s", _groupPrefix, id, suffix);
@@ -235,6 +254,9 @@ private:
     void _lightGroupDiscoveryTopic(uint8_t idx, char* out, size_t outLen) {
         snprintf(out, outLen, "homeassistant/select/%s/l%u_group/config", _uniqueId, idx);
     }
+    void _sceneSyncDiscoveryTopic(char* out, size_t outLen) {
+        snprintf(out, outLen, "homeassistant/switch/%s/scenesync/config", _uniqueId);
+    }
 
     void _connect() {
         Logger::i("[mqtt] connecting to %s:%u ...", _host, _port);
@@ -249,10 +271,12 @@ private:
         _client.subscribe(_groupSubWildcard);
         _client.subscribe(_lightSubWildcard);
         _client.subscribe(_updateSetTopic);
+        _client.subscribe(_sceneSyncSetTopic);
         _publishAllDiscovery();
         for (uint8_t i = 0; i < MAX_GROUPS; i++) if (Config::group(i)) _doPublishGroup(i);
         Config::forEachLight([this](uint8_t i, LightHardwareConfig&) { _doPublishLight(i); });
         _doPublishUpdate();
+        _doPublishSceneSync();
     }
 
     // ── Discovery ────────────────────────────────────────────────────────────
@@ -264,6 +288,7 @@ private:
         }
         Config::forEachLight([this](uint8_t i, LightHardwareConfig&) { _publishLightDiscovery(i); });
         _publishUpdateDiscovery();
+        _publishSceneSyncDiscovery();
         Logger::i("[mqtt] discovery published");
     }
 
@@ -331,7 +356,7 @@ private:
         _groupTime24hDiscoveryTopic(id, discTopic, sizeof(discTopic));
 
         JsonDocument doc;
-        doc["name"] = String(g.name) + " 24h Time Format";
+        doc["name"] = String(g.name) + ": Use 24h Time";
         char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_g%u_time24h", _uniqueId, id);
         doc["unique_id"]        = String(uniq);
         doc["state_topic"]      = String(stateTopic);
@@ -365,12 +390,18 @@ private:
             d["manufacturer"] = "DIY";
             d["identifiers"].to<JsonArray>().add(_uniqueId);
         };
+        // Falls back to "Light <idx>" — the light's own name (set in the web
+        // UI) is optional and empty by default.
+        const char* lightName = Config::get().lights[idx].name;
+        char label[32];
+        if (lightName[0]) strlcpy(label, lightName, sizeof(label));
+        else              snprintf(label, sizeof(label), "Light %u", idx);
 
         {
             char discTopic[128];
             _lightSwitchDiscoveryTopic(idx, discTopic, sizeof(discTopic));
             JsonDocument doc;
-            char name[48]; snprintf(name, sizeof(name), "Light %u Brightness Override Enabled", idx);
+            char name[64]; snprintf(name, sizeof(name), "%s: Brightness Override Enabled", label);
             doc["name"] = String(name);
             char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_briEn", _uniqueId, idx);
             doc["unique_id"]       = String(uniq);
@@ -386,7 +417,7 @@ private:
             char discTopic[128];
             _lightNumberDiscoveryTopic(idx, discTopic, sizeof(discTopic));
             JsonDocument doc;
-            char name[48]; snprintf(name, sizeof(name), "Light %u Brightness Override", idx);
+            char name[64]; snprintf(name, sizeof(name), "%s: Brightness Override", label);
             doc["name"] = String(name);
             char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_bri", _uniqueId, idx);
             doc["unique_id"]       = String(uniq);
@@ -409,7 +440,7 @@ private:
             char discTopic[128];
             _lightGroupDiscoveryTopic(idx, discTopic, sizeof(discTopic));
             JsonDocument doc;
-            char name[48]; snprintf(name, sizeof(name), "Light %u Group", idx);
+            char name[64]; snprintf(name, sizeof(name), "%s: Group", label);
             doc["name"] = String(name);
             char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_group", _uniqueId, idx);
             doc["unique_id"]       = String(uniq);
@@ -442,6 +473,30 @@ private:
         doc["command_topic"] = _updateSetTopic;
         doc["payload_install"] = "INSTALL";
         doc["device_class"]  = "firmware";
+        doc["entity_category"] = "config";
+        auto dev = doc["device"].to<JsonObject>();
+        dev["name"]         = _deviceName;
+        dev["model"]        = "Battery Light";
+        dev["manufacturer"] = "DIY";
+        dev["identifiers"].to<JsonArray>().add(_uniqueId);
+
+        String s; serializeJson(doc, s);
+        _client.publish(discTopic, s.c_str(), /*retain=*/true);
+    }
+
+    // The device's own sceneSyncEnabled toggle — a plain on/off switch with
+    // its own dedicated topic (unlike time24h, it has no group to piggyback
+    // a shared state/set topic on).
+    void _publishSceneSyncDiscovery() {
+        char discTopic[128];
+        _sceneSyncDiscoveryTopic(discTopic, sizeof(discTopic));
+
+        JsonDocument doc;
+        doc["name"] = "Scene Sync";
+        char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_scenesync", _uniqueId);
+        doc["unique_id"]       = String(uniq);
+        doc["state_topic"]     = _sceneSyncStateTopic;
+        doc["command_topic"]   = _sceneSyncSetTopic;
         doc["entity_category"] = "config";
         auto dev = doc["device"].to<JsonObject>();
         dev["name"]         = _deviceName;
@@ -520,6 +575,10 @@ private:
         _client.publish(_updateStateTopic, s.c_str(), /*retain=*/true);
     }
 
+    void _doPublishSceneSync() {
+        _client.publish(_sceneSyncStateTopic, Config::get().sceneSyncEnabled ? "ON" : "OFF", /*retain=*/true);
+    }
+
     // ── Command handling ─────────────────────────────────────────────────────
 
     // Matches topic against "<prefix><id>/set" exactly; fills outId on match.
@@ -540,6 +599,7 @@ private:
         if (_parseSuffixId(topic, _groupPrefix, MAX_GROUPS, id)) { _handleGroupSet(id, payload, len); return; }
         if (_parseSuffixId(topic, _lightPrefix, MAX_LIGHTS, id)) { _handleLightSet(id, payload, len); return; }
         if (strcmp(topic, _updateSetTopic) == 0)                 { _handleUpdateSet(payload, len);    return; }
+        if (strcmp(topic, _sceneSyncSetTopic) == 0)              { _handleSceneSyncSet(payload, len); return; }
     }
 
     // Maps an effect_list display string back to mode/pattern/sceneId.
@@ -650,5 +710,19 @@ private:
             Logger::i("[mqtt] update install requested");
             Updater::triggerAsync();
         }
+    }
+
+    // Mirrors WebServer's _postConfig/_setRemoteSceneSync own-mac branch.
+    void _handleSceneSyncSet(uint8_t* payload, unsigned int len) {
+        String cmd; cmd.reserve(len);
+        for (unsigned int i = 0; i < len; i++) cmd += (char)payload[i];
+        if (cmd != "ON" && cmd != "OFF") { Logger::w("[mqtt] sceneSync: bad payload"); return; }
+
+        bool prev    = Config::get().sceneSyncEnabled;
+        bool enabled = (cmd == "ON");
+        Config::get().sceneSyncEnabled = enabled;
+        Config::save();
+        if (enabled && !prev && _onSceneSyncEnabled) _onSceneSyncEnabled();
+        publishSceneSyncState();
     }
 };

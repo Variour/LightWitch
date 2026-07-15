@@ -353,6 +353,7 @@ void setup() {
     });
     mqtt.setOnGroupSyncToggle([](const GroupConfig& g) { publishGroupSync(g); });
     mqtt.setOnLightOverride([](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
+    mqtt.setOnSceneSyncEnabled([]() { sceneSync.onSyncEnabled(); });
     mqtt.begin(Config::get());
 
     // Wire the action layer: buttons (and, perspectively, other future trigger
@@ -601,6 +602,7 @@ void setup() {
     webServer.setOnSceneListChanged([]() { mqtt.resyncGroupDiscovery(); });
     sceneSync.setOnSceneListChanged([]() { mqtt.resyncGroupDiscovery(); });
     webServer.setOnClearMqtt([]() { mqtt.clearRetainedAndDisable(); });
+    webServer.setOnSceneSyncChanged([]() { mqtt.publishSceneSyncState(); });
 
     webServer.setOnTestLight([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx]) _runners[idx].showTest(5000);

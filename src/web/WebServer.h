@@ -51,6 +51,9 @@ using SceneListChangedCb  = std::function<void()>;
 // Called before the MQTT broker config is wiped, so retained messages
 // (state, discovery, telemetry) can be cleared from the broker first.
 using ClearMqttCb         = std::function<void()>;
+// Called after this device's own sceneSyncEnabled changes via REST, so
+// MQTT's retained scenesync state topic doesn't go stale.
+using SceneSyncChangedCb  = std::function<void()>;
 // Called before a local OTA action so this device can connect to WiFi first if it's
 // currently on single-WiFi-client standby; invokes the given callback once ready
 // (immediately, if already connected).
@@ -412,6 +415,7 @@ public:
     void setOnGroupsChanged(GroupsChangedCb cb)         { _onGroupsChanged     = cb; }
     void setOnSceneListChanged(SceneListChangedCb cb)   { _onSceneListChanged  = cb; }
     void setOnClearMqtt(ClearMqttCb cb)                 { _onClearMqtt         = cb; }
+    void setOnSceneSyncChanged(SceneSyncChangedCb cb)   { _onSceneSyncChanged  = cb; }
 
 private:
     AsyncWebServer   _server{80};
@@ -443,6 +447,7 @@ private:
     GroupsChangedCb     _onGroupsChanged;
     SceneListChangedCb  _onSceneListChanged;
     ClearMqttCb         _onClearMqtt;
+    SceneSyncChangedCb  _onSceneSyncChanged;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -546,6 +551,7 @@ private:
             bool prev = c.sceneSyncEnabled;
             c.sceneSyncEnabled = (bool)doc["sceneSyncEnabled"];
             if (c.sceneSyncEnabled && !prev && _sceneSync) _sceneSync->onSyncEnabled();
+            if (c.sceneSyncEnabled != prev && _onSceneSyncChanged) _onSceneSyncChanged();
         }
         if (!doc["checkUpdateOnStartup"].isNull())
             c.checkUpdateOnStartup = (bool)doc["checkUpdateOnStartup"];
@@ -1102,6 +1108,7 @@ private:
             Config::get().sceneSyncEnabled = enabled;
             Config::save();
             if (enabled && !prev && _sceneSync) _sceneSync->onSyncEnabled();
+            if (enabled != prev && _onSceneSyncChanged) _onSceneSyncChanged();
             auto ok = _makeOk(); _sendJson(r, 200, ok);
             return;
         }
