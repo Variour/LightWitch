@@ -304,6 +304,16 @@ enum class SoundChip : uint8_t {
     ES8311 = 0,
 };
 
+// Generic I2C GPIO expander chip. Some boards don't wire a control signal
+// (e.g. speaker-amp enable) to a native ESP32 GPIO at all — it sits behind an
+// expander chip shared with other peripherals instead. This is a general,
+// chip-level abstraction (not board-specific) so any future pin that needs
+// this can reuse it; see src/io/Tca9555Expander.h.
+enum class IoExpanderChip : uint8_t {
+    None = 0,     // the pin field it applies to is a native ESP32 GPIO
+    TCA9555 = 1,  // the pin field it applies to is a pin index (0-15) on a TCA9555
+};
+
 // Per-sound-output physical hardware configuration, stored in DeviceConfig.
 // Hardware support only for now — nothing in Config/main.cpp/WebServer yet
 // decides *what* plays; that's a separate, later step (see LightHardwareConfig
@@ -322,9 +332,13 @@ struct SoundHardwareConfig {
     uint8_t i2sWsPin = SOUND_PIN_UNUSED;
     uint8_t i2sDoutPin = SOUND_PIN_UNUSED;
     // Some boards gate a separate speaker amp via a GPIO instead of relying on the
-    // codec's own output stage; SOUND_PIN_UNUSED = no such pin.
+    // codec's own output stage; SOUND_PIN_UNUSED = no such pin. paExpander selects
+    // whether paEnablePin is a native GPIO (None) or a pin index on the expander
+    // (sharing the codec's I2C bus at paExpanderAddress) — see IoExpanderChip.
     uint8_t paEnablePin = SOUND_PIN_UNUSED;
     bool paEnableActiveHigh = true;
+    IoExpanderChip paExpander = IoExpanderChip::None;
+    uint8_t paExpanderAddress = 0x20;  // TCA9555 default 7-bit address (A0-A2 strapped low)
     bool exists = false;
 };
 
@@ -455,10 +469,12 @@ class Config {
     static void applyConfigSync(const char* json, size_t len);
 
     // True if `pin` is already used by a configured light (data/clock pin), a
-    // configured sound output (any of its I2C/I2S/PA pins), or by another
-    // configured button. Pass the button's own index as excludeButtonIndex, or
-    // a sound's own index as excludeSoundIndex, when validating an update to an
-    // existing button/sound. SOUND_PIN_UNUSED never counts as "in use".
+    // configured sound output (I2C/I2S pins, plus its PA-enable pin only when
+    // that's a native GPIO — an expander-backed PA pin lives in a separate
+    // address space, see IoExpanderChip), or by another configured button.
+    // Pass the button's own index as excludeButtonIndex, or a sound's own
+    // index as excludeSoundIndex, when validating an update to an existing
+    // button/sound. SOUND_PIN_UNUSED never counts as "in use".
     static bool isPinInUse(uint8_t pin, int8_t excludeButtonIndex = -1,
                            int8_t excludeSoundIndex = -1);
 

@@ -138,6 +138,8 @@ void serializeSound(JsonObject o, const SoundHardwareConfig& s) {
     o["i2sDoutPin"] = s.i2sDoutPin;
     o["paEnablePin"] = s.paEnablePin;
     o["paEnableActiveHigh"] = s.paEnableActiveHigh;
+    o["paExpander"] = (uint8_t)s.paExpander;
+    o["paExpanderAddress"] = s.paExpanderAddress;
     o["exists"] = s.exists;
 }
 
@@ -153,6 +155,8 @@ void deserializeSound(JsonVariant o, SoundHardwareConfig& s) {
     s.i2sDoutPin = o["i2sDoutPin"] | SOUND_PIN_UNUSED;
     s.paEnablePin = o["paEnablePin"] | SOUND_PIN_UNUSED;
     s.paEnableActiveHigh = o["paEnableActiveHigh"] | true;
+    s.paExpander = (IoExpanderChip)(uint8_t)(o["paExpander"] | (uint8_t)IoExpanderChip::None);
+    s.paExpanderAddress = o["paExpanderAddress"] | (uint8_t)0x20;
     s.exists = o["exists"] | false;
 }
 
@@ -663,9 +667,12 @@ bool Config::isPinInUse(uint8_t pin, int8_t excludeButtonIndex, int8_t excludeSo
             auto& s = _cfg.sounds[i];
             if (!s.exists) continue;
             if (s.i2cSdaPin == pin || s.i2cSclPin == pin || s.i2sMclkPin == pin ||
-                s.i2sBclkPin == pin || s.i2sWsPin == pin || s.i2sDoutPin == pin ||
-                s.paEnablePin == pin)
+                s.i2sBclkPin == pin || s.i2sWsPin == pin || s.i2sDoutPin == pin)
                 return true;
+            // paEnablePin only occupies the ESP32 GPIO address space when it's a
+            // direct pin — on an expander it's a pin index in a separate space
+            // (see IoExpanderChip) and must not be cross-checked against real GPIOs.
+            if (s.paExpander == IoExpanderChip::None && s.paEnablePin == pin) return true;
         }
     }
     return false;

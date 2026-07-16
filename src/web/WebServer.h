@@ -1691,12 +1691,17 @@ class BatteryWebServer {
     // Returns an error string if any of s's non-unused pins collide with each
     // other or with a light/button/other-sound pin, else nullptr. Pass the
     // sound's own index as excludeSoundIndex when validating an update.
+    // paEnablePin is only checked as a real ESP32 GPIO when paExpander is
+    // None — on an expander it's a pin index in a separate address space
+    // (see IoExpanderChip) and would produce false conflicts if compared
+    // against actual GPIO numbers.
     static const char* _soundPinConflict(const SoundHardwareConfig& s, int8_t excludeSoundIndex) {
-        const uint8_t pins[] = {s.i2cSdaPin, s.i2cSclPin,  s.i2sMclkPin, s.i2sBclkPin,
-                                s.i2sWsPin,  s.i2sDoutPin, s.paEnablePin};
-        for (size_t i = 0; i < sizeof(pins); i++) {
+        uint8_t pins[] = {s.i2cSdaPin, s.i2cSclPin,  s.i2sMclkPin, s.i2sBclkPin,
+                          s.i2sWsPin,  s.i2sDoutPin, s.paEnablePin};
+        size_t count = s.paExpander == IoExpanderChip::None ? 7 : 6;
+        for (size_t i = 0; i < count; i++) {
             if (pins[i] == SOUND_PIN_UNUSED) continue;
-            for (size_t j = i + 1; j < sizeof(pins); j++) {
+            for (size_t j = i + 1; j < count; j++) {
                 if (pins[j] == pins[i]) return "duplicate pin within sound config";
             }
             if (Config::isPinInUse(pins[i], -1, excludeSoundIndex)) return "pin already in use";
@@ -1706,7 +1711,7 @@ class BatteryWebServer {
 
     // ── POST /api/sounds/add ──────────────────────────────────────────────────
     // Body: {name?, chip?, i2cSdaPin, i2cSclPin, i2cAddress?, i2sMclkPin?, i2sBclkPin,
-    // i2sWsPin, i2sDoutPin, paEnablePin?, paEnableActiveHigh?}
+    // i2sWsPin, i2sDoutPin, paEnablePin?, paEnableActiveHigh?, paExpander?, paExpanderAddress?}
     void _addSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -1750,7 +1755,8 @@ class BatteryWebServer {
 
     // ── POST /api/sounds/update ─────────────────────────────────────────────────
     // Body: {index, name?, chip?, i2cSdaPin?, i2cSclPin?, i2cAddress?, i2sMclkPin?,
-    // i2sBclkPin?, i2sWsPin?, i2sDoutPin?, paEnablePin?, paEnableActiveHigh?}
+    // i2sBclkPin?, i2sWsPin?, i2sDoutPin?, paEnablePin?, paEnableActiveHigh?, paExpander?,
+    // paExpanderAddress?}
     void _updateSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -1805,6 +1811,14 @@ class BatteryWebServer {
         }
         if (!doc["paEnableActiveHigh"].isNull()) {
             candidate.paEnableActiveHigh = (bool)doc["paEnableActiveHigh"];
+            hwChanged = true;
+        }
+        if (!doc["paExpander"].isNull()) {
+            candidate.paExpander = (IoExpanderChip)(uint8_t)doc["paExpander"];
+            hwChanged = true;
+        }
+        if (!doc["paExpanderAddress"].isNull()) {
+            candidate.paExpanderAddress = doc["paExpanderAddress"];
             hwChanged = true;
         }
 

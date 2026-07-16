@@ -4688,7 +4688,9 @@ function renderSoundsHw(sounds) {
   el.innerHTML = sounds.map(s => {
     const label = s.name ? s.name : `Sound ${s.index}`;
     const mclk = s.i2sMclkPin === SOUND_PIN_UNUSED ? 'from BCLK' : `GPIO${s.i2sMclkPin}`;
-    const pa = s.paEnablePin === SOUND_PIN_UNUSED ? 'none' : `GPIO${s.paEnablePin}`;
+    const pa = s.paEnablePin === SOUND_PIN_UNUSED ? 'none'
+      : s.paExpander === 1 ? `TCA9555:${s.paEnablePin}`
+      : `GPIO${s.paEnablePin}`;
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div class="light-hw-row">
         <div>
@@ -4721,7 +4723,7 @@ async function testSound(index) {
 
 function openAddSoundModal() {
   _editSoundIndex = null;
-  _openSoundModal({index: null, name: '', chip: 0, i2cSdaPin: '', i2cSclPin: '', i2cAddress: 0x18, i2sMclkPin: SOUND_PIN_UNUSED, i2sBclkPin: '', i2sWsPin: '', i2sDoutPin: '', paEnablePin: SOUND_PIN_UNUSED, paEnableActiveHigh: true});
+  _openSoundModal({index: null, name: '', chip: 0, i2cSdaPin: '', i2cSclPin: '', i2cAddress: 0x18, i2sMclkPin: SOUND_PIN_UNUSED, i2sBclkPin: '', i2sWsPin: '', i2sDoutPin: '', paEnablePin: SOUND_PIN_UNUSED, paEnableActiveHigh: true, paExpander: 0, paExpanderAddress: 0x20});
 }
 
 function openEditSoundModal(s) {
@@ -4769,7 +4771,16 @@ function _openSoundModal(s) {
       <span>Separate speaker amp enable pin</span>
     </label>
     <div id="sm-pa-opts" style="${hasPa ? '' : 'display:none'}">
-      <input type="number" id="sm-paEnablePin" value="${hasPa ? s.paEnablePin : ''}" min="0" max="39" placeholder="GPIO">
+      <label>Enable pin source</label>
+      <select id="sm-paExpander">
+        <option value="0"${(s.paExpander||0)===0?' selected':''}>Direct GPIO</option>
+        <option value="1"${(s.paExpander||0)===1?' selected':''}>TCA9555 I2C expander <small>(shares the SDA/SCL bus above)</small></option>
+      </select>
+      <input type="number" id="sm-paEnablePin" value="${hasPa ? s.paEnablePin : ''}" min="0" max="${(s.paExpander||0)===1?15:39}" placeholder="${(s.paExpander||0)===1?'expander pin 0-15':'GPIO'}">
+      <div id="sm-paExpanderAddress-wrap" style="${(s.paExpander||0)===1?'':'display:none'}">
+        <label>TCA9555 I2C address <small>(0x20 default; set by the A0-A2 address pins)</small></label>
+        <input type="number" id="sm-paExpanderAddress" value="${s.paExpanderAddress || 0x20}" min="0" max="127">
+      </div>
       <label style="display:flex;align-items:center;gap:.5rem;margin-top:.4rem">
         <input type="checkbox" id="sm-paEnableActiveHigh" style="width:auto" ${s.paEnableActiveHigh!==false?'checked':''}>
         <span>Active high</span>
@@ -4790,6 +4801,16 @@ function _openSoundModal(s) {
   const paCheck = overlay.querySelector('#sm-hasPa');
   const paOpts  = overlay.querySelector('#sm-pa-opts');
   paCheck.addEventListener('change', () => { paOpts.style.display = paCheck.checked ? '' : 'none'; });
+
+  const paExpanderSelect = overlay.querySelector('#sm-paExpander');
+  const paPinInput       = overlay.querySelector('#sm-paEnablePin');
+  const paAddressWrap    = overlay.querySelector('#sm-paExpanderAddress-wrap');
+  paExpanderSelect.addEventListener('change', () => {
+    const isExpander = paExpanderSelect.value === '1';
+    paAddressWrap.style.display = isExpander ? '' : 'none';
+    paPinInput.max = isExpander ? '15' : '39';
+    paPinInput.placeholder = isExpander ? 'expander pin 0-15' : 'GPIO';
+  });
 }
 
 // Always waits for a reboot even though a name-only edit doesn't actually
@@ -4810,6 +4831,8 @@ async function saveSoundModal() {
     i2sMclkPin: $('sm-hasMclk').checked ? parseInt($('sm-i2sMclkPin').value) : SOUND_PIN_UNUSED,
     paEnablePin: $('sm-hasPa').checked ? parseInt($('sm-paEnablePin').value) : SOUND_PIN_UNUSED,
     paEnableActiveHigh: $('sm-paEnableActiveHigh').checked,
+    paExpander: $('sm-hasPa').checked ? parseInt($('sm-paExpander').value) : 0,
+    paExpanderAddress: parseInt($('sm-paExpanderAddress').value),
   };
   for (const [key, val] of Object.entries(body)) {
     if (typeof val === 'number' && Number.isNaN(val)) { alert(`Please fill in ${key}`); return; }

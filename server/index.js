@@ -50,10 +50,13 @@ const MOCK_CONFIG = {
 // Mirrors SoundHardwareConfig shape from Config.h/WebServer.h::serializeSound.
 // 255 mirrors Config.h::SOUND_PIN_UNUSED (an unconfigured/not-present pin).
 const SOUND_PIN_UNUSED = 255;
+// paExpander: 0 = None (paEnablePin is a native GPIO), 1 = TCA9555 (paEnablePin
+// is a pin index 0-15 on the expander instead) — mirrors Config.h::IoExpanderChip.
 const mockSounds = [
   { index: 0, name: 'Speaker', chip: 0, i2cSdaPin: 21, i2cSclPin: 22, i2cAddress: 0x18,
     i2sMclkPin: SOUND_PIN_UNUSED, i2sBclkPin: 15, i2sWsPin: 16, i2sDoutPin: 17,
-    paEnablePin: 23, paEnableActiveHigh: true, exists: true },
+    paEnablePin: 8, paEnableActiveHigh: true, paExpander: 1, paExpanderAddress: 0x20,
+    exists: true },
 ];
 
 // Mirrors ButtonHardwareConfig/ButtonAction shape from WebServer.h::serializeButton.
@@ -383,9 +386,13 @@ app.post('/api/lights/testcolor', (req, res) => {
   res.json({ ok: true });
 });
 
+// paEnablePin only occupies the ESP32 GPIO address space when paExpander is 0
+// (None) — on a TCA9555 it's a pin index in a separate space (see
+// Config.h::IoExpanderChip) and must not be cross-checked against real GPIOs.
 function soundPins(s) {
-  return [s.i2cSdaPin, s.i2cSclPin, s.i2sMclkPin, s.i2sBclkPin, s.i2sWsPin, s.i2sDoutPin, s.paEnablePin]
-    .filter(p => p !== SOUND_PIN_UNUSED);
+  const pins = [s.i2cSdaPin, s.i2cSclPin, s.i2sMclkPin, s.i2sBclkPin, s.i2sWsPin, s.i2sDoutPin];
+  if (!s.paExpander) pins.push(s.paEnablePin);
+  return pins.filter(p => p !== SOUND_PIN_UNUSED);
 }
 
 function isButtonPinInUse(pin, excludeIndex) {
@@ -417,12 +424,12 @@ app.post('/api/sounds/add', (req, res) => {
     name = '', chip = 0, i2cSdaPin = SOUND_PIN_UNUSED, i2cSclPin = SOUND_PIN_UNUSED,
     i2cAddress = 0x18, i2sMclkPin = SOUND_PIN_UNUSED, i2sBclkPin = SOUND_PIN_UNUSED,
     i2sWsPin = SOUND_PIN_UNUSED, i2sDoutPin = SOUND_PIN_UNUSED, paEnablePin = SOUND_PIN_UNUSED,
-    paEnableActiveHigh = true,
+    paEnableActiveHigh = true, paExpander = 0, paExpanderAddress = 0x20,
   } = req.body || {};
   if ([i2cSdaPin, i2cSclPin, i2sBclkPin, i2sWsPin, i2sDoutPin].includes(SOUND_PIN_UNUSED)) {
     return res.status(400).json({ error: 'missing required pin' });
   }
-  const sound = { index: free, name, chip, i2cSdaPin, i2cSclPin, i2cAddress, i2sMclkPin, i2sBclkPin, i2sWsPin, i2sDoutPin, paEnablePin, paEnableActiveHigh, exists: true };
+  const sound = { index: free, name, chip, i2cSdaPin, i2cSclPin, i2cAddress, i2sMclkPin, i2sBclkPin, i2sWsPin, i2sDoutPin, paEnablePin, paEnableActiveHigh, paExpander, paExpanderAddress, exists: true };
   const conflict = soundPinConflict(sound, free);
   if (conflict) return res.status(400).json({ error: conflict });
   mockSounds.push(sound);

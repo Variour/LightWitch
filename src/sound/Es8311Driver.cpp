@@ -43,7 +43,12 @@ void Es8311Driver::_writeReg(uint8_t reg, uint8_t value) {
 
 void Es8311Driver::_setPaEnabled(bool enabled) {
     if (_cfg.paEnablePin == SOUND_PIN_UNUSED) return;
-    digitalWrite(_cfg.paEnablePin, enabled == _cfg.paEnableActiveHigh ? HIGH : LOW);
+    bool driveHigh = enabled == _cfg.paEnableActiveHigh;
+    if (_cfg.paExpander == IoExpanderChip::TCA9555) {
+        _paExpander.write(_cfg.paEnablePin, driveHigh);
+    } else {
+        digitalWrite(_cfg.paEnablePin, driveHigh ? HIGH : LOW);
+    }
 }
 
 // Puts the codec into reset, then brings up the clock manager for I2S master
@@ -91,12 +96,18 @@ void Es8311Driver::begin() {
         return;
     }
 
+    Wire.begin(_cfg.i2cSdaPin, _cfg.i2cSclPin);
+
     if (_cfg.paEnablePin != SOUND_PIN_UNUSED) {
-        pinMode(_cfg.paEnablePin, OUTPUT);
+        if (_cfg.paExpander == IoExpanderChip::TCA9555) {
+            _paExpander.setup(_cfg.paExpanderAddress);
+            _paExpander.beginOutput(_cfg.paEnablePin);
+        } else {
+            pinMode(_cfg.paEnablePin, OUTPUT);
+        }
         _setPaEnabled(false);
     }
 
-    Wire.begin(_cfg.i2cSdaPin, _cfg.i2cSclPin);
     _resetAndConfigureClocks();
     _configureFormatAndPower();
 

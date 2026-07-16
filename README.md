@@ -131,7 +131,7 @@ A **group** holds the pattern/scene/color state — lights don't have their own;
 Hardware support only for now — adding a sound output brings the codec up and lets you play a short built-in test melody to verify wiring; there's no pattern/trigger system driving it yet (that's a separate, later step).
 
 1. Go to **Settings → Sound** and click **Add sound**.
-2. Choose the **chip** (only ES8311, a mono I2S codec, is supported today), then the **I2C pins** (SDA/SCL, plus the I2C address if your board's CE pin isn't strapped to the default), and the **I2S pins** (BCLK, WS/LRCK, DOUT). Leave the MCLK pin unset if your board doesn't wire one — the ES8311 can derive its clock from BCLK internally. If your board gates a separate speaker amp via a GPIO, set the **PA enable pin** too.
+2. Choose the **chip** (only ES8311, a mono I2S codec, is supported today), then the **I2C pins** (SDA/SCL, plus the I2C address if your board's CE pin isn't strapped to the default), and the **I2S pins** (BCLK, WS/LRCK, DOUT). Leave the MCLK pin unset if your board doesn't wire one — the ES8311 can derive its clock from BCLK internally. If your board gates a separate speaker amp, set the **PA enable pin**: either a direct GPIO, or — on boards where it sits behind a TCA9555 I2C GPIO expander shared with other peripherals instead of a native pin — select **TCA9555 expander** and its I2C address.
 3. Click **Save & Reboot** — hardware changes require a restart to take effect.
 4. Click **Test speaker** to play a short built-in melody and confirm the wiring works.
 
