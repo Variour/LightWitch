@@ -42,7 +42,7 @@ Add entries for your board type with these addresses:
 | `0x0` | `bootloader-esp32c3.bin` (C3) / `bootloader-esp32s3.bin` (S3) |
 | `0x8000` | `partitions.bin` |
 | `0x10000` | `firmware-esp32c3.bin` (C3) / `firmware-esp32s3.bin` (S3) |
-| `0x3C0000` | `littlefs.bin` |
+| `0x3B0000` | `littlefs.bin` |
 
 **ESP32-WROOM-32:**
 
@@ -51,7 +51,7 @@ Add entries for your board type with these addresses:
 | `0x1000` | `bootloader-esp32dev.bin` |
 | `0x8000` | `partitions.bin` |
 | `0x10000` | `firmware-esp32dev.bin` |
-| `0x3C0000` | `littlefs.bin` |
+| `0x3B0000` | `littlefs.bin` |
 
 **5. Flash**
 
