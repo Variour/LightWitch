@@ -84,7 +84,7 @@ try {
     const raw = JSON.parse(fs.readFileSync(join(scenesDir, f), 'utf8'));
     scenes.set(raw.id, raw);
   }
-} catch (_) {}
+} catch { /* data/sc may not exist */ }
 
 const mockUpdate = {
   currentVersion: 'mock',
@@ -193,7 +193,9 @@ app.get('/api/config', (_req, res) => res.json(MOCK_CONFIG));
 app.post('/api/config', (req, res) => {
   // Mirrors WebServer.h::_postConfig, which never re-exposes write-only
   // secrets (mqttPassword, githubToken) via GET /api/config.
-  const { mqttPassword, githubToken, ...rest } = req.body;
+  const rest = { ...req.body };
+  delete rest.mqttPassword;
+  delete rest.githubToken;
   Object.assign(MOCK_CONFIG, rest);
   res.json({ ok: true });
 });

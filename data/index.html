@@ -1027,9 +1027,8 @@ let _self    = null;
 let _selfMac = '';
 let _wifiSingleClientMode = false;
 let _sceneOptions = [];
-let _debounce = {};
+const _debounce = {};
 let _syncConflicts  = [];
-let _syncPeerScenes = [];
 
 const PATTERNS = [
   { name:'Static Color',  desc:'Steady color. Adjust color and brightness.',                 hasColor: true,  syncable: false },
@@ -1626,7 +1625,7 @@ function _renderLightGroupSelect(mac, light) {
 // control via .lbr-row, same as the rest of that dual layout.
 function _renderLightBrightnessOverride(light) {
   const enabled = light.brightnessOverrideEnabled === true;
-  const value = light.brightnessOverride != null ? light.brightnessOverride : 255;
+  const value = light.brightnessOverride !== null && light.brightnessOverride !== undefined ? light.brightnessOverride : 255;
   const tip = "Override this light's own brightness, independent of its group";
   return `<div class="lbr-row" style="display:flex;align-items:center;gap:.35rem;margin-top:.15rem" title="${esc(tip)}">
     <span style="font-size:.72rem;color:#888;white-space:nowrap">Brightness override</span>
@@ -1714,7 +1713,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
     const dot = `<span class="dot ${online?'dot-on':'dot-off'}" aria-label="${online?'Online':'Offline'}"></span>`;
     const selfTag = p.isSelf ? `<span class="self-tag">(this)</span>` : '';
     const mac = p.mac || '';
-    const rssiText = (!p.isSelf && online && p.rssi != null) ? `${p.rssi} dBm` : '–';
+    const rssiText = (!p.isSelf && online && p.rssi !== null && p.rssi !== undefined) ? `${p.rssi} dBm` : '–';
     const syncEnabled = p.sceneSyncEnabled !== false;
     const syncTip = 'Scene sync: share and receive scene files with other mesh peers';
     const syncCell = `<input type="checkbox" aria-label="${esc(syncTip)}" ${syncEnabled?'checked':''} onchange="setSceneSync('${mac}',this.checked)">`;
@@ -1733,7 +1732,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
     const wifiIcon = `<span aria-label="${esc(wifiTitle)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${wifiColor}" stroke-width="2.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle" class="${wifiConnecting ? 'wifi-connecting' : ''}"><path d="M1.42 9A16 16 0 0 1 22.58 9"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="${wifiColor}" stroke="none"/></svg></span>`;
     const signalTip = `Signal: ${rssiText}`;
     const signalIcon = showSignal && !p.isSelf
-      ? `<span aria-label="${esc(signalTip)}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi != null ? '#777' : '#444'}"/></svg></span>`
+      ? `<span aria-label="${esc(signalTip)}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi !== null && p.rssi !== undefined ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi !== null && p.rssi !== undefined ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi !== null && p.rssi !== undefined ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi !== null && p.rssi !== undefined ? '#777' : '#444'}"/></svg></span>`
       : '';
 
     const ver = p.version || '';
@@ -1895,7 +1894,7 @@ async function triggerPeerUpdate(btn, mac) {
       btn.disabled = false;
       return;
     }
-  } catch(e) {
+  } catch {
     btn.disabled = false;
     return;
   }
@@ -1922,7 +1921,7 @@ async function checkPeerUpdate(btn, mac) {
       const data = await res.json().catch(() => ({}));
       alert('Cannot trigger update check: ' + (data.error || res.status));
     }
-  } catch(e) {}
+  } catch { /* network error; button is re-enabled below regardless */ }
   btn.disabled = false;
 }
 
@@ -1992,9 +1991,9 @@ function toggleField(id, checked) {
     const key = id.replace('push-', '');
     if (el.tagName === 'SELECT') {
       const val = _localConfig[key];
-      el.value = checked && val != null ? String(val) : '';
+      el.value = checked && val !== null && val !== undefined ? String(val) : '';
     } else {
-      el.value = checked && _localConfig[key] != null ? _localConfig[key] : '';
+      el.value = checked && _localConfig[key] !== null && _localConfig[key] !== undefined ? _localConfig[key] : '';
     }
   }
 }
@@ -2074,7 +2073,6 @@ async function submitPushConfig() {
   }
 
   const useLocal = [];
-  const isSensitive = id => _pushSensitiveFields.has(id);
   const ul = id => $(id + '-ul')?.checked;
 
   // Sensitive fields: checked → firmware fills via useLocal; unchecked → read typed value
@@ -2086,7 +2084,6 @@ async function submitPushConfig() {
   const str  = (elId, key) => { const v = $(elId).value.trim(); if (v) body[key] = v; };
   const num  = (elId, key) => { const v = $(elId).value.trim(); if (v) body[key] = parseInt(v); };
   const bool = (elId, key) => { const v = $(elId).value; if (v !== '') body[key] = v === 'true'; };
-  const int  = (elId, key) => { const v = $(elId).value; if (v !== '') body[key] = parseInt(v); };
 
   // WiFi: either push full list (useLocal) or add one manual entry
   if ($('push-wifiNetworks-ul')?.checked) {
@@ -2195,7 +2192,7 @@ async function _waitForDeviceOnline(timeoutMs = 60_000) {
     try {
       const r = await fetch('/api/config', {signal: AbortSignal.timeout(2000)});
       if (r.ok) return true;
-    } catch(_) { /* device still rebooting */ }
+    } catch { /* device still rebooting */ }
     await new Promise(r => setTimeout(r, 2000));
   }
   return false;
@@ -2414,7 +2411,7 @@ async function loadConfig() {
     const wr  = await fetch('/api/wifi');
     const wd  = await wr.json();
     renderWifiList(wd.networks || [], wd.connected || null);
-  } catch {}
+  } catch { /* best-effort refresh; ignore network errors */ }
   const pr = await fetch('/api/peers');
   const pd = await pr.json();
   renderLights(pd.self, pd.peers || [], pd.wifiSingleClientMode === true);
@@ -2424,7 +2421,7 @@ async function loadConfig() {
     const updData = await updRes.json();
     _updApplyStatus(updData);
     if (updData.state === 'checking') _updPollStatus();
-  } catch {}
+  } catch { /* best-effort refresh; ignore network errors */ }
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -2465,7 +2462,7 @@ function connectWs() {
       if (d.t === 'log')    appendLog(d.l, d.m);
       if (d.t === 'peers') { renderLights(d.self, d.peers || [], d.wifiSingleClientMode === true); _refreshSceneOptionViews(); }
       if (d.t === 'groups') renderGroups(d.list || []);
-    } catch {}
+    } catch { /* ignore malformed/unexpected WS messages */ }
   };
 }
 
@@ -2641,8 +2638,7 @@ async function _loadScenes() {
   _sceneOptions = scenes;
   _refreshSceneOptionViews();
   const cd = await conflictsRes.json();
-  _syncConflicts  = cd.conflicts  || [];
-  _syncPeerScenes = cd.peerScenes || [];
+  _syncConflicts = cd.conflicts || [];
   _renderSceneList(scenes);
 }
 
@@ -2717,7 +2713,7 @@ async function showConflictResolve(sceneId) {
   try {
     const r = await fetch('/api/scenes/get?id=' + encodeURIComponent(sceneId));
     localScene = await r.json();
-  } catch {}
+  } catch { /* best-effort preview; ignore failures */ }
 
   const localMac = _selfMac || '';
 
@@ -3102,7 +3098,7 @@ async function _openEditor(id, pushHistory = true) {
   let d;
   try {
     d = text ? JSON.parse(text) : null;
-  } catch (err) {
+  } catch {
     alert('This scene file is invalid on the device. Re-save or re-import it before editing.');
     showSceneView('list');
     return;
