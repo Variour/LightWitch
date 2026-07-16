@@ -35,6 +35,8 @@ jobs:
 
       - run: npm run lint
 
+      - run: npm test
+
   clang-format:
     runs-on: ubuntu-latest
     steps:
