@@ -53,12 +53,29 @@ class PatternRunner {
     void setPeerRegistry(PeerRegistry* peers) { _proximity.setPeers(peers); }
     void setGroupId(uint8_t groupId) { _proximity.setGroupId(groupId); }
 
+    // Matrix-only: marks pixel 0 red and the first row/column green, so the
+    // user can visually confirm matrixStart/matrixDir/matrixSerpentine wiring.
     void showTest(uint32_t durationMs) {
         if (!_led || _height < 2) return;
         _testStart = millis();
         _testDuration = durationMs;
+        _testMode = TestMode::Orientation;
         _testActive = true;
         _renderTest();
+    }
+
+    // Cycles the whole light through solid red, green, blue (stepMs each) so
+    // the user can visually confirm colorOrder matches the strip's physical
+    // wiring. Unlike showTest() (orientation), this applies to every light
+    // shape — string or matrix.
+    void showColorOrderTest(uint32_t stepMs = 1000) {
+        if (!_led) return;
+        _testStart = millis();
+        _testStepMs = stepMs;
+        _testDuration = stepMs * 3;
+        _testMode = TestMode::ColorOrder;
+        _testPhase = 0xFF;  // forces the first tick() to render immediately
+        _testActive = true;
     }
 
     // Renders firmware-update progress as an orange fill proportional to percent
@@ -115,9 +132,19 @@ class PatternRunner {
         if (hasPending) _applyConfig(pending);
 
         if (_testActive) {
-            if (millis() - _testStart >= _testDuration) {
+            uint32_t elapsed = millis() - _testStart;
+            if (elapsed >= _testDuration) {
                 _testActive = false;
+                _testMode = TestMode::None;
                 _applyConfig(_savedConfig);
+                return;
+            }
+            if (_testMode == TestMode::ColorOrder) {
+                uint8_t phase = (uint8_t)(elapsed / _testStepMs);
+                if (phase != _testPhase) {
+                    _testPhase = phase;
+                    _renderColorOrderTest(phase);
+                }
             }
             return;
         }
@@ -312,10 +339,15 @@ class PatternRunner {
     bool _wrapWidth = false;
     bool _wrapHeight = false;
 
+    enum class TestMode : uint8_t { None, Orientation, ColorOrder };
+
     LightConfig _savedConfig;
     bool _testActive = false;
+    TestMode _testMode = TestMode::None;
     uint32_t _testStart = 0;
     uint32_t _testDuration = 0;
+    uint32_t _testStepMs = 0;
+    uint8_t _testPhase = 0xFF;
 
     // ── cross-task config handoff ───────────────────────────────────────────
     // applyConfig() may be called from the web server's request-handling
@@ -351,6 +383,17 @@ class PatternRunner {
             else
                 _led->setPixel(i, 0, 0, 0);
         }
+        _led->show();
+    }
+
+    // phase 0 = red, 1 = green, 2 = blue — driven by ColorOrder's configured
+    // permutation, so a wrong colorOrder setting shows up as the wrong colour.
+    void _renderColorOrderTest(uint8_t phase) {
+        uint16_t n = _width * _height;
+        uint8_t r = phase == 0 ? 255 : 0;
+        uint8_t g = phase == 1 ? 255 : 0;
+        uint8_t b = phase == 2 ? 255 : 0;
+        for (uint16_t i = 0; i < n; i++) _led->setPixel(i, r, g, b);
         _led->show();
     }
 };

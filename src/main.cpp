@@ -340,13 +340,13 @@ void setup() {
         if (numLeds == 0) numLeds = 1;
         LedDriver* drv;
         if (l.ledType == LedType::WS2801) {
-            _ws2801Pool[i].setup(l.dataPin, l.clockPin, numLeds);
+            _ws2801Pool[i].setup(l.dataPin, l.clockPin, numLeds, l.colorOrder);
             _ws2801Pool[i].begin();
             drv = &_ws2801Pool[i];
             Logger::i("[led] light %u: WS2801 data=GPIO%d clock=GPIO%d leds=%u group=%u", i,
                       l.dataPin, l.clockPin, numLeds, l.groupId);
         } else {
-            _ws2812bPool[i].setup(l.dataPin, numLeds);
+            _ws2812bPool[i].setup(l.dataPin, numLeds, l.colorOrder);
             _ws2812bPool[i].begin();
             drv = &_ws2812bPool[i];
             Logger::i("[led] light %u: WS2812B data=GPIO%d leds=%u group=%u", i, l.dataPin, numLeds,
@@ -612,6 +612,9 @@ void setup() {
     webServer.setOnTestLight([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx]) _runners[idx].showTest(5000);
     });
+    webServer.setOnTestColorOrder([](uint8_t idx) {
+        if (idx < MAX_LIGHTS && _leds[idx]) _runners[idx].showColorOrderTest();
+    });
     webServer.setOnOrientationChange([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx]) {
             auto& l = Config::get().lights[idx];
@@ -620,6 +623,10 @@ void setup() {
         }
     });
     webServer.setOnLightBrightnessChange([](uint8_t idx) { applyLightBrightnessOverride(idx); });
+    webServer.setOnColorOrderChange([](uint8_t idx) {
+        if (idx < MAX_LIGHTS && _leds[idx])
+            _leds[idx]->setColorOrder(Config::get().lights[idx].colorOrder);
+    });
     webServer.setOnButtonsChanged([]() { buttonManager.reconfigure(); });
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 

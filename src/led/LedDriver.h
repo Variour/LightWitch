@@ -1,6 +1,8 @@
 #pragma once
 #include <stdint.h>
 
+#include "../config/Config.h"
+
 // Abstract LED output interface. Swap this implementation when the hardware changes.
 class LedDriver {
    public:
@@ -11,4 +13,6 @@ class LedDriver {
     virtual void setPixel(uint16_t idx, uint8_t r, uint8_t g, uint8_t b) {}
     virtual void show() {}
     virtual void off() { setColor(0, 0, 0); }
+    // Changes the RGB→wire permutation at runtime — no re-init needed.
+    virtual void setColorOrder(ColorOrder order) {}
 };

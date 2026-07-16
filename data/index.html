@@ -164,6 +164,15 @@ input[type=checkbox]:active { background-color: #1a5; }
 .group-controls { display: grid; gap: .4rem; }
 .pattern-desc { font-size: .75rem; color: #555; margin-top: -.35rem; margin-bottom: .4rem; }
 
+/* Settings > Lights hardware list card: name/badge next to actions, wrapping
+   to its own row on mobile (and wherever the action buttons themselves don't
+   fit) instead of squeezing every button onto one cramped line. */
+.light-hw-row { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.light-hw-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .light-hw-row { flex-direction: column; align-items: stretch; }
+}
+
 /* Legend: explains icons/colors/actions in a section instead of a per-element
    hover/tap tooltip, so it reads the same on desktop and mobile and every
    control keeps its normal single-tap behavior. Hidden behind a single
@@ -858,7 +867,7 @@ input[type=checkbox]:active { background-color: #1a5; }
     <h3 style="display:flex;align-items:center;gap:.4rem">Lights
       <button type="button" class="legend-toggle" aria-expanded="false" aria-controls="lights-hw-legend" aria-label="What does Test do?">i</button>
     </h3>
-    <p class="legend" id="lights-hw-legend"><span style="grid-column:1/-1"><b>Test</b> (matrix lights only) flashes a test pattern to verify orientation.</span></p>
+    <p class="legend" id="lights-hw-legend"><span style="grid-column:1/-1"><b>Test colours</b> cycles red/green/blue to verify colour order. <b>Test orientation</b> (matrix lights only) flashes a test pattern to verify orientation.</span></p>
     <div id="lights-hw-list" style="margin-bottom:.75rem"></div>
     <button class="btn-ghost" style="width:100%" id="add-light-btn">Add light</button>
 
@@ -4385,6 +4394,7 @@ window.addEventListener('popstate', () => {
 
 // ── Lights hardware management ────────────────────────────────────────────────
 const LED_TYPE_NAMES = ['WS2812B — single wire', 'WS2801 — two wire'];
+const COLOR_ORDER_NAMES = ['RGB', 'RBG', 'GRB', 'GBR', 'BRG', 'BGR'];
 
 function renderLightsHw(lights) {
   _lights = lights || [];
@@ -4400,17 +4410,18 @@ function renderLightsHw(lights) {
       ? `data GPIO${l.dataPin}, clock GPIO${l.clockPin}`
       : `data GPIO${l.dataPin}`;
     const label = l.name ? l.name : `Light ${l.index}`;
-    const testBtn = l.height > 1
-      ? `<button class="btn-ghost btn-sm" data-action="testLight" data-index="${l.index}">Test</button>`
+    const orientationTestBtn = l.height > 1
+      ? `<button class="btn-ghost btn-sm" data-action="testLight" data-index="${l.index}">Test orientation</button>`
       : '';
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
-      <div class="flex-between">
+      <div class="light-hw-row">
         <div>
           <strong>${esc(label)}</strong>
-          <span style="color:#888;font-size:.82rem;margin-left:.5rem">${LED_TYPE_NAMES[l.ledType] || 'Unknown'}</span>
+          <span style="color:#888;font-size:.82rem;margin-left:.5rem">${LED_TYPE_NAMES[l.ledType] || 'Unknown'} · ${COLOR_ORDER_NAMES[l.colorOrder] || 'RGB'}</span>
         </div>
-        <div style="display:flex;gap:.4rem">
-          ${testBtn}
+        <div class="light-hw-actions">
+          <button class="btn-ghost btn-sm" data-action="testColorOrder" data-index="${l.index}">Test colours</button>
+          ${orientationTestBtn}
           <button class="btn-ghost btn-sm" data-action="openEditLightModal" data-index="${l.index}">Edit</button>
           <button class="btn-ghost btn-sm" style="color:#c44" data-action="deleteLight" data-index="${l.index}">Delete</button>
         </div>
@@ -4422,6 +4433,7 @@ function renderLightsHw(lights) {
 
 _delegate('lights-hw-list', 'click', {
   testLight:          el => testLight(Number(el.dataset.index)),
+  testColorOrder:     el => testColorOrder(Number(el.dataset.index)),
   openEditLightModal: el => openEditLightModal(_lights.find(l => l.index === Number(el.dataset.index))),
   deleteLight:        el => deleteLight(Number(el.dataset.index)),
 });
@@ -4435,10 +4447,15 @@ async function testLight(index) {
   if (!res.ok) { const d = await res.json().catch(()=>({})); alert('Error: ' + (d.error || res.status)); }
 }
 
+async function testColorOrder(index) {
+  const res = await fetch('/api/lights/testcolor', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
+  if (!res.ok) { const d = await res.json().catch(()=>({})); alert('Error: ' + (d.error || res.status)); }
+}
+
 function openAddLightModal() {
   _editLightIndex = null;
   _originalLight  = null;
-  _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false});
+  _openLightModal({index: null, ledType: 0, colorOrder: 2, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false});
 }
 
 function openEditLightModal(l) {
@@ -4468,6 +4485,10 @@ function _openLightModal(l) {
     <input type="number" id="lm-dataPin" value="${l.dataPin}" min="0" max="39">
     <label id="lm-clockPin-label">Clock pin (GPIO) <small>(WS2801 only)</small></label>
     <input type="number" id="lm-clockPin" value="${l.clockPin}" min="0" max="39">
+    <label>Colour order <small>(match your strip's wiring if colours look swapped)</small></label>
+    <select id="lm-colorOrder">
+      ${COLOR_ORDER_NAMES.map((n, i) => `<option value="${i}"${(l.colorOrder||0)===i?' selected':''}>${n}</option>`).join('')}
+    </select>
     <label>Length (LEDs in string, or columns if matrix)</label>
     <input type="number" id="lm-width" value="${l.width}" min="1" max="1000">
     <label>Rows <small>(1 = string, >1 = matrix)</small></label>
@@ -4548,6 +4569,7 @@ async function saveLightModal() {
   const body = {
     name:     $('lm-name').value.trim(),
     ledType:  parseInt($('lm-ledType').value),
+    colorOrder: parseInt($('lm-colorOrder').value),
     dataPin:  parseInt($('lm-dataPin').value),
     clockPin: parseInt($('lm-clockPin').value),
     width:       parseInt($('lm-width').value) || 1,
