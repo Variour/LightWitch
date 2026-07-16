@@ -539,3 +539,5 @@ wss.on('connection', ws => {
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => console.log(`Battery Light mock server: http://localhost:${PORT}`));
+
+export { app, server };

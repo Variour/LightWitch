@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "node server/index.js",
     "dev:no-auth": "DEV_NO_AUTH=true node server/index.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node --test server/*.test.js"
   },
   "dependencies": {
     "express": "^5",
