@@ -164,6 +164,15 @@ input[type=checkbox]:active { background-color: #1a5; }
 .group-controls { display: grid; gap: .4rem; }
 .pattern-desc { font-size: .75rem; color: #555; margin-top: -.35rem; margin-bottom: .4rem; }
 
+/* Settings > Lights hardware list card: name/badge next to actions, wrapping
+   to its own row on mobile (and wherever the action buttons themselves don't
+   fit) instead of squeezing every button onto one cramped line. */
+.light-hw-row { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.light-hw-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .light-hw-row { flex-direction: column; align-items: stretch; }
+}
+
 /* Legend: explains icons/colors/actions in a section instead of a per-element
    hover/tap tooltip, so it reads the same on desktop and mobile and every
    control keeps its normal single-tap behavior. Hidden behind a single
@@ -858,7 +867,7 @@ input[type=checkbox]:active { background-color: #1a5; }
     <h3 style="display:flex;align-items:center;gap:.4rem">Lights
       <button type="button" class="legend-toggle" aria-expanded="false" aria-controls="lights-hw-legend" aria-label="What does Test do?">i</button>
     </h3>
-    <p class="legend" id="lights-hw-legend"><span style="grid-column:1/-1"><b>Test</b> (matrix lights only) flashes a test pattern to verify orientation.</span></p>
+    <p class="legend" id="lights-hw-legend"><span style="grid-column:1/-1"><b>Test colours</b> cycles red/green/blue to verify colour order. <b>Test orientation</b> (matrix lights only) flashes a test pattern to verify orientation.</span></p>
     <div id="lights-hw-list" style="margin-bottom:.75rem"></div>
     <button class="btn-ghost" style="width:100%" id="add-light-btn">Add light</button>
 
@@ -4405,12 +4414,12 @@ function renderLightsHw(lights) {
       ? `<button class="btn-ghost btn-sm" data-action="testLight" data-index="${l.index}">Test orientation</button>`
       : '';
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
-      <div class="flex-between">
+      <div class="light-hw-row">
         <div>
           <strong>${esc(label)}</strong>
           <span style="color:#888;font-size:.82rem;margin-left:.5rem">${LED_TYPE_NAMES[l.ledType] || 'Unknown'} · ${COLOR_ORDER_NAMES[l.colorOrder] || 'RGB'}</span>
         </div>
-        <div style="display:flex;gap:.4rem">
+        <div class="light-hw-actions">
           <button class="btn-ghost btn-sm" data-action="testColorOrder" data-index="${l.index}">Test colours</button>
           ${orientationTestBtn}
           <button class="btn-ghost btn-sm" data-action="openEditLightModal" data-index="${l.index}">Edit</button>
