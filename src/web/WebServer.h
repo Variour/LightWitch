@@ -41,6 +41,8 @@ using SceneSavedCb = std::function<void(const char* sceneId)>;
 // Called to run a test pattern on a specific light index
 using TestLightCb = std::function<void(uint8_t)>;
 using TestColorOrderCb = std::function<void(uint8_t)>;
+// Called to play the hardware-verification test melody on a specific sound output index
+using TestSoundCb = std::function<void(uint8_t)>;
 // Called when matrix orientation (matrixStart/matrixDir) or wrap topology changes without reboot
 using OrientationChangeCb = std::function<void(uint8_t)>;
 using ColorOrderChangeCb = std::function<void(uint8_t)>;
@@ -216,6 +218,28 @@ class BatteryWebServer {
             "/api/lights/testcolor", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
                 _testColorOrder(r, d, l);
+            });
+
+        _server.on("/api/sounds", HTTP_GET, [this](AsyncWebServerRequest* r) { _getSounds(r); });
+        _server.on(
+            "/api/sounds/add", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _addSound(r, d, l);
+            });
+        _server.on(
+            "/api/sounds/update", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _updateSound(r, d, l);
+            });
+        _server.on(
+            "/api/sounds/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _deleteSound(r, d, l);
+            });
+        _server.on(
+            "/api/sounds/test", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _testSound(r, d, l);
             });
 
         _server.on("/api/buttons", HTTP_GET, [this](AsyncWebServerRequest* r) { _getButtons(r); });
@@ -510,6 +534,7 @@ class BatteryWebServer {
     void setOnSceneSaved(SceneSavedCb cb) { _onSceneSaved = cb; }
     void setOnTestLight(TestLightCb cb) { _onTestLight = cb; }
     void setOnTestColorOrder(TestColorOrderCb cb) { _onTestColorOrder = cb; }
+    void setOnTestSound(TestSoundCb cb) { _onTestSound = cb; }
     void setOnOrientationChange(OrientationChangeCb cb) { _onOrientationChange = cb; }
     void setOnColorOrderChange(ColorOrderChangeCb cb) { _onColorOrderChange = cb; }
     void setOnLightBrightnessChange(LightBrightnessChangeCb cb) { _onLightBrightnessChange = cb; }
@@ -546,6 +571,7 @@ class BatteryWebServer {
     SceneSavedCb _onSceneSaved;
     TestLightCb _onTestLight;
     TestColorOrderCb _onTestColorOrder;
+    TestSoundCb _onTestSound;
     OrientationChangeCb _onOrientationChange;
     ColorOrderChangeCb _onColorOrderChange;
     LightBrightnessChangeCb _onLightBrightnessChange;
@@ -1645,6 +1671,203 @@ class BatteryWebServer {
         _sendJson(r, 200, ok);
         delay(200);
         ESP.restart();
+    }
+
+    // ── GET /api/sounds ────────────────────────────────────────────────────────
+    void _getSounds(AsyncWebServerRequest* r) {
+        JsonDocument doc;
+        JsonArray arr = doc["sounds"].to<JsonArray>();
+        doc["maxSounds"] = MAX_SOUNDS;
+        for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
+            auto& s = Config::get().sounds[i];
+            if (!s.exists) continue;
+            JsonObject o = arr.add<JsonObject>();
+            o["index"] = i;
+            serializeSound(o, s);
+        }
+        _sendJson(r, 200, doc);
+    }
+
+    // Returns an error string if any of s's non-unused pins collide with each
+    // other or with a light/button/other-sound pin, else nullptr. Pass the
+    // sound's own index as excludeSoundIndex when validating an update.
+    static const char* _soundPinConflict(const SoundHardwareConfig& s, int8_t excludeSoundIndex) {
+        const uint8_t pins[] = {s.i2cSdaPin, s.i2cSclPin,  s.i2sMclkPin, s.i2sBclkPin,
+                                s.i2sWsPin,  s.i2sDoutPin, s.paEnablePin};
+        for (size_t i = 0; i < sizeof(pins); i++) {
+            if (pins[i] == SOUND_PIN_UNUSED) continue;
+            for (size_t j = i + 1; j < sizeof(pins); j++) {
+                if (pins[j] == pins[i]) return "duplicate pin within sound config";
+            }
+            if (Config::isPinInUse(pins[i], -1, excludeSoundIndex)) return "pin already in use";
+        }
+        return nullptr;
+    }
+
+    // ── POST /api/sounds/add ──────────────────────────────────────────────────
+    // Body: {name?, chip?, i2cSdaPin, i2cSclPin, i2cAddress?, i2sMclkPin?, i2sBclkPin,
+    // i2sWsPin, i2sDoutPin, paEnablePin?, paEnableActiveHigh?}
+    void _addSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = 0xFF;
+        for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
+            if (!Config::get().sounds[i].exists) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx == 0xFF) {
+            auto e = _makeErr("sound limit reached");
+            _sendJson(r, 400, e);
+            return;
+        }
+        SoundHardwareConfig s;
+        deserializeSound(doc, s);
+        if (s.i2cSdaPin == SOUND_PIN_UNUSED || s.i2cSclPin == SOUND_PIN_UNUSED ||
+            s.i2sBclkPin == SOUND_PIN_UNUSED || s.i2sWsPin == SOUND_PIN_UNUSED ||
+            s.i2sDoutPin == SOUND_PIN_UNUSED) {
+            auto e = _makeErr("missing required pin");
+            _sendJson(r, 400, e);
+            return;
+        }
+        if (const char* conflict = _soundPinConflict(s, /*excludeSoundIndex=*/idx)) {
+            auto e = _makeErr(conflict);
+            _sendJson(r, 400, e);
+            return;
+        }
+        s.exists = true;
+        Config::get().sounds[idx] = s;
+        Config::save();
+        JsonDocument resp;
+        resp["ok"] = true;
+        resp["index"] = idx;
+        _sendJson(r, 200, resp);
+        // Hardware config changes require restart to take effect
+        delay(200);
+        ESP.restart();
+    }
+
+    // ── POST /api/sounds/update ─────────────────────────────────────────────────
+    // Body: {index, name?, chip?, i2cSdaPin?, i2cSclPin?, i2cAddress?, i2sMclkPin?,
+    // i2sBclkPin?, i2sWsPin?, i2sDoutPin?, paEnablePin?, paEnableActiveHigh?}
+    void _updateSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_SOUNDS || !Config::get().sounds[idx].exists) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+        auto& existing = Config::get().sounds[idx];
+        if (!doc["name"].isNull()) strlcpy(existing.name, doc["name"] | "", sizeof(existing.name));
+
+        // Every other field is hardware config — apply on top of a copy first so a
+        // rejected pin conflict leaves the saved config untouched.
+        SoundHardwareConfig candidate = existing;
+        bool hwChanged = false;
+        if (!doc["chip"].isNull()) {
+            candidate.chip = (SoundChip)(uint8_t)doc["chip"];
+            hwChanged = true;
+        }
+        if (!doc["i2cSdaPin"].isNull()) {
+            candidate.i2cSdaPin = doc["i2cSdaPin"];
+            hwChanged = true;
+        }
+        if (!doc["i2cSclPin"].isNull()) {
+            candidate.i2cSclPin = doc["i2cSclPin"];
+            hwChanged = true;
+        }
+        if (!doc["i2cAddress"].isNull()) {
+            candidate.i2cAddress = doc["i2cAddress"];
+            hwChanged = true;
+        }
+        if (!doc["i2sMclkPin"].isNull()) {
+            candidate.i2sMclkPin = doc["i2sMclkPin"];
+            hwChanged = true;
+        }
+        if (!doc["i2sBclkPin"].isNull()) {
+            candidate.i2sBclkPin = doc["i2sBclkPin"];
+            hwChanged = true;
+        }
+        if (!doc["i2sWsPin"].isNull()) {
+            candidate.i2sWsPin = doc["i2sWsPin"];
+            hwChanged = true;
+        }
+        if (!doc["i2sDoutPin"].isNull()) {
+            candidate.i2sDoutPin = doc["i2sDoutPin"];
+            hwChanged = true;
+        }
+        if (!doc["paEnablePin"].isNull()) {
+            candidate.paEnablePin = doc["paEnablePin"];
+            hwChanged = true;
+        }
+        if (!doc["paEnableActiveHigh"].isNull()) {
+            candidate.paEnableActiveHigh = (bool)doc["paEnableActiveHigh"];
+            hwChanged = true;
+        }
+
+        if (hwChanged) {
+            if (candidate.i2cSdaPin == SOUND_PIN_UNUSED ||
+                candidate.i2cSclPin == SOUND_PIN_UNUSED ||
+                candidate.i2sBclkPin == SOUND_PIN_UNUSED ||
+                candidate.i2sWsPin == SOUND_PIN_UNUSED ||
+                candidate.i2sDoutPin == SOUND_PIN_UNUSED) {
+                auto e = _makeErr("missing required pin");
+                _sendJson(r, 400, e);
+                return;
+            }
+            if (const char* conflict = _soundPinConflict(candidate, /*excludeSoundIndex=*/idx)) {
+                auto e = _makeErr(conflict);
+                _sendJson(r, 400, e);
+                return;
+            }
+            candidate.exists = true;
+            existing = candidate;
+        }
+        Config::save();
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+        if (hwChanged) {
+            delay(200);
+            ESP.restart();
+        }
+    }
+
+    // ── POST /api/sounds/delete ───────────────────────────────────────────────
+    // Body: {index}
+    void _deleteSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_SOUNDS || !Config::get().sounds[idx].exists) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+        Config::get().sounds[idx].exists = false;
+        Config::save();
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+        delay(200);
+        ESP.restart();
+    }
+
+    // ── POST /api/sounds/test ─────────────────────────────────────────────────
+    // Body: {index} — plays the built-in hardware-verification melody.
+    void _testSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_SOUNDS || !Config::get().sounds[idx].exists) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+        if (_onTestSound) _onTestSound(idx);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
     }
 
     // ── GET /api/buttons ──────────────────────────────────────────────────────

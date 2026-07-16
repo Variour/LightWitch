@@ -126,6 +126,19 @@ A **group** holds the pattern/scene/color state — lights don't have their own;
 
 ---
 
+## Configuring sound output
+
+Hardware support only for now — adding a sound output brings the codec up and lets you play a short built-in test melody to verify wiring; there's no pattern/trigger system driving it yet (that's a separate, later step).
+
+1. Go to **Settings → Sound** and click **Add sound**.
+2. Choose the **chip** (only ES8311, a mono I2S codec, is supported today), then the **I2C pins** (SDA/SCL, plus the I2C address if your board's CE pin isn't strapped to the default), and the **I2S pins** (BCLK, WS/LRCK, DOUT). Leave the MCLK pin unset if your board doesn't wire one — the ES8311 can derive its clock from BCLK internally. If your board gates a separate speaker amp via a GPIO, set the **PA enable pin** too.
+3. Click **Save & Reboot** — hardware changes require a restart to take effect.
+4. Click **Test speaker** to play a short built-in melody and confirm the wiring works.
+
+One sound output per device.
+
+---
+
 ## Firmware updates from GitHub releases (device web UI)
 
 Devices can check for and install new firmware directly from GitHub releases without a computer attached.
@@ -161,6 +174,11 @@ Supported LED types:
 - WS2801
 
 LED type and data/clock GPIO pins are configured per light in the web UI.
+
+Supported sound chips:
+- ES8311 (mono I2S codec) — hardware bring-up + wiring test only for now, see [Configuring sound output](#configuring-sound-output)
+
+Sound chip and I2C/I2S GPIO pins are configured in the web UI.
 
 **Battery (optional, ESP32-C3 / ESP32-S3 only):** BAT (battery +) can be sensed through a 200 kΩ / 100 kΩ (±1 %) voltage divider, solder-bridged onto GPIO1. GPIO1 isn't ADC-capable on the classic ESP32 (esp32dev), so this is unavailable there. On the Waveshare ESP32-S3-AUDIO-Board, closing that bridge disables the board's camera header (they share the same pin) — not a concern for this firmware, which never uses the camera. Once wired, enable it under Settings → Battery; battery percentage and charging/mains status then show up in the device list, over the mesh, and via MQTT. There's no readable charge-status signal on this hardware — the charger IC's STAT pin only drives its own indicator LED, not a GPIO — so "charging" is inferred from voltage alone (see `BatteryMonitor.h`).
 

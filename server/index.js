@@ -47,6 +47,15 @@ const MOCK_CONFIG = {
   ],
 };
 
+// Mirrors SoundHardwareConfig shape from Config.h/WebServer.h::serializeSound.
+// 255 mirrors Config.h::SOUND_PIN_UNUSED (an unconfigured/not-present pin).
+const SOUND_PIN_UNUSED = 255;
+const mockSounds = [
+  { index: 0, name: 'Speaker', chip: 0, i2cSdaPin: 21, i2cSclPin: 22, i2cAddress: 0x18,
+    i2sMclkPin: SOUND_PIN_UNUSED, i2sBclkPin: 15, i2sWsPin: 16, i2sDoutPin: 17,
+    paEnablePin: 23, paEnableActiveHigh: true },
+];
+
 // Mirrors ButtonHardwareConfig/ButtonAction shape from WebServer.h::serializeButton.
 // One pre-populated button so the Buttons UI has something to show/edit by default.
 const mockButtons = [
@@ -374,10 +383,80 @@ app.post('/api/lights/testcolor', (req, res) => {
   res.json({ ok: true });
 });
 
+function soundPins(s) {
+  return [s.i2cSdaPin, s.i2cSclPin, s.i2sMclkPin, s.i2sBclkPin, s.i2sWsPin, s.i2sDoutPin, s.paEnablePin]
+    .filter(p => p !== SOUND_PIN_UNUSED);
+}
+
 function isButtonPinInUse(pin, excludeIndex) {
   if (mockLights.some(l => l.dataPin === pin || l.clockPin === pin)) return true;
+  if (mockSounds.some(s => soundPins(s).includes(pin))) return true;
   return mockButtons.some(b => b.index !== excludeIndex && b.pin === pin);
 }
+
+// Mirrors WebServer.h::_soundPinConflict: every non-unused pin on `s` must be
+// mutually distinct and not already claimed by a light, button, or another
+// sound output. Pass s.index as excludeIndex when validating an update.
+function soundPinConflict(s, excludeIndex) {
+  const pins = soundPins(s);
+  if (new Set(pins).size !== pins.length) return 'duplicate pin within sound config';
+  if (mockLights.some(l => pins.includes(l.dataPin) || pins.includes(l.clockPin))) return 'pin already in use';
+  if (mockButtons.some(b => pins.includes(b.pin))) return 'pin already in use';
+  if (mockSounds.some(other => other.index !== excludeIndex && soundPins(other).some(p => pins.includes(p))))
+    return 'pin already in use';
+  return null;
+}
+
+const MAX_SOUNDS = 1;
+
+app.get('/api/sounds', (_req, res) => res.json({ sounds: mockSounds, maxSounds: MAX_SOUNDS }));
+app.post('/api/sounds/add', (req, res) => {
+  const free = Array.from({ length: MAX_SOUNDS }, (_, i) => i).find(i => !mockSounds.find(s => s.index === i));
+  if (free === undefined) return res.status(400).json({ error: 'sound limit reached' });
+  const {
+    name = '', chip = 0, i2cSdaPin = SOUND_PIN_UNUSED, i2cSclPin = SOUND_PIN_UNUSED,
+    i2cAddress = 0x18, i2sMclkPin = SOUND_PIN_UNUSED, i2sBclkPin = SOUND_PIN_UNUSED,
+    i2sWsPin = SOUND_PIN_UNUSED, i2sDoutPin = SOUND_PIN_UNUSED, paEnablePin = SOUND_PIN_UNUSED,
+    paEnableActiveHigh = true,
+  } = req.body || {};
+  if ([i2cSdaPin, i2cSclPin, i2sBclkPin, i2sWsPin, i2sDoutPin].includes(SOUND_PIN_UNUSED)) {
+    return res.status(400).json({ error: 'missing required pin' });
+  }
+  const sound = { index: free, name, chip, i2cSdaPin, i2cSclPin, i2cAddress, i2sMclkPin, i2sBclkPin, i2sWsPin, i2sDoutPin, paEnablePin, paEnableActiveHigh };
+  const conflict = soundPinConflict(sound, free);
+  if (conflict) return res.status(400).json({ error: conflict });
+  mockSounds.push(sound);
+  res.json({ ok: true, index: free });
+});
+app.post('/api/sounds/update', (req, res) => {
+  const { index, ...fields } = req.body || {};
+  const sound = mockSounds.find(s => s.index === index);
+  if (!sound) return res.status(404).json({ error: 'not found' });
+  const candidate = { ...sound, ...fields };
+  const hwChanged = Object.keys(fields).some(k => k !== 'name');
+  if (hwChanged) {
+    if ([candidate.i2cSdaPin, candidate.i2cSclPin, candidate.i2sBclkPin, candidate.i2sWsPin, candidate.i2sDoutPin].includes(SOUND_PIN_UNUSED)) {
+      return res.status(400).json({ error: 'missing required pin' });
+    }
+    const conflict = soundPinConflict(candidate, index);
+    if (conflict) return res.status(400).json({ error: conflict });
+  }
+  Object.assign(sound, fields);
+  res.json({ ok: true });
+});
+app.post('/api/sounds/delete', (req, res) => {
+  const { index } = req.body || {};
+  const idx = mockSounds.findIndex(s => s.index === index);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  mockSounds.splice(idx, 1);
+  res.json({ ok: true });
+});
+app.post('/api/sounds/test', (req, res) => {
+  const { index } = req.body || {};
+  const sound = mockSounds.find(s => s.index === index);
+  if (!sound) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true });
+});
 
 app.get('/api/buttons', (_req, res) => res.json({ buttons: mockButtons, maxButtons: 4 }));
 app.post('/api/buttons/add', (req, res) => {

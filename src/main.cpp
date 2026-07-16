@@ -19,6 +19,7 @@
 #include "mqtt/MqttManager.h"
 #include "patterns/PatternRunner.h"
 #include "scenes/SceneSyncManager.h"
+#include "sound/Es8311Driver.h"
 #include "timesync/TimeSync.h"
 #include "version.h"
 #include "web/WebServer.h"
@@ -27,6 +28,7 @@ static Ws2812bDriver _ws2812bPool[MAX_LIGHTS];
 static Ws2801Driver _ws2801Pool[MAX_LIGHTS];
 static LedDriver* _leds[MAX_LIGHTS] = {};
 static PatternRunner _runners[MAX_LIGHTS];
+static Es8311Driver _sound;
 static MeshManager mesh;
 static ChannelManager channelMgr;
 static WifiElection wifiElection;
@@ -373,6 +375,13 @@ void setup() {
         if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
     });
 
+    // Initialise the sound output, if configured — hardware bring-up only for
+    // now (see SoundDriver.h), so there's no per-loop pipeline to wire up here.
+    Config::forEachSound([](uint8_t, SoundHardwareConfig& s) {
+        _sound.setup(s);
+        _sound.begin();
+    });
+
     // Wire MQTT: every group and light gets its own topic (see MqttManager.h) —
     // funnels into the same apply/propagate + mesh-broadcast paths web/buttons use.
     mqtt.setOnGroupLight([](uint8_t groupId, const LightConfig& cfg) {
@@ -641,6 +650,9 @@ void setup() {
     });
     webServer.setOnButtonsChanged([]() { buttonManager.reconfigure(); });
     webServer.setBatteryStatusProvider([]() { return battery.status(); });
+    webServer.setOnTestSound([](uint8_t idx) {
+        if (idx < MAX_SOUNDS && Config::get().sounds[idx].exists) _sound.playTestMelody();
+    });
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
     Logger::i("[sys] ready");
