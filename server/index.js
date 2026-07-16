@@ -402,7 +402,21 @@ app.post('/api/buttons/delete', (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/groups/create',  (_req, res) => res.json({ ok: true }));
+const MAX_GROUPS = 8; // mirrors Config::MAX_GROUPS; id 0 is reserved for Default
+
+app.post('/api/groups/create',  (req, res) => {
+  const free = Array.from({ length: MAX_GROUPS - 1 }, (_, i) => i + 1)
+    .find(i => !MOCK_CONFIG.groups.find(g => g.id === i));
+  if (free === undefined) return res.status(400).json({ error: 'group limit reached' });
+  const { name = 'New Group' } = req.body || {};
+  MOCK_CONFIG.groups.push({
+    id: free, name, exists: true, mode: 0, sceneId: '', pattern: 0, r: 255, g: 255, b: 255,
+    brightness: 255, speed: 1, seq: 0, syncEnabled: true, transitionEnabled: false,
+    sceneUniformColor: false, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0,
+    morphEnabled: false, gradientStopCount: 0, text: '', textAnimation: 0, time24h: true,
+  });
+  res.json({ ok: true, id: free });
+});
 app.post('/api/groups/update',  (req, res) => {
   const { id, ...fields } = req.body || {};
   const group = MOCK_CONFIG.groups.find(g => g.id === id);
@@ -410,7 +424,15 @@ app.post('/api/groups/update',  (req, res) => {
   Object.assign(group, fields);
   res.json({ ok: true });
 });
-app.post('/api/groups/delete',  (_req, res) => res.json({ ok: true }));
+app.post('/api/groups/delete',  (req, res) => {
+  const { id } = req.body || {};
+  if (id === 0) return res.status(400).json({ error: 'cannot delete Default' });
+  const idx = MOCK_CONFIG.groups.findIndex(g => g.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  MOCK_CONFIG.groups.splice(idx, 1);
+  for (const l of mockLights) if (l.groupId === id) l.groupId = 0;
+  res.json({ ok: true });
+});
 app.post('/api/reset',          (_req, res) => res.json({ ok: true }));
 app.post('/api/mesh/search',    (_req, res) => res.json({ ok: true }));
 app.post('/api/mesh/wifipolicy', (req, res) => {
