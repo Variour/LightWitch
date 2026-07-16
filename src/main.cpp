@@ -612,6 +612,9 @@ void setup() {
     webServer.setOnTestLight([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx]) _runners[idx].showTest(5000);
     });
+    webServer.setOnTestColorOrder([](uint8_t idx) {
+        if (idx < MAX_LIGHTS && _leds[idx]) _runners[idx].showColorOrderTest();
+    });
     webServer.setOnOrientationChange([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx]) {
             auto& l = Config::get().lights[idx];

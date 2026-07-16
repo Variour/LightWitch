@@ -365,6 +365,12 @@ app.post('/api/lights/test', (req, res) => {
   if (light.height < 2) return res.status(400).json({ error: 'not a matrix' });
   res.json({ ok: true });
 });
+app.post('/api/lights/testcolor', (req, res) => {
+  const { index } = req.body || {};
+  const light = mockLights.find(l => l.index === index);
+  if (!light) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true });
+});
 
 function isButtonPinInUse(pin, excludeIndex) {
   if (mockLights.some(l => l.dataPin === pin || l.clockPin === pin)) return true;

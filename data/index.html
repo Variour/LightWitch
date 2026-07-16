@@ -4401,8 +4401,8 @@ function renderLightsHw(lights) {
       ? `data GPIO${l.dataPin}, clock GPIO${l.clockPin}`
       : `data GPIO${l.dataPin}`;
     const label = l.name ? l.name : `Light ${l.index}`;
-    const testBtn = l.height > 1
-      ? `<button class="btn-ghost btn-sm" data-action="testLight" data-index="${l.index}">Test</button>`
+    const orientationTestBtn = l.height > 1
+      ? `<button class="btn-ghost btn-sm" data-action="testLight" data-index="${l.index}">Test orientation</button>`
       : '';
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div class="flex-between">
@@ -4411,7 +4411,8 @@ function renderLightsHw(lights) {
           <span style="color:#888;font-size:.82rem;margin-left:.5rem">${LED_TYPE_NAMES[l.ledType] || 'Unknown'} · ${COLOR_ORDER_NAMES[l.colorOrder] || 'RGB'}</span>
         </div>
         <div style="display:flex;gap:.4rem">
-          ${testBtn}
+          <button class="btn-ghost btn-sm" data-action="testColorOrder" data-index="${l.index}">Test colours</button>
+          ${orientationTestBtn}
           <button class="btn-ghost btn-sm" data-action="openEditLightModal" data-index="${l.index}">Edit</button>
           <button class="btn-ghost btn-sm" style="color:#c44" data-action="deleteLight" data-index="${l.index}">Delete</button>
         </div>
@@ -4423,6 +4424,7 @@ function renderLightsHw(lights) {
 
 _delegate('lights-hw-list', 'click', {
   testLight:          el => testLight(Number(el.dataset.index)),
+  testColorOrder:     el => testColorOrder(Number(el.dataset.index)),
   openEditLightModal: el => openEditLightModal(_lights.find(l => l.index === Number(el.dataset.index))),
   deleteLight:        el => deleteLight(Number(el.dataset.index)),
 });
@@ -4433,6 +4435,11 @@ let _originalLight  = null;
 
 async function testLight(index) {
   const res = await fetch('/api/lights/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
+  if (!res.ok) { const d = await res.json().catch(()=>({})); alert('Error: ' + (d.error || res.status)); }
+}
+
+async function testColorOrder(index) {
+  const res = await fetch('/api/lights/testcolor', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
   if (!res.ok) { const d = await res.json().catch(()=>({})); alert('Error: ' + (d.error || res.status)); }
 }
 

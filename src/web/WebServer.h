@@ -39,6 +39,7 @@ using MeshSearchCb = std::function<void()>;
 using SceneSavedCb = std::function<void(const char* sceneId)>;
 // Called to run a test pattern on a specific light index
 using TestLightCb = std::function<void(uint8_t)>;
+using TestColorOrderCb = std::function<void(uint8_t)>;
 // Called when matrix orientation (matrixStart/matrixDir) or wrap topology changes without reboot
 using OrientationChangeCb = std::function<void(uint8_t)>;
 using ColorOrderChangeCb = std::function<void(uint8_t)>;
@@ -207,6 +208,11 @@ class BatteryWebServer {
             "/api/lights/test", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
                 _testLight(r, d, l);
+            });
+        _server.on(
+            "/api/lights/testcolor", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _testColorOrder(r, d, l);
             });
 
         _server.on("/api/buttons", HTTP_GET, [this](AsyncWebServerRequest* r) { _getButtons(r); });
@@ -500,6 +506,7 @@ class BatteryWebServer {
     void pushGroups() { _pushGroups(); }
     void setOnSceneSaved(SceneSavedCb cb) { _onSceneSaved = cb; }
     void setOnTestLight(TestLightCb cb) { _onTestLight = cb; }
+    void setOnTestColorOrder(TestColorOrderCb cb) { _onTestColorOrder = cb; }
     void setOnOrientationChange(OrientationChangeCb cb) { _onOrientationChange = cb; }
     void setOnColorOrderChange(ColorOrderChangeCb cb) { _onColorOrderChange = cb; }
     void setOnLightBrightnessChange(LightBrightnessChangeCb cb) { _onLightBrightnessChange = cb; }
@@ -533,6 +540,7 @@ class BatteryWebServer {
     SceneSyncManager* _sceneSync = nullptr;
     SceneSavedCb _onSceneSaved;
     TestLightCb _onTestLight;
+    TestColorOrderCb _onTestColorOrder;
     OrientationChangeCb _onOrientationChange;
     ColorOrderChangeCb _onColorOrderChange;
     LightBrightnessChangeCb _onLightBrightnessChange;
@@ -1579,6 +1587,24 @@ class BatteryWebServer {
             return;
         }
         if (_onTestLight) _onTestLight(idx);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/lights/testcolor ────────────────────────────────────────────
+    // Body: {index} — cycles the light through solid red/green/blue so the
+    // user can check colorOrder against the strip's actual wiring. Unlike
+    // /api/lights/test (orientation), this isn't restricted to matrix lights.
+    void _testColorOrder(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+        if (_onTestColorOrder) _onTestColorOrder(idx);
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
     }
