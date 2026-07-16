@@ -279,10 +279,29 @@ class SceneManager {
                 out += *c;
             }
         }
-        return !out.isEmpty();
+        return _isValidId(out.c_str());
     }
 
-    static String _path(const char* id) { return String("/sc/") + id + ".json"; }
+    // Reject ids containing anything other than the alphanumeric charset _makeId()
+    // produces, so a client- or peer-supplied id can never escape /sc/ via '/', '\',
+    // or '..'.
+    static bool _isValidId(const char* id) {
+        if (!id || !id[0]) return false;
+        for (const char* c = id; *c; ++c) {
+            bool alnum =
+                (*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z');
+            if (!alnum) return false;
+        }
+        return true;
+    }
+
+    // Invalid ids map to a fixed, unwritable placeholder within /sc/ rather than an
+    // empty string, so callers can't accidentally end up operating on the /sc/ or
+    // LittleFS root regardless of how the underlying FS handles empty paths.
+    static String _path(const char* id) {
+        if (!_isValidId(id)) return String("/sc/invalid");
+        return String("/sc/") + id + ".json";
+    }
 
     static std::set<String>& _tombstones() {
         static std::set<String> s;
