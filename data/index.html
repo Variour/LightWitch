@@ -4385,6 +4385,7 @@ window.addEventListener('popstate', () => {
 
 // ── Lights hardware management ────────────────────────────────────────────────
 const LED_TYPE_NAMES = ['WS2812B — single wire', 'WS2801 — two wire'];
+const COLOR_ORDER_NAMES = ['RGB', 'RBG', 'GRB', 'GBR', 'BRG', 'BGR'];
 
 function renderLightsHw(lights) {
   _lights = lights || [];
@@ -4407,7 +4408,7 @@ function renderLightsHw(lights) {
       <div class="flex-between">
         <div>
           <strong>${esc(label)}</strong>
-          <span style="color:#888;font-size:.82rem;margin-left:.5rem">${LED_TYPE_NAMES[l.ledType] || 'Unknown'}</span>
+          <span style="color:#888;font-size:.82rem;margin-left:.5rem">${LED_TYPE_NAMES[l.ledType] || 'Unknown'} · ${COLOR_ORDER_NAMES[l.colorOrder] || 'RGB'}</span>
         </div>
         <div style="display:flex;gap:.4rem">
           ${testBtn}
@@ -4438,7 +4439,7 @@ async function testLight(index) {
 function openAddLightModal() {
   _editLightIndex = null;
   _originalLight  = null;
-  _openLightModal({index: null, ledType: 0, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false});
+  _openLightModal({index: null, ledType: 0, colorOrder: 2, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false});
 }
 
 function openEditLightModal(l) {
@@ -4468,6 +4469,10 @@ function _openLightModal(l) {
     <input type="number" id="lm-dataPin" value="${l.dataPin}" min="0" max="39">
     <label id="lm-clockPin-label">Clock pin (GPIO) <small>(WS2801 only)</small></label>
     <input type="number" id="lm-clockPin" value="${l.clockPin}" min="0" max="39">
+    <label>Colour order <small>(match your strip's wiring if colours look swapped)</small></label>
+    <select id="lm-colorOrder">
+      ${COLOR_ORDER_NAMES.map((n, i) => `<option value="${i}"${(l.colorOrder||0)===i?' selected':''}>${n}</option>`).join('')}
+    </select>
     <label>Length (LEDs in string, or columns if matrix)</label>
     <input type="number" id="lm-width" value="${l.width}" min="1" max="1000">
     <label>Rows <small>(1 = string, >1 = matrix)</small></label>
@@ -4548,6 +4553,7 @@ async function saveLightModal() {
   const body = {
     name:     $('lm-name').value.trim(),
     ledType:  parseInt($('lm-ledType').value),
+    colorOrder: parseInt($('lm-colorOrder').value),
     dataPin:  parseInt($('lm-dataPin').value),
     clockPin: parseInt($('lm-clockPin').value),
     width:       parseInt($('lm-width').value) || 1,

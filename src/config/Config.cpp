@@ -171,6 +171,8 @@ static void applyDoc(JsonDocument& doc) {
             auto& l = Config::get().lights[idx];
             l.exists = v["exists"] | false;
             l.ledType = (LedType)(uint8_t)(v["ledType"] | 0);
+            l.colorOrder =
+                (ColorOrder)(uint8_t)(v["colorOrder"] | (uint8_t)defaultColorOrder(l.ledType));
             l.dataPin = v["dataPin"] | (uint8_t)LED_DATA_PIN;
             l.clockPin = v["clockPin"] | (uint8_t)LED_CLOCK_PIN;
             l.width = v["width"] | (uint16_t)1;
@@ -288,6 +290,7 @@ bool Config::save() {
         o["exists"] = l.exists;
         o["name"] = l.name;
         o["ledType"] = (uint8_t)l.ledType;
+        o["colorOrder"] = (uint8_t)l.colorOrder;
         o["dataPin"] = l.dataPin;
         o["clockPin"] = l.clockPin;
         o["width"] = l.width;

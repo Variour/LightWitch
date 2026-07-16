@@ -16,6 +16,61 @@ enum class LedType : uint8_t {
     WS2801 = 1,   // two-wire SPI
 };
 
+// Physical wiring order of the three colour channels on the LED hardware.
+// setColor(r,g,b) always takes true RGB values; the driver permutes them into
+// this order before writing to the strip, so mixed-wiring lights on the same
+// device all show correct colours without touching pattern code.
+enum class ColorOrder : uint8_t {
+    RGB = 0,
+    RBG = 1,
+    GRB = 2,
+    GBR = 3,
+    BRG = 4,
+    BGR = 5,
+};
+
+// WS2812B strips are conventionally wired GRB, WS2801 modules RGB.
+inline ColorOrder defaultColorOrder(LedType t) {
+    return t == LedType::WS2812B ? ColorOrder::GRB : ColorOrder::RGB;
+}
+
+// Permutes true RGB values into the wire order `order` calls for.
+inline void applyColorOrder(ColorOrder order, uint8_t r, uint8_t g, uint8_t b, uint8_t& o1,
+                            uint8_t& o2, uint8_t& o3) {
+    switch (order) {
+        case ColorOrder::RBG:
+            o1 = r;
+            o2 = b;
+            o3 = g;
+            break;
+        case ColorOrder::GRB:
+            o1 = g;
+            o2 = r;
+            o3 = b;
+            break;
+        case ColorOrder::GBR:
+            o1 = g;
+            o2 = b;
+            o3 = r;
+            break;
+        case ColorOrder::BRG:
+            o1 = b;
+            o2 = r;
+            o3 = g;
+            break;
+        case ColorOrder::BGR:
+            o1 = b;
+            o2 = g;
+            o3 = r;
+            break;
+        default:  // RGB
+            o1 = r;
+            o2 = g;
+            o3 = b;
+            break;
+    }
+}
+
 enum class MatrixStart : uint8_t {
     TopLeft = 0,
     TopRight = 1,
@@ -214,6 +269,11 @@ void deserializeButton(JsonVariant o, ButtonHardwareConfig& b);
 struct LightHardwareConfig {
     char name[20] = "";
     LedType ledType = LedType::WS2812B;
+    // WS2812B strips are conventionally wired GRB, WS2801 modules RGB — these
+    // struct defaults only cover a fresh in-memory light; Config::load()/the
+    // REST handlers apply the same ledType-dependent default when the field
+    // is absent from a request or an older saved config.
+    ColorOrder colorOrder = ColorOrder::GRB;
     uint8_t dataPin = LED_DATA_PIN;
     uint8_t clockPin = LED_CLOCK_PIN;
     uint16_t width = 1;   // string length, or matrix columns

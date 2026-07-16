@@ -41,6 +41,7 @@ using SceneSavedCb = std::function<void(const char* sceneId)>;
 using TestLightCb = std::function<void(uint8_t)>;
 // Called when matrix orientation (matrixStart/matrixDir) or wrap topology changes without reboot
 using OrientationChangeCb = std::function<void(uint8_t)>;
+using ColorOrderChangeCb = std::function<void(uint8_t)>;
 // Called when a light's own brightnessOverride(Enabled) changes without reboot
 using LightBrightnessChangeCb = std::function<void(uint8_t)>;
 // Called after a button is added/updated/deleted, so GPIO pin modes can be re-applied live
@@ -500,6 +501,7 @@ class BatteryWebServer {
     void setOnSceneSaved(SceneSavedCb cb) { _onSceneSaved = cb; }
     void setOnTestLight(TestLightCb cb) { _onTestLight = cb; }
     void setOnOrientationChange(OrientationChangeCb cb) { _onOrientationChange = cb; }
+    void setOnColorOrderChange(ColorOrderChangeCb cb) { _onColorOrderChange = cb; }
     void setOnLightBrightnessChange(LightBrightnessChangeCb cb) { _onLightBrightnessChange = cb; }
     void setOnButtonsChanged(ButtonsChangedCb cb) { _onButtonsChanged = cb; }
     void setOnGroupsChanged(GroupsChangedCb cb) { _onGroupsChanged = cb; }
@@ -532,6 +534,7 @@ class BatteryWebServer {
     SceneSavedCb _onSceneSaved;
     TestLightCb _onTestLight;
     OrientationChangeCb _onOrientationChange;
+    ColorOrderChangeCb _onColorOrderChange;
     LightBrightnessChangeCb _onLightBrightnessChange;
     ButtonsChangedCb _onButtonsChanged;
     GroupsChangedCb _onGroupsChanged;
@@ -612,6 +615,7 @@ class BatteryWebServer {
             JsonObject lo = lightsArr.add<JsonObject>();
             lo["index"] = i;
             lo["ledType"] = (uint8_t)l.ledType;
+            lo["colorOrder"] = (uint8_t)l.colorOrder;
             lo["dataPin"] = l.dataPin;
             lo["clockPin"] = l.clockPin;
             lo["width"] = l.width;
@@ -1402,6 +1406,7 @@ class BatteryWebServer {
             o["index"] = i;
             o["name"] = l.name;
             o["ledType"] = (uint8_t)l.ledType;
+            o["colorOrder"] = (uint8_t)l.colorOrder;
             o["dataPin"] = l.dataPin;
             o["clockPin"] = l.clockPin;
             o["width"] = l.width;
@@ -1419,8 +1424,8 @@ class BatteryWebServer {
     }
 
     // ── POST /api/lights/add ──────────────────────────────────────────────────
-    // Body: {ledType, dataPin, clockPin, width, height, matrixStart, matrixDir, matrixSerpentine,
-    // wrapWidth, wrapHeight, groupId}
+    // Body: {ledType, colorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir,
+    // matrixSerpentine, wrapWidth, wrapHeight, groupId}
     void _addLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -1441,6 +1446,8 @@ class BatteryWebServer {
         l.exists = true;
         strlcpy(l.name, doc["name"] | "", sizeof(l.name));
         l.ledType = (LedType)(uint8_t)(doc["ledType"] | 0);
+        l.colorOrder =
+            (ColorOrder)(uint8_t)(doc["colorOrder"] | (uint8_t)defaultColorOrder(l.ledType));
         l.dataPin = doc["dataPin"] | (uint8_t)LED_DATA_PIN;
         l.clockPin = doc["clockPin"] | (uint8_t)LED_CLOCK_PIN;
         l.width = doc["width"] | (uint16_t)1;
@@ -1464,8 +1471,8 @@ class BatteryWebServer {
     }
 
     // ── POST /api/lights/update ───────────────────────────────────────────────
-    // Body: {index, ledType?, dataPin?, clockPin?, width?, height?, matrixStart?, matrixDir?,
-    // matrixSerpentine?, wrapWidth?, wrapHeight?, groupId?}
+    // Body: {index, ledType?, colorOrder?, dataPin?, clockPin?, width?, height?, matrixStart?,
+    // matrixDir?, matrixSerpentine?, wrapWidth?, wrapHeight?, groupId?}
     void _updateLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -1481,6 +1488,11 @@ class BatteryWebServer {
         if (!doc["ledType"].isNull()) {
             l.ledType = (LedType)(uint8_t)doc["ledType"];
             hwChanged = true;
+        }
+        bool colorOrderChanged = false;
+        if (!doc["colorOrder"].isNull()) {
+            l.colorOrder = (ColorOrder)(uint8_t)doc["colorOrder"];
+            colorOrderChanged = true;
         }
         if (!doc["dataPin"].isNull()) {
             l.dataPin = doc["dataPin"];
@@ -1547,6 +1559,7 @@ class BatteryWebServer {
         }
         if (orientationChanged && _onOrientationChange) _onOrientationChange(idx);
         if (brightnessOverrideChanged && _onLightBrightnessChange) _onLightBrightnessChange(idx);
+        if (colorOrderChanged && _onColorOrderChange) _onColorOrderChange(idx);
     }
 
     // ── POST /api/lights/test ─────────────────────────────────────────────────
