@@ -37,7 +37,7 @@ enum class MsgType : uint8_t {
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
 
 // Reset to 1 before first real deployment.
-static constexpr uint8_t PRESENCE_MSG_VERSION = 1;
+static constexpr uint8_t PRESENCE_MSG_VERSION = 2;
 
 // lightGroupIds: groupId for each light slot; 0xFF means that slot is empty.
 // Receivers require an exact sizeof(PresenceMsg) frame for this schema.
@@ -59,6 +59,11 @@ struct PresenceMsg {
     // (WifiConnectAttempt in flight, either its own election turn or a
     // temporary OTA connect).
     uint8_t wifiConnecting;
+    // Battery monitoring (see BatteryMonitor.h) — batteryPercent/batteryCharging
+    // are only meaningful when batteryPresent is set.
+    uint8_t batteryPresent;
+    uint8_t batteryPercent;
+    uint8_t batteryCharging;
 };
 
 struct LightConfigMsg {

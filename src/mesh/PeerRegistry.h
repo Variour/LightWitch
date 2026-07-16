@@ -21,6 +21,9 @@ struct PeerInfo {
     bool wifiConnecting = false;
     char fwVersion[16] = {};
     FwState fwState = FwState::Idle;
+    bool batteryPresent = false;
+    uint8_t batteryPercent = 0;
+    bool batteryCharging = false;
 
     bool online() const { return active && (millis() - lastSeen < 15000); }
 
@@ -44,7 +47,8 @@ class PeerRegistry {
                 const char lightNames_[MAX_LIGHTS][20] = nullptr, bool sceneSyncEnabled = true,
                 bool wifiConnected = false, const char* fwVersion = "",
                 FwState fwState = FwState::Idle, bool hasWifiNetworks = false,
-                bool wifiConnecting = false) {
+                bool wifiConnecting = false, bool batteryPresent = false,
+                uint8_t batteryPercent = 0, bool batteryCharging = false) {
         PeerInfo* p = _find(mac);
         bool isNew = (p == nullptr || !p->active);
         if (!p) p = _slot();
@@ -78,6 +82,9 @@ class PeerRegistry {
         p->wifiConnecting = wifiConnecting;
         strlcpy(p->fwVersion, fwVersion, sizeof(p->fwVersion));
         p->fwState = fwState;
+        p->batteryPresent = batteryPresent;
+        p->batteryPercent = batteryPercent;
+        p->batteryCharging = batteryCharging;
         p->lastSeen = millis();
         p->active = true;
         if (isNew)

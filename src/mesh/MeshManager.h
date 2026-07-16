@@ -7,6 +7,7 @@
 #include <functional>
 #include <new>
 
+#include "../battery/BatteryMonitor.h"
 #include "../config/Config.h"
 #include "../logging/Logger.h"
 #include "../update/Updater.h"
@@ -64,6 +65,8 @@ class MeshManager {
     // Called when a peer broadcasts a manual "search devices" request, so
     // this device re-searches too (see ChannelManager::beginSearch).
     using MeshSearchCb = std::function<void()>;
+    // Polled once per heartbeat to fill PresenceMsg's battery fields.
+    using BatteryStatusCb = std::function<BatteryMonitor::Status()>;
 
     void setOnPeerHeard(PeerHeardCb cb) { _onPeerHeard = cb; }
     void setOnLightConfig(LightConfigCb cb) { _onLightConfig = cb; }
@@ -88,6 +91,7 @@ class MeshManager {
     void setWifiConnectedProvider(WifiConnectedCb cb) { _wifiConnectedProvider = cb; }
     void setOnWifiRetry(WifiRetryCb cb) { _onWifiRetry = cb; }
     void setOnMeshSearch(MeshSearchCb cb) { _onMeshSearch = cb; }
+    void setBatteryStatusProvider(BatteryStatusCb cb) { _batteryStatusProvider = cb; }
 
     void begin() {
         _instance = this;
@@ -393,6 +397,7 @@ class MeshManager {
     MeshPolicyCb _onMeshPolicy;
     WifiAttemptingCb _wifiAttemptingProvider;
     WifiConnectedCb _wifiConnectedProvider;
+    BatteryStatusCb _batteryStatusProvider;
     WifiRetryCb _onWifiRetry;
     MeshSearchCb _onMeshSearch;
 
@@ -631,6 +636,11 @@ class MeshManager {
                 : 0;
         msg.hasWifiNetworks = (Config::wifiCount() > 0) ? 1 : 0;
         msg.wifiConnecting = (_wifiAttemptingProvider && _wifiAttemptingProvider()) ? 1 : 0;
+        BatteryMonitor::Status bs =
+            _batteryStatusProvider ? _batteryStatusProvider() : BatteryMonitor::Status{};
+        msg.batteryPresent = bs.present ? 1 : 0;
+        msg.batteryPercent = bs.percent;
+        msg.batteryCharging = (bs.state == BatteryMonitor::State::Charging) ? 1 : 0;
         strlcpy(msg.fwVersion, FW_VERSION, sizeof(msg.fwVersion));
         const auto& us = Updater::status();
         msg.fwState = (uint8_t)(us.state == Updater::State::Checking      ? FwState::Checking
@@ -708,7 +718,8 @@ class MeshManager {
                 bool isNew = _instance->peers.update(
                     mac, m->name, m->lightCount, m->lightGroupIds, m->lightNames,
                     m->sceneSyncEnabled != 0, m->wifiConnected != 0, m->fwVersion,
-                    (FwState)m->fwState, m->hasWifiNetworks != 0, m->wifiConnecting != 0);
+                    (FwState)m->fwState, m->hasWifiNetworks != 0, m->wifiConnecting != 0,
+                    m->batteryPresent != 0, m->batteryPercent, m->batteryCharging != 0);
                 if (_instance->_onPeerHeard) _instance->_onPeerHeard(mac);
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, isNew);
                 if (isNew) {

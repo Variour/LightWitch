@@ -7,6 +7,7 @@
 #include <new>
 
 #include "actions/ActionExecutor.h"
+#include "battery/BatteryMonitor.h"
 #include "buttons/ButtonManager.h"
 #include "config/Config.h"
 #include "led/Ws2801Driver.h"
@@ -34,7 +35,14 @@ static MqttManager mqtt;
 static SceneSyncManager sceneSync;
 static ActionExecutor actionExecutor;
 static ButtonManager buttonManager;
+static BatteryMonitor battery;
 static bool _otaActive = false;
+
+// Last-published battery reading, so mqtt/mesh-telemetry pushes only fire on
+// an actual change instead of every slow tick.
+static bool _lastBatteryPresent = false;
+static uint8_t _lastBatteryPercent = 0xFF;
+static BatteryMonitor::State _lastBatteryState = BatteryMonitor::State::OnBattery;
 
 // Caps how often patterns recompute and push to the LED driver. Well above what
 // any strip or human eye needs, but far below the unthrottled main-loop rate —
@@ -330,6 +338,8 @@ void setup() {
     Logger::setLevel((LogLevel)Config::get().logLevel);
     Logger::i("[sys] firmware %s  device: %s", FW_VERSION, Config::get().deviceName);
 
+    battery.begin(Config::get().batteryMonitoringEnabled);
+
     setupWifi();
     TimeSync::begin(Config::get().timezone);
     channelMgr.begin(&mesh.peers);
@@ -371,6 +381,7 @@ void setup() {
     mqtt.setOnGroupSyncToggle([](const GroupConfig& g) { publishGroupSync(g); });
     mqtt.setOnLightOverride([](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
     mqtt.setOnSceneSyncEnabled([]() { sceneSync.onSyncEnabled(); });
+    mqtt.setBatteryStatusProvider([]() { return battery.status(); });
     mqtt.begin(Config::get());
 
     // Wire the action layer: buttons (and, perspectively, other future trigger
@@ -399,6 +410,7 @@ void setup() {
         [](const MeshManager::MeshPolicyState& state) { applyWifiPolicyState(state, "mesh"); });
     mesh.setOnWifiRetry([]() { wifiElection.retryNow(); });
     mesh.setOnMeshSearch([]() { channelMgr.beginSearch(); });
+    mesh.setBatteryStatusProvider([]() { return battery.status(); });
 
     // Wire SceneSyncManager → MeshManager
     sceneSync.setBroadcastFns(
@@ -628,6 +640,7 @@ void setup() {
             _leds[idx]->setColorOrder(Config::get().lights[idx].colorOrder);
     });
     webServer.setOnButtonsChanged([]() { buttonManager.reconfigure(); });
+    webServer.setBatteryStatusProvider([]() { return battery.status(); });
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
     Logger::i("[sys] ready");
@@ -695,6 +708,17 @@ void loop() {
         }
         TimeSync::tick();
         mqtt.loop();
+
+        battery.tick();
+        const auto& bs = battery.status();
+        if (bs.present != _lastBatteryPresent || bs.percent != _lastBatteryPercent ||
+            bs.state != _lastBatteryState) {
+            _lastBatteryPresent = bs.present;
+            _lastBatteryPercent = bs.percent;
+            _lastBatteryState = bs.state;
+            mqtt.publishBatteryState();
+            publishTelemetry();
+        }
     }
     if (!_otaActive && backgroundTick) {
         buttonManager.tick();

@@ -150,6 +150,7 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().sceneSyncEnabled = doc["sceneSyncEnabled"] | true;
     Config::get().checkUpdateOnStartup = doc["checkUpdateOnStartup"] | false;
     Config::get().wifiSingleClientMode = doc["wifiSingleClientMode"] | false;
+    Config::get().batteryMonitoringEnabled = doc["batteryMonitoringEnabled"] | false;
     Config::get().wifiPolicyRevision = doc["wifiPolicyRevision"] | (uint32_t)0;
     for (uint8_t i = 0; i < 6; i++)
         Config::get().wifiPolicyOriginMac[i] = doc["wifiPolicyOriginMac"][i] | (uint8_t)0;
@@ -267,6 +268,7 @@ bool Config::save() {
     doc["sceneSyncEnabled"] = _cfg.sceneSyncEnabled;
     doc["checkUpdateOnStartup"] = _cfg.checkUpdateOnStartup;
     doc["wifiSingleClientMode"] = _cfg.wifiSingleClientMode;
+    doc["batteryMonitoringEnabled"] = _cfg.batteryMonitoringEnabled;
     doc["wifiPolicyRevision"] = _cfg.wifiPolicyRevision;
     {
         JsonArray origin = doc["wifiPolicyOriginMac"].to<JsonArray>();

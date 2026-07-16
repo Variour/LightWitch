@@ -5,6 +5,7 @@
 
 #include <functional>
 
+#include "../battery/BatteryMonitor.h"
 #include "../config/Config.h"
 #include "../logging/Logger.h"
 #include "../mesh/ChannelManager.h"
@@ -71,6 +72,8 @@ using WifiAttemptingCb = std::function<bool()>;
 // Called from the "Retry WiFi" button: give every mesh device (including any
 // stuck in WifiElection::State::GaveUp) a fresh, immediate connect attempt.
 using WifiRetryCb = std::function<void()>;
+// Polled for this device's own current battery status (see BatteryMonitor.h).
+using BatteryStatusCb = std::function<BatteryMonitor::Status()>;
 
 class BatteryWebServer {
    private:
@@ -515,6 +518,7 @@ class BatteryWebServer {
     void setOnSceneListChanged(SceneListChangedCb cb) { _onSceneListChanged = cb; }
     void setOnClearMqtt(ClearMqttCb cb) { _onClearMqtt = cb; }
     void setOnSceneSyncChanged(SceneSyncChangedCb cb) { _onSceneSyncChanged = cb; }
+    void setBatteryStatusProvider(BatteryStatusCb cb) { _batteryStatusProvider = cb; }
 
    private:
     AsyncWebServer _server{80};
@@ -537,6 +541,7 @@ class BatteryWebServer {
     MeshPolicyCb _onMeshPolicyChange;
     WifiAttemptingCb _onWifiAttempting;
     WifiRetryCb _onWifiRetry;
+    BatteryStatusCb _batteryStatusProvider;
     SceneSyncManager* _sceneSync = nullptr;
     SceneSavedCb _onSceneSaved;
     TestLightCb _onTestLight;
@@ -608,6 +613,8 @@ class BatteryWebServer {
         doc["sceneSyncEnabled"] = c.sceneSyncEnabled;
         doc["checkUpdateOnStartup"] = c.checkUpdateOnStartup;
         doc["wifiSingleClientMode"] = c.wifiSingleClientMode;
+        doc["batteryHwSupported"] = BatteryMonitor::kHwSupported;
+        doc["batteryMonitoringEnabled"] = c.batteryMonitoringEnabled;
         doc["mqttHost"] = c.mqttHost;
         doc["mqttPort"] = c.mqttPort;
         doc["mqttUser"] = c.mqttUser;
@@ -669,6 +676,8 @@ class BatteryWebServer {
         }
         if (!doc["checkUpdateOnStartup"].isNull())
             c.checkUpdateOnStartup = (bool)doc["checkUpdateOnStartup"];
+        if (!doc["batteryMonitoringEnabled"].isNull())
+            c.batteryMonitoringEnabled = (bool)doc["batteryMonitoringEnabled"];
         // wifiSingleClientMode is intentionally not handled here — it's a
         // runtime-safe, mesh-wide toggle exposed from the device list instead
         // (POST /api/mesh/wifipolicy), so flipping it doesn't force the
@@ -735,6 +744,13 @@ class BatteryWebServer {
         self["version"] = FW_VERSION;
         self["fwState"] = _fwStateToString(us.state);
         {
+            BatteryMonitor::Status bs =
+                _batteryStatusProvider ? _batteryStatusProvider() : BatteryMonitor::Status{};
+            self["batteryPresent"] = bs.present;
+            self["batteryPercent"] = bs.percent;
+            self["batteryCharging"] = bs.state == BatteryMonitor::State::Charging;
+        }
+        {
             JsonArray la = self["lights"].to<JsonArray>();
             for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
                 if (!c.lights[i].exists) continue;
@@ -765,6 +781,9 @@ class BatteryWebServer {
                 o["wifiConnecting"] = p.wifiConnecting;
                 o["version"] = p.fwVersion;
                 o["fwState"] = _fwStateToString(p.fwState);
+                o["batteryPresent"] = p.batteryPresent;
+                o["batteryPercent"] = p.batteryPercent;
+                o["batteryCharging"] = p.batteryCharging;
                 JsonArray la = o["lights"].to<JsonArray>();
                 for (uint8_t i = 0; i < p.lightCount && i < MAX_LIGHTS; i++) {
                     JsonObject lo = la.add<JsonObject>();
