@@ -78,3 +78,20 @@ npm run dev
 Open **http://localhost:8080** in a browser. The mock server (`server/index.js`) handles all REST endpoints and WebSocket, with scenes stored in memory for the duration of the process. Auth is skipped entirely when no environment variables are configured.
 
 > Requires Node.js.
+
+---
+
+## Linting & formatting
+
+**JavaScript** (`server/`, the inline script in `data/index.html`):
+```bash
+npm install
+npm run lint
+```
+Config: `eslint.config.js`. Checked in CI on every PR that touches JS.
+
+**C++ firmware** (`src/`): formatted per `.clang-format` (based on the Google style), checked as a whole file in CI:
+```bash
+clang-format -i path/to/file.cpp
+```
+Note that the existing codebase isn't reformatted to this style yet, so CI on `src/**` changes may fail on pre-existing code until it is.
