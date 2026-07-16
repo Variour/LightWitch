@@ -8,13 +8,16 @@
 // net called BAT_ADC, which can be solder-bridged onto GPIO1. Vbat = Vadc *
 // (200+100)/100 = Vadc * 3.
 //
-// There is no separate charge-IC status pin or VBUS-sense signal — BAT_ADC is
-// the only available signal. That means "running on battery" vs. "connected
-// to mains" can only be inferred from the voltage itself: a charger (or a
-// mains-fed float rail) holds BAT_ADC at/near the Li-ion charge-termination
-// voltage, while a battery discharging on its own settles below it. This is a
-// heuristic, not a true charge-status reading — a battery resting right at
-// full charge with the charger already removed reads the same as "charging".
+// The charger IC (ETA6098) does have a STAT charge-status pin, but per the
+// schematic it only drives a dedicated LED (through a 27 kΩ resistor) —
+// it isn't broken out to any GPIO, so firmware has no way to read it.
+// BAT_ADC is the only signal available. That means "running on battery" vs.
+// "connected to mains" can only be inferred from the voltage itself: a
+// charger (or a mains-fed float rail) holds BAT_ADC at/near the Li-ion
+// charge-termination voltage, while a battery discharging on its own settles
+// below it. This is a heuristic, not a true charge-status reading — a
+// battery resting right at full charge with the charger already removed
+// reads the same as "charging".
 class BatteryMonitor {
    public:
     enum class State : uint8_t { OnBattery = 0, Charging = 1 };

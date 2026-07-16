@@ -162,7 +162,7 @@ Supported LED types:
 
 LED type and data/clock GPIO pins are configured per light in the web UI.
 
-**Battery (optional, ESP32-C3 / ESP32-S3 only):** BAT (battery +) can be sensed through a 200 kΩ / 100 kΩ (±1 %) voltage divider, solder-bridged onto GPIO1. GPIO1 isn't ADC-capable on the classic ESP32 (esp32dev), so this is unavailable there. Once wired, enable it under Settings → Battery; battery percentage and charging/mains status then show up in the device list, over the mesh, and via MQTT.
+**Battery (optional, ESP32-C3 / ESP32-S3 only):** BAT (battery +) can be sensed through a 200 kΩ / 100 kΩ (±1 %) voltage divider, solder-bridged onto GPIO1. GPIO1 isn't ADC-capable on the classic ESP32 (esp32dev), so this is unavailable there. On the Waveshare ESP32-S3-AUDIO-Board, closing that bridge disables the board's camera header (they share the same pin) — not a concern for this firmware, which never uses the camera. Once wired, enable it under Settings → Battery; battery percentage and charging/mains status then show up in the device list, over the mesh, and via MQTT. There's no readable charge-status signal on this hardware — the charger IC's STAT pin only drives its own indicator LED, not a GPIO — so "charging" is inferred from voltage alone (see `BatteryMonitor.h`).
 
 ---
 
