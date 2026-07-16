@@ -53,7 +53,7 @@ const SOUND_PIN_UNUSED = 255;
 const mockSounds = [
   { index: 0, name: 'Speaker', chip: 0, i2cSdaPin: 21, i2cSclPin: 22, i2cAddress: 0x18,
     i2sMclkPin: SOUND_PIN_UNUSED, i2sBclkPin: 15, i2sWsPin: 16, i2sDoutPin: 17,
-    paEnablePin: 23, paEnableActiveHigh: true },
+    paEnablePin: 23, paEnableActiveHigh: true, exists: true },
 ];
 
 // Mirrors ButtonHardwareConfig/ButtonAction shape from WebServer.h::serializeButton.
@@ -422,7 +422,7 @@ app.post('/api/sounds/add', (req, res) => {
   if ([i2cSdaPin, i2cSclPin, i2sBclkPin, i2sWsPin, i2sDoutPin].includes(SOUND_PIN_UNUSED)) {
     return res.status(400).json({ error: 'missing required pin' });
   }
-  const sound = { index: free, name, chip, i2cSdaPin, i2cSclPin, i2cAddress, i2sMclkPin, i2sBclkPin, i2sWsPin, i2sDoutPin, paEnablePin, paEnableActiveHigh };
+  const sound = { index: free, name, chip, i2cSdaPin, i2cSclPin, i2cAddress, i2sMclkPin, i2sBclkPin, i2sWsPin, i2sDoutPin, paEnablePin, paEnableActiveHigh, exists: true };
   const conflict = soundPinConflict(sound, free);
   if (conflict) return res.status(400).json({ error: conflict });
   mockSounds.push(sound);
