@@ -4546,7 +4546,7 @@ function _openLightModal(l) {
     <label>Rows <small>(1 = string, >1 = matrix)</small></label>
     <input type="number" id="lm-height" value="${l.height}" min="1" max="100">
     <label style="display:flex;align-items:center;gap:.5rem">
-      <input type="checkbox" id="lm-wrapWidth" style="width:auto" ${l.wrapWidth?'checked':''}>
+      <input type="checkbox" id="lm-wrapWidth" ${l.wrapWidth?'checked':''}>
       <span>Wrap around <small>(last LED of a row connects back to the first — ring)</small></span>
     </label>
     <div id="lm-matrix-opts" style="${l.height > 1 ? '' : 'display:none'}">
@@ -4563,11 +4563,11 @@ function _openLightModal(l) {
         <option value="1"${(l.matrixDir||0)===1?' selected':''}>Vertical (columns first)</option>
       </select>
       <label style="display:flex;align-items:center;gap:.5rem">
-        <input type="checkbox" id="lm-matrixSerpentine" style="width:auto" ${l.matrixSerpentine?'checked':''}>
+        <input type="checkbox" id="lm-matrixSerpentine" ${l.matrixSerpentine?'checked':''}>
         <span>Serpentine wiring <small>(zig-zag — every other row/column runs in reverse, common on continuous-strip matrix panels)</small></span>
       </label>
       <label style="display:flex;align-items:center;gap:.5rem">
-        <input type="checkbox" id="lm-wrapHeight" style="width:auto" ${l.wrapHeight?'checked':''}>
+        <input type="checkbox" id="lm-wrapHeight" ${l.wrapHeight?'checked':''}>
         <span>Wrap vertically <small>(last row connects back to the first)</small></span>
       </label>
     </div>
@@ -4762,12 +4762,12 @@ function _openSoundModal(s) {
     <label>I2S DOUT pin (GPIO)</label>
     <input type="number" id="sm-i2sDoutPin" value="${s.i2sDoutPin}" min="0" max="39">
     <label style="display:flex;align-items:center;gap:.5rem">
-      <input type="checkbox" id="sm-hasMclk" style="width:auto" ${hasMclk?'checked':''}>
+      <input type="checkbox" id="sm-hasMclk" ${hasMclk?'checked':''}>
       <span>Board wires a separate MCLK pin <small>(unchecked = derive MCLK from BCLK, common on smaller boards)</small></span>
     </label>
     <input type="number" id="sm-i2sMclkPin" value="${hasMclk ? s.i2sMclkPin : ''}" min="0" max="39" placeholder="GPIO" style="${hasMclk ? '' : 'display:none'}">
     <label style="display:flex;align-items:center;gap:.5rem">
-      <input type="checkbox" id="sm-hasPa" style="width:auto" ${hasPa?'checked':''}>
+      <input type="checkbox" id="sm-hasPa" ${hasPa?'checked':''}>
       <span>Separate speaker amp enable pin</span>
     </label>
     <div id="sm-pa-opts" style="${hasPa ? '' : 'display:none'}">
@@ -4782,7 +4782,7 @@ function _openSoundModal(s) {
         <input type="number" id="sm-paExpanderAddress" value="${s.paExpanderAddress || 0x20}" min="0" max="127">
       </div>
       <label style="display:flex;align-items:center;gap:.5rem;margin-top:.4rem">
-        <input type="checkbox" id="sm-paEnableActiveHigh" style="width:auto" ${s.paEnableActiveHigh!==false?'checked':''}>
+        <input type="checkbox" id="sm-paEnableActiveHigh" ${s.paEnableActiveHigh!==false?'checked':''}>
         <span>Active high</span>
       </label>
     </div>
@@ -5061,7 +5061,7 @@ function _openButtonModal(b) {
     <label>GPIO pin</label>
     <input type="number" id="bm-pin" value="${b.pin || 0}" min="0" max="39">
     <label style="display:flex;align-items:center;gap:.5rem">
-      <input type="checkbox" id="bm-activeLow" style="width:auto" ${b.activeLow !== false ? 'checked' : ''}>
+      <input type="checkbox" id="bm-activeLow" ${b.activeLow !== false ? 'checked' : ''}>
       <span>Active low <small>(pressed reads LOW — typical wiring: button to GND, internal pull-up)</small></span>
     </label>
     <hr class="section-divider">
