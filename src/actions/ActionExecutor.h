@@ -2,10 +2,12 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <esp_random.h>
+
 #include <functional>
+
 #include "../config/Config.h"
-#include "../scenes/SceneManager.h"
 #include "../logging/Logger.h"
+#include "../scenes/SceneManager.h"
 
 // Executes a ButtonAction against the group it targets. Deliberately
 // decoupled from *how* it was invoked — a button press today, but the same
@@ -13,8 +15,8 @@
 // Mutation + propagation is delegated to injected callbacks so this class
 // doesn't need to know about mesh/mqtt/runners itself.
 class ActionExecutor {
-public:
-    using ApplyFn              = std::function<void(uint8_t groupId, const LightConfig&)>;
+   public:
+    using ApplyFn = std::function<void(uint8_t groupId, const LightConfig&)>;
     using BroadcastGroupSyncFn = std::function<void(const GroupConfig&)>;
     using ApplyLightBrightnessFn = std::function<void(uint8_t lightIndex)>;
 
@@ -33,14 +35,17 @@ public:
         if (action.action == ActionId::None) return;
 
         if (action.action == ActionId::LightBrightnessOverrideStep ||
-            action.action == ActionId::LightBrightnessOverrideSet  ||
+            action.action == ActionId::LightBrightnessOverrideSet ||
             action.action == ActionId::LightBrightnessOverrideClear) {
             _executeLightBrightnessOverride(action);
             return;
         }
 
         GroupConfig* g = Config::group(action.groupId);
-        if (!g) { Logger::w("[action] group %u not found — ignored", action.groupId); return; }
+        if (!g) {
+            Logger::w("[action] group %u not found — ignored", action.groupId);
+            return;
+        }
 
         if (action.action == ActionId::GroupSyncToggle) {
             g->syncEnabled = !g->syncEnabled;
@@ -55,7 +60,8 @@ public:
 
         switch (action.action) {
             case ActionId::BrightnessStep:
-                cfg.brightness = (uint8_t)constrain((int)cfg.brightness + (int)p.numberValue, 0, 255);
+                cfg.brightness =
+                    (uint8_t)constrain((int)cfg.brightness + (int)p.numberValue, 0, 255);
                 break;
             case ActionId::BrightnessSet:
                 cfg.brightness = (uint8_t)constrain((int)p.numberValue, 0, 255);
@@ -131,9 +137,9 @@ public:
         if (_apply) _apply(action.groupId, cfg);
     }
 
-private:
-    ApplyFn                _apply;
-    BroadcastGroupSyncFn   _broadcastGroupSync;
+   private:
+    ApplyFn _apply;
+    BroadcastGroupSyncFn _broadcastGroupSync;
     ApplyLightBrightnessFn _applyLightBrightness;
 
     // Mutates a light's own brightness override (not its group's LightConfig)
@@ -154,8 +160,10 @@ private:
             case ActionId::LightBrightnessOverrideStep: {
                 GroupConfig* g = Config::group(l.groupId);
                 int base = l.brightnessOverrideEnabled ? l.brightnessOverride
-                         : g ? g->light.brightness : 255;
-                l.brightnessOverride = (uint8_t)constrain(base + (int)action.params.numberValue, 0, 255);
+                           : g                         ? g->light.brightness
+                                                       : 255;
+                l.brightnessOverride =
+                    (uint8_t)constrain(base + (int)action.params.numberValue, 0, 255);
                 l.brightnessOverrideEnabled = true;
                 break;
             }
@@ -195,12 +203,15 @@ private:
 
         int currentIdx = -1;
         for (size_t i = 0; i < n; i++) {
-            if (strcmp(arr[i]["id"] | "", cfg.sceneId) == 0) { currentIdx = (int)i; break; }
+            if (strcmp(arr[i]["id"] | "", cfg.sceneId) == 0) {
+                currentIdx = (int)i;
+                break;
+            }
         }
         bool next = (which == ActionId::SceneNext || which == ActionId::GradientPaletteNext);
         int newIdx = currentIdx < 0 ? 0
-                   : next ? (int)((currentIdx + 1) % n)
-                          : (int)((currentIdx + (int)n - 1) % n);
+                     : next         ? (int)((currentIdx + 1) % n)
+                                    : (int)((currentIdx + (int)n - 1) % n);
         strlcpy(cfg.sceneId, arr[newIdx]["id"] | "", sizeof(cfg.sceneId));
     }
 };

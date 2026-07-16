@@ -1,8 +1,8 @@
 #pragma once
-#include "Pattern.h"
-#include "MatrixLayout.h"
-#include "../timesync/TimeSync.h"
 #include "../logging/Logger.h"
+#include "../timesync/TimeSync.h"
+#include "MatrixLayout.h"
+#include "Pattern.h"
 
 // Renders the current local time (HH:MM) on a matrix light using a small
 // fixed-resolution digit font, stretched (nearest-neighbor) to fill the
@@ -13,7 +13,7 @@
 // back to the same blinking "unavailable" indicator used while there's no
 // synced time yet.
 class TimeMatrix : public Pattern {
-public:
+   public:
     static constexpr uint16_t BASE_W = 17;
     static constexpr uint16_t BASE_H = 5;
 
@@ -76,12 +76,12 @@ public:
         _renderTime(hour, ti.tm_min);
     }
 
-private:
-    MatrixLayout    _layout;
-    int             _lastMinuteKey = -1;
-    bool            _loggedTooSmall = false;
-    bool            _showingIndicator = true;
-    int8_t          _indicatorOn = -1;  // -1 = not drawn yet, forces the first redraw
+   private:
+    MatrixLayout _layout;
+    int _lastMinuteKey = -1;
+    bool _loggedTooSmall = false;
+    bool _showingIndicator = true;
+    int8_t _indicatorOn = -1;  // -1 = not drawn yet, forces the first redraw
 
     // 3 columns x 5 rows per digit; each row's 3 bits are left-to-right (bit 2 = leftmost).
     static constexpr uint8_t DIGIT_FONT[10][5] = {
@@ -100,16 +100,16 @@ private:
     static void _drawDigit(bool base[BASE_H][BASE_W], uint16_t col0, uint8_t digit) {
         for (uint16_t row = 0; row < 5; row++) {
             uint8_t bits = DIGIT_FONT[digit][row];
-            for (uint16_t c = 0; c < 3; c++)
-                base[row][col0 + c] = (bits >> (2 - c)) & 1;
+            for (uint16_t c = 0; c < 3; c++) base[row][col0 + c] = (bits >> (2 - c)) & 1;
         }
     }
 
-    // Layout: HH : MM across 17 columns — digit(3) gap digit(3) gap colon(1) gap digit(3) gap digit(3).
+    // Layout: HH : MM across 17 columns — digit(3) gap digit(3) gap colon(1) gap digit(3) gap
+    // digit(3).
     void _renderTime(int hour, int minute) {
         bool base[BASE_H][BASE_W] = {};
-        _drawDigit(base, 0,  hour / 10);
-        _drawDigit(base, 4,  hour % 10);
+        _drawDigit(base, 0, hour / 10);
+        _drawDigit(base, 4, hour % 10);
         base[1][8] = true;
         base[3][8] = true;
         _drawDigit(base, 10, minute / 10);
@@ -119,7 +119,8 @@ private:
 
     void _renderIndicator(bool on) {
         bool base[BASE_H][BASE_W];
-        for (auto& row : base) for (auto& v : row) v = on;
+        for (auto& row : base)
+            for (auto& v : row) v = on;
         _blit(base, /*dim=*/true);
     }
 
@@ -138,7 +139,8 @@ private:
                 } else if (dim) {
                     _led->setPixel(li, c.r, c.g, c.b);
                 } else {
-                    _led->setPixel(li, applyBrightness(c.r), applyBrightness(c.g), applyBrightness(c.b));
+                    _led->setPixel(li, applyBrightness(c.r), applyBrightness(c.g),
+                                   applyBrightness(c.b));
                 }
             }
         }

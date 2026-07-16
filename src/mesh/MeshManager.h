@@ -1,51 +1,55 @@
 #pragma once
 #include <Arduino.h>
+#include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
-#include <WiFi.h>
+
 #include <functional>
 #include <new>
-#include "MeshTypes.h"
-#include "MeshCrypto.h"
-#include "PeerRegistry.h"
+
 #include "../config/Config.h"
 #include "../logging/Logger.h"
 #include "../update/Updater.h"
 #include "../version.h"
+#include "MeshCrypto.h"
+#include "MeshTypes.h"
+#include "PeerRegistry.h"
 
 class MeshManager {
-public:
+   public:
     PeerRegistry peers;
 
     struct MeshPolicyState {
-        bool     singleClientMode = false;
-        uint32_t revision         = 0;
-        uint8_t  originMac[6]     = {};
+        bool singleClientMode = false;
+        uint32_t revision = 0;
+        uint8_t originMac[6] = {};
     };
 
-    using LightConfigCb    = std::function<void(uint8_t groupId, const LightConfig&)>;
-    using PresenceCb       = std::function<void(const uint8_t* mac, const char* name, bool isNew)>;
-    using SetGroupCb       = std::function<void(const uint8_t* targetMac, uint8_t lightIndex, uint8_t groupId)>;
-    using GroupSyncCb      = std::function<void(const GroupConfig&)>;
-    using PhaseSyncCb      = std::function<void(uint8_t groupId, float phase)>;
+    using LightConfigCb = std::function<void(uint8_t groupId, const LightConfig&)>;
+    using PresenceCb = std::function<void(const uint8_t* mac, const char* name, bool isNew)>;
+    using SetGroupCb =
+        std::function<void(const uint8_t* targetMac, uint8_t lightIndex, uint8_t groupId)>;
+    using GroupSyncCb = std::function<void(const GroupConfig&)>;
+    using PhaseSyncCb = std::function<void(uint8_t groupId, float phase)>;
     // Returns the current animation phase for the given light index.
-    using GetPhaseCb       = std::function<float(uint8_t lightIndex)>;
-    using SceneManifestCb  = std::function<void(const uint8_t* mac, const SceneManifestMsg*)>;
-    using SceneRequestCb   = std::function<void(const uint8_t* mac, const char* id)>;
-    using SceneChunkCb     = std::function<void(const SceneChunkMsg*)>;
-    using SceneForceSetCb   = std::function<void(const char* id, uint32_t hash)>;
-    using SceneEditPushCb   = std::function<void(const uint8_t* mac, const char* id, uint32_t prevHash)>;
+    using GetPhaseCb = std::function<float(uint8_t lightIndex)>;
+    using SceneManifestCb = std::function<void(const uint8_t* mac, const SceneManifestMsg*)>;
+    using SceneRequestCb = std::function<void(const uint8_t* mac, const char* id)>;
+    using SceneChunkCb = std::function<void(const SceneChunkMsg*)>;
+    using SceneForceSetCb = std::function<void(const char* id, uint32_t hash)>;
+    using SceneEditPushCb =
+        std::function<void(const uint8_t* mac, const char* id, uint32_t prevHash)>;
     using RequestManifestCb = std::function<void()>;
-    using SetSceneSyncCb    = std::function<void(bool enabled)>;
-    using ConfigChunkCb    = std::function<void(const uint8_t* srcMac, const ConfigChunkMsg*)>;
-    using TriggerUpdateCb  = std::function<void()>;
+    using SetSceneSyncCb = std::function<void(bool enabled)>;
+    using ConfigChunkCb = std::function<void(const uint8_t* srcMac, const ConfigChunkMsg*)>;
+    using TriggerUpdateCb = std::function<void()>;
     // Called when this device is told to check for a firmware update (no auto-install)
-    using CheckUpdateCb    = std::function<void()>;
-    using PeerHeardCb      = std::function<void(const uint8_t* mac)>;
-    using TimeSyncCb       = std::function<void(uint32_t epoch)>;
+    using CheckUpdateCb = std::function<void()>;
+    using PeerHeardCb = std::function<void(const uint8_t* mac)>;
+    using TimeSyncCb = std::function<void(uint32_t epoch)>;
     // Called when a newer mesh-wide single-WiFi-client policy state is seen.
     // Receiver should persist and apply the full state locally.
-    using MeshPolicyCb     = std::function<void(const MeshPolicyState& state)>;
+    using MeshPolicyCb = std::function<void(const MeshPolicyState& state)>;
     // Polled once per heartbeat to fill PresenceMsg.wifiConnecting — whether
     // this device is right now mid-attempt to join a WiFi network.
     using WifiAttemptingCb = std::function<bool()>;
@@ -53,37 +57,37 @@ public:
     // this device should be advertised as the mesh's actual WiFi client
     // (see WifiElection::isAdvertisableConnected). Falls back to the raw
     // WiFi.status() check if unset.
-    using WifiConnectedCb  = std::function<bool()>;
+    using WifiConnectedCb = std::function<bool()>;
     // Called when a peer (or this device, echoed back) broadcasts a manual
     // "retry WiFi now" request.
-    using WifiRetryCb      = std::function<void()>;
+    using WifiRetryCb = std::function<void()>;
     // Called when a peer broadcasts a manual "search devices" request, so
     // this device re-searches too (see ChannelManager::beginSearch).
-    using MeshSearchCb     = std::function<void()>;
+    using MeshSearchCb = std::function<void()>;
 
-    void setOnPeerHeard(PeerHeardCb cb)           { _onPeerHeard      = cb; }
-    void setOnLightConfig(LightConfigCb cb)       { _onLightConfig    = cb; }
-    void setOnPresence(PresenceCb cb)             { _onPresence       = cb; }
-    void setOnSetGroup(SetGroupCb cb)             { _onSetGroup       = cb; }
-    void setOnGroupSync(GroupSyncCb cb)           { _onGroupSync      = cb; }
-    void setOnPhaseSync(PhaseSyncCb cb)           { _onPhaseSync      = cb; }
-    void setGetPhase(GetPhaseCb cb)               { _getPhase         = cb; }
-    void setOnSceneManifest(SceneManifestCb cb)   { _onSceneManifest  = cb; }
-    void setOnSceneRequest(SceneRequestCb cb)     { _onSceneRequest   = cb; }
-    void setOnSceneChunk(SceneChunkCb cb)         { _onSceneChunk     = cb; }
-    void setOnSceneForceSet(SceneForceSetCb cb)     { _onSceneForceSet    = cb; }
-    void setOnSceneEditPush(SceneEditPushCb cb)     { _onSceneEditPush    = cb; }
-    void setOnRequestManifest(RequestManifestCb cb) { _onRequestManifest  = cb; }
-    void setOnSetSceneSync(SetSceneSyncCb cb)       { _onSetSceneSync     = cb; }
-    void setOnConfigChunk(ConfigChunkCb cb)       { _onConfigChunk    = cb; }
-    void setOnTriggerUpdate(TriggerUpdateCb cb)   { _onTriggerUpdate  = cb; }
-    void setOnCheckUpdate(CheckUpdateCb cb)       { _onCheckUpdate    = cb; }
-    void setOnTimeSync(TimeSyncCb cb)             { _onTimeSync       = cb; }
-    void setOnMeshPolicy(MeshPolicyCb cb)         { _onMeshPolicy     = cb; }
+    void setOnPeerHeard(PeerHeardCb cb) { _onPeerHeard = cb; }
+    void setOnLightConfig(LightConfigCb cb) { _onLightConfig = cb; }
+    void setOnPresence(PresenceCb cb) { _onPresence = cb; }
+    void setOnSetGroup(SetGroupCb cb) { _onSetGroup = cb; }
+    void setOnGroupSync(GroupSyncCb cb) { _onGroupSync = cb; }
+    void setOnPhaseSync(PhaseSyncCb cb) { _onPhaseSync = cb; }
+    void setGetPhase(GetPhaseCb cb) { _getPhase = cb; }
+    void setOnSceneManifest(SceneManifestCb cb) { _onSceneManifest = cb; }
+    void setOnSceneRequest(SceneRequestCb cb) { _onSceneRequest = cb; }
+    void setOnSceneChunk(SceneChunkCb cb) { _onSceneChunk = cb; }
+    void setOnSceneForceSet(SceneForceSetCb cb) { _onSceneForceSet = cb; }
+    void setOnSceneEditPush(SceneEditPushCb cb) { _onSceneEditPush = cb; }
+    void setOnRequestManifest(RequestManifestCb cb) { _onRequestManifest = cb; }
+    void setOnSetSceneSync(SetSceneSyncCb cb) { _onSetSceneSync = cb; }
+    void setOnConfigChunk(ConfigChunkCb cb) { _onConfigChunk = cb; }
+    void setOnTriggerUpdate(TriggerUpdateCb cb) { _onTriggerUpdate = cb; }
+    void setOnCheckUpdate(CheckUpdateCb cb) { _onCheckUpdate = cb; }
+    void setOnTimeSync(TimeSyncCb cb) { _onTimeSync = cb; }
+    void setOnMeshPolicy(MeshPolicyCb cb) { _onMeshPolicy = cb; }
     void setWifiAttemptingProvider(WifiAttemptingCb cb) { _wifiAttemptingProvider = cb; }
-    void setWifiConnectedProvider(WifiConnectedCb cb)   { _wifiConnectedProvider  = cb; }
-    void setOnWifiRetry(WifiRetryCb cb)           { _onWifiRetry      = cb; }
-    void setOnMeshSearch(MeshSearchCb cb)         { _onMeshSearch     = cb; }
+    void setWifiConnectedProvider(WifiConnectedCb cb) { _wifiConnectedProvider = cb; }
+    void setOnWifiRetry(WifiRetryCb cb) { _onWifiRetry = cb; }
+    void setOnMeshSearch(MeshSearchCb cb) { _onMeshSearch = cb; }
 
     void begin() {
         _instance = this;
@@ -157,20 +161,20 @@ public:
     void broadcastLightConfig(uint8_t groupId, const LightConfig& cfg) {
         if (!_ready) return;
         LightConfigMsg msg;
-        msg.type    = MsgType::LightConfig;
+        msg.type = MsgType::LightConfig;
         msg.groupId = groupId;
-        msg.config  = cfg;
+        msg.config = cfg;
         _lastSentGroup = groupId;
-        _lastSentSeq   = cfg.seq;
+        _lastSentSeq = cfg.seq;
         _send(&msg, sizeof(msg));
     }
 
     void broadcastSetGroup(const uint8_t* targetMac, uint8_t lightIndex, uint8_t groupId) {
         if (!_ready) return;
         SetGroupMsg msg;
-        msg.type       = MsgType::SetGroup;
+        msg.type = MsgType::SetGroup;
         msg.lightIndex = lightIndex;
-        msg.groupId    = groupId;
+        msg.groupId = groupId;
         memcpy(msg.targetMac, targetMac, 6);
         _send(&msg, sizeof(msg));
     }
@@ -178,7 +182,7 @@ public:
     void broadcastGroupSync(const GroupConfig& g) {
         if (!_ready) return;
         GroupSyncMsg msg;
-        msg.type  = MsgType::GroupSync;
+        msg.type = MsgType::GroupSync;
         msg.group = g;
         _send(&msg, sizeof(msg));
     }
@@ -186,15 +190,16 @@ public:
     void broadcastPhaseSync(uint8_t groupId, float phase) {
         if (!_ready) return;
         PhaseSyncMsg msg;
-        msg.type    = MsgType::PhaseSync;
+        msg.type = MsgType::PhaseSync;
         msg.groupId = groupId;
-        msg.phase   = phase;
+        msg.phase = phase;
         _send(&msg, sizeof(msg));
     }
 
     void broadcastSceneManifest(const SceneManifestMsg& msg) {
         if (!_ready) return;
-        size_t msgSize = offsetof(SceneManifestMsg, entries) + msg.count * sizeof(SceneManifestEntry);
+        size_t msgSize =
+            offsetof(SceneManifestMsg, entries) + msg.count * sizeof(SceneManifestEntry);
         _send(&msg, msgSize);
     }
 
@@ -255,9 +260,9 @@ public:
             return;
         }
         _outPush.sessionId = esp_random();
-        msg.sessionId       = _outPush.sessionId;
-        _outPush.active     = true;
-        _outPush.startedAt  = millis();
+        msg.sessionId = _outPush.sessionId;
+        _outPush.active = true;
+        _outPush.startedAt = millis();
         _send(&msg, sizeof(msg));
     }
 
@@ -273,7 +278,7 @@ public:
                 memcpy(_pushQueueMacs[_pushQueueCount++], p.mac, 6);
         }
         _pushQueueJson = json;
-        _pushQueueIdx  = 0;
+        _pushQueueIdx = 0;
         _advancePushQueue();
     }
 
@@ -283,12 +288,12 @@ public:
     // it expired, or the data is corrupt/tampered) — caller should drop the message.
     // `outPlain` must be at least `len` bytes.
     bool decryptConfigFromPeer(const uint8_t* srcMac, const uint8_t* data, size_t len,
-                                uint8_t* outPlain, size_t& outLen) {
+                               uint8_t* outPlain, size_t& outLen) {
         for (auto& s : _inSessions) {
             if (!s.valid || memcmp(s.mac, srcMac, 6) != 0) continue;
             bool expired = millis() - s.establishedAt >= SESSION_KEY_TTL_MS;
             bool ok = !expired && MeshCrypto::decrypt(s.key, data, len, outPlain, outLen);
-            s.valid = false; // one-shot: never reuse a session key across pushes
+            s.valid = false;  // one-shot: never reuse a session key across pushes
             return ok;
         }
         return false;
@@ -297,7 +302,7 @@ public:
     void broadcastSetSceneSync(const uint8_t* targetMac, bool enabled) {
         if (!_ready) return;
         SetSceneSyncMsg msg;
-        msg.type    = MsgType::SetSceneSync;
+        msg.type = MsgType::SetSceneSync;
         msg.enabled = enabled ? 1 : 0;
         memcpy(msg.targetMac, targetMac, 6);
         _send(&msg, sizeof(msg));
@@ -330,7 +335,7 @@ public:
         if (!_ready) return;
         MeshPolicyMsg msg;
         msg.wifiSingleClientMode = state.singleClientMode ? 1 : 0;
-        msg.revision             = state.revision;
+        msg.revision = state.revision;
         memcpy(msg.originMac, state.originMac, sizeof(msg.originMac));
         _send(&msg, sizeof(msg));
     }
@@ -351,82 +356,81 @@ public:
 
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
-            if (Config::get().groups[i].exists)
-                broadcastGroupSync(Config::get().groups[i]);
+            if (Config::get().groups[i].exists) broadcastGroupSync(Config::get().groups[i]);
     }
 
     bool isReady() const { return _ready; }
 
-private:
-    bool     _ready                = false;
-    bool     _snifferRunning       = false;
-    uint32_t _lastHeartbeat        = 0;
-    uint32_t _lastMeshPolicySync   = 0;
-    uint32_t _lastGroupSync        = 0;
-    uint32_t _lastPhaseBroadcast   = 0;
-    uint32_t _lastProximityPing    = 0;
-    uint8_t  _lastSentGroup      = 0xFF;
-    uint32_t _lastSentSeq        = UINT32_MAX;
+   private:
+    bool _ready = false;
+    bool _snifferRunning = false;
+    uint32_t _lastHeartbeat = 0;
+    uint32_t _lastMeshPolicySync = 0;
+    uint32_t _lastGroupSync = 0;
+    uint32_t _lastPhaseBroadcast = 0;
+    uint32_t _lastProximityPing = 0;
+    uint8_t _lastSentGroup = 0xFF;
+    uint32_t _lastSentSeq = UINT32_MAX;
 
-    PeerHeardCb     _onPeerHeard;
-    LightConfigCb   _onLightConfig;
-    PresenceCb      _onPresence;
-    SetGroupCb      _onSetGroup;
-    GroupSyncCb     _onGroupSync;
-    PhaseSyncCb     _onPhaseSync;
-    GetPhaseCb      _getPhase;
+    PeerHeardCb _onPeerHeard;
+    LightConfigCb _onLightConfig;
+    PresenceCb _onPresence;
+    SetGroupCb _onSetGroup;
+    GroupSyncCb _onGroupSync;
+    PhaseSyncCb _onPhaseSync;
+    GetPhaseCb _getPhase;
     SceneManifestCb _onSceneManifest;
-    SceneRequestCb  _onSceneRequest;
-    SceneChunkCb    _onSceneChunk;
-    SceneForceSetCb   _onSceneForceSet;
-    SceneEditPushCb   _onSceneEditPush;
+    SceneRequestCb _onSceneRequest;
+    SceneChunkCb _onSceneChunk;
+    SceneForceSetCb _onSceneForceSet;
+    SceneEditPushCb _onSceneEditPush;
     RequestManifestCb _onRequestManifest;
-    SetSceneSyncCb    _onSetSceneSync;
-    ConfigChunkCb   _onConfigChunk;
+    SetSceneSyncCb _onSetSceneSync;
+    ConfigChunkCb _onConfigChunk;
     TriggerUpdateCb _onTriggerUpdate;
-    CheckUpdateCb   _onCheckUpdate;
-    TimeSyncCb      _onTimeSync;
-    MeshPolicyCb    _onMeshPolicy;
+    CheckUpdateCb _onCheckUpdate;
+    TimeSyncCb _onTimeSync;
+    MeshPolicyCb _onMeshPolicy;
     WifiAttemptingCb _wifiAttemptingProvider;
-    WifiConnectedCb  _wifiConnectedProvider;
-    WifiRetryCb      _onWifiRetry;
-    MeshSearchCb     _onMeshSearch;
+    WifiConnectedCb _wifiConnectedProvider;
+    WifiRetryCb _onWifiRetry;
+    MeshSearchCb _onMeshSearch;
 
     // ── Config push encryption (issue #252) ───────────────────────────────────
     static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 3000;
-    static constexpr uint32_t SESSION_KEY_TTL_MS   = 10000;
-    static constexpr uint8_t  MAX_INBOUND_SESSIONS = 4;
+    static constexpr uint32_t SESSION_KEY_TTL_MS = 10000;
+    static constexpr uint8_t MAX_INBOUND_SESSIONS = 4;
 
     // State for the config push we initiated and are waiting on a KeyExchangeResp
     // for. Only one at a time; pushConfigSecureToAll() fans out sequentially.
     struct OutboundPush {
-        bool                 active    = false;
-        uint8_t              targetMac[6] = {};
-        uint32_t             sessionId = 0;
+        bool active = false;
+        uint8_t targetMac[6] = {};
+        uint32_t sessionId = 0;
         mbedtls_ecdh_context ctx;
-        uint32_t             startedAt = 0;
-        String               json;
+        uint32_t startedAt = 0;
+        String json;
     };
     // A session key derived by responding to a peer's KeyExchangeInit, held until
     // the matching ConfigChunk train arrives (or it expires unused).
     struct InboundSession {
-        bool     valid = false;
-        uint8_t  mac[6] = {};
-        uint8_t  key[MeshCrypto::AES_KEY_LEN] = {};
+        bool valid = false;
+        uint8_t mac[6] = {};
+        uint8_t key[MeshCrypto::AES_KEY_LEN] = {};
         uint32_t establishedAt = 0;
     };
 
-    OutboundPush   _outPush;
+    OutboundPush _outPush;
     InboundSession _inSessions[MAX_INBOUND_SESSIONS];
-    uint8_t        _pushQueueMacs[PeerRegistry::MAX_PEERS][6];
-    uint8_t        _pushQueueCount = 0;
-    uint8_t        _pushQueueIdx   = 0;
-    String         _pushQueueJson;
+    uint8_t _pushQueueMacs[PeerRegistry::MAX_PEERS][6];
+    uint8_t _pushQueueCount = 0;
+    uint8_t _pushQueueIdx = 0;
+    String _pushQueueJson;
 
     static MeshManager* _instance;
 
     void _send(const void* data, size_t len) {
-        static const uint8_t bcast[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+        static const uint8_t bcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
         esp_now_send(bcast, (uint8_t*)data, len);
     }
 
@@ -439,13 +443,14 @@ private:
     }
 
     void _sendConfigChunks(const uint8_t* targetMac, const uint8_t* data, size_t len) {
-        uint16_t totalChunks = (uint16_t)((len + CONFIG_CHUNK_DATA_SIZE - 1) / CONFIG_CHUNK_DATA_SIZE);
+        uint16_t totalChunks =
+            (uint16_t)((len + CONFIG_CHUNK_DATA_SIZE - 1) / CONFIG_CHUNK_DATA_SIZE);
         for (uint16_t i = 0; i < totalChunks; i++) {
             ConfigChunkMsg msg;
             memcpy(msg.targetMac, targetMac, 6);
-            msg.chunkIndex  = i;
+            msg.chunkIndex = i;
             msg.totalChunks = totalChunks;
-            size_t offset   = (size_t)i * CONFIG_CHUNK_DATA_SIZE;
+            size_t offset = (size_t)i * CONFIG_CHUNK_DATA_SIZE;
             size_t chunkLen = min((size_t)CONFIG_CHUNK_DATA_SIZE, len - offset);
             msg.dataLen = (uint16_t)chunkLen;
             memcpy(msg.data, data + offset, chunkLen);
@@ -458,17 +463,23 @@ private:
     // Advances pushConfigSecureToAll()'s fan-out queue by starting the handshake
     // with the next peer, if any remain.
     void _advancePushQueue() {
-        if (_pushQueueIdx >= _pushQueueCount) { _pushQueueJson = ""; return; }
+        if (_pushQueueIdx >= _pushQueueCount) {
+            _pushQueueJson = "";
+            return;
+        }
         pushConfigSecure(_pushQueueMacs[_pushQueueIdx++], _pushQueueJson.c_str());
     }
 
     // Finds the inbound session slot for `mac`, reusing an existing entry for
     // that peer, an empty slot, or the oldest expired one, in that order.
     InboundSession* _findInboundSlot(const uint8_t* mac) {
-        for (auto& s : _inSessions) if (s.valid && memcmp(s.mac, mac, 6) == 0) return &s;
-        for (auto& s : _inSessions) if (!s.valid) return &s;
+        for (auto& s : _inSessions)
+            if (s.valid && memcmp(s.mac, mac, 6) == 0) return &s;
+        for (auto& s : _inSessions)
+            if (!s.valid) return &s;
         InboundSession* oldest = &_inSessions[0];
-        for (auto& s : _inSessions) if (s.establishedAt < oldest->establishedAt) oldest = &s;
+        for (auto& s : _inSessions)
+            if (s.establishedAt < oldest->establishedAt) oldest = &s;
         return oldest;
     }
 
@@ -491,7 +502,7 @@ private:
         memcpy(slot->mac, srcMac, 6);
         memcpy(slot->key, key, sizeof(key));
         slot->establishedAt = millis();
-        slot->valid         = true;
+        slot->valid = true;
         memset(key, 0, sizeof(key));
 
         KeyExchangeRespMsg resp;
@@ -507,19 +518,20 @@ private:
         if (!_outPush.active || m->sessionId != _outPush.sessionId) return;
         uint8_t key[MeshCrypto::AES_KEY_LEN];
         bool ok = MeshCrypto::finishExchange(_outPush.ctx, m->pubKey, key);
-        _outPush.active = false; // ctx already freed by finishExchange
+        _outPush.active = false;  // ctx already freed by finishExchange
         if (!ok) {
             Logger::e("[mesh] ecdh exchange failed (initiator)");
             _advancePushQueue();
             return;
         }
-        size_t   plainLen = _outPush.json.length();
-        size_t   encCap    = plainLen + MeshCrypto::NONCE_LEN + MeshCrypto::TAG_LEN;
-        uint8_t* enc       = new (std::nothrow) uint8_t[encCap];
-        size_t   encLen    = 0;
+        size_t plainLen = _outPush.json.length();
+        size_t encCap = plainLen + MeshCrypto::NONCE_LEN + MeshCrypto::TAG_LEN;
+        uint8_t* enc = new (std::nothrow) uint8_t[encCap];
+        size_t encLen = 0;
         if (!enc) {
             Logger::e("[mesh] config push: out of memory encrypting %u bytes", (unsigned)plainLen);
-        } else if (MeshCrypto::encrypt(key, (const uint8_t*)_outPush.json.c_str(), plainLen, enc, encLen)) {
+        } else if (MeshCrypto::encrypt(key, (const uint8_t*)_outPush.json.c_str(), plainLen, enc,
+                                       encLen)) {
             _sendConfigChunks(_outPush.targetMac, enc, encLen);
         } else {
             Logger::e("[mesh] config encrypt failed");
@@ -533,7 +545,10 @@ private:
         bool found = false;
         Config::forEachLightUntil([&](uint8_t, LightHardwareConfig& l) -> bool {
             GroupConfig* g = Config::group(l.groupId);
-            if (g && g->light.mode == GroupMode::Proximity) { found = true; return false; }
+            if (g && g->light.mode == GroupMode::Proximity) {
+                found = true;
+                return false;
+            }
             return true;
         });
         return found;
@@ -542,7 +557,7 @@ private:
     MeshPolicyState _currentMeshPolicyState() const {
         MeshPolicyState state;
         state.singleClientMode = Config::get().wifiSingleClientMode;
-        state.revision         = Config::get().wifiPolicyRevision;
+        state.revision = Config::get().wifiPolicyRevision;
         memcpy(state.originMac, Config::get().wifiPolicyOriginMac, sizeof(state.originMac));
         return state;
     }
@@ -550,7 +565,7 @@ private:
     static MeshPolicyState _stateFromMsg(const MeshPolicyMsg& msg) {
         MeshPolicyState state;
         state.singleClientMode = msg.wifiSingleClientMode != 0;
-        state.revision         = msg.revision;
+        state.revision = msg.revision;
         memcpy(state.originMac, msg.originMac, sizeof(state.originMac));
         return state;
     }
@@ -595,8 +610,8 @@ private:
         return len == (int)sizeof(T);
     }
 
-    static bool _hasVariableArrayLen(int len, size_t headerLen, size_t itemCount,
-                                     size_t itemSize, size_t maxCount) {
+    static bool _hasVariableArrayLen(int len, size_t headerLen, size_t itemCount, size_t itemSize,
+                                     size_t maxCount) {
         return itemCount <= maxCount && (size_t)len >= headerLen + itemCount * itemSize;
     }
 
@@ -607,19 +622,22 @@ private:
 
     void _sendPresence() {
         PresenceMsg msg;
-        msg.type             = MsgType::Presence;
+        msg.type = MsgType::Presence;
         msg.sceneSyncEnabled = Config::get().sceneSyncEnabled ? 1 : 0;
         strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
-        msg.wifiConnected = (_wifiConnectedProvider ? _wifiConnectedProvider() : (WiFi.status() == WL_CONNECTED)) ? 1 : 0;
+        msg.wifiConnected =
+            (_wifiConnectedProvider ? _wifiConnectedProvider() : (WiFi.status() == WL_CONNECTED))
+                ? 1
+                : 0;
         msg.hasWifiNetworks = (Config::wifiCount() > 0) ? 1 : 0;
-        msg.wifiConnecting  = (_wifiAttemptingProvider && _wifiAttemptingProvider()) ? 1 : 0;
+        msg.wifiConnecting = (_wifiAttemptingProvider && _wifiAttemptingProvider()) ? 1 : 0;
         strlcpy(msg.fwVersion, FW_VERSION, sizeof(msg.fwVersion));
         const auto& us = Updater::status();
-        msg.fwState = (uint8_t)(
-            us.state == Updater::State::Checking    ? FwState::Checking    :
-            us.state == Updater::State::Downloading ? FwState::Downloading :
-            us.state == Updater::State::Error       ? FwState::Error       :
-            us.state == Updater::State::Done        ? FwState::Done        : FwState::Idle);
+        msg.fwState = (uint8_t)(us.state == Updater::State::Checking      ? FwState::Checking
+                                : us.state == Updater::State::Downloading ? FwState::Downloading
+                                : us.state == Updater::State::Error       ? FwState::Error
+                                : us.state == Updater::State::Done        ? FwState::Done
+                                                                          : FwState::Idle);
 
         msg.lightCount = 0;
         for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
@@ -645,7 +663,10 @@ private:
             if (!p.online()) continue;
             bool inGroup = false;
             for (uint8_t i = 0; i < p.lightCount && i < MAX_LIGHTS; i++)
-                if (p.lightGroupIds[i] == groupId) { inGroup = true; break; }
+                if (p.lightGroupIds[i] == groupId) {
+                    inGroup = true;
+                    break;
+                }
             if (!inGroup) continue;
             if (memcmp(p.mac, ownMac, 6) < 0) return false;
         }
@@ -655,7 +676,7 @@ private:
     void _setSnifferEnabled(bool enable) {
         if (enable == _snifferRunning) return;
         if (enable) {
-            wifi_promiscuous_filter_t f = { .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT };
+            wifi_promiscuous_filter_t f = {.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT};
             esp_wifi_set_promiscuous_filter(&f);
             esp_wifi_set_promiscuous(true);
             esp_wifi_set_promiscuous_rx_cb(_promiscuousRecv);
@@ -684,10 +705,10 @@ private:
                 if (!_hasExactLen<PresenceMsg>(len)) return;
                 auto* m = (PresenceMsg*)data;
                 if (m->version != PRESENCE_MSG_VERSION) return;
-                bool isNew = _instance->peers.update(mac, m->name,
-                    m->lightCount, m->lightGroupIds, m->lightNames,
-                    m->sceneSyncEnabled != 0, m->wifiConnected != 0,
-                    m->fwVersion, (FwState)m->fwState, m->hasWifiNetworks != 0, m->wifiConnecting != 0);
+                bool isNew = _instance->peers.update(
+                    mac, m->name, m->lightCount, m->lightGroupIds, m->lightNames,
+                    m->sceneSyncEnabled != 0, m->wifiConnected != 0, m->fwVersion,
+                    (FwState)m->fwState, m->hasWifiNetworks != 0, m->wifiConnecting != 0);
                 if (_instance->_onPeerHeard) _instance->_onPeerHeard(mac);
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, isNew);
                 if (isNew) {
@@ -700,28 +721,30 @@ private:
                 if (len < (int)sizeof(LightConfigMsg)) return;
                 auto* m = (LightConfigMsg*)data;
                 if (m->groupId == _instance->_lastSentGroup &&
-                    m->config.seq == _instance->_lastSentSeq) return;
-                Logger::d("[mesh] light config rx group %u pattern %u seq %u",
-                          m->groupId, (uint8_t)m->config.pattern, m->config.seq);
+                    m->config.seq == _instance->_lastSentSeq)
+                    return;
+                Logger::d("[mesh] light config rx group %u pattern %u seq %u", m->groupId,
+                          (uint8_t)m->config.pattern, m->config.seq);
                 if (_instance->_onLightConfig) _instance->_onLightConfig(m->groupId, m->config);
                 break;
             }
             case MsgType::SetGroup: {
                 if (len < (int)sizeof(SetGroupMsg)) return;
                 auto* m = (SetGroupMsg*)data;
-                Logger::i("[mesh] set-group rx: target %02x:%02x:%02x:%02x:%02x:%02x light %u → group %u",
-                          m->targetMac[0], m->targetMac[1], m->targetMac[2],
-                          m->targetMac[3], m->targetMac[4], m->targetMac[5],
-                          m->lightIndex, m->groupId);
-                if (_instance->_onSetGroup) _instance->_onSetGroup(m->targetMac, m->lightIndex, m->groupId);
+                Logger::i(
+                    "[mesh] set-group rx: target %02x:%02x:%02x:%02x:%02x:%02x light %u → group %u",
+                    m->targetMac[0], m->targetMac[1], m->targetMac[2], m->targetMac[3],
+                    m->targetMac[4], m->targetMac[5], m->lightIndex, m->groupId);
+                if (_instance->_onSetGroup)
+                    _instance->_onSetGroup(m->targetMac, m->lightIndex, m->groupId);
                 _instance->peers.updateLightGroup(mac, m->lightIndex, m->groupId);
                 break;
             }
             case MsgType::GroupSync: {
                 if (len < (int)sizeof(GroupSyncMsg)) return;
                 auto* m = (GroupSyncMsg*)data;
-                Logger::i("[mesh] group-sync rx: group %u \"%s\" exists=%d rev=%lu",
-                          m->group.id, m->group.name, m->group.exists, (unsigned long)m->group.revision);
+                Logger::i("[mesh] group-sync rx: group %u \"%s\" exists=%d rev=%lu", m->group.id,
+                          m->group.name, m->group.exists, (unsigned long)m->group.revision);
                 _instance->_reconcileGroupSync(m->group);
                 break;
             }
@@ -737,9 +760,9 @@ private:
             case MsgType::SceneManifest: {
                 if (len < (int)offsetof(SceneManifestMsg, entries)) return;
                 auto* m = (SceneManifestMsg*)data;
-                if (!_hasVariableArrayLen(len, offsetof(SceneManifestMsg, entries),
-                                          m->count, sizeof(SceneManifestEntry),
-                                          MANIFEST_ENTRIES_PER_MSG)) return;
+                if (!_hasVariableArrayLen(len, offsetof(SceneManifestMsg, entries), m->count,
+                                          sizeof(SceneManifestEntry), MANIFEST_ENTRIES_PER_MSG))
+                    return;
                 if (_instance->_onSceneManifest) _instance->_onSceneManifest(mac, m);
                 break;
             }
@@ -752,8 +775,9 @@ private:
             case MsgType::SceneChunk: {
                 if (len < (int)offsetof(SceneChunkMsg, data)) return;
                 auto* m = (SceneChunkMsg*)data;
-                if (!_hasVariablePayloadLen(len, offsetof(SceneChunkMsg, data),
-                                            m->dataLen, CHUNK_DATA_SIZE)) return;
+                if (!_hasVariablePayloadLen(len, offsetof(SceneChunkMsg, data), m->dataLen,
+                                            CHUNK_DATA_SIZE))
+                    return;
                 if (_instance->_onSceneChunk) _instance->_onSceneChunk(m);
                 break;
             }
@@ -766,7 +790,8 @@ private:
             case MsgType::SceneEditPush: {
                 if (len < (int)sizeof(SceneEditPushMsg)) return;
                 auto* m = (SceneEditPushMsg*)data;
-                if (_instance->_onSceneEditPush) _instance->_onSceneEditPush(mac, m->id, m->prevHash);
+                if (_instance->_onSceneEditPush)
+                    _instance->_onSceneEditPush(mac, m->id, m->prevHash);
                 break;
             }
             case MsgType::RequestManifest: {
@@ -787,8 +812,9 @@ private:
             case MsgType::ConfigChunk: {
                 if (len < (int)offsetof(ConfigChunkMsg, data)) return;
                 auto* m = (ConfigChunkMsg*)data;
-                if (!_hasVariablePayloadLen(len, offsetof(ConfigChunkMsg, data),
-                                            m->dataLen, CONFIG_CHUNK_DATA_SIZE)) return;
+                if (!_hasVariablePayloadLen(len, offsetof(ConfigChunkMsg, data), m->dataLen,
+                                            CONFIG_CHUNK_DATA_SIZE))
+                    return;
                 if (_instance->_onConfigChunk) _instance->_onConfigChunk(mac, m);
                 break;
             }
@@ -859,8 +885,7 @@ private:
     }
 
     static void _onSent(const uint8_t*, esp_now_send_status_t status) {
-        if (status != ESP_NOW_SEND_SUCCESS)
-            Logger::d("[mesh] send failed");
+        if (status != ESP_NOW_SEND_SUCCESS) Logger::d("[mesh] send failed");
     }
 };
 

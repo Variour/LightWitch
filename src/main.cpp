@@ -1,45 +1,46 @@
 #include <Arduino.h>
-#include <LittleFS.h>
-#include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
+#include <LittleFS.h>
+#include <WiFi.h>
+
 #include <new>
 
-#include "config/Config.h"
-#include "version.h"
-#include "logging/Logger.h"
-#include "led/Ws2812bDriver.h"
-#include "led/Ws2801Driver.h"
-#include "patterns/PatternRunner.h"
-#include "mesh/MeshManager.h"
-#include "mesh/ChannelManager.h"
-#include "mesh/WifiElection.h"
-#include "web/WebServer.h"
-#include "mqtt/MqttManager.h"
-#include "scenes/SceneSyncManager.h"
-#include "timesync/TimeSync.h"
 #include "actions/ActionExecutor.h"
 #include "buttons/ButtonManager.h"
+#include "config/Config.h"
+#include "led/Ws2801Driver.h"
+#include "led/Ws2812bDriver.h"
+#include "logging/Logger.h"
+#include "mesh/ChannelManager.h"
+#include "mesh/MeshManager.h"
+#include "mesh/WifiElection.h"
+#include "mqtt/MqttManager.h"
+#include "patterns/PatternRunner.h"
+#include "scenes/SceneSyncManager.h"
+#include "timesync/TimeSync.h"
+#include "version.h"
+#include "web/WebServer.h"
 
-static Ws2812bDriver    _ws2812bPool[MAX_LIGHTS];
-static Ws2801Driver     _ws2801Pool[MAX_LIGHTS];
-static LedDriver*       _leds[MAX_LIGHTS]    = {};
-static PatternRunner    _runners[MAX_LIGHTS];
-static MeshManager      mesh;
-static ChannelManager   channelMgr;
-static WifiElection     wifiElection;
+static Ws2812bDriver _ws2812bPool[MAX_LIGHTS];
+static Ws2801Driver _ws2801Pool[MAX_LIGHTS];
+static LedDriver* _leds[MAX_LIGHTS] = {};
+static PatternRunner _runners[MAX_LIGHTS];
+static MeshManager mesh;
+static ChannelManager channelMgr;
+static WifiElection wifiElection;
 static BatteryWebServer webServer;
-static MqttManager      mqtt;
+static MqttManager mqtt;
 static SceneSyncManager sceneSync;
-static ActionExecutor   actionExecutor;
-static ButtonManager    buttonManager;
-static bool             _otaActive = false;
+static ActionExecutor actionExecutor;
+static ButtonManager buttonManager;
+static bool _otaActive = false;
 
 // Caps how often patterns recompute and push to the LED driver. Well above what
 // any strip or human eye needs, but far below the unthrottled main-loop rate —
 // getPhase()/snapPhase() are time-based, so skipping ticks doesn't affect them.
 static constexpr uint32_t PATTERN_TICK_INTERVAL_MS = 1000 / 60;
-static uint32_t           _lastPatternTickMs        = 0;
+static uint32_t _lastPatternTickMs = 0;
 
 // Caps how often the background subsystems below (OTA polling, web server
 // housekeeping, mesh, wifi election, time sync, MQTT, buttons, scene sync)
@@ -51,7 +52,7 @@ static uint32_t           _lastPatternTickMs        = 0;
 // own internal timers run in the hundreds/thousands of ms. A live OTA
 // transfer bypasses this for ArduinoOTA.handle() so flashing stays full-speed.
 static constexpr uint32_t BACKGROUND_TICK_INTERVAL_MS = 5;
-static uint32_t           _lastBackgroundTickMs        = 0;
+static uint32_t _lastBackgroundTickMs = 0;
 
 // Second, slower tier for the subsystems whose own timers are all in the
 // hundreds-of-ms-to-seconds range: mesh's tightest is a 500 ms proximity
@@ -60,22 +61,23 @@ static uint32_t           _lastBackgroundTickMs        = 0;
 // room to spare. Buttons and scene sync stay on the faster tier above since
 // their own timers (30 ms debounce, 20 ms chunk pacing) can't tolerate this.
 static constexpr uint32_t SLOW_TICK_INTERVAL_MS = 50;
-static uint32_t           _lastSlowTickMs        = 0;
+static uint32_t _lastSlowTickMs = 0;
 
 // Tracks the last-rendered firmware-update status so the progress fill is
 // only redrawn when it actually changes, not on every loop() iteration.
-static Updater::State     _lastUpdateState           = Updater::State::Idle;
-static int                _lastUpdateProgress        = -1;
-static bool               _startupUpdateCheckPending = false;
+static Updater::State _lastUpdateState = Updater::State::Idle;
+static int _lastUpdateProgress = -1;
+static bool _startupUpdateCheckPending = false;
 
 // Reassembly buffer for incoming config push chunks
-static String   _cfgSyncBuf;
+static String _cfgSyncBuf;
 static uint16_t _cfgSyncExpected = 0;
 
 static void serialSink(LogLevel level, const char* msg) {
-    const char* p = level == LogLevel::ERROR ? "[E]"
-                  : level == LogLevel::WARN  ? "[W]"
-                  : level == LogLevel::INFO  ? "[I]" : "[D]";
+    const char* p = level == LogLevel::ERROR  ? "[E]"
+                    : level == LogLevel::WARN ? "[W]"
+                    : level == LogLevel::INFO ? "[I]"
+                                              : "[D]";
     Serial.printf("%s %s\n", p, msg);
 }
 
@@ -102,9 +104,7 @@ static void applyAllLights() {
 }
 
 // Pushes mesh peers over the dashboard WebSocket.
-static void publishTelemetry() {
-    webServer.pushPeers();
-}
+static void publishTelemetry() { webServer.pushPeers(); }
 
 // Broadcasts a GroupConfig change over mesh and republishes its MQTT state —
 // or, for a tombstone (g.exists == false, i.e. this group was just deleted),
@@ -112,8 +112,10 @@ static void publishTelemetry() {
 // a group Config no longer has.
 static void publishGroupSync(const GroupConfig& g) {
     mesh.broadcastGroupSync(g);
-    if (g.exists) mqtt.publishGroupState(g.id);
-    else          mqtt.clearGroupRetained(g.id);
+    if (g.exists)
+        mqtt.publishGroupState(g.id);
+    else
+        mqtt.clearGroupRetained(g.id);
 }
 
 // Re-applies a single light's effective config — its (possibly just
@@ -145,9 +147,13 @@ static void applyLightBrightnessOverride(uint8_t lightIndex) {
 // are just re-applying a peer's already-attributed edit, and bumping here
 // would incorrectly re-attribute it to this device and inflate the revision
 // on every relay hop.
-static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg, bool bumpRevision) {
+static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg,
+                                         bool bumpRevision) {
     GroupConfig* g = Config::group(groupId);
-    if (!g) { Logger::w("[cfg] light config for unknown group %u — ignored", groupId); return; }
+    if (!g) {
+        Logger::w("[cfg] light config for unknown group %u — ignored", groupId);
+        return;
+    }
     if (cfg.seq < g->light.seq) return;  // stale relative to what we already have
 
     g->light = cfg;
@@ -155,7 +161,8 @@ static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg
     Config::save();
 
     Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
-        if (l.groupId == groupId && _leds[i]) _runners[i].applyConfig(withBrightnessOverride(cfg, l));
+        if (l.groupId == groupId && _leds[i])
+            _runners[i].applyConfig(withBrightnessOverride(cfg, l));
     });
 
     mesh.broadcastLightConfig(groupId, cfg);
@@ -171,7 +178,7 @@ static bool hasWifiPolicyOrigin() {
 static MeshManager::MeshPolicyState currentWifiPolicyState() {
     MeshManager::MeshPolicyState state;
     state.singleClientMode = Config::get().wifiSingleClientMode;
-    state.revision         = Config::get().wifiPolicyRevision;
+    state.revision = Config::get().wifiPolicyRevision;
     memcpy(state.originMac, Config::get().wifiPolicyOriginMac, sizeof(state.originMac));
     return state;
 }
@@ -185,17 +192,18 @@ static void ensureWifiPolicyStateInitialized() {
 static bool applyWifiPolicyState(const MeshManager::MeshPolicyState& state, const char* via) {
     auto& c = Config::get();
     bool policyChanged = c.wifiSingleClientMode != state.singleClientMode;
-    bool metaChanged   = c.wifiPolicyRevision != state.revision
-                      || memcmp(c.wifiPolicyOriginMac, state.originMac, sizeof(c.wifiPolicyOriginMac)) != 0;
+    bool metaChanged =
+        c.wifiPolicyRevision != state.revision ||
+        memcmp(c.wifiPolicyOriginMac, state.originMac, sizeof(c.wifiPolicyOriginMac)) != 0;
     if (!policyChanged && !metaChanged) return false;
 
     c.wifiSingleClientMode = state.singleClientMode;
-    c.wifiPolicyRevision   = state.revision;
+    c.wifiPolicyRevision = state.revision;
     memcpy(c.wifiPolicyOriginMac, state.originMac, sizeof(c.wifiPolicyOriginMac));
     Config::save();
 
-    Logger::i("[wifi] single-client policy synced via %s: enabled=%d rev=%lu",
-              via, state.singleClientMode, (unsigned long)state.revision);
+    Logger::i("[wifi] single-client policy synced via %s: enabled=%d rev=%lu", via,
+              state.singleClientMode, (unsigned long)state.revision);
     if (policyChanged) {
         wifiElection.onPolicyChanged(state.singleClientMode);
         publishTelemetry();
@@ -227,8 +235,8 @@ static void setupWifi() {
     if (count == 0) {
         WiFi.softAP(c.deviceName, c.apPassword, 1);
         WiFi.setTxPower(WIFI_TX_POWER);
-        Logger::i("[wifi] No networks configured, AP: %s  IP: %s",
-                  c.deviceName, WiFi.softAPIP().toString().c_str());
+        Logger::i("[wifi] No networks configured, AP: %s  IP: %s", c.deviceName,
+                  WiFi.softAPIP().toString().c_str());
         return;
     }
 
@@ -240,8 +248,9 @@ static void setupWifi() {
     if (c.wifiSingleClientMode) {
         WiFi.softAP(c.deviceName, c.apPassword, 1);
         WiFi.setTxPower(WIFI_TX_POWER);
-        Logger::i("[wifi] single-client mode: deferring connect decision to WifiElection, AP: %s  IP: %s",
-                  c.deviceName, WiFi.softAPIP().toString().c_str());
+        Logger::i(
+            "[wifi] single-client mode: deferring connect decision to WifiElection, AP: %s  IP: %s",
+            c.deviceName, WiFi.softAPIP().toString().c_str());
         return;
     }
 
@@ -263,7 +272,8 @@ static void setupWifi() {
             while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) delay(250);
             if (WiFi.status() == WL_CONNECTED) {
                 WiFi.softAPdisconnect(false);
-                Logger::i("[wifi] Connected to %s, IP: %s  (AP off)", ssid, WiFi.localIP().toString().c_str());
+                Logger::i("[wifi] Connected to %s, IP: %s  (AP off)", ssid,
+                          WiFi.localIP().toString().c_str());
                 if (ni != last) {
                     Config::setWifiLast(ni);
                     Config::saveWifi();
@@ -291,8 +301,12 @@ static void setupOta() {
         const char* what = ArduinoOTA.getCommand() == U_SPIFFS ? "filesystem" : "firmware";
         Logger::i("[ota] %s update starting", what);
     });
-    ArduinoOTA.onEnd([]()    { _otaActive = false; Logger::i("[ota] done");  });
-    ArduinoOTA.onError([](ota_error_t e) { Logger::e("[ota] error %u: %s", e, Update.errorString()); });
+    ArduinoOTA.onEnd([]() {
+        _otaActive = false;
+        Logger::i("[ota] done");
+    });
+    ArduinoOTA.onError(
+        [](ota_error_t e) { Logger::e("[ota] error %u: %s", e, Update.errorString()); });
     ArduinoOTA.begin();
     Logger::i("[ota] ready at %s:%u", c.deviceName, c.otaPort);
 }
@@ -307,7 +321,10 @@ void setup() {
     } else {
         File root = LittleFS.open("/");
         File f = root.openNextFile();
-        while (f) { Logger::i("[fs] %s (%u bytes)", f.name(), f.size()); f = root.openNextFile(); }
+        while (f) {
+            Logger::i("[fs] %s (%u bytes)", f.name(), f.size());
+            f = root.openNextFile();
+        }
     }
     Config::load();
     Logger::setLevel((LogLevel)Config::get().logLevel);
@@ -326,14 +343,14 @@ void setup() {
             _ws2801Pool[i].setup(l.dataPin, l.clockPin, numLeds);
             _ws2801Pool[i].begin();
             drv = &_ws2801Pool[i];
-            Logger::i("[led] light %u: WS2801 data=GPIO%d clock=GPIO%d leds=%u group=%u",
-                      i, l.dataPin, l.clockPin, numLeds, l.groupId);
+            Logger::i("[led] light %u: WS2801 data=GPIO%d clock=GPIO%d leds=%u group=%u", i,
+                      l.dataPin, l.clockPin, numLeds, l.groupId);
         } else {
             _ws2812bPool[i].setup(l.dataPin, numLeds);
             _ws2812bPool[i].begin();
             drv = &_ws2812bPool[i];
-            Logger::i("[led] light %u: WS2812B data=GPIO%d leds=%u group=%u",
-                      i, l.dataPin, numLeds, l.groupId);
+            Logger::i("[led] light %u: WS2812B data=GPIO%d leds=%u group=%u", i, l.dataPin, numLeds,
+                      l.groupId);
         }
         _leds[i] = drv;
         _runners[i].begin(*drv);
@@ -363,7 +380,8 @@ void setup() {
         applyAndPropagateLightConfig(groupId, cfg, /*bumpRevision=*/true);
     });
     actionExecutor.setBroadcastGroupSyncFn([](const GroupConfig& g) { publishGroupSync(g); });
-    actionExecutor.setApplyLightBrightnessFn([](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
+    actionExecutor.setApplyLightBrightnessFn(
+        [](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
     buttonManager.setExecutor(&actionExecutor);
     buttonManager.begin();
 
@@ -376,26 +394,21 @@ void setup() {
     mesh.setWifiAttemptingProvider([]() { return wifiElection.isAttempting(); });
     mesh.setWifiConnectedProvider([]() { return wifiElection.isAdvertisableConnected(); });
     wifiElection.setOnAttemptingChanged([]() { publishTelemetry(); });
-    mesh.setOnPeerHeard([](const uint8_t* mac){ channelMgr.onPeerHeard(mac); });
-    mesh.setOnMeshPolicy([](const MeshManager::MeshPolicyState& state) {
-        applyWifiPolicyState(state, "mesh");
-    });
+    mesh.setOnPeerHeard([](const uint8_t* mac) { channelMgr.onPeerHeard(mac); });
+    mesh.setOnMeshPolicy(
+        [](const MeshManager::MeshPolicyState& state) { applyWifiPolicyState(state, "mesh"); });
     mesh.setOnWifiRetry([]() { wifiElection.retryNow(); });
     mesh.setOnMeshSearch([]() { channelMgr.beginSearch(); });
 
     // Wire SceneSyncManager → MeshManager
     sceneSync.setBroadcastFns(
         [](const char* id, uint32_t hash) { mesh.broadcastSceneForceSet(id, hash); },
-        [](const char* id)                { mesh.broadcastSceneRequest(id); },
-        [](const SceneChunkMsg& msg)      { mesh.broadcastSceneChunk(msg); },
-        [](const SceneManifestMsg& msg)   { mesh.broadcastSceneManifest(msg); }
-    );
-    sceneSync.setEditPushFn([](const char* id, uint32_t prevHash) {
-        mesh.broadcastSceneEditPush(id, prevHash);
-    });
-    sceneSync.setRequestManifestFn([]() {
-        mesh.broadcastRequestManifest();
-    });
+        [](const char* id) { mesh.broadcastSceneRequest(id); },
+        [](const SceneChunkMsg& msg) { mesh.broadcastSceneChunk(msg); },
+        [](const SceneManifestMsg& msg) { mesh.broadcastSceneManifest(msg); });
+    sceneSync.setEditPushFn(
+        [](const char* id, uint32_t prevHash) { mesh.broadcastSceneEditPush(id, prevHash); });
+    sceneSync.setRequestManifestFn([]() { mesh.broadcastRequestManifest(); });
 
     // ── Mesh callbacks ────────────────────────────────────────────────────────
 
@@ -410,30 +423,21 @@ void setup() {
         if (isNew) sceneSync.onNewPeer(mac);
     });
 
-    mesh.setOnSceneManifest([](const uint8_t* mac, const SceneManifestMsg* msg) {
-        sceneSync.onManifest(mac, msg);
-    });
-    mesh.setOnSceneRequest([](const uint8_t* mac, const char* id) {
-        sceneSync.onRequest(mac, id);
-    });
-    mesh.setOnSceneChunk([](const SceneChunkMsg* msg) {
-        sceneSync.onChunk(msg);
-    });
-    mesh.setOnSceneForceSet([](const char* id, uint32_t hash) {
-        sceneSync.onForceSet(id, hash);
-    });
+    mesh.setOnSceneManifest(
+        [](const uint8_t* mac, const SceneManifestMsg* msg) { sceneSync.onManifest(mac, msg); });
+    mesh.setOnSceneRequest(
+        [](const uint8_t* mac, const char* id) { sceneSync.onRequest(mac, id); });
+    mesh.setOnSceneChunk([](const SceneChunkMsg* msg) { sceneSync.onChunk(msg); });
+    mesh.setOnSceneForceSet([](const char* id, uint32_t hash) { sceneSync.onForceSet(id, hash); });
     mesh.setOnSceneEditPush([](const uint8_t* mac, const char* id, uint32_t prevHash) {
         sceneSync.onSceneEditPush(mac, id, prevHash);
     });
-    mesh.setOnRequestManifest([]() {
-        sceneSync.onRequestManifest();
-    });
-    mesh.setOnSetSceneSync([](bool enabled) {
-        sceneSync.onSetSceneSync(enabled);
-    });
+    mesh.setOnRequestManifest([]() { sceneSync.onRequestManifest(); });
+    mesh.setOnSetSceneSync([](bool enabled) { sceneSync.onSetSceneSync(enabled); });
 
-    mesh.setOnTriggerUpdate([]() { wifiElection.requestTemporary([]() { Updater::triggerAsync(); }); });
-    mesh.setOnCheckUpdate([]()   { wifiElection.requestTemporary([]() { Updater::checkAsync(); });   });
+    mesh.setOnTriggerUpdate(
+        []() { wifiElection.requestTemporary([]() { Updater::triggerAsync(); }); });
+    mesh.setOnCheckUpdate([]() { wifiElection.requestTemporary([]() { Updater::checkAsync(); }); });
     mesh.setOnTimeSync([](uint32_t epoch) { TimeSync::onPeerTime(epoch); });
     TimeSync::setBroadcastFn([](uint32_t epoch) { mesh.broadcastTimeSync(epoch); });
 
@@ -443,22 +447,25 @@ void setup() {
         if (memcmp(srcMac, own, 6) == 0) return;
         if (memcmp(msg->targetMac, own, 6) != 0) return;
         if (msg->chunkIndex == 0) {
-            _cfgSyncBuf     = "";
+            _cfgSyncBuf = "";
             _cfgSyncExpected = msg->totalChunks;
         }
         if (msg->totalChunks != _cfgSyncExpected) return;
         _cfgSyncBuf.concat((const char*)msg->data, msg->dataLen);
         if (msg->chunkIndex == _cfgSyncExpected - 1) {
-            size_t   cipherLen = _cfgSyncBuf.length();
-            uint8_t* plain     = new (std::nothrow) uint8_t[cipherLen];
-            size_t   plainLen  = 0;
+            size_t cipherLen = _cfgSyncBuf.length();
+            uint8_t* plain = new (std::nothrow) uint8_t[cipherLen];
+            size_t plainLen = 0;
             if (!plain) {
-                Logger::e("[cfg] config sync: out of memory decrypting %u bytes", (unsigned)cipherLen);
-            } else if (mesh.decryptConfigFromPeer(srcMac, (const uint8_t*)_cfgSyncBuf.c_str(), cipherLen, plain, plainLen)) {
+                Logger::e("[cfg] config sync: out of memory decrypting %u bytes",
+                          (unsigned)cipherLen);
+            } else if (mesh.decryptConfigFromPeer(srcMac, (const uint8_t*)_cfgSyncBuf.c_str(),
+                                                  cipherLen, plain, plainLen)) {
                 Logger::i("[cfg] config sync received (%u bytes), applying", (unsigned)plainLen);
                 Config::applyConfigSync((const char*)plain, plainLen);
             } else {
-                Logger::e("[cfg] config sync decrypt failed (no session key or corrupt data), dropping");
+                Logger::e(
+                    "[cfg] config sync decrypt failed (no session key or corrupt data), dropping");
             }
             delete[] plain;
         }
@@ -475,7 +482,9 @@ void setup() {
                 if (_leds[lightIndex]) {
                     _runners[lightIndex].setGroupId(groupId);
                     auto* g = Config::group(groupId);
-                    if (g) _runners[lightIndex].applyConfig(withBrightnessOverride(g->light, Config::get().lights[lightIndex]));
+                    if (g)
+                        _runners[lightIndex].applyConfig(
+                            withBrightnessOverride(g->light, Config::get().lights[lightIndex]));
                 }
                 Logger::i("[mesh] light %u moved to group %u", lightIndex, groupId);
             }
@@ -521,9 +530,7 @@ void setup() {
         });
     });
 
-    mesh.setGetPhase([](uint8_t lightIndex) -> float {
-        return _runners[lightIndex].getPhase();
-    });
+    mesh.setGetPhase([](uint8_t lightIndex) -> float { return _runners[lightIndex].getPhase(); });
 
     // ── Web server callbacks ──────────────────────────────────────────────────
 
@@ -541,8 +548,7 @@ void setup() {
             mesh.broadcastSetGroup(mac, lightIndex, groupId);
         },
 
-        &mesh.peers,
-        &sceneSync,
+        &mesh.peers, &sceneSync,
 
         [](const uint8_t* mac, bool enabled) { mesh.broadcastSetSceneSync(mac, enabled); },
 
@@ -557,8 +563,10 @@ void setup() {
 
         [](const uint8_t* targetMac, const char* json, size_t) {
             static const uint8_t kAllZeros[6] = {};
-            if (memcmp(targetMac, kAllZeros, 6) == 0) mesh.pushConfigSecureToAll(json);
-            else                                      mesh.pushConfigSecure(targetMac, json);
+            if (memcmp(targetMac, kAllZeros, 6) == 0)
+                mesh.pushConfigSecureToAll(json);
+            else
+                mesh.pushConfigSecure(targetMac, json);
         },
 
         [](const uint8_t* mac) { mesh.broadcastTriggerUpdate(mac); },
@@ -576,9 +584,7 @@ void setup() {
 
         [](std::function<void()> onReady) { wifiElection.requestTemporary(onReady); },
 
-        [](bool enabled) {
-            setLocalWifiPolicy(enabled);
-        },
+        [](bool enabled) { setLocalWifiPolicy(enabled); },
 
         []() { return wifiElection.isAttempting(); },
 
@@ -587,8 +593,7 @@ void setup() {
             mesh.broadcastWifiRetry();
         },
 
-        &channelMgr
-    );
+        &channelMgr);
 
     auto notifySceneUpdated = [](const char* id) {
         for (uint8_t i = 0; i < MAX_LIGHTS; i++)
@@ -631,10 +636,10 @@ void setup() {
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 void loop() {
-    uint32_t now            = millis();
-    bool     backgroundTick = now - _lastBackgroundTickMs >= BACKGROUND_TICK_INTERVAL_MS;
+    uint32_t now = millis();
+    bool backgroundTick = now - _lastBackgroundTickMs >= BACKGROUND_TICK_INTERVAL_MS;
     if (backgroundTick) _lastBackgroundTickMs = now;
-    bool     slowTick       = now - _lastSlowTickMs >= SLOW_TICK_INTERVAL_MS;
+    bool slowTick = now - _lastSlowTickMs >= SLOW_TICK_INTERVAL_MS;
     if (slowTick) _lastSlowTickMs = now;
 
     // Idle OTA polling is throttled with everything else; once a transfer is
@@ -656,13 +661,15 @@ void loop() {
     if (updState == Updater::State::Downloading || updState == Updater::State::Done) {
         int progress = Updater::status().progress;
         if (updState != _lastUpdateState || progress != _lastUpdateProgress) {
-            _lastUpdateState    = updState;
+            _lastUpdateState = updState;
             _lastUpdateProgress = progress;
             mqtt.publishUpdateState();
             for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
                 if (!_leds[i]) continue;
-                if (updState == Updater::State::Done) _runners[i].showUpdateDone();
-                else                                  _runners[i].showUpdateProgress((uint8_t)progress);
+                if (updState == Updater::State::Done)
+                    _runners[i].showUpdateDone();
+                else
+                    _runners[i].showUpdateProgress((uint8_t)progress);
             }
         }
         return;

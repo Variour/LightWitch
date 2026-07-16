@@ -13,9 +13,10 @@ Binary format matches Arduino-ESP32's WiFiClientSecure crt bundle parser:
          [CN bytes] [key bytes]
 Certs are sorted ascending by CN (DER-encoded subject) for binary search.
 
-Requires: pip install cryptography certifi
+Requires: pip install cryptography certifi; clang-format on PATH
 Usage: python3 scripts/gen_ca_bundle.py [src/update/CaBundle.h]
 """
+import subprocess
 import sys
 import struct
 import certifi
@@ -87,4 +88,9 @@ if __name__ == "__main__":
     print(f"bundle size: {len(bundle)} bytes", file=sys.stderr)
     out_path = sys.argv[1] if len(sys.argv) > 1 else "src/update/CaBundle.h"
     emit_header(bundle, count, out_path)
+    try:
+        subprocess.run(["clang-format", "-i", out_path], check=True)
+    except FileNotFoundError:
+        sys.exit("clang-format not found on PATH — install it so the generated "
+                 "header conforms to .clang-format (see docs/development.md).")
     print(f"wrote {out_path}", file=sys.stderr)

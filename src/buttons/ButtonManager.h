@@ -1,7 +1,8 @@
 #pragma once
 #include <Arduino.h>
-#include "../config/Config.h"
+
 #include "../actions/ActionExecutor.h"
+#include "../config/Config.h"
 
 // Polls configured GPIO buttons and detects short press / long press /
 // double click, firing the matching ButtonAction through ActionExecutor.
@@ -9,10 +10,10 @@
 // codebase), modeled on ChannelManager's enum-state + tick() + dwell-timer
 // shape.
 class ButtonManager {
-public:
-    static constexpr uint32_t DEBOUNCE_MS            = 30;
-    static constexpr uint32_t LONG_PRESS_MS           = 600;
-    static constexpr uint32_t DOUBLE_CLICK_WINDOW_MS  = 350;
+   public:
+    static constexpr uint32_t DEBOUNCE_MS = 30;
+    static constexpr uint32_t LONG_PRESS_MS = 600;
+    static constexpr uint32_t DOUBLE_CLICK_WINDOW_MS = 350;
 
     void setExecutor(ActionExecutor* executor) { _executor = executor; }
 
@@ -31,22 +32,20 @@ public:
 
     void tick() {
         uint32_t now = millis();
-        Config::forEachButton([&](uint8_t i, ButtonHardwareConfig& b) {
-            _tickButton(i, b, now);
-        });
+        Config::forEachButton([&](uint8_t i, ButtonHardwareConfig& b) { _tickButton(i, b, now); });
     }
 
-private:
+   private:
     enum class ClickState : uint8_t { Idle, Debounce, Pressed, WaitDoubleClick, LongFired };
 
     struct ButtonState {
-        ClickState state         = ClickState::Idle;
-        uint32_t   debounceStart = 0;
-        uint32_t   pressStartMs  = 0;
-        uint32_t   lastReleaseMs = 0;
+        ClickState state = ClickState::Idle;
+        uint32_t debounceStart = 0;
+        uint32_t pressStartMs = 0;
+        uint32_t lastReleaseMs = 0;
     };
 
-    ButtonState     _state[MAX_BUTTONS];
+    ButtonState _state[MAX_BUTTONS];
     ActionExecutor* _executor = nullptr;
 
     static bool _readActive(const ButtonHardwareConfig& b) {
@@ -64,11 +63,17 @@ private:
 
         switch (s.state) {
             case ClickState::Idle:
-                if (active) { s.state = ClickState::Debounce; s.debounceStart = now; }
+                if (active) {
+                    s.state = ClickState::Debounce;
+                    s.debounceStart = now;
+                }
                 break;
 
             case ClickState::Debounce:
-                if (!active) { s.state = ClickState::Idle; break; }
+                if (!active) {
+                    s.state = ClickState::Idle;
+                    break;
+                }
                 if (now - s.debounceStart >= DEBOUNCE_MS) {
                     s.state = ClickState::Pressed;
                     s.pressStartMs = now;
@@ -110,7 +115,10 @@ private:
                 break;
 
             case ClickState::LongFired:
-                if (!active) { s.lastReleaseMs = 0; s.state = ClickState::Idle; }
+                if (!active) {
+                    s.lastReleaseMs = 0;
+                    s.state = ClickState::Idle;
+                }
                 break;
         }
     }

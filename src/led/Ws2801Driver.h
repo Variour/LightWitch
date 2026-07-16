@@ -1,14 +1,16 @@
 #pragma once
-#include "LedDriver.h"
 #include <Adafruit_WS2801.h>
+
 #include <memory>
 
+#include "LedDriver.h"
+
 class Ws2801Driver : public LedDriver {
-public:
+   public:
     void setup(uint8_t dataPin, uint8_t clockPin, uint16_t numLeds) {
-        _dataPin  = dataPin;
+        _dataPin = dataPin;
         _clockPin = clockPin;
-        _numLeds  = numLeds;
+        _numLeds = numLeds;
     }
 
     void begin() override {
@@ -33,9 +35,9 @@ public:
         _ws->show();
     }
 
-private:
-    uint8_t                          _dataPin  = 25;
-    uint8_t                          _clockPin = 26;
-    uint16_t                         _numLeds  = 1;
+   private:
+    uint8_t _dataPin = 25;
+    uint8_t _clockPin = 26;
+    uint16_t _numLeds = 1;
     std::unique_ptr<Adafruit_WS2801> _ws;
 };

@@ -1,17 +1,19 @@
 #pragma once
-#include <LittleFS.h>
 #include <ArduinoJson.h>
+#include <LittleFS.h>
+
 #include <vector>
-#include "Pattern.h"
-#include "MatrixLayout.h"
+
 #include "../scenes/SceneManager.h"
+#include "MatrixLayout.h"
+#include "Pattern.h"
 
 // Renders a scene as a pixel image on a matrix light.
 // The scene's own w/h can differ from the light's physical w/h: it is
 // stretched (nearest-neighbor, aspect ratio ignored) to fill the light exactly.
 // Supports multi-frame animation with optional blending between frames.
 class SceneMatrix : public Pattern {
-public:
+   public:
     float getPeriod() const override { return 0.0f; }
 
     void setDimensions(uint16_t w, uint16_t h) { _layout.setDimensions(w, h); }
@@ -23,9 +25,9 @@ public:
         _led = &led;
         _cfg = cfg;
         _load(cfg.sceneId);
-        _frameIdx     = 0;
+        _frameIdx = 0;
         _prevFrameIdx = 0;
-        _blending     = false;
+        _blending = false;
         _frameStartMs = millis();
         _render(_frameIdx, _frameIdx, 0.0f);
     }
@@ -35,9 +37,9 @@ public:
         _cfg = cfg;
         if (sceneChanged) {
             _load(cfg.sceneId);
-            _frameIdx     = 0;
+            _frameIdx = 0;
             _prevFrameIdx = 0;
-            _blending     = false;
+            _blending = false;
             _frameStartMs = millis();
             _render(_frameIdx, _frameIdx, 0.0f);
         } else {
@@ -52,9 +54,9 @@ public:
     void reloadIfCurrent(const char* sceneId) {
         if (!sceneId || strncmp(sceneId, _cfg.sceneId, sizeof(_cfg.sceneId)) != 0) return;
         _load(sceneId);
-        _frameIdx     = 0;
+        _frameIdx = 0;
         _prevFrameIdx = 0;
-        _blending     = false;
+        _blending = false;
         _frameStartMs = millis();
         _render(_frameIdx, _frameIdx, 0.0f);
     }
@@ -62,13 +64,13 @@ public:
     void tick(uint32_t now) override {
         if (!_led || _frames.empty()) return;
 
-        uint32_t holdMs  = _holdMs();
+        uint32_t holdMs = _holdMs();
         uint32_t blendMs = _blendMs();
 
         if (_blending) {
             uint32_t elapsed = now - _blendStartMs;
             if (elapsed >= blendMs) {
-                _blending     = false;
+                _blending = false;
                 _frameStartMs = now;
                 _render(_frameIdx, _frameIdx, 0.0f);
             } else {
@@ -79,9 +81,9 @@ public:
 
         if (_frames.size() > 1 && holdMs > 0 && (now - _frameStartMs) >= holdMs) {
             _prevFrameIdx = _frameIdx;
-            _frameIdx     = (_frameIdx + 1) % (uint8_t)_frames.size();
+            _frameIdx = (_frameIdx + 1) % (uint8_t)_frames.size();
             if (blendMs > 0) {
-                _blending     = true;
+                _blending = true;
                 _blendStartMs = now;
                 _render(_prevFrameIdx, _frameIdx, 0.0f);
             } else {
@@ -91,12 +93,12 @@ public:
         }
     }
 
-private:
+   private:
     MatrixLayout _layout;
     uint16_t _sceneW = 0, _sceneH = 0;
     std::vector<std::vector<Color>> _frames;
-    uint8_t  _frameIdx = 0, _prevFrameIdx = 0;
-    bool     _blending     = false;
+    uint8_t _frameIdx = 0, _prevFrameIdx = 0;
+    bool _blending = false;
     uint32_t _frameStartMs = 0, _blendStartMs = 0;
 
     uint32_t _holdMs() const {
@@ -119,7 +121,10 @@ private:
         File f = LittleFS.open(SceneManager::path(sceneId).c_str(), "r");
         if (!f) return;
         JsonDocument doc;
-        if (deserializeJson(doc, f)) { f.close(); return; }
+        if (deserializeJson(doc, f)) {
+            f.close();
+            return;
+        }
         f.close();
         _sceneW = doc["w"] | (uint16_t)0;
         _sceneH = doc["h"] | (uint16_t)0;
@@ -130,7 +135,10 @@ private:
             pixels.reserve(fr.size());
             for (JsonVariant v : fr) {
                 const char* hex = v | "";
-                if (strlen(hex) < 6) { pixels.push_back({}); continue; }
+                if (strlen(hex) < 6) {
+                    pixels.push_back({});
+                    continue;
+                }
                 unsigned long rgb = strtoul(hex, nullptr, 16);
                 pixels.push_back({(uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb});
             }
@@ -170,17 +178,19 @@ private:
                 uint16_t srcCol = MatrixLayout::nearest(col, _layout.width(), _sceneW);
                 uint16_t si = srcRow * _sceneW + srcCol;
                 uint16_t li = _layout.ledIndex(row, col);
-                if (si >= fa.size()) { _led->setPixel(li, 0, 0, 0); continue; }
+                if (si >= fa.size()) {
+                    _led->setPixel(li, 0, 0, 0);
+                    continue;
+                }
                 Color ca = fa[si];
                 Color out = ca;
                 if (blend && si < fb.size()) {
                     Color cb = fb[si];
-                    out = {Color::lerp(ca.r, cb.r, t), Color::lerp(ca.g, cb.g, t), Color::lerp(ca.b, cb.b, t)};
+                    out = {Color::lerp(ca.r, cb.r, t), Color::lerp(ca.g, cb.g, t),
+                           Color::lerp(ca.b, cb.b, t)};
                 }
-                _led->setPixel(li,
-                    applyBrightness(out.r),
-                    applyBrightness(out.g),
-                    applyBrightness(out.b));
+                _led->setPixel(li, applyBrightness(out.r), applyBrightness(out.g),
+                               applyBrightness(out.b));
             }
         }
         _led->show();

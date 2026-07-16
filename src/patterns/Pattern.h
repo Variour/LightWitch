@@ -1,14 +1,15 @@
 #pragma once
-#include "../config/Config.h"
-#include "../led/LedDriver.h"
 #include <math.h>
 
+#include "../config/Config.h"
+#include "../led/LedDriver.h"
+
 class Pattern {
-public:
+   public:
     virtual ~Pattern() = default;
 
     virtual void begin(LedDriver& led, const LightConfig& cfg) {
-        _led     = &led;
+        _led = &led;
         _startMs = millis();
         applyConfig(cfg);
     }
@@ -32,17 +33,15 @@ public:
     // Restart from phase 0.
     void resetPhase() { _startMs = millis(); }
 
-protected:
-    LedDriver*  _led     = nullptr;
+   protected:
+    LedDriver* _led = nullptr;
     LightConfig _cfg;
-    uint32_t    _startMs = 0;
+    uint32_t _startMs = 0;
 
     float _computePhase(uint32_t now) const {
         float p = getPeriod();
         return p > 0 ? fmod((float)(now - _startMs), p) / p : 0.0f;
     }
 
-    uint8_t applyBrightness(uint8_t v) const {
-        return (uint16_t)v * _cfg.brightness / 255;
-    }
+    uint8_t applyBrightness(uint8_t v) const { return (uint16_t)v * _cfg.brightness / 255; }
 };

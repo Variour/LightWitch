@@ -1,8 +1,9 @@
 #pragma once
 #include <Arduino.h>
+#include <Preferences.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
-#include <Preferences.h>
+
 #include "../logging/Logger.h"
 #include "PeerRegistry.h"
 
@@ -25,7 +26,7 @@
 //   LOCKED + beginSearch()   → SEARCH (starting on the channel after the current one)
 
 class ChannelManager {
-public:
+   public:
     // Called by MeshManager when a heartbeat is received, with the sender's
     // MAC. During SEARCH, signals that the current channel has a live peer —
     // unless that peer is one we already knew about before this search
@@ -99,9 +100,10 @@ public:
                 _searchIdx = 0;
                 _applyChannel(_searchSeq[0]);
                 _dwellStart = now;
-                _dwellMs    = _randomDwell();
-                Logger::i("[ch] search round %u/%u complete, no peers — retrying: ch %u (dwell %u ms)",
-                          _round, SEARCH_ROUNDS, _searchSeq[0], _dwellMs);
+                _dwellMs = _randomDwell();
+                Logger::i(
+                    "[ch] search round %u/%u complete, no peers — retrying: ch %u (dwell %u ms)",
+                    _round, SEARCH_ROUNDS, _searchSeq[0], _dwellMs);
                 return;
             }
             // Both rounds exhausted, no peer heard — lock to a common fallback
@@ -117,7 +119,7 @@ public:
 
         _applyChannel(_searchSeq[_searchIdx]);
         _dwellStart = now;
-        _dwellMs    = _randomDwell();
+        _dwellMs = _randomDwell();
         Logger::i("[ch] search: ch %u (dwell %u ms)", _searchSeq[_searchIdx], _dwellMs);
     }
 
@@ -134,17 +136,17 @@ public:
     }
 
     uint8_t lockedChannel() const { return _lockedChannel; }
-    bool    isSearching()   const { return _state == State::Searching; }
+    bool isSearching() const { return _state == State::Searching; }
 
-private:
-    static constexpr const char* NVS_NS  = "bl";
+   private:
+    static constexpr const char* NVS_NS = "bl";
     static constexpr const char* NVS_KEY = "ch";
 
     enum class State { Locked, Searching };
 
-    State    _state         = State::Locked;
-    uint8_t  _lockedChannel = 1;
-    uint8_t  _storedChannel = 0;   // 0 = nothing stored
+    State _state = State::Locked;
+    uint8_t _lockedChannel = 1;
+    uint8_t _storedChannel = 0;  // 0 = nothing stored
     wl_status_t _lastWifiState = WL_IDLE_STATUS;
 
     PeerRegistry* _peers = nullptr;
@@ -159,8 +161,8 @@ private:
     // Search sequence: [stored, 1, 6, 11] deduplicated
     static constexpr uint8_t MAX_SEQ = 4;
     uint8_t _searchSeq[MAX_SEQ];
-    uint8_t _searchLen  = 0;
-    uint8_t _searchIdx  = 0;
+    uint8_t _searchLen = 0;
+    uint8_t _searchIdx = 0;
 
     // Number of full passes through _searchSeq before giving up (#321).
     static constexpr uint8_t SEARCH_ROUNDS = 2;
@@ -173,7 +175,7 @@ private:
     static constexpr uint8_t COMMON_FALLBACK_CHANNEL = 1;
 
     uint32_t _dwellStart = 0;
-    uint32_t _dwellMs    = 0;
+    uint32_t _dwellMs = 0;
 
     void _loadChannel() {
         Preferences prefs;
@@ -217,20 +219,23 @@ private:
         }
         uint8_t startIdx = 0;
         for (uint8_t i = 0; i < 3; i++) {
-            if (standard[i] == leaveFrom) { startIdx = (i + 1) % 3; break; }
+            if (standard[i] == leaveFrom) {
+                startIdx = (i + 1) % 3;
+                break;
+            }
         }
         for (uint8_t i = 0; i < 3; i++) _searchSeq[_searchLen++] = standard[(startIdx + i) % 3];
     }
 
     void _startSearch(uint8_t leaveFrom = 0) {
-        _state     = State::Searching;
+        _state = State::Searching;
         _searchIdx = 0;
-        _round     = 0;
+        _round = 0;
         _snapshotKnownPeers();
         _buildSearchSeq(leaveFrom);
         _applyChannel(_searchSeq[0]);
         _dwellStart = millis();
-        _dwellMs    = _randomDwell();
+        _dwellMs = _randomDwell();
         Logger::i("[ch] search start: ch %u (dwell %u ms)", _searchSeq[0], _dwellMs);
     }
 
@@ -261,13 +266,11 @@ private:
         _state = State::Locked;
     }
 
-    void _applyChannel(uint8_t ch) {
-        esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
-    }
+    void _applyChannel(uint8_t ch) { esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE); }
 
     uint8_t _currentChannel() const {
-        return (_state == State::Searching && _searchIdx < _searchLen)
-            ? _searchSeq[_searchIdx] : _lockedChannel;
+        return (_state == State::Searching && _searchIdx < _searchLen) ? _searchSeq[_searchIdx]
+                                                                       : _lockedChannel;
     }
 
     uint32_t _randomDwell() {

@@ -1,12 +1,14 @@
 #pragma once
 #include <Arduino.h>
-#include <HTTPClient.h>
-#include <WiFiClientSecure.h>
-#include <Update.h>
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
 #include <LittleFS.h>
+#include <Update.h>
+#include <WiFiClientSecure.h>
+
 #include <atomic>
 #include <vector>
+
 #include "../config/Config.h"
 #include "../logging/Logger.h"
 #include "../scenes/SceneManager.h"
@@ -18,16 +20,16 @@
 // then flashes firmware and filesystem images if a newer version is available.
 
 class Updater {
-public:
+   public:
     enum class State { Idle, Checking, Downloading, Error, Done };
 
     struct Status {
-        State       state          = State::Idle;
-        String      currentVersion = FW_VERSION;
-        String      latestVersion;
-        bool        hasUpdate      = false;
-        int         progress       = 0;   // 0-100
-        const char* error          = nullptr;
+        State state = State::Idle;
+        String currentVersion = FW_VERSION;
+        String latestVersion;
+        bool hasUpdate = false;
+        int progress = 0;  // 0-100
+        const char* error = nullptr;
     };
 
     static Status& status() { return _status; }
@@ -55,7 +57,7 @@ public:
             _status.error = "not connected to WiFi";
             return;
         }
-        _status.state    = State::Downloading;
+        _status.state = State::Downloading;
         _status.progress = 0;
         xTaskCreate(_applyTask, "fw_apply", 8192, nullptr, 1, nullptr);
     }
@@ -73,12 +75,11 @@ public:
             applyAsync();
         } else {
             _triggerPending = true;
-            if (_status.state != State::Checking)
-                checkAsync();
+            if (_status.state != State::Checking) checkAsync();
         }
     }
 
-private:
+   private:
     static Status _status;
     static std::atomic<bool> _triggerPending;
 
@@ -90,7 +91,8 @@ private:
 
     // Opens an authenticated GET request against the GitHub API and returns the HTTP status code.
     // tls/http are owned by the caller and must stay alive while the response body/stream is read.
-    static int _httpGet(WiFiClientSecure& tls, HTTPClient& http, const String& url, const char* accept) {
+    static int _httpGet(WiFiClientSecure& tls, HTTPClient& http, const String& url,
+                        const char* accept) {
         tls.setCACertBundle(CA_BUNDLE);
         http.begin(tls, url);
         http.addHeader("Authorization", _authHeader());
@@ -143,24 +145,24 @@ private:
 
         // Strip leading 'v'
         _status.latestVersion = (tag[0] == 'v') ? String(tag + 1) : String(tag);
-        _status.hasUpdate     = _status.latestVersion != FW_VERSION;
+        _status.hasUpdate = _status.latestVersion != FW_VERSION;
 
-        Logger::i("[upd] current=%s latest=%s hasUpdate=%d",
-                  FW_VERSION, _status.latestVersion.c_str(), _status.hasUpdate);
+        Logger::i("[upd] current=%s latest=%s hasUpdate=%d", FW_VERSION,
+                  _status.latestVersion.c_str(), _status.hasUpdate);
 
         // Find asset IDs for firmware and filesystem
         _firmwareAssetId = 0;
-        _fsAssetId       = 0;
+        _fsAssetId = 0;
         for (JsonVariant asset : doc["assets"].as<JsonArray>()) {
             const char* name = asset["name"] | "";
-            uint32_t    id   = asset["id"]   | (uint32_t)0;
+            uint32_t id = asset["id"] | (uint32_t)0;
             if (!_firmwareAssetId && _isFirmwareAsset(name)) _firmwareAssetId = id;
-            if (!_fsAssetId       && strcmp(name, "littlefs.bin") == 0) _fsAssetId = id;
+            if (!_fsAssetId && strcmp(name, "littlefs.bin") == 0) _fsAssetId = id;
         }
 
         if (_status.hasUpdate) {
             if (!_firmwareAssetId) Logger::w("[upd] no firmware asset found in release");
-            if (!_fsAssetId)       Logger::w("[upd] no littlefs asset found in release");
+            if (!_fsAssetId) Logger::w("[upd] no littlefs asset found in release");
         }
 
         return true;
@@ -207,12 +209,15 @@ private:
         }
 
         WiFiClient* stream = http.getStreamPtr();
-        uint8_t     buf[512];
-        int         written = 0;
+        uint8_t buf[512];
+        int written = 0;
 
         while (http.connected() && (total < 0 || written < total)) {
             int avail = stream->available();
-            if (!avail) { delay(1); continue; }
+            if (!avail) {
+                delay(1);
+                continue;
+            }
             int chunk = stream->readBytes(buf, min((int)sizeof(buf), avail));
             if (chunk <= 0) break;
             if (Update.write(buf, chunk) != (size_t)chunk) {
@@ -253,7 +258,10 @@ private:
     static std::vector<String> _backupScenes() {
         std::vector<String> result;
         File dir = LittleFS.open("/sc");
-        if (!dir || !dir.isDirectory()) { dir.close(); return result; }
+        if (!dir || !dir.isDirectory()) {
+            dir.close();
+            return result;
+        }
         File f = dir.openNextFile();
         while (f) {
             if (!f.isDirectory()) {
@@ -317,11 +325,11 @@ private:
 
     static uint32_t _firmwareAssetId;
     static uint32_t _fsAssetId;
-    static char     _errorBuf[48];
+    static char _errorBuf[48];
 };
 
 inline Updater::Status Updater::_status;
 inline std::atomic<bool> Updater::_triggerPending{false};
-inline uint32_t        Updater::_firmwareAssetId = 0;
-inline uint32_t        Updater::_fsAssetId       = 0;
-inline char            Updater::_errorBuf[48]    = {};
+inline uint32_t Updater::_firmwareAssetId = 0;
+inline uint32_t Updater::_fsAssetId = 0;
+inline char Updater::_errorBuf[48] = {};

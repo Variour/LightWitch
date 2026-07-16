@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
+
 #include <functional>
 
 #ifndef LED_DATA_PIN
@@ -12,36 +13,36 @@
 
 enum class LedType : uint8_t {
     WS2812B = 0,  // single-wire NeoPixel
-    WS2801  = 1,  // two-wire SPI
+    WS2801 = 1,   // two-wire SPI
 };
 
 enum class MatrixStart : uint8_t {
-    TopLeft     = 0,
-    TopRight    = 1,
-    BottomLeft  = 2,
+    TopLeft = 0,
+    TopRight = 1,
+    BottomLeft = 2,
     BottomRight = 3,
 };
 
 enum class MatrixDirection : uint8_t {
     Horizontal = 0,  // rows first
-    Vertical   = 1,  // columns first
+    Vertical = 1,    // columns first
 };
 
 enum class PatternId : uint8_t {
-    Static     = 0,
-    Breathing  = 1,
+    Static = 0,
+    Breathing = 1,
     ColorCycle = 2,
-    Strobe     = 3,
-    Candle     = 4,
+    Strobe = 3,
+    Candle = 4,
 };
 
 enum class GroupMode : uint8_t {
-    Pattern   = 0,
-    Scene     = 1,
+    Pattern = 0,
+    Scene = 1,
     Proximity = 2,
-    Gradient  = 3,
-    Text      = 4,  // matrix lights only
-    Time      = 5,  // matrix lights only
+    Gradient = 3,
+    Text = 4,  // matrix lights only
+    Time = 5,  // matrix lights only
 };
 
 enum class TextAnimation : uint8_t {
@@ -106,32 +107,34 @@ struct Color {
 static constexpr uint8_t SCENE_ID_LEN = 33;
 
 struct LightConfig {
-    GroupMode mode              = GroupMode::Pattern;
-    char      sceneId[SCENE_ID_LEN] = {};
-    PatternId pattern           = PatternId::Static;
-    Color     color             = Color{255, 255, 255};
-    uint8_t   brightness        = 255;
-    float     speed             = 1.0f;
+    GroupMode mode = GroupMode::Pattern;
+    char sceneId[SCENE_ID_LEN] = {};
+    PatternId pattern = PatternId::Static;
+    Color color = Color{255, 255, 255};
+    uint8_t brightness = 255;
+    float speed = 1.0f;
     // Monotonic per group id; NOT used for GroupSync-level conflict resolution
     // (see GroupConfig::revision for that) — only for the standalone
     // LightConfigMsg mesh channel's staleness check and mesh self-echo
     // suppression (see MeshManager), and to order same-device local edits.
-    uint32_t  seq               = 0;
-    bool      transitionEnabled = false;
-    bool      sceneUniformColor = false;  // string lights: whole string shares one random scene color
-    float     transitionTime    = 2.0f;
-    float     frameDuration     = 1.0f;
-    float     proximityScale    = 1.0f;
-    bool      morphEnabled      = false;  // gradient mode: stops continuously wander to new random palette colors
-    uint8_t   gradientStopCount = 0;      // gradient mode: manual stop count override; 0 = auto (GradientCommon::targetStopCount)
-    char          text[64]      = {};     // text mode: message to display
+    uint32_t seq = 0;
+    bool transitionEnabled = false;
+    bool sceneUniformColor = false;  // string lights: whole string shares one random scene color
+    float transitionTime = 2.0f;
+    float frameDuration = 1.0f;
+    float proximityScale = 1.0f;
+    bool morphEnabled =
+        false;  // gradient mode: stops continuously wander to new random palette colors
+    uint8_t gradientStopCount =
+        0;  // gradient mode: manual stop count override; 0 = auto (GradientCommon::targetStopCount)
+    char text[64] = {};                                   // text mode: message to display
     TextAnimation textAnimation = TextAnimation::Scroll;  // text mode: how overflowing text moves
-    bool          time24h       = true;   // time mode: 24h (HH:MM) vs 12h (hh:MM) display
+    bool time24h = true;  // time mode: 24h (HH:MM) vs 12h (hh:MM) display
 };
 
-static constexpr uint8_t MAX_GROUPS        = 8;
-static constexpr uint8_t MAX_LIGHTS        = 4;
-static constexpr uint8_t MAX_BUTTONS       = 4;
+static constexpr uint8_t MAX_GROUPS = 8;
+static constexpr uint8_t MAX_LIGHTS = 4;
+static constexpr uint8_t MAX_BUTTONS = 4;
 static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
 static constexpr uint8_t CONFIG_SCHEMA_VERSION = 2;
 
@@ -139,9 +142,9 @@ static constexpr uint8_t CONFIG_SCHEMA_VERSION = 2;
 // ActionId — numberValue covers steps/fixed values/enum ordinals,
 // stringValue covers sceneId or free text, colorValue covers ColorSet.
 struct ActionParams {
-    float   numberValue     = 0.0f;
-    char    stringValue[64] = {};
-    Color   colorValue;
+    float numberValue = 0.0f;
+    char stringValue[64] = {};
+    Color colorValue;
 };
 
 // One action assignment: what to do (ActionId), which group to do it to,
@@ -149,23 +152,23 @@ struct ActionParams {
 // slot is unassigned. lightIndex is only meaningful for the light-targeted
 // actions (see ActionId) — every other action targets groupId instead.
 struct ButtonAction {
-    ActionId     action     = ActionId::None;
-    uint8_t      groupId    = 0;
-    uint8_t      lightIndex = 0;
+    ActionId action = ActionId::None;
+    uint8_t groupId = 0;
+    uint8_t lightIndex = 0;
     ActionParams params;
 };
 
 struct WifiNetwork {
-    char ssid[64]     = {};
+    char ssid[64] = {};
     char password[64] = {};
 };
 
 struct GroupConfig {
-    uint8_t     id          = 0;
-    char        name[24]    = {};
+    uint8_t id = 0;
+    char name[24] = {};
     LightConfig light;
-    bool        exists      = false;
-    bool        syncEnabled = true;
+    bool exists = false;
+    bool syncEnabled = true;
     // Mesh-internal revision + origin governing the *whole* group (name,
     // exists, syncEnabled, and light all move together as one unit — see
     // Config::applyGroupSync) — same convergence pattern as
@@ -177,8 +180,8 @@ struct GroupConfig {
     // light, which shares this same counter.
     // Deliberately not part of serializeGroup/deserializeGroup — like the
     // wifiPolicy fields, this stays out of the REST/WebSocket API surface.
-    uint32_t    revision     = 0;
-    uint8_t     originMac[6] = {};
+    uint32_t revision = 0;
+    uint8_t originMac[6] = {};
 };
 
 // Shared JSON (de)serialization for LightConfig/GroupConfig fields, used by both
@@ -193,13 +196,13 @@ void deserializeGroup(JsonVariant o, GroupConfig& g);
 // up to three independently-assignable actions (short press, long press,
 // double click); an unassigned slot has action == ActionId::None.
 struct ButtonHardwareConfig {
-    char         name[20]  = "";
-    uint8_t      pin       = 0;
-    bool         activeLow = true;  // true = pressed reads LOW (INPUT_PULLUP wiring)
+    char name[20] = "";
+    uint8_t pin = 0;
+    bool activeLow = true;  // true = pressed reads LOW (INPUT_PULLUP wiring)
     ButtonAction onShortPress;
     ButtonAction onLongPress;
     ButtonAction onDoubleClick;
-    bool         exists    = false;
+    bool exists = false;
 };
 
 void serializeButtonAction(JsonObject o, const ButtonAction& a);
@@ -209,72 +212,73 @@ void deserializeButton(JsonVariant o, ButtonHardwareConfig& b);
 
 // Per-light physical hardware configuration, stored in DeviceConfig.
 struct LightHardwareConfig {
-    char     name[20]  = "";
-    LedType  ledType   = LedType::WS2812B;
-    uint8_t  dataPin   = LED_DATA_PIN;
-    uint8_t  clockPin  = LED_CLOCK_PIN;
-    uint16_t        width       = 1;    // string length, or matrix columns
-    uint16_t        height      = 1;    // 1 = string, >1 = matrix
-    MatrixStart     matrixStart = MatrixStart::TopLeft;
-    MatrixDirection matrixDir   = MatrixDirection::Horizontal;
-    bool            matrixSerpentine = false; // true = alternate rows/columns (per matrixDir) run in reverse, i.e. zig-zag/boustrophedon wiring
-    bool            wrapWidth   = false; // true = last LED on a row/string connects back to the first (ring)
-    bool            wrapHeight  = false; // true = last row wraps to the first (matrix only, height > 1)
-    uint8_t         groupId     = 0;    // which group's LightConfig this light follows
+    char name[20] = "";
+    LedType ledType = LedType::WS2812B;
+    uint8_t dataPin = LED_DATA_PIN;
+    uint8_t clockPin = LED_CLOCK_PIN;
+    uint16_t width = 1;   // string length, or matrix columns
+    uint16_t height = 1;  // 1 = string, >1 = matrix
+    MatrixStart matrixStart = MatrixStart::TopLeft;
+    MatrixDirection matrixDir = MatrixDirection::Horizontal;
+    bool matrixSerpentine = false;  // true = alternate rows/columns (per matrixDir) run in reverse,
+                                    // i.e. zig-zag/boustrophedon wiring
+    bool wrapWidth = false;   // true = last LED on a row/string connects back to the first (ring)
+    bool wrapHeight = false;  // true = last row wraps to the first (matrix only, height > 1)
+    uint8_t groupId = 0;      // which group's LightConfig this light follows
     // When enabled, this light renders at brightnessOverride instead of the
     // group's LightConfig::brightness — local to this device only, not
     // synced over mesh (unlike GroupConfig). Disabling reverts the light to
     // following the group's brightness.
-    bool            brightnessOverrideEnabled = false;
-    uint8_t         brightnessOverride        = 255;
-    bool            exists      = false;
+    bool brightnessOverrideEnabled = false;
+    uint8_t brightnessOverride = 255;
+    bool exists = false;
 };
 
 struct DeviceConfig {
-    char        deviceName[32]   = "light";
-    char        apPassword[64]   = "batterylight";
-    uint16_t    otaPort          = 3232;
-    bool        otaEnabled       = true;
-    uint8_t     logLevel         = 0;
-    char        mqttHost[64]     = "";
-    uint16_t    mqttPort         = 1883;
-    char        mqttUser[32]     = "";
-    char        mqttPassword[64] = "";
-    char        githubToken[128] = "";
-    char        githubRepo[64]   = "variour/batterylight";
-    char        timezone[64]     = "CET-1CEST,M3.5.0,M10.5.0/3";  // POSIX TZ string; default is Europe/Berlin
-    bool        sceneSyncEnabled        = true;
-    bool        checkUpdateOnStartup    = false;
+    char deviceName[32] = "light";
+    char apPassword[64] = "batterylight";
+    uint16_t otaPort = 3232;
+    bool otaEnabled = true;
+    uint8_t logLevel = 0;
+    char mqttHost[64] = "";
+    uint16_t mqttPort = 1883;
+    char mqttUser[32] = "";
+    char mqttPassword[64] = "";
+    char githubToken[128] = "";
+    char githubRepo[64] = "variour/batterylight";
+    char timezone[64] = "CET-1CEST,M3.5.0,M10.5.0/3";  // POSIX TZ string; default is Europe/Berlin
+    bool sceneSyncEnabled = true;
+    bool checkUpdateOnStartup = false;
     // Mesh-wide policy (see WifiElection.h): when true, only one candidate device
     // actually joins the configured WiFi network at a time; the rest stay AP-only.
     // This is synchronized as mesh state, not a one-shot event: revision + origin
     // metadata are persisted so peers can replay, reconcile, and resolve conflicts.
-    bool        wifiSingleClientMode    = false;
-    uint32_t    wifiPolicyRevision      = 0;
-    uint8_t     wifiPolicyOriginMac[6]  = {};
+    bool wifiSingleClientMode = false;
+    uint32_t wifiPolicyRevision = 0;
+    uint8_t wifiPolicyOriginMac[6] = {};
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];
 };
 
 class Config {
-public:
-    static bool    load();
-    static bool    save();
-    static void    reset();
+   public:
+    static bool load();
+    static bool save();
+    static void reset();
 
-    static bool    loadWifi();
-    static bool    saveWifi();
-    static bool    addWifiNetwork(const char* ssid, const char* password);
-    static bool    deleteWifiNetwork(const char* ssid);
-    static bool    moveWifiNetwork(const char* ssid, int8_t direction);
+    static bool loadWifi();
+    static bool saveWifi();
+    static bool addWifiNetwork(const char* ssid, const char* password);
+    static bool deleteWifiNetwork(const char* ssid);
+    static bool moveWifiNetwork(const char* ssid, int8_t direction);
 
     static WifiNetwork* wifiNetworks() { return _wifiNetworks; }
-    static uint8_t      wifiCount()    { return _wifiCount; }
-    static uint8_t      wifiLast()     { return _wifiLast; }
-    static void         setWifiLast(uint8_t i) { _wifiLast = i; }
+    static uint8_t wifiCount() { return _wifiCount; }
+    static uint8_t wifiLast() { return _wifiLast; }
+    static void setWifiLast(uint8_t i) { _wifiLast = i; }
 
-    static DeviceConfig& get()   { return _cfg; }
+    static DeviceConfig& get() { return _cfg; }
 
     static GroupConfig* group(uint8_t id) {
         if (id < MAX_GROUPS && _cfg.groups[id].exists) return &_cfg.groups[id];
@@ -343,11 +347,11 @@ public:
     // excludeButtonIndex when validating an update to an existing button.
     static bool isPinInUse(uint8_t pin, int8_t excludeButtonIndex = -1);
 
-private:
+   private:
     static DeviceConfig _cfg;
-    static const char*  _path;
-    static WifiNetwork  _wifiNetworks[MAX_WIFI_NETWORKS];
-    static uint8_t      _wifiCount;
-    static uint8_t      _wifiLast;
+    static const char* _path;
+    static WifiNetwork _wifiNetworks[MAX_WIFI_NETWORKS];
+    static uint8_t _wifiCount;
+    static uint8_t _wifiLast;
     static void _ensureDefaultGroup();
 };

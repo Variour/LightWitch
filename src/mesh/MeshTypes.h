@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+
 #include "../config/Config.h"
 
 // Mesh wire protocol policy:
@@ -9,28 +10,28 @@
 // - PresenceMsg.version is the only explicit schema gate today.
 
 enum class MsgType : uint8_t {
-    Presence      = 1,
-    LightConfig   = 2,
-    SetGroup      = 3,
-    GroupSync     = 4,
-    PhaseSync     = 5,
+    Presence = 1,
+    LightConfig = 2,
+    SetGroup = 3,
+    GroupSync = 4,
+    PhaseSync = 5,
     ProximityPing = 6,
     SceneManifest = 7,
-    SceneRequest  = 8,
-    SceneChunk    = 9,
+    SceneRequest = 8,
+    SceneChunk = 9,
     SceneForceSet = 10,
-    SetSceneSync  = 11,
-    ConfigChunk    = 12,
-    TriggerUpdate  = 13,
-    CheckUpdate    = 14,
-    SceneEditPush  = 15,
+    SetSceneSync = 11,
+    ConfigChunk = 12,
+    TriggerUpdate = 13,
+    CheckUpdate = 14,
+    SceneEditPush = 15,
     RequestManifest = 16,
-    TimeSync       = 17,
+    TimeSync = 17,
     KeyExchangeInit = 18,
     KeyExchangeResp = 19,
-    MeshPolicy      = 20,
-    WifiRetry       = 21,
-    MeshSearch      = 22,
+    MeshPolicy = 20,
+    WifiRetry = 21,
+    MeshSearch = 22,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -41,16 +42,16 @@ static constexpr uint8_t PRESENCE_MSG_VERSION = 1;
 // lightGroupIds: groupId for each light slot; 0xFF means that slot is empty.
 // Receivers require an exact sizeof(PresenceMsg) frame for this schema.
 struct PresenceMsg {
-    MsgType type    = MsgType::Presence;
+    MsgType type = MsgType::Presence;
     uint8_t version = PRESENCE_MSG_VERSION;
-    char    name[32];
+    char name[32];
     uint8_t sceneSyncEnabled;
     uint8_t wifiConnected;
-    char    fwVersion[16];
+    char fwVersion[16];
     uint8_t fwState;
     uint8_t lightCount;
     uint8_t lightGroupIds[MAX_LIGHTS];
-    char    lightNames[MAX_LIGHTS][20];
+    char lightNames[MAX_LIGHTS][20];
     // Whether this device has ≥1 WiFi network configured, i.e. is a candidate to
     // be the mesh's single WiFi client (see WifiElection.h).
     uint8_t hasWifiNetworks;
@@ -61,8 +62,8 @@ struct PresenceMsg {
 };
 
 struct LightConfigMsg {
-    MsgType     type;
-    uint8_t     groupId;
+    MsgType type;
+    uint8_t groupId;
     LightConfig config;
 };
 
@@ -81,68 +82,68 @@ struct SetGroupMsg {
 // name/exists/syncEnabled/light together — is reconciled as one unit by
 // GroupConfig::revision+originMac (see Config::applyGroupSync).
 struct GroupSyncMsg {
-    MsgType     type;
+    MsgType type;
     GroupConfig group;
 };
 
 // Periodic phase broadcast from the sync master of a group.
 struct PhaseSyncMsg {
-    MsgType type    = MsgType::PhaseSync;
+    MsgType type = MsgType::PhaseSync;
     uint8_t groupId;
-    float   phase;  // 0.0 – 1.0
+    float phase;  // 0.0 – 1.0
 };
 
 // Frequent ping sent by devices whose group is in Proximity mode.
 struct ProximityPingMsg {
-    MsgType type    = MsgType::ProximityPing;
+    MsgType type = MsgType::ProximityPing;
     uint8_t groupId;
 };
 
 // ── Scene sync messages ───────────────────────────────────────────────────────
 
 struct SceneManifestEntry {
-    char     id[SCENE_ID_LEN];
+    char id[SCENE_ID_LEN];
     uint32_t hash;
 };
 
-static constexpr uint8_t  MANIFEST_ENTRIES_PER_MSG = 6;
+static constexpr uint8_t MANIFEST_ENTRIES_PER_MSG = 6;
 
 struct SceneManifestMsg {
-    MsgType            type       = MsgType::SceneManifest;
-    uint8_t            page;
-    uint8_t            totalPages;
-    uint8_t            count;
+    MsgType type = MsgType::SceneManifest;
+    uint8_t page;
+    uint8_t totalPages;
+    uint8_t count;
     SceneManifestEntry entries[MANIFEST_ENTRIES_PER_MSG];
 };
 
 struct SceneRequestMsg {
     MsgType type = MsgType::SceneRequest;
-    char    id[SCENE_ID_LEN];
+    char id[SCENE_ID_LEN];
 };
 
 static constexpr uint16_t CHUNK_DATA_SIZE = 208;
 
 struct SceneChunkMsg {
-    MsgType  type = MsgType::SceneChunk;
-    uint8_t  _pad        = 0;
+    MsgType type = MsgType::SceneChunk;
+    uint8_t _pad = 0;
     uint16_t chunkIndex;
     uint16_t totalChunks;
     uint16_t dataLen;
-    char     id[SCENE_ID_LEN];
-    uint8_t  data[CHUNK_DATA_SIZE];
+    char id[SCENE_ID_LEN];
+    uint8_t data[CHUNK_DATA_SIZE];
 };
 
 struct SceneForceSetMsg {
-    MsgType  type = MsgType::SceneForceSet;
-    char     id[SCENE_ID_LEN];
+    MsgType type = MsgType::SceneForceSet;
+    char id[SCENE_ID_LEN];
     uint32_t hash;
 };
 
 // Broadcast before chunk stream on any scene save (create or edit).
 // prevHash=0 means new scene; prevHash=crc32 of scene before save otherwise.
 struct SceneEditPushMsg {
-    MsgType  type = MsgType::SceneEditPush;
-    char     id[SCENE_ID_LEN];
+    MsgType type = MsgType::SceneEditPush;
+    char id[SCENE_ID_LEN];
     uint32_t prevHash;
 };
 
@@ -172,7 +173,7 @@ struct CheckUpdateMsg {
 // Broadcast periodically by a device with an NTP-synced clock, so peers with
 // no internet access (but mesh connectivity) can adopt a wall-clock time.
 struct TimeSyncMsg {
-    MsgType  type  = MsgType::TimeSync;
+    MsgType type = MsgType::TimeSync;
     uint32_t epoch;  // unix time (UTC seconds) at the sender
 };
 
@@ -181,12 +182,13 @@ struct TimeSyncMsg {
 static constexpr uint16_t CONFIG_CHUNK_DATA_SIZE = 230;
 
 struct ConfigChunkMsg {
-    MsgType  type = MsgType::ConfigChunk;
-    uint8_t  targetMac[6];
+    MsgType type = MsgType::ConfigChunk;
+    uint8_t targetMac[6];
     uint16_t chunkIndex;
     uint16_t totalChunks;
     uint16_t dataLen;
-    uint8_t  data[CONFIG_CHUNK_DATA_SIZE]; // AES-256-GCM ciphertext once reassembled, see MeshCrypto.h
+    uint8_t
+        data[CONFIG_CHUNK_DATA_SIZE];  // AES-256-GCM ciphertext once reassembled, see MeshCrypto.h
 };
 
 // ── Config push encryption handshake (issue #252) ─────────────────────────────
@@ -201,17 +203,17 @@ struct ConfigChunkMsg {
 static constexpr uint8_t ECDH_PUBKEY_LEN = 33;
 
 struct KeyExchangeInitMsg {
-    MsgType  type = MsgType::KeyExchangeInit;
-    uint8_t  targetMac[6];
+    MsgType type = MsgType::KeyExchangeInit;
+    uint8_t targetMac[6];
     uint32_t sessionId;
-    uint8_t  pubKey[ECDH_PUBKEY_LEN];
+    uint8_t pubKey[ECDH_PUBKEY_LEN];
 };
 
 struct KeyExchangeRespMsg {
-    MsgType  type = MsgType::KeyExchangeResp;
-    uint8_t  targetMac[6];  // = initiator's MAC
+    MsgType type = MsgType::KeyExchangeResp;
+    uint8_t targetMac[6];  // = initiator's MAC
     uint32_t sessionId;
-    uint8_t  pubKey[ECDH_PUBKEY_LEN];
+    uint8_t pubKey[ECDH_PUBKEY_LEN];
 };
 
 // ── Mesh-wide WiFi policy ──────────────────────────────────────────────────────
@@ -219,10 +221,10 @@ struct KeyExchangeRespMsg {
 // its web UI, so the choice applies to the whole mesh rather than just the
 // device it was changed on. See WifiElection.h for the election this enables.
 struct MeshPolicyMsg {
-    MsgType  type = MsgType::MeshPolicy;
-    uint8_t  wifiSingleClientMode;
+    MsgType type = MsgType::MeshPolicy;
+    uint8_t wifiSingleClientMode;
     uint32_t revision;
-    uint8_t  originMac[6];
+    uint8_t originMac[6];
 };
 
 // Broadcast by a "Retry WiFi" UI button so every mesh device — including any

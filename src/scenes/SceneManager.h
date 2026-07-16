@@ -1,15 +1,17 @@
 #pragma once
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <WiFi.h>
-#include <ArduinoJson.h>
 #include <esp_random.h>
+
 #include <set>
-#include "../logging/Logger.h"
+
 #include "../config/Config.h"
+#include "../logging/Logger.h"
 
 class SceneManager {
-public:
+   public:
     static bool extractId(const char* json, size_t len, String& out) {
         return _extractId(json, len, out);
     }
@@ -32,13 +34,14 @@ public:
         while (f) {
             if (!f.isDirectory()) {
                 JsonDocument filter;
-                filter["id"]   = true;
+                filter["id"] = true;
                 filter["name"] = true;
-                filter["w"]    = true;
-                filter["h"]    = true;
-                filter["fc"]   = true;
+                filter["w"] = true;
+                filter["h"] = true;
+                filter["fc"] = true;
                 JsonDocument doc;
-                DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
+                DeserializationError err =
+                    deserializeJson(doc, f, DeserializationOption::Filter(filter));
                 if (err) {
                     Logger::w("[scene] skip invalid metadata in %s: %s", f.name(), err.c_str());
                     f.close();
@@ -48,13 +51,14 @@ public:
                 if (!doc["id"].isNull()) {
                     Logger::d("[scene] list entry: %s \"%s\" %ux%u fc=%u",
                               doc["id"].as<const char*>(), doc["name"].as<const char*>(),
-                              (unsigned)(doc["w"] | 0), (unsigned)(doc["h"] | 0), (unsigned)(doc["fc"] | 0));
+                              (unsigned)(doc["w"] | 0), (unsigned)(doc["h"] | 0),
+                              (unsigned)(doc["fc"] | 0));
                     JsonObject o = arr.add<JsonObject>();
-                    o["id"]   = doc["id"];
+                    o["id"] = doc["id"];
                     o["name"] = doc["name"];
-                    o["w"]    = doc["w"];
-                    o["h"]    = doc["h"];
-                    o["fc"]   = doc["fc"] | 0;
+                    o["w"] = doc["w"];
+                    o["h"] = doc["h"];
+                    o["fc"] = doc["fc"] | 0;
                 } else {
                     Logger::w("[scene] list: file %s has no id field, skipping", f.name());
                 }
@@ -70,11 +74,11 @@ public:
         String id = _makeId();
         init();
         JsonDocument doc;
-        doc["id"]   = id;
+        doc["id"] = id;
         doc["name"] = name;
-        doc["w"]    = w;
-        doc["h"]    = h;
-        doc["fc"]   = 1;
+        doc["w"] = w;
+        doc["h"] = h;
+        doc["fc"] = 1;
         JsonArray frames = doc["frames"].to<JsonArray>();
         JsonArray defaultFrame = frames.add<JsonArray>();
         for (uint32_t i = 0; i < (uint32_t)w * h; i++) {
@@ -110,7 +114,8 @@ public:
         f.close();
 
         if (written != len) {
-            Logger::e("[scene] save: write incomplete for %s (%u/%u bytes)", id, (unsigned)written, (unsigned)len);
+            Logger::e("[scene] save: write incomplete for %s (%u/%u bytes)", id, (unsigned)written,
+                      (unsigned)len);
             return false;
         }
 
@@ -131,7 +136,8 @@ public:
         size_t written = f.write(data, len);
         f.close();
         if (written != len) {
-            Logger::e("[scene] saveRaw: write incomplete for %s (%u/%u bytes)", id, (unsigned)written, (unsigned)len);
+            Logger::e("[scene] saveRaw: write incomplete for %s (%u/%u bytes)", id,
+                      (unsigned)written, (unsigned)len);
             return false;
         }
         removeTombstone(id);
@@ -154,7 +160,7 @@ public:
         File f = LittleFS.open(_path(id), "r");
         if (!f) return 0;
         uint32_t crc = 0xFFFFFFFF;
-        uint8_t  buf[256];
+        uint8_t buf[256];
         while (f.available()) {
             size_t n = f.read(buf, sizeof(buf));
             crc = _crc32Update(crc, buf, n);
@@ -174,17 +180,16 @@ public:
         Logger::d("[scene] tombstone added: %s", id);
     }
 
-    static void removeTombstone(const char* id) {
-        _tombstones().erase(String(id));
-    }
+    static void removeTombstone(const char* id) { _tombstones().erase(String(id)); }
 
-    static bool isTombstone(const char* id) {
-        return _tombstones().count(String(id)) > 0;
-    }
+    static bool isTombstone(const char* id) { return _tombstones().count(String(id)) > 0; }
 
     // Fill entries array with {id, hash} for all local scenes + tombstones.
     // Returns total count of entries written.
-    struct ManifestEntry { char id[SCENE_ID_LEN]; uint32_t hash; };
+    struct ManifestEntry {
+        char id[SCENE_ID_LEN];
+        uint32_t hash;
+    };
 
     static uint8_t buildManifestEntries(ManifestEntry* entries, uint8_t maxEntries) {
         uint8_t count = 0;
@@ -196,9 +201,11 @@ public:
                     String fname = String(f.name());
                     if (!fname.startsWith(".") && fname.endsWith(".json")) {
                         // Read id field from the file (authoritative source)
-                        JsonDocument filter; filter["id"] = true;
+                        JsonDocument filter;
+                        filter["id"] = true;
                         JsonDocument doc;
-                        DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
+                        DeserializationError err =
+                            deserializeJson(doc, f, DeserializationOption::Filter(filter));
                         if (!err && !doc["id"].isNull()) {
                             const char* id = doc["id"];
                             strlcpy(entries[count].id, id, SCENE_ID_LEN);
@@ -222,12 +229,11 @@ public:
         return count;
     }
 
-private:
+   private:
     static uint32_t _crc32Update(uint32_t crc, const uint8_t* data, size_t len) {
         for (size_t i = 0; i < len; i++) {
             crc ^= data[i];
-            for (int b = 0; b < 8; b++)
-                crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
+            for (int b = 0; b < 8; b++) crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
         }
         return crc;
     }
@@ -248,7 +254,8 @@ private:
         if (colon >= end) return false;
 
         const char* value = colon + 1;
-        while (value < end && (*value == ' ' || *value == '\n' || *value == '\r' || *value == '\t')) ++value;
+        while (value < end && (*value == ' ' || *value == '\n' || *value == '\r' || *value == '\t'))
+            ++value;
         if (value >= end || *value != '"') return false;
 
         const char* str = value + 1;
@@ -275,9 +282,7 @@ private:
         return !out.isEmpty();
     }
 
-    static String _path(const char* id) {
-        return String("/sc/") + id + ".json";
-    }
+    static String _path(const char* id) { return String("/sc/") + id + ".json"; }
 
     static std::set<String>& _tombstones() {
         static std::set<String> s;

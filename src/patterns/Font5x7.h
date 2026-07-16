@@ -8,10 +8,12 @@
 // before lookup since there are no lowercase glyphs.
 namespace Font5x7 {
 
-constexpr uint8_t GLYPH_WIDTH  = 5;
+constexpr uint8_t GLYPH_WIDTH = 5;
 constexpr uint8_t GLYPH_HEIGHT = 7;
 
-struct Glyph { uint8_t rows[GLYPH_HEIGHT]; };
+struct Glyph {
+    uint8_t rows[GLYPH_HEIGHT];
+};
 
 // Shown for any character with no glyph below (hollow box).
 constexpr Glyph GLYPH_FALLBACK = {{
@@ -811,54 +813,101 @@ constexpr Glyph GLYPH_QUOTE = {{
 inline const Glyph& glyph(char c) {
     if (c >= 'a' && c <= 'z') c -= ('a' - 'A');
     switch (c) {
-        case ' ': return GLYPH_SPACE;
-        case '0': return GLYPH_0;
-        case '1': return GLYPH_1;
-        case '2': return GLYPH_2;
-        case '3': return GLYPH_3;
-        case '4': return GLYPH_4;
-        case '5': return GLYPH_5;
-        case '6': return GLYPH_6;
-        case '7': return GLYPH_7;
-        case '8': return GLYPH_8;
-        case '9': return GLYPH_9;
-        case 'A': return GLYPH_A;
-        case 'B': return GLYPH_B;
-        case 'C': return GLYPH_C;
-        case 'D': return GLYPH_D;
-        case 'E': return GLYPH_E;
-        case 'F': return GLYPH_F;
-        case 'G': return GLYPH_G;
-        case 'H': return GLYPH_H;
-        case 'I': return GLYPH_I;
-        case 'J': return GLYPH_J;
-        case 'K': return GLYPH_K;
-        case 'L': return GLYPH_L;
-        case 'M': return GLYPH_M;
-        case 'N': return GLYPH_N;
-        case 'O': return GLYPH_O;
-        case 'P': return GLYPH_P;
-        case 'Q': return GLYPH_Q;
-        case 'R': return GLYPH_R;
-        case 'S': return GLYPH_S;
-        case 'T': return GLYPH_T;
-        case 'U': return GLYPH_U;
-        case 'V': return GLYPH_V;
-        case 'W': return GLYPH_W;
-        case 'X': return GLYPH_X;
-        case 'Y': return GLYPH_Y;
-        case 'Z': return GLYPH_Z;
-        case '.': return GLYPH_PERIOD;
-        case ',': return GLYPH_COMMA;
-        case '!': return GLYPH_EXCLAIM;
-        case '?': return GLYPH_QUESTION;
-        case ':': return GLYPH_COLON;
-        case ';': return GLYPH_SEMICOLON;
-        case '-': return GLYPH_HYPHEN;
-        case '\'': return GLYPH_APOSTROPHE;
-        case '\"': return GLYPH_QUOTE;
-        default: return GLYPH_FALLBACK;
+        case ' ':
+            return GLYPH_SPACE;
+        case '0':
+            return GLYPH_0;
+        case '1':
+            return GLYPH_1;
+        case '2':
+            return GLYPH_2;
+        case '3':
+            return GLYPH_3;
+        case '4':
+            return GLYPH_4;
+        case '5':
+            return GLYPH_5;
+        case '6':
+            return GLYPH_6;
+        case '7':
+            return GLYPH_7;
+        case '8':
+            return GLYPH_8;
+        case '9':
+            return GLYPH_9;
+        case 'A':
+            return GLYPH_A;
+        case 'B':
+            return GLYPH_B;
+        case 'C':
+            return GLYPH_C;
+        case 'D':
+            return GLYPH_D;
+        case 'E':
+            return GLYPH_E;
+        case 'F':
+            return GLYPH_F;
+        case 'G':
+            return GLYPH_G;
+        case 'H':
+            return GLYPH_H;
+        case 'I':
+            return GLYPH_I;
+        case 'J':
+            return GLYPH_J;
+        case 'K':
+            return GLYPH_K;
+        case 'L':
+            return GLYPH_L;
+        case 'M':
+            return GLYPH_M;
+        case 'N':
+            return GLYPH_N;
+        case 'O':
+            return GLYPH_O;
+        case 'P':
+            return GLYPH_P;
+        case 'Q':
+            return GLYPH_Q;
+        case 'R':
+            return GLYPH_R;
+        case 'S':
+            return GLYPH_S;
+        case 'T':
+            return GLYPH_T;
+        case 'U':
+            return GLYPH_U;
+        case 'V':
+            return GLYPH_V;
+        case 'W':
+            return GLYPH_W;
+        case 'X':
+            return GLYPH_X;
+        case 'Y':
+            return GLYPH_Y;
+        case 'Z':
+            return GLYPH_Z;
+        case '.':
+            return GLYPH_PERIOD;
+        case ',':
+            return GLYPH_COMMA;
+        case '!':
+            return GLYPH_EXCLAIM;
+        case '?':
+            return GLYPH_QUESTION;
+        case ':':
+            return GLYPH_COLON;
+        case ';':
+            return GLYPH_SEMICOLON;
+        case '-':
+            return GLYPH_HYPHEN;
+        case '\'':
+            return GLYPH_APOSTROPHE;
+        case '\"':
+            return GLYPH_QUOTE;
+        default:
+            return GLYPH_FALLBACK;
     }
 }
 
-} // namespace Font5x7
+}  // namespace Font5x7

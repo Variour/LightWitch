@@ -1,12 +1,14 @@
 #pragma once
-#include "LedDriver.h"
 #include <Adafruit_NeoPixel.h>
+
 #include <memory>
 
+#include "LedDriver.h"
+
 class Ws2812bDriver : public LedDriver {
-public:
+   public:
     void setup(uint8_t dataPin, uint16_t numLeds) {
-        _pin     = dataPin;
+        _pin = dataPin;
         _numLeds = numLeds;
     }
 
@@ -34,8 +36,8 @@ public:
         _neo->show();
     }
 
-private:
-    uint8_t                            _pin     = 25;
-    uint16_t                           _numLeds = 1;
+   private:
+    uint8_t _pin = 25;
+    uint16_t _numLeds = 1;
     std::unique_ptr<Adafruit_NeoPixel> _neo;
 };

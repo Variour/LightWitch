@@ -1,9 +1,11 @@
 #pragma once
-#include <vector>
 #include <math.h>
-#include "Pattern.h"
+
+#include <vector>
+
 #include "Font5x7.h"
 #include "MatrixLayout.h"
+#include "Pattern.h"
 
 // Renders a text message on a matrix light using the fixed 5x7 font.
 // Message shorter than the matrix width is centered and held static
@@ -15,10 +17,10 @@
 // rows and padding evenly on taller ones, so the same message renders
 // sensibly across differently sized matrices.
 class TextMatrix : public Pattern {
-public:
+   public:
     float getPeriod() const override {
         if (!_animated) return 0.0f;
-        float speed   = _cfg.speed > 0.01f ? _cfg.speed : 0.01f;
+        float speed = _cfg.speed > 0.01f ? _cfg.speed : 0.01f;
         float pxPerSec = kBasePixelsPerSecond * speed;
         if (_cfg.textAnimation == TextAnimation::Bounce) {
             float travel = (float)((int)_textWidthPx - (int)_layout.width());
@@ -66,19 +68,21 @@ public:
             xOffset = (int)roundf(t * (float)((int)_layout.width() - (int)_textWidthPx));
         } else {
             float phase = _computePhase(now);
-            xOffset = (int)roundf((float)_layout.width() - phase * (float)((int)_layout.width() + (int)_textWidthPx));
+            xOffset = (int)roundf((float)_layout.width() -
+                                  phase * (float)((int)_layout.width() + (int)_textWidthPx));
         }
         _render(xOffset);
     }
 
-private:
+   private:
     static constexpr float kBasePixelsPerSecond = 6.0f;  // scroll/bounce rate at speed=1.0
 
     MatrixLayout _layout;
 
-    std::vector<uint8_t> _columns;      // one entry per pixel-column of the full message; bit r = row r lit
-    uint16_t             _textWidthPx = 0;
-    bool                 _animated    = false;
+    std::vector<uint8_t>
+        _columns;  // one entry per pixel-column of the full message; bit r = row r lit
+    uint16_t _textWidthPx = 0;
+    bool _animated = false;
 
     void _recompute() {
         _columns.clear();
@@ -87,7 +91,8 @@ private:
             for (uint8_t col = 0; col < Font5x7::GLYPH_WIDTH; col++) {
                 uint8_t colBits = 0;
                 for (uint8_t row = 0; row < Font5x7::GLYPH_HEIGHT; row++) {
-                    if ((g.rows[row] >> (Font5x7::GLYPH_WIDTH - 1 - col)) & 1) colBits |= (uint8_t)(1 << row);
+                    if ((g.rows[row] >> (Font5x7::GLYPH_WIDTH - 1 - col)) & 1)
+                        colBits |= (uint8_t)(1 << row);
                 }
                 _columns.push_back(colBits);
             }
@@ -95,7 +100,7 @@ private:
         }
         if (!_columns.empty()) _columns.pop_back();  // no trailing gap
         _textWidthPx = (uint16_t)_columns.size();
-        _animated    = _textWidthPx > _layout.width();
+        _animated = _textWidthPx > _layout.width();
     }
 
     void _render(int xOffset) {
@@ -103,13 +108,15 @@ private:
         for (uint16_t row = 0; row < _layout.height(); row++) {
             int fontRow = (int)row - yOffset;
             for (uint16_t col = 0; col < _layout.width(); col++) {
-                int  srcCol = (int)col - xOffset;
-                bool on = fontRow >= 0 && fontRow < Font5x7::GLYPH_HEIGHT &&
-                          srcCol >= 0 && srcCol < (int)_columns.size() &&
-                          ((_columns[srcCol] >> fontRow) & 1);
+                int srcCol = (int)col - xOffset;
+                bool on = fontRow >= 0 && fontRow < Font5x7::GLYPH_HEIGHT && srcCol >= 0 &&
+                          srcCol < (int)_columns.size() && ((_columns[srcCol] >> fontRow) & 1);
                 uint16_t idx = _layout.ledIndex(row, col);
-                if (on) _led->setPixel(idx, applyBrightness(_cfg.color.r), applyBrightness(_cfg.color.g), applyBrightness(_cfg.color.b));
-                else    _led->setPixel(idx, 0, 0, 0);
+                if (on)
+                    _led->setPixel(idx, applyBrightness(_cfg.color.r),
+                                   applyBrightness(_cfg.color.g), applyBrightness(_cfg.color.b));
+                else
+                    _led->setPixel(idx, 0, 0, 0);
             }
         }
         _led->show();
