@@ -1838,7 +1838,10 @@ function renderLights(self, peers, wifiSingleClientMode) {
     const battTitle = p.batteryCharging
       ? `Plugged into mains (charging) — ${battPct}%`
       : `Battery: ${battPct}%`;
-    const battFillW = Math.max(0, Math.min(16, Math.round(battPct / 100 * 16)));
+    // Fill rect starts at x=2; body is x=0.5 width=18 stroke-width=1.2, so its
+    // visible interior right edge is ~17.9 — cap fill width at 15 (right edge
+    // 17) so it never pokes past the border at high percentages.
+    const battFillW = Math.max(0, Math.min(15, Math.round(battPct / 100 * 15)));
     const batteryIcon = p.batteryPresent
       ? `<span aria-label="${esc(battTitle)}" title="${esc(battTitle)}" style="display:inline-flex;align-items:center;gap:.25rem">
           <svg width="20" height="12" viewBox="0 0 22 12" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle">
