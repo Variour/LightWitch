@@ -1,7 +1,8 @@
 #pragma once
 #include <vector>
-#include "Pattern.h"
+
 #include "GradientCommon.h"
+#include "Pattern.h"
 
 // Assigns colors from the scene palette to a string light.
 // Default behavior picks colors per LED; sceneUniformColor makes the whole
@@ -10,7 +11,7 @@
 // transitionTime controls both the hold duration and the fade duration
 // (total cycle = 2 × transitionTime).
 class SceneString : public Pattern {
-public:
+   public:
     float getPeriod() const override { return 0.0f; }
 
     void setNumLeds(uint16_t n) { _numLeds = n; }
@@ -24,8 +25,8 @@ public:
     }
 
     void applyConfig(const LightConfig& cfg) override {
-        bool sceneChanged   = strncmp(cfg.sceneId, _cfg.sceneId, sizeof(cfg.sceneId)) != 0;
-        bool transChanged   = cfg.transitionEnabled != _cfg.transitionEnabled;
+        bool sceneChanged = strncmp(cfg.sceneId, _cfg.sceneId, sizeof(cfg.sceneId)) != 0;
+        bool transChanged = cfg.transitionEnabled != _cfg.transitionEnabled;
         bool uniformChanged = cfg.sceneUniformColor != _cfg.sceneUniformColor;
         _cfg = cfg;
         if (sceneChanged) {
@@ -51,8 +52,8 @@ public:
                 auto& s = _states[0];
                 uint32_t elapsed = now - s.startMs;
                 if (elapsed >= cycleMs * 2) {
-                    s.from    = s.to;
-                    s.to      = _pick();
+                    s.from = s.to;
+                    s.to = _pick();
                     s.startMs = now;
                     _copyStateToAll(s);
                 }
@@ -60,8 +61,8 @@ public:
                 for (auto& s : _states) {
                     uint32_t elapsed = now - s.startMs;
                     if (elapsed >= cycleMs * 2) {
-                        s.from    = s.to;
-                        s.to      = _pick();
+                        s.from = s.to;
+                        s.to = _pick();
                         s.startMs = now;
                     }
                 }
@@ -70,14 +71,14 @@ public:
         _renderAll(now);
     }
 
-private:
+   private:
     struct LedState {
-        Color    from, to;
+        Color from, to;
         uint32_t startMs;
     };
 
-    uint16_t              _numLeds = 1;
-    std::vector<Color>    _palette;
+    uint16_t _numLeds = 1;
+    std::vector<Color> _palette;
     std::vector<LedState> _states;
 
     uint32_t _cycleMs() const {
@@ -102,10 +103,8 @@ private:
         if (_cfg.sceneUniformColor) {
             LedState s;
             s.from = _pick();
-            s.to   = _pick();
-            s.startMs = _cfg.transitionEnabled
-                ? now - (uint32_t)random(0, cycleMs * 2)
-                : now;
+            s.to = _pick();
+            s.startMs = _cfg.transitionEnabled ? now - (uint32_t)random(0, cycleMs * 2) : now;
             _states.assign(_numLeds, s);
             return;
         }
@@ -113,7 +112,7 @@ private:
         for (uint16_t i = 0; i < _numLeds; i++) {
             LedState s;
             s.from = _pick();
-            s.to   = _pick();
+            s.to = _pick();
             // Stagger start times across 2× the cycle so LEDs are fully offset
             s.startMs = now - (uint32_t)random(0, cycleMs * 2);
             _states.push_back(s);

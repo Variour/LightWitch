@@ -1,14 +1,16 @@
 #include "TimeSync.h"
-#include <sys/time.h>
+
 #include <WiFi.h>
 #include <esp_sntp.h>
+#include <sys/time.h>
+
 #include "../logging/Logger.h"
 
-TimeSync::Source      TimeSync::_source        = TimeSync::Source::None;
-bool                   TimeSync::_ntpStarted    = false;
-uint32_t               TimeSync::_lastBroadcast = 0;
-TimeSync::BroadcastFn  TimeSync::_broadcastFn;
-char                   TimeSync::_timezone[64]  = "UTC0";
+TimeSync::Source TimeSync::_source = TimeSync::Source::None;
+bool TimeSync::_ntpStarted = false;
+uint32_t TimeSync::_lastBroadcast = 0;
+TimeSync::BroadcastFn TimeSync::_broadcastFn;
+char TimeSync::_timezone[64] = "UTC0";
 
 static constexpr uint32_t BROADCAST_INTERVAL_MS = 10000;
 
@@ -41,7 +43,8 @@ void TimeSync::tick() {
         Logger::i("[time] NTP synced");
     }
 
-    if (_source == Source::Ntp && _broadcastFn && millis() - _lastBroadcast >= BROADCAST_INTERVAL_MS) {
+    if (_source == Source::Ntp && _broadcastFn &&
+        millis() - _lastBroadcast >= BROADCAST_INTERVAL_MS) {
         _lastBroadcast = millis();
         _broadcastFn((uint32_t)time(nullptr));
     }
@@ -50,7 +53,7 @@ void TimeSync::tick() {
 void TimeSync::onPeerTime(uint32_t epoch) {
     if (_source == Source::Ntp) return;  // trust our own NTP over a relayed clock
     if ((time_t)epoch <= EPOCH_SANITY_THRESHOLD) return;
-    struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
+    struct timeval tv = {.tv_sec = (time_t)epoch, .tv_usec = 0};
     settimeofday(&tv, nullptr);
     if (_source != Source::Peer) Logger::i("[time] adopted time from peer");
     _source = Source::Peer;

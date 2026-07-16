@@ -3,7 +3,7 @@
 
 // Abstract LED output interface. Swap this implementation when the hardware changes.
 class LedDriver {
-public:
+   public:
     virtual ~LedDriver() = default;
     virtual void begin() = 0;
     // r, g, b: 0-255 linear (driver applies any gamma correction internally)

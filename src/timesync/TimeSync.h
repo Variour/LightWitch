@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <time.h>
+
 #include <functional>
 
 // Wall-clock time for the device. Time comes from NTP when this device has
@@ -9,7 +10,7 @@
 // returns false and callers (e.g. TimeMatrix) should show an error state
 // instead of a clock.
 class TimeSync {
-public:
+   public:
     enum class Source : uint8_t { None, Ntp, Peer };
     using BroadcastFn = std::function<void(uint32_t epoch)>;
 
@@ -33,12 +34,12 @@ public:
     // time source has synced yet.
     static bool getLocalTime(struct tm& out);
 
-private:
-    static Source      _source;
-    static bool        _ntpStarted;
-    static uint32_t    _lastBroadcast;
+   private:
+    static Source _source;
+    static bool _ntpStarted;
+    static uint32_t _lastBroadcast;
     static BroadcastFn _broadcastFn;
-    static char        _timezone[64];
+    static char _timezone[64];
 
     // Rejects implausible epochs received from a peer (e.g. a peer that never
     // synced itself and is still at its 1970 boot default). Corresponds to

@@ -1,10 +1,12 @@
 #pragma once
 #include <Arduino.h>
+#include <ArduinoJson.h>
+#include <PubSubClient.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
-#include <PubSubClient.h>
-#include <ArduinoJson.h>
+
 #include <functional>
+
 #include "../config/Config.h"
 #include "../logging/Logger.h"
 #include "../scenes/SceneManager.h"
@@ -19,10 +21,10 @@
 // rather than ActionExecutor — MQTT commands are absolute "set" operations,
 // not the relative step/toggle actions ActionExecutor models for buttons.
 class MqttManager {
-public:
-    using GroupApplyFn      = std::function<void(uint8_t groupId, const LightConfig&)>;
+   public:
+    using GroupApplyFn = std::function<void(uint8_t groupId, const LightConfig&)>;
     using GroupSyncToggleFn = std::function<void(const GroupConfig&)>;
-    using LightOverrideFn   = std::function<void(uint8_t lightIndex)>;
+    using LightOverrideFn = std::function<void(uint8_t lightIndex)>;
     using SceneSyncToggleFn = std::function<void()>;
 
     // Applies + propagates a group's LightConfig change (e.g. main.cpp's
@@ -40,25 +42,26 @@ public:
         if (strlen(cfg.mqttHost) == 0) return;
 
         strlcpy(_deviceName, cfg.deviceName, sizeof(_deviceName));
-        strlcpy(_host,       cfg.mqttHost,   sizeof(_host));
+        strlcpy(_host, cfg.mqttHost, sizeof(_host));
         _port = cfg.mqttPort;
-        strlcpy(_user, cfg.mqttUser,     sizeof(_user));
+        strlcpy(_user, cfg.mqttUser, sizeof(_user));
         strlcpy(_pass, cfg.mqttPassword, sizeof(_pass));
 
         // Derive a stable unique ID from the MAC
-        uint8_t mac[6]; WiFi.macAddress(mac);
+        uint8_t mac[6];
+        WiFi.macAddress(mac);
         snprintf(_uniqueId, sizeof(_uniqueId), "bl_%02x%02x%02x", mac[3], mac[4], mac[5]);
 
         char base[96];
         snprintf(base, sizeof(base), "batterylight/%s", _deviceName);
-        snprintf(_groupPrefix,     sizeof(_groupPrefix),     "%s/group/",       base);
-        snprintf(_lightPrefix,     sizeof(_lightPrefix),     "%s/light/",       base);
-        snprintf(_updateSetTopic,  sizeof(_updateSetTopic),  "%s/update/set",   base);
-        snprintf(_updateStateTopic,sizeof(_updateStateTopic),"%s/update/state", base);
-        snprintf(_sceneSyncSetTopic,  sizeof(_sceneSyncSetTopic),  "%s/scenesync/set",   base);
-        snprintf(_sceneSyncStateTopic,sizeof(_sceneSyncStateTopic),"%s/scenesync/state", base);
-        snprintf(_groupSubWildcard,sizeof(_groupSubWildcard),"%s+/set", _groupPrefix);
-        snprintf(_lightSubWildcard,sizeof(_lightSubWildcard),"%s+/set", _lightPrefix);
+        snprintf(_groupPrefix, sizeof(_groupPrefix), "%s/group/", base);
+        snprintf(_lightPrefix, sizeof(_lightPrefix), "%s/light/", base);
+        snprintf(_updateSetTopic, sizeof(_updateSetTopic), "%s/update/set", base);
+        snprintf(_updateStateTopic, sizeof(_updateStateTopic), "%s/update/state", base);
+        snprintf(_sceneSyncSetTopic, sizeof(_sceneSyncSetTopic), "%s/scenesync/set", base);
+        snprintf(_sceneSyncStateTopic, sizeof(_sceneSyncStateTopic), "%s/scenesync/state", base);
+        snprintf(_groupSubWildcard, sizeof(_groupSubWildcard), "%s+/set", _groupPrefix);
+        snprintf(_lightSubWildcard, sizeof(_lightSubWildcard), "%s+/set", _lightPrefix);
 
         _client.setClient(_wifi);
         _client.setServer(_host, _port);
@@ -78,34 +81,56 @@ public:
         if (!_enabled) return;
         if (!_client.connected()) {
             uint32_t now = millis();
-            if (now - _lastAttempt > 10000) { _lastAttempt = now; _connect(); }
+            if (now - _lastAttempt > 10000) {
+                _lastAttempt = now;
+                _connect();
+            }
             return;
         }
         _client.loop();
 
-        if (_discoveryDirty) { _discoveryDirty = false; _publishAllDiscovery(); }
+        if (_discoveryDirty) {
+            _discoveryDirty = false;
+            _publishAllDiscovery();
+        }
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
-            if (_groupDirty[i]) { _groupDirty[i] = false; _doPublishGroup(i); }
+            if (_groupDirty[i]) {
+                _groupDirty[i] = false;
+                _doPublishGroup(i);
+            }
         for (uint8_t i = 0; i < MAX_LIGHTS; i++)
-            if (_lightDirty[i]) { _lightDirty[i] = false; _doPublishLight(i); }
-        if (_updateDirty) { _updateDirty = false; _doPublishUpdate(); }
-        if (_sceneSyncDirty) { _sceneSyncDirty = false; _doPublishSceneSync(); }
+            if (_lightDirty[i]) {
+                _lightDirty[i] = false;
+                _doPublishLight(i);
+            }
+        if (_updateDirty) {
+            _updateDirty = false;
+            _doPublishUpdate();
+        }
+        if (_sceneSyncDirty) {
+            _sceneSyncDirty = false;
+            _doPublishSceneSync();
+        }
     }
 
     // All publish* calls are safe from any context (including from within
     // _handleMsg itself) — they only flip a dirty flag; the actual
     // _client.publish() happens from loop(), never reentrantly from inside
     // PubSubClient's own callback dispatch.
-    void publishGroupState(uint8_t groupId)        { if (groupId    < MAX_GROUPS) _groupDirty[groupId]    = true; }
-    void publishLightOverride(uint8_t lightIndex)  { if (lightIndex < MAX_LIGHTS) _lightDirty[lightIndex] = true; }
-    void publishUpdateState()                      { _updateDirty = true; }
+    void publishGroupState(uint8_t groupId) {
+        if (groupId < MAX_GROUPS) _groupDirty[groupId] = true;
+    }
+    void publishLightOverride(uint8_t lightIndex) {
+        if (lightIndex < MAX_LIGHTS) _lightDirty[lightIndex] = true;
+    }
+    void publishUpdateState() { _updateDirty = true; }
     // Call after Config::get().sceneSyncEnabled changes via any non-MQTT path
     // (web UI, peer-toggle-self) so the retained MQTT state doesn't go stale.
-    void publishSceneSyncState()                    { _sceneSyncDirty = true; }
+    void publishSceneSyncState() { _sceneSyncDirty = true; }
     // Republishes HA discovery (incl. the scene-derived effect list) for
     // every existing group — call after a group or scene is added/renamed/
     // removed/deleted.
-    void resyncGroupDiscovery()                    { _discoveryDirty = true; }
+    void resyncGroupDiscovery() { _discoveryDirty = true; }
 
     bool connected() { return _enabled && _client.connected(); }
     bool enabled() const { return _enabled; }
@@ -119,13 +144,16 @@ public:
     // connected — the caller is expected to wipe the broker config in
     // Config *after* this returns. No-op if MQTT was never configured.
     void clearRetainedAndDisable() {
-        if (strlen(_host) == 0) { _enabled = false; return; }
+        if (strlen(_host) == 0) {
+            _enabled = false;
+            return;
+        }
         if (!_client.connected()) {
-            bool ok = (strlen(_user) > 0)
-                ? _client.connect(_deviceName, _user, _pass)
-                : _client.connect(_deviceName, nullptr, nullptr);
+            bool ok = (strlen(_user) > 0) ? _client.connect(_deviceName, _user, _pass)
+                                          : _client.connect(_deviceName, nullptr, nullptr);
             if (!ok) {
-                Logger::w("[mqtt] clear: connect failed rc=%d — retained messages left in place", _client.state());
+                Logger::w("[mqtt] clear: connect failed rc=%d — retained messages left in place",
+                          _client.state());
                 _enabled = false;
                 return;
             }
@@ -188,49 +216,48 @@ public:
         Logger::i("[mqtt] cleared retained topics for deleted group %u", groupId);
     }
 
-private:
+   private:
     inline static MqttManager* _instance = nullptr;
 
-    static constexpr const char* kPatternNames[5] = {
-        "Static", "Breathing", "Color Cycle", "Strobe", "Candle"
-    };
+    static constexpr const char* kPatternNames[5] = {"Static", "Breathing", "Color Cycle", "Strobe",
+                                                     "Candle"};
 
-    WiFiClient   _wifi;
+    WiFiClient _wifi;
     PubSubClient _client{_wifi};
 
-    GroupApplyFn      _onGroupLight;
+    GroupApplyFn _onGroupLight;
     GroupSyncToggleFn _onGroupSyncToggle;
-    LightOverrideFn   _onLightOverride;
+    LightOverrideFn _onLightOverride;
     SceneSyncToggleFn _onSceneSyncEnabled;
 
-    bool     _enabled     = false;
+    bool _enabled = false;
     uint32_t _lastAttempt = 0;
 
-    bool _discoveryDirty            = false;
-    bool _groupDirty[MAX_GROUPS]    = {};
-    bool _lightDirty[MAX_LIGHTS]    = {};
+    bool _discoveryDirty = false;
+    bool _groupDirty[MAX_GROUPS] = {};
+    bool _lightDirty[MAX_LIGHTS] = {};
     // Last non-zero brightness observed per group (from any source, via
     // _doPublishGroup) — restores HA's on/off toggle, which sends a bare
     // {"state":"ON"} with no brightness and would otherwise leave the group
     // at brightness 0 forever. 0 means "never observed"; falls back to 255.
     uint8_t _lastOnBrightness[MAX_GROUPS] = {};
-    bool _updateDirty               = false;
-    bool _sceneSyncDirty             = false;
+    bool _updateDirty = false;
+    bool _sceneSyncDirty = false;
 
-    char     _deviceName[32] = {};
-    char     _uniqueId[24]   = {};
-    char     _host[64]       = {};
-    uint16_t _port           = 1883;
-    char     _user[32]       = {};
-    char     _pass[64]       = {};
+    char _deviceName[32] = {};
+    char _uniqueId[24] = {};
+    char _host[64] = {};
+    uint16_t _port = 1883;
+    char _user[32] = {};
+    char _pass[64] = {};
 
-    char _groupPrefix[80]       = {};   // "batterylight/<dev>/group/"
-    char _lightPrefix[80]       = {};   // "batterylight/<dev>/light/"
-    char _groupSubWildcard[96]  = {};   // "batterylight/<dev>/group/+/set"
-    char _lightSubWildcard[96]  = {};   // "batterylight/<dev>/light/+/set"
-    char _updateSetTopic[112]   = {};
+    char _groupPrefix[80] = {};       // "batterylight/<dev>/group/"
+    char _lightPrefix[80] = {};       // "batterylight/<dev>/light/"
+    char _groupSubWildcard[96] = {};  // "batterylight/<dev>/group/+/set"
+    char _lightSubWildcard[96] = {};  // "batterylight/<dev>/light/+/set"
+    char _updateSetTopic[112] = {};
     char _updateStateTopic[112] = {};
-    char _sceneSyncSetTopic[112]   = {};
+    char _sceneSyncSetTopic[112] = {};
     char _sceneSyncStateTopic[112] = {};
 
     void _groupTopic(uint8_t id, const char* suffix, char* out, size_t outLen) {
@@ -260,9 +287,8 @@ private:
 
     void _connect() {
         Logger::i("[mqtt] connecting to %s:%u ...", _host, _port);
-        bool ok = (strlen(_user) > 0)
-            ? _client.connect(_deviceName, _user, _pass)
-            : _client.connect(_deviceName, nullptr, nullptr);
+        bool ok = (strlen(_user) > 0) ? _client.connect(_deviceName, _user, _pass)
+                                      : _client.connect(_deviceName, nullptr, nullptr);
         if (!ok) {
             Logger::w("[mqtt] connect failed rc=%d — retry in 10s", _client.state());
             return;
@@ -273,7 +299,8 @@ private:
         _client.subscribe(_updateSetTopic);
         _client.subscribe(_sceneSyncSetTopic);
         _publishAllDiscovery();
-        for (uint8_t i = 0; i < MAX_GROUPS; i++) if (Config::group(i)) _doPublishGroup(i);
+        for (uint8_t i = 0; i < MAX_GROUPS; i++)
+            if (Config::group(i)) _doPublishGroup(i);
         Config::forEachLight([this](uint8_t i, LightHardwareConfig&) { _doPublishLight(i); });
         _doPublishUpdate();
         _doPublishSceneSync();
@@ -286,7 +313,8 @@ private:
             GroupConfig* g = Config::group(i);
             if (g) _publishGroupDiscovery(i, *g);
         }
-        Config::forEachLight([this](uint8_t i, LightHardwareConfig&) { _publishLightDiscovery(i); });
+        Config::forEachLight(
+            [this](uint8_t i, LightHardwareConfig&) { _publishLightDiscovery(i); });
         _publishUpdateDiscovery();
         _publishSceneSyncDiscovery();
         Logger::i("[mqtt] discovery published");
@@ -300,7 +328,9 @@ private:
     // scene create/rename/delete.
     void _buildEffectList(JsonArray fx) {
         for (auto name : kPatternNames) fx.add(name);
-        fx.add("Proximity"); fx.add("Text"); fx.add("Time");
+        fx.add("Proximity");
+        fx.add("Text");
+        fx.add("Time");
         JsonDocument sc;
         SceneManager::buildList(sc);
         for (JsonObject o : sc["scenes"].as<JsonArray>()) {
@@ -308,7 +338,7 @@ private:
             if (!name[0]) continue;
             // ArduinoJson doesn't copy char*/const char* by default (only String/
             // std::string) — wrap in String so each entry keeps its own text.
-            fx.add(String("Scene: ")    + name);
+            fx.add(String("Scene: ") + name);
             fx.add(String("Gradient: ") + name);
         }
     }
@@ -318,27 +348,29 @@ private:
         _groupDiscoveryTopic(id, discTopic, sizeof(discTopic));
         char stateTopic[112], setTopic[112];
         _groupTopic(id, "state", stateTopic, sizeof(stateTopic));
-        _groupTopic(id, "set",   setTopic,   sizeof(setTopic));
+        _groupTopic(id, "set", setTopic, sizeof(setTopic));
 
         JsonDocument doc;
         doc["name"] = g.name;
-        char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_g%u", _uniqueId, id);
-        doc["unique_id"]  = String(uniq);
-        doc["schema"]     = "json";
-        doc["state_topic"]           = String(stateTopic);
-        doc["command_topic"]         = String(setTopic);
+        char uniq[48];
+        snprintf(uniq, sizeof(uniq), "%s_g%u", _uniqueId, id);
+        doc["unique_id"] = String(uniq);
+        doc["schema"] = "json";
+        doc["state_topic"] = String(stateTopic);
+        doc["command_topic"] = String(setTopic);
         doc["brightness"] = true;
         doc["color_mode"] = true;
         doc["supported_color_modes"].to<JsonArray>().add("rgb");
         doc["effect"] = true;
         _buildEffectList(doc["effect_list"].to<JsonArray>());
         auto dev = doc["device"].to<JsonObject>();
-        dev["name"]         = _deviceName;
-        dev["model"]        = "Battery Light";
+        dev["name"] = _deviceName;
+        dev["model"] = "Battery Light";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
-        String s; serializeJson(doc, s);
+        String s;
+        serializeJson(doc, s);
         _client.publish(discTopic, s.c_str(), /*retain=*/true);
 
         _publishGroupTime24hDiscovery(id, g, stateTopic, setTopic);
@@ -351,25 +383,28 @@ private:
     // is needed — _handleGroupSet already merges it in via
     // deserializeLightConfig(doc, g->light), leaving every other field
     // untouched.
-    void _publishGroupTime24hDiscovery(uint8_t id, const GroupConfig& g, const char* stateTopic, const char* setTopic) {
+    void _publishGroupTime24hDiscovery(uint8_t id, const GroupConfig& g, const char* stateTopic,
+                                       const char* setTopic) {
         char discTopic[128];
         _groupTime24hDiscoveryTopic(id, discTopic, sizeof(discTopic));
 
         JsonDocument doc;
         doc["name"] = String(g.name) + ": Use 24h Time";
-        char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_g%u_time24h", _uniqueId, id);
-        doc["unique_id"]        = String(uniq);
-        doc["state_topic"]      = String(stateTopic);
-        doc["command_topic"]    = String(setTopic);
-        doc["value_template"]   = "{{ 'ON' if value_json.time24h else 'OFF' }}";
+        char uniq[48];
+        snprintf(uniq, sizeof(uniq), "%s_g%u_time24h", _uniqueId, id);
+        doc["unique_id"] = String(uniq);
+        doc["state_topic"] = String(stateTopic);
+        doc["command_topic"] = String(setTopic);
+        doc["value_template"] = "{{ 'ON' if value_json.time24h else 'OFF' }}";
         doc["command_template"] = "{\"time24h\": {{ (value == \"ON\") | lower }}}";
         auto dev = doc["device"].to<JsonObject>();
-        dev["name"]         = _deviceName;
-        dev["model"]        = "Battery Light";
+        dev["name"] = _deviceName;
+        dev["model"] = "Battery Light";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
-        String s; serializeJson(doc, s);
+        String s;
+        serializeJson(doc, s);
         _client.publish(discTopic, s.c_str(), /*retain=*/true);
     }
 
@@ -382,11 +417,11 @@ private:
     void _publishLightDiscovery(uint8_t idx) {
         char stateTopic[112], setTopic[112];
         _lightTopic(idx, "state", stateTopic, sizeof(stateTopic));
-        _lightTopic(idx, "set",   setTopic,   sizeof(setTopic));
+        _lightTopic(idx, "set", setTopic, sizeof(setTopic));
         auto dev = [&](JsonDocument& doc) {
             auto d = doc["device"].to<JsonObject>();
-            d["name"]         = _deviceName;
-            d["model"]        = "Battery Light";
+            d["name"] = _deviceName;
+            d["model"] = "Battery Light";
             d["manufacturer"] = "DIY";
             d["identifiers"].to<JsonArray>().add(_uniqueId);
         };
@@ -394,42 +429,51 @@ private:
         // UI) is optional and empty by default.
         const char* lightName = Config::get().lights[idx].name;
         char label[32];
-        if (lightName[0]) strlcpy(label, lightName, sizeof(label));
-        else              snprintf(label, sizeof(label), "Light %u", idx);
+        if (lightName[0])
+            strlcpy(label, lightName, sizeof(label));
+        else
+            snprintf(label, sizeof(label), "Light %u", idx);
 
         {
             char discTopic[128];
             _lightSwitchDiscoveryTopic(idx, discTopic, sizeof(discTopic));
             JsonDocument doc;
-            char name[64]; snprintf(name, sizeof(name), "%s: Brightness Override Enabled", label);
+            char name[64];
+            snprintf(name, sizeof(name), "%s: Brightness Override Enabled", label);
             doc["name"] = String(name);
-            char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_briEn", _uniqueId, idx);
-            doc["unique_id"]       = String(uniq);
-            doc["state_topic"]     = String(stateTopic);
-            doc["command_topic"]   = String(setTopic);
-            doc["value_template"]  = "{{ 'ON' if value_json.brightnessOverrideEnabled else 'OFF' }}";
-            doc["command_template"] = "{\"brightnessOverrideEnabled\": {{ (value == \"ON\") | lower }}}";
+            char uniq[48];
+            snprintf(uniq, sizeof(uniq), "%s_l%u_briEn", _uniqueId, idx);
+            doc["unique_id"] = String(uniq);
+            doc["state_topic"] = String(stateTopic);
+            doc["command_topic"] = String(setTopic);
+            doc["value_template"] = "{{ 'ON' if value_json.brightnessOverrideEnabled else 'OFF' }}";
+            doc["command_template"] =
+                "{\"brightnessOverrideEnabled\": {{ (value == \"ON\") | lower }}}";
             dev(doc);
-            String s; serializeJson(doc, s);
+            String s;
+            serializeJson(doc, s);
             _client.publish(discTopic, s.c_str(), /*retain=*/true);
         }
         {
             char discTopic[128];
             _lightNumberDiscoveryTopic(idx, discTopic, sizeof(discTopic));
             JsonDocument doc;
-            char name[64]; snprintf(name, sizeof(name), "%s: Brightness Override", label);
+            char name[64];
+            snprintf(name, sizeof(name), "%s: Brightness Override", label);
             doc["name"] = String(name);
-            char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_bri", _uniqueId, idx);
-            doc["unique_id"]       = String(uniq);
-            doc["state_topic"]     = String(stateTopic);
-            doc["command_topic"]   = String(setTopic);
-            doc["value_template"]  = "{{ value_json.brightnessOverride }}";
+            char uniq[48];
+            snprintf(uniq, sizeof(uniq), "%s_l%u_bri", _uniqueId, idx);
+            doc["unique_id"] = String(uniq);
+            doc["state_topic"] = String(stateTopic);
+            doc["command_topic"] = String(setTopic);
+            doc["value_template"] = "{{ value_json.brightnessOverride }}";
             doc["command_template"] = "{\"brightnessOverride\": {{ value }}}";
-            doc["min"]  = 0;
-            doc["max"]  = 255;
+            doc["min"] = 0;
+            doc["max"] = 255;
             doc["step"] = 1;
             dev(doc);
-            String s; serializeJson(doc, s);
+            String s;
+            serializeJson(doc, s);
             _client.publish(discTopic, s.c_str(), /*retain=*/true);
         }
         {
@@ -440,23 +484,27 @@ private:
             char discTopic[128];
             _lightGroupDiscoveryTopic(idx, discTopic, sizeof(discTopic));
             JsonDocument doc;
-            char name[64]; snprintf(name, sizeof(name), "%s: Group", label);
+            char name[64];
+            snprintf(name, sizeof(name), "%s: Group", label);
             doc["name"] = String(name);
-            char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_l%u_group", _uniqueId, idx);
-            doc["unique_id"]       = String(uniq);
-            doc["state_topic"]     = String(stateTopic);
-            doc["command_topic"]   = String(setTopic);
-            doc["value_template"]  = "{{ value_json.group }}";
+            char uniq[48];
+            snprintf(uniq, sizeof(uniq), "%s_l%u_group", _uniqueId, idx);
+            doc["unique_id"] = String(uniq);
+            doc["state_topic"] = String(stateTopic);
+            doc["command_topic"] = String(setTopic);
+            doc["value_template"] = "{{ value_json.group }}";
             doc["command_template"] = "{\"groupId\": {{ value.split(':')[0] | int }}}";
             JsonArray opts = doc["options"].to<JsonArray>();
             for (uint8_t g = 0; g < MAX_GROUPS; g++) {
                 GroupConfig* gc = Config::group(g);
                 if (!gc) continue;
-                char opt[48]; snprintf(opt, sizeof(opt), "%u: %s", g, gc->name);
+                char opt[48];
+                snprintf(opt, sizeof(opt), "%u: %s", g, gc->name);
                 opts.add(String(opt));
             }
             dev(doc);
-            String s; serializeJson(doc, s);
+            String s;
+            serializeJson(doc, s);
             _client.publish(discTopic, s.c_str(), /*retain=*/true);
         }
     }
@@ -467,20 +515,22 @@ private:
 
         JsonDocument doc;
         doc["name"] = "Firmware";
-        char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_fw", _uniqueId);
-        doc["unique_id"]     = String(uniq);
-        doc["state_topic"]   = _updateStateTopic;
+        char uniq[48];
+        snprintf(uniq, sizeof(uniq), "%s_fw", _uniqueId);
+        doc["unique_id"] = String(uniq);
+        doc["state_topic"] = _updateStateTopic;
         doc["command_topic"] = _updateSetTopic;
         doc["payload_install"] = "INSTALL";
-        doc["device_class"]  = "firmware";
+        doc["device_class"] = "firmware";
         doc["entity_category"] = "config";
         auto dev = doc["device"].to<JsonObject>();
-        dev["name"]         = _deviceName;
-        dev["model"]        = "Battery Light";
+        dev["name"] = _deviceName;
+        dev["model"] = "Battery Light";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
-        String s; serializeJson(doc, s);
+        String s;
+        serializeJson(doc, s);
         _client.publish(discTopic, s.c_str(), /*retain=*/true);
     }
 
@@ -493,18 +543,20 @@ private:
 
         JsonDocument doc;
         doc["name"] = "Scene Sync";
-        char uniq[48]; snprintf(uniq, sizeof(uniq), "%s_scenesync", _uniqueId);
-        doc["unique_id"]       = String(uniq);
-        doc["state_topic"]     = _sceneSyncStateTopic;
-        doc["command_topic"]   = _sceneSyncSetTopic;
+        char uniq[48];
+        snprintf(uniq, sizeof(uniq), "%s_scenesync", _uniqueId);
+        doc["unique_id"] = String(uniq);
+        doc["state_topic"] = _sceneSyncStateTopic;
+        doc["command_topic"] = _sceneSyncSetTopic;
         doc["entity_category"] = "config";
         auto dev = doc["device"].to<JsonObject>();
-        dev["name"]         = _deviceName;
-        dev["model"]        = "Battery Light";
+        dev["name"] = _deviceName;
+        dev["model"] = "Battery Light";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
-        String s; serializeJson(doc, s);
+        String s;
+        serializeJson(doc, s);
         _client.publish(discTopic, s.c_str(), /*retain=*/true);
     }
 
@@ -513,10 +565,10 @@ private:
     // Resolves the current mode/pattern/sceneId to the matching effect_list
     // display string, so HA's effect dropdown shows the right selection.
     String _effectDisplayName(const LightConfig& l) {
-        if (l.mode == GroupMode::Pattern)   return kPatternNames[(uint8_t)l.pattern];
+        if (l.mode == GroupMode::Pattern) return kPatternNames[(uint8_t)l.pattern];
         if (l.mode == GroupMode::Proximity) return "Proximity";
-        if (l.mode == GroupMode::Text)      return "Text";
-        if (l.mode == GroupMode::Time)      return "Time";
+        if (l.mode == GroupMode::Text) return "Text";
+        if (l.mode == GroupMode::Time) return "Time";
         JsonDocument sc;
         SceneManager::buildList(sc);
         for (JsonObject o : sc["scenes"].as<JsonArray>()) {
@@ -536,14 +588,18 @@ private:
         JsonObject o = doc.to<JsonObject>();
         serializeGroup(o, *g);
         // HA json-light-schema convenience keys, layered on top of the raw fields.
-        o["state"]      = g->light.brightness > 0 ? "ON" : "OFF";
+        o["state"] = g->light.brightness > 0 ? "ON" : "OFF";
         o["color_mode"] = "rgb";
         auto c = o["color"].to<JsonObject>();
-        c["r"] = g->light.color.r; c["g"] = g->light.color.g; c["b"] = g->light.color.b;
+        c["r"] = g->light.color.r;
+        c["g"] = g->light.color.g;
+        c["b"] = g->light.color.b;
         o["effect"] = _effectDisplayName(g->light);
 
-        char topic[112]; _groupTopic(id, "state", topic, sizeof(topic));
-        String s; serializeJson(doc, s);
+        char topic[112];
+        _groupTopic(id, "state", topic, sizeof(topic));
+        String s;
+        serializeJson(doc, s);
         _client.publish(topic, s.c_str(), /*retain=*/true);
     }
 
@@ -553,12 +609,15 @@ private:
         if (!l.exists) return;
         JsonDocument doc;
         doc["brightnessOverrideEnabled"] = l.brightnessOverrideEnabled;
-        doc["brightnessOverride"]        = l.brightnessOverride;
+        doc["brightnessOverride"] = l.brightnessOverride;
         GroupConfig* g = Config::group(l.groupId);
-        char group[48]; snprintf(group, sizeof(group), "%u: %s", l.groupId, g ? g->name : "");
+        char group[48];
+        snprintf(group, sizeof(group), "%u: %s", l.groupId, g ? g->name : "");
         doc["group"] = String(group);
-        char topic[112]; _lightTopic(idx, "state", topic, sizeof(topic));
-        String s; serializeJson(doc, s);
+        char topic[112];
+        _lightTopic(idx, "state", topic, sizeof(topic));
+        String s;
+        serializeJson(doc, s);
         _client.publish(topic, s.c_str(), /*retain=*/true);
     }
 
@@ -566,23 +625,28 @@ private:
         auto& us = Updater::status();
         JsonDocument doc;
         doc["installed_version"] = us.currentVersion;
-        doc["latest_version"]    = us.hasUpdate ? us.latestVersion : us.currentVersion;
+        doc["latest_version"] = us.hasUpdate ? us.latestVersion : us.currentVersion;
         bool inProgress = (us.state == Updater::State::Downloading);
         doc["in_progress"] = inProgress;
-        if (inProgress) doc["update_percentage"] = us.progress;
-        else            doc["update_percentage"] = nullptr;
-        String s; serializeJson(doc, s);
+        if (inProgress)
+            doc["update_percentage"] = us.progress;
+        else
+            doc["update_percentage"] = nullptr;
+        String s;
+        serializeJson(doc, s);
         _client.publish(_updateStateTopic, s.c_str(), /*retain=*/true);
     }
 
     void _doPublishSceneSync() {
-        _client.publish(_sceneSyncStateTopic, Config::get().sceneSyncEnabled ? "ON" : "OFF", /*retain=*/true);
+        _client.publish(_sceneSyncStateTopic, Config::get().sceneSyncEnabled ? "ON" : "OFF",
+                        /*retain=*/true);
     }
 
     // ── Command handling ─────────────────────────────────────────────────────
 
     // Matches topic against "<prefix><id>/set" exactly; fills outId on match.
-    static bool _parseSuffixId(const char* topic, const char* prefix, uint8_t maxId, uint8_t& outId) {
+    static bool _parseSuffixId(const char* topic, const char* prefix, uint8_t maxId,
+                               uint8_t& outId) {
         size_t plen = strlen(prefix);
         if (strncmp(topic, prefix, plen) != 0) return false;
         const char* p = topic + plen;
@@ -596,10 +660,22 @@ private:
 
     void _handleMsg(char* topic, uint8_t* payload, unsigned int len) {
         uint8_t id;
-        if (_parseSuffixId(topic, _groupPrefix, MAX_GROUPS, id)) { _handleGroupSet(id, payload, len); return; }
-        if (_parseSuffixId(topic, _lightPrefix, MAX_LIGHTS, id)) { _handleLightSet(id, payload, len); return; }
-        if (strcmp(topic, _updateSetTopic) == 0)                 { _handleUpdateSet(payload, len);    return; }
-        if (strcmp(topic, _sceneSyncSetTopic) == 0)              { _handleSceneSyncSet(payload, len); return; }
+        if (_parseSuffixId(topic, _groupPrefix, MAX_GROUPS, id)) {
+            _handleGroupSet(id, payload, len);
+            return;
+        }
+        if (_parseSuffixId(topic, _lightPrefix, MAX_LIGHTS, id)) {
+            _handleLightSet(id, payload, len);
+            return;
+        }
+        if (strcmp(topic, _updateSetTopic) == 0) {
+            _handleUpdateSet(payload, len);
+            return;
+        }
+        if (strcmp(topic, _sceneSyncSetTopic) == 0) {
+            _handleSceneSyncSet(payload, len);
+            return;
+        }
     }
 
     // Maps an effect_list display string back to mode/pattern/sceneId.
@@ -607,19 +683,33 @@ private:
     bool _applyEffectName(const char* effect, LightConfig& cfg) {
         for (uint8_t i = 0; i < 5; i++) {
             if (strcmp(effect, kPatternNames[i]) == 0) {
-                cfg.mode    = GroupMode::Pattern;
+                cfg.mode = GroupMode::Pattern;
                 cfg.pattern = (PatternId)i;
                 return true;
             }
         }
-        if (strcmp(effect, "Proximity") == 0) { cfg.mode = GroupMode::Proximity; return true; }
-        if (strcmp(effect, "Text")      == 0) { cfg.mode = GroupMode::Text;      return true; }
-        if (strcmp(effect, "Time")      == 0) { cfg.mode = GroupMode::Time;      return true; }
+        if (strcmp(effect, "Proximity") == 0) {
+            cfg.mode = GroupMode::Proximity;
+            return true;
+        }
+        if (strcmp(effect, "Text") == 0) {
+            cfg.mode = GroupMode::Text;
+            return true;
+        }
+        if (strcmp(effect, "Time") == 0) {
+            cfg.mode = GroupMode::Time;
+            return true;
+        }
 
         const char* rest = nullptr;
-        GroupMode   targetMode;
-        if      (strncmp(effect, "Scene: ", 7)    == 0) { rest = effect + 7;  targetMode = GroupMode::Scene; }
-        else if (strncmp(effect, "Gradient: ", 10) == 0) { rest = effect + 10; targetMode = GroupMode::Gradient; }
+        GroupMode targetMode;
+        if (strncmp(effect, "Scene: ", 7) == 0) {
+            rest = effect + 7;
+            targetMode = GroupMode::Scene;
+        } else if (strncmp(effect, "Gradient: ", 10) == 0) {
+            rest = effect + 10;
+            targetMode = GroupMode::Gradient;
+        }
         if (!rest) return false;
 
         JsonDocument sc;
@@ -636,9 +726,15 @@ private:
 
     void _handleGroupSet(uint8_t id, uint8_t* payload, unsigned int len) {
         GroupConfig* g = Config::group(id);
-        if (!g) { Logger::w("[mqtt] group %u set — not found", id); return; }
+        if (!g) {
+            Logger::w("[mqtt] group %u set — not found", id);
+            return;
+        }
         JsonDocument doc;
-        if (deserializeJson(doc, payload, len)) { Logger::w("[mqtt] group %u: bad JSON", id); return; }
+        if (deserializeJson(doc, payload, len)) {
+            Logger::w("[mqtt] group %u: bad JSON", id);
+            return;
+        }
 
         if (!doc["syncEnabled"].isNull()) {
             g->syncEnabled = (bool)doc["syncEnabled"];
@@ -678,10 +774,14 @@ private:
 
     void _handleLightSet(uint8_t idx, uint8_t* payload, unsigned int len) {
         if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
-            Logger::w("[mqtt] light %u set — not found", idx); return;
+            Logger::w("[mqtt] light %u set — not found", idx);
+            return;
         }
         JsonDocument doc;
-        if (deserializeJson(doc, payload, len)) { Logger::w("[mqtt] light %u: bad JSON", idx); return; }
+        if (deserializeJson(doc, payload, len)) {
+            Logger::w("[mqtt] light %u: bad JSON", idx);
+            return;
+        }
 
         auto& l = Config::get().lights[idx];
         bool changed = false;
@@ -695,8 +795,11 @@ private:
         }
         if (!doc["groupId"].isNull()) {
             uint8_t gid = doc["groupId"];
-            if (Config::group(gid)) { l.groupId = gid; changed = true; }
-            else Logger::w("[mqtt] light %u: groupId %u not found", idx, gid);
+            if (Config::group(gid)) {
+                l.groupId = gid;
+                changed = true;
+            } else
+                Logger::w("[mqtt] light %u: groupId %u not found", idx, gid);
         }
         if (!changed) return;
         Config::save();
@@ -704,7 +807,8 @@ private:
     }
 
     void _handleUpdateSet(uint8_t* payload, unsigned int len) {
-        String cmd; cmd.reserve(len);
+        String cmd;
+        cmd.reserve(len);
         for (unsigned int i = 0; i < len; i++) cmd += (char)payload[i];
         if (cmd == "INSTALL") {
             Logger::i("[mqtt] update install requested");
@@ -714,11 +818,15 @@ private:
 
     // Mirrors WebServer's _postConfig/_setRemoteSceneSync own-mac branch.
     void _handleSceneSyncSet(uint8_t* payload, unsigned int len) {
-        String cmd; cmd.reserve(len);
+        String cmd;
+        cmd.reserve(len);
         for (unsigned int i = 0; i < len; i++) cmd += (char)payload[i];
-        if (cmd != "ON" && cmd != "OFF") { Logger::w("[mqtt] sceneSync: bad payload"); return; }
+        if (cmd != "ON" && cmd != "OFF") {
+            Logger::w("[mqtt] sceneSync: bad payload");
+            return;
+        }
 
-        bool prev    = Config::get().sceneSyncEnabled;
+        bool prev = Config::get().sceneSyncEnabled;
         bool enabled = (cmd == "ON");
         Config::get().sceneSyncEnabled = enabled;
         Config::save();

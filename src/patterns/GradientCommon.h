@@ -1,8 +1,10 @@
 #pragma once
-#include <LittleFS.h>
 #include <ArduinoJson.h>
-#include <vector>
+#include <LittleFS.h>
 #include <math.h>
+
+#include <vector>
+
 #include "../config/Config.h"
 #include "../scenes/SceneManager.h"
 #include "Pattern.h"
@@ -16,13 +18,17 @@ namespace GradientCommon {
 // frame's colors in order.
 // dedupe=true (default) collapses repeats to their first-seen occurrence;
 // false keeps every color, including repeats, as encountered.
-inline void loadPalette(const char* sceneId, std::vector<Color>& out, bool allFrames = false, bool dedupe = true) {
+inline void loadPalette(const char* sceneId, std::vector<Color>& out, bool allFrames = false,
+                        bool dedupe = true) {
     out.clear();
     if (!sceneId || !sceneId[0]) return;
     File f = LittleFS.open(SceneManager::path(sceneId).c_str(), "r");
     if (!f) return;
     JsonDocument doc;
-    if (deserializeJson(doc, f)) { f.close(); return; }
+    if (deserializeJson(doc, f)) {
+        f.close();
+        return;
+    }
     f.close();
     JsonArray frames = doc["frames"].as<JsonArray>();
     if (!frames || !frames.size()) return;
@@ -37,7 +43,10 @@ inline void loadPalette(const char* sceneId, std::vector<Color>& out, bool allFr
             if (dedupe) {
                 bool dup = false;
                 for (const auto& p : out) {
-                    if (p.r == c.r && p.g == c.g && p.b == c.b) { dup = true; break; }
+                    if (p.r == c.r && p.g == c.g && p.b == c.b) {
+                        dup = true;
+                        break;
+                    }
                 }
                 if (dup) continue;
             }
@@ -69,13 +78,14 @@ constexpr float kStopJitterFraction = 0.3f;
 // closed ring; otherwise stops sit inset by roughly half a spacing unit
 // from the physical ends, as before, with the same jitter applied to those
 // end stops too.
-inline void computeStopPositions(const std::vector<Color>& stops, float length, bool circular, std::vector<float>& out) {
+inline void computeStopPositions(const std::vector<Color>& stops, float length, bool circular,
+                                 std::vector<float>& out) {
     size_t n = stops.size();
     out.assign(n, 0.0f);
     if (n == 0 || length <= 0) return;
-    float spacing   = length / (float)n;
+    float spacing = length / (float)n;
     float amplitude = spacing * kStopJitterFraction;
-    float lo        = circular ? 0.0f : spacing * 0.5f;
+    float lo = circular ? 0.0f : spacing * 0.5f;
     for (size_t i = 0; i < n; i++)
         out[i] = lo + (float)i * spacing + stopJitter(i, stops[i]) * amplitude;
 }
@@ -86,7 +96,8 @@ inline void computeStopPositions(const std::vector<Color>& stops, float length, 
 // (ring topology). When not circular, the ramp mirrors back on itself
 // beyond the outermost stops — each end folds back toward its neighboring
 // stop instead of holding a flat block of solid color.
-inline Color sample(const std::vector<Color>& palette, const std::vector<float>& positions, float x, float length, bool circular) {
+inline Color sample(const std::vector<Color>& palette, const std::vector<float>& positions, float x,
+                    float length, bool circular) {
     size_t n = palette.size();
     if (n == 0) return Color{0, 0, 0};
     if (n == 1 || length <= 0) return palette[0];
@@ -99,14 +110,17 @@ inline Color sample(const std::vector<Color>& palette, const std::vector<float>&
         i0 = n - 1;
         for (size_t i = 0; i < n; i++) {
             float upper = (i + 1 < n) ? (positions[i + 1] - positions[0]) : length;
-            if (xm < upper) { i0 = i; break; }
+            if (xm < upper) {
+                i0 = i;
+                break;
+            }
         }
         i1 = (i0 + 1) % n;
         float lo2 = (i0 == 0) ? 0.0f : positions[i0] - positions[0];
         float hi2 = (i0 + 1 < n) ? positions[i0 + 1] - positions[0] : length;
         t = (hi2 > lo2) ? (xm - lo2) / (hi2 - lo2) : 0.0f;
     } else {
-        float lo2  = positions[0];
+        float lo2 = positions[0];
         float span = positions[n - 1] - positions[0];
         if (span <= 0.0f) return palette[0];
         float period = 2.0f * span;
@@ -140,9 +154,9 @@ inline size_t targetStopCount(size_t numLeds, size_t paletteSize, uint8_t stopCo
     if (stopCountOverride >= 2) {
         target = stopCountOverride;
     } else {
-        const float  kFraction = 0.10f;
-        const size_t kMin      = 2;
-        const size_t kMax      = 8;
+        const float kFraction = 0.10f;
+        const size_t kMin = 2;
+        const size_t kMax = 8;
         target = (size_t)roundf((float)numLeds * kFraction);
         if (target < kMin) target = kMin;
         if (target > kMax) target = kMax;
@@ -164,13 +178,16 @@ inline int colorDistSq(const Color& a, const Color& b) {
 // in their original first-seen order so the ramp still reads the way the
 // scene laid its colors out.
 inline void reduceToStops(const std::vector<Color>& full, size_t numLeds, std::vector<Color>& out,
-                           uint8_t stopCountOverride = 0) {
+                          uint8_t stopCountOverride = 0) {
     size_t target = targetStopCount(numLeds, full.size(), stopCountOverride);
     size_t n = full.size();
-    if (target >= n) { out = full; return; }
+    if (target >= n) {
+        out = full;
+        return;
+    }
 
     std::vector<bool> picked(n, false);
-    std::vector<int>  minDist(n, 0);
+    std::vector<int> minDist(n, 0);
     picked[0] = true;
     for (size_t i = 0; i < n; i++) minDist[i] = colorDistSq(full[i], full[0]);
 
@@ -178,7 +195,10 @@ inline void reduceToStops(const std::vector<Color>& full, size_t numLeds, std::v
         size_t best = n;
         int bestDist = -1;
         for (size_t i = 0; i < n; i++) {
-            if (!picked[i] && minDist[i] > bestDist) { bestDist = minDist[i]; best = i; }
+            if (!picked[i] && minDist[i] > bestDist) {
+                bestDist = minDist[i];
+                best = i;
+            }
         }
         if (best == n) break;
         picked[best] = true;
@@ -190,7 +210,8 @@ inline void reduceToStops(const std::vector<Color>& full, size_t numLeds, std::v
     }
 
     out.clear();
-    for (size_t i = 0; i < n; i++) if (picked[i]) out.push_back(full[i]);
+    for (size_t i = 0; i < n; i++)
+        if (picked[i]) out.push_back(full[i]);
 }
 
 // Continuously morphs each gradient stop toward a freshly chosen random
@@ -201,7 +222,7 @@ inline void reduceToStops(const std::vector<Color>& full, size_t numLeds, std::v
 // tick, so the whole ramp (and every column/position it covers) updates
 // in real time rather than only a cached, mostly-static base.
 class StopMorph {
-public:
+   public:
     // out.size() ends up equal to stops.size(); called every tick.
     void tick(uint32_t now, const std::vector<Color>& stops, const std::vector<Color>& palette,
               float speed, std::vector<Color>& out) {
@@ -227,17 +248,18 @@ public:
             float t = c.durationMs > 0 ? (float)elapsed / (float)c.durationMs : 1.0f;
             if (t > 1.0f) t = 1.0f;
             float s = t * t * (3.0f - 2.0f * t);
-            out[i] = Color{Color::lerp(c.from.r, c.to.r, s), Color::lerp(c.from.g, c.to.g, s), Color::lerp(c.from.b, c.to.b, s)};
+            out[i] = Color{Color::lerp(c.from.r, c.to.r, s), Color::lerp(c.from.g, c.to.g, s),
+                           Color::lerp(c.from.b, c.to.b, s)};
         }
     }
 
     void reset() { _cells.clear(); }
 
-private:
+   private:
     struct Cell {
-        Color    current;          // color at the start of the current leg
-        Color    from, to;
-        uint32_t startMs    = 0;
+        Color current;  // color at the start of the current leg
+        Color from, to;
+        uint32_t startMs = 0;
         uint32_t durationMs = 0;
     };
 
@@ -249,9 +271,9 @@ private:
     }
 
     static void _startLeg(Cell& c, uint32_t now, const std::vector<Color>& palette, float speed) {
-        c.from       = c.current;
-        c.to         = _pickDifferent(palette, c.current);
-        c.startMs    = now;
+        c.from = c.current;
+        c.to = _pickDifferent(palette, c.current);
+        c.startMs = now;
         c.durationMs = _jitterMs(1500, 4000, speed);
     }
 
@@ -280,7 +302,7 @@ private:
 //   _ledIndex(i)           physical LED index to write pixel i to
 template <typename Derived>
 class Base : public Pattern {
-public:
+   public:
     void setWrap(bool wrap) {
         if (wrap == _wrap) return;
         _wrap = wrap;
@@ -298,7 +320,7 @@ public:
     }
 
     void applyConfig(const LightConfig& cfg) override {
-        bool sceneChanged     = strncmp(cfg.sceneId, _cfg.sceneId, sizeof(cfg.sceneId)) != 0;
+        bool sceneChanged = strncmp(cfg.sceneId, _cfg.sceneId, sizeof(cfg.sceneId)) != 0;
         bool stopCountChanged = cfg.gradientStopCount != _cfg.gradientStopCount;
         _cfg = cfg;
         if (sceneChanged) {
@@ -321,7 +343,7 @@ public:
 
     void tick(uint32_t now) override {
         if (!_led) return;
-        Derived* self  = static_cast<Derived*>(this);
+        Derived* self = static_cast<Derived*>(this);
         uint32_t total = self->_totalPixels();
         if (_base.size() != total) _computeBase();
 
@@ -334,33 +356,34 @@ public:
 
         for (uint32_t i = 0; i < total; i++) {
             const Color& c = (*colors)[i];
-            _led->setPixel(self->_ledIndex(i), applyBrightness(c.r), applyBrightness(c.g), applyBrightness(c.b));
+            _led->setPixel(self->_ledIndex(i), applyBrightness(c.r), applyBrightness(c.g),
+                           applyBrightness(c.b));
         }
         _led->show();
     }
 
-protected:
-    bool               _wrap = false;
-    std::vector<Color> _palette;   // full distinct-color list from the scene
-    std::vector<Color> _stops;     // reduced set actually used as gradient stops
-    std::vector<float> _positions; // jittered physical position of each stop
-    std::vector<Color> _liveStops; // _stops after live morph interpolation
+   protected:
+    bool _wrap = false;
+    std::vector<Color> _palette;    // full distinct-color list from the scene
+    std::vector<Color> _stops;      // reduced set actually used as gradient stops
+    std::vector<float> _positions;  // jittered physical position of each stop
+    std::vector<Color> _liveStops;  // _stops after live morph interpolation
     std::vector<Color> _base;
     std::vector<Color> _out;
-    StopMorph          _morph;
+    StopMorph _morph;
 
     void _computeBase() {
         Derived* self = static_cast<Derived*>(this);
-        float    len  = (float)self->_gradientLength();
+        float len = (float)self->_gradientLength();
         reduceToStops(_palette, self->_gradientLength(), _stops, _cfg.gradientStopCount);
         computeStopPositions(_stops, len, _wrap, _positions);
         _resample(_stops, _base);
     }
 
     void _resample(const std::vector<Color>& stops, std::vector<Color>& out) {
-        Derived* self  = static_cast<Derived*>(this);
+        Derived* self = static_cast<Derived*>(this);
         uint32_t total = self->_totalPixels();
-        float    len   = (float)self->_gradientLength();
+        float len = (float)self->_gradientLength();
         out.resize(total);
         for (uint32_t i = 0; i < total; i++)
             out[i] = sample(stops, _positions, self->_gradientCoord(i), len, _wrap);

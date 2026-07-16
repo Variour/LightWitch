@@ -1,48 +1,50 @@
 #pragma once
 #include <Arduino.h>
+
 #include <functional>
+
 #include "../logging/Logger.h"
 #include "MeshTypes.h"
 
 struct PeerInfo {
-    uint8_t  mac[6]                     = {};
-    char     name[32]                   = {};
-    uint8_t  lightCount                 = 0;
-    uint8_t  lightGroupIds[MAX_LIGHTS]  = {0xFF, 0xFF, 0xFF, 0xFF};
-    char     lightNames[MAX_LIGHTS][20] = {};
-    uint32_t lastSeen                   = 0;
-    bool     active                     = false;
-    int8_t   rssi                       = -90;
-    bool     sceneSyncEnabled           = true;
-    bool     wifiConnected              = false;
-    bool     hasWifiNetworks            = false;
-    bool     wifiConnecting             = false;
-    char     fwVersion[16]              = {};
-    FwState  fwState                    = FwState::Idle;
+    uint8_t mac[6] = {};
+    char name[32] = {};
+    uint8_t lightCount = 0;
+    uint8_t lightGroupIds[MAX_LIGHTS] = {0xFF, 0xFF, 0xFF, 0xFF};
+    char lightNames[MAX_LIGHTS][20] = {};
+    uint32_t lastSeen = 0;
+    bool active = false;
+    int8_t rssi = -90;
+    bool sceneSyncEnabled = true;
+    bool wifiConnected = false;
+    bool hasWifiNetworks = false;
+    bool wifiConnecting = false;
+    char fwVersion[16] = {};
+    FwState fwState = FwState::Idle;
 
     bool online() const { return active && (millis() - lastSeen < 15000); }
 
     String macStr() const {
         char buf[18];
-        snprintf(buf, sizeof(buf), "%02x:%02x:%02x:%02x:%02x:%02x",
-                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        snprintf(buf, sizeof(buf), "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3],
+                 mac[4], mac[5]);
         return String(buf);
     }
 };
 
 class PeerRegistry {
-public:
+   public:
     static constexpr uint8_t MAX_PEERS = 16;
 
     using ChangeCb = std::function<void()>;
     void setOnChange(ChangeCb cb) { _onChange = cb; }
 
-    bool update(const uint8_t* mac, const char* name,
-                uint8_t lightCount, const uint8_t lightGroupIds[MAX_LIGHTS],
-                const char lightNames_[MAX_LIGHTS][20] = nullptr,
-                bool sceneSyncEnabled = true, bool wifiConnected = false,
-                const char* fwVersion = "", FwState fwState = FwState::Idle,
-                bool hasWifiNetworks = false, bool wifiConnecting = false) {
+    bool update(const uint8_t* mac, const char* name, uint8_t lightCount,
+                const uint8_t lightGroupIds[MAX_LIGHTS],
+                const char lightNames_[MAX_LIGHTS][20] = nullptr, bool sceneSyncEnabled = true,
+                bool wifiConnected = false, const char* fwVersion = "",
+                FwState fwState = FwState::Idle, bool hasWifiNetworks = false,
+                bool wifiConnecting = false) {
         PeerInfo* p = _find(mac);
         bool isNew = (p == nullptr || !p->active);
         if (!p) p = _slot();
@@ -54,7 +56,10 @@ public:
                 lightsChanged = true;
             } else {
                 for (uint8_t i = 0; i < lightCount && i < MAX_LIGHTS; i++)
-                    if (p->lightGroupIds[i] != lightGroupIds[i]) { lightsChanged = true; break; }
+                    if (p->lightGroupIds[i] != lightGroupIds[i]) {
+                        lightsChanged = true;
+                        break;
+                    }
             }
         }
         memcpy(p->mac, mac, 6);
@@ -68,13 +73,13 @@ public:
                 p->lightNames[i][0] = '\0';
         }
         p->sceneSyncEnabled = sceneSyncEnabled;
-        p->wifiConnected    = wifiConnected;
-        p->hasWifiNetworks  = hasWifiNetworks;
-        p->wifiConnecting   = wifiConnecting;
+        p->wifiConnected = wifiConnected;
+        p->hasWifiNetworks = hasWifiNetworks;
+        p->wifiConnecting = wifiConnecting;
         strlcpy(p->fwVersion, fwVersion, sizeof(p->fwVersion));
-        p->fwState  = fwState;
+        p->fwState = fwState;
         p->lastSeen = millis();
-        p->active   = true;
+        p->active = true;
         if (isNew)
             Logger::i("[mesh] peer online: %s (%u light(s))", name, lightCount);
         else if (nameChanged)
@@ -114,9 +119,9 @@ public:
     }
 
     PeerInfo* begin() { return _peers; }
-    PeerInfo* end()   { return _peers + MAX_PEERS; }
+    PeerInfo* end() { return _peers + MAX_PEERS; }
 
-private:
+   private:
     PeerInfo _peers[MAX_PEERS];
     ChangeCb _onChange;
 
@@ -126,7 +131,8 @@ private:
         return nullptr;
     }
     PeerInfo* _slot() {
-        for (auto& p : _peers) if (!p.active) return &p;
+        for (auto& p : _peers)
+            if (!p.active) return &p;
         return nullptr;
     }
 };

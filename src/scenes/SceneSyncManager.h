@@ -1,22 +1,23 @@
 #pragma once
 #include <Arduino.h>
-#include <WiFi.h>
 #include <ArduinoJson.h>
-#include "../mesh/MeshTypes.h"
+#include <WiFi.h>
+
 #include "../config/Config.h"
 #include "../logging/Logger.h"
+#include "../mesh/MeshTypes.h"
 #include "SceneManager.h"
 
 // Maximum scenes tracked per peer in the manifest cache
-static constexpr uint8_t  SYNC_MAX_PEER_SCENES  = 32;
+static constexpr uint8_t SYNC_MAX_PEER_SCENES = 32;
 // Maximum concurrent scene fetch requests
-static constexpr uint8_t  SYNC_MAX_FETCH_QUEUE  = 8;
+static constexpr uint8_t SYNC_MAX_FETCH_QUEUE = 8;
 // Maximum scene file size accepted over the mesh
-static constexpr uint32_t SYNC_MAX_SCENE_BYTES  = 16384;
+static constexpr uint32_t SYNC_MAX_SCENE_BYTES = 16384;
 // How long to wait before retrying a scene request (ms)
-static constexpr uint32_t SYNC_REQUEST_RETRY_MS  = 6000;
+static constexpr uint32_t SYNC_REQUEST_RETRY_MS = 6000;
 // Max retries before giving up on a fetch
-static constexpr uint8_t  SYNC_MAX_RETRIES       = 3;
+static constexpr uint8_t SYNC_MAX_RETRIES = 3;
 // Interval between chunk sends (ms) — avoid flooding ESP-NOW
 static constexpr uint32_t SYNC_CHUNK_SEND_INTERVAL_MS = 20;
 // How long after a SceneEditPush before broadcasting a follow-up manifest backstop
@@ -26,10 +27,10 @@ static constexpr uint32_t SYNC_MANIFEST_JITTER_MS = 2000;
 // Jitter window for RequestManifest responses (ms)
 static constexpr uint32_t SYNC_REQUEST_MANIFEST_JITTER_MS = 1000;
 // Concurrent chunk-receive slots
-static constexpr uint8_t  SYNC_MAX_RECV_SLOTS = 2;
+static constexpr uint8_t SYNC_MAX_RECV_SLOTS = 2;
 
 class SceneSyncManager {
-public:
+   public:
     void setOnSceneSaved(std::function<void(const char*)> cb) { _onSceneSaved = cb; }
     // Called when a scene is removed via mesh sync (SceneForceSet with hash==0) —
     // WebServer's own local delete path fires its own SceneListChangedCb already,
@@ -91,7 +92,9 @@ public:
             _allocRecv(id, 0);
         } else {
             // Our copy diverged before this edit → conflict; wait for follow-up manifest
-            Logger::i("[sync] SceneEditPush %s: conflict (local=%08x prev=%08x), waiting for manifest", id, localHash, prevHash);
+            Logger::i(
+                "[sync] SceneEditPush %s: conflict (local=%08x prev=%08x), waiting for manifest",
+                id, localHash, prevHash);
         }
     }
 
@@ -162,9 +165,7 @@ public:
 
     // Mark a scene as "accept unconditionally on next receive" — used when the user
     // picks a remote device's copy as the winner during conflict resolution.
-    void setForcedAccept(const char* id) {
-        strlcpy(_forcedAcceptId, id, SCENE_ID_LEN);
-    }
+    void setForcedAccept(const char* id) { strlcpy(_forcedAcceptId, id, SCENE_ID_LEN); }
 
     // Trigger a conflict-resolution force-push for scene `id` using this device's local copy.
     void resolveWithLocal(const char* id) {
@@ -248,11 +249,10 @@ public:
                 if (!c.peerHashes[j].active) continue;
                 JsonObject p = peers.add<JsonObject>();
                 char mac[18];
-                snprintf(mac, sizeof(mac), "%02x:%02x:%02x:%02x:%02x:%02x",
-                         c.peerHashes[j].mac[0], c.peerHashes[j].mac[1],
-                         c.peerHashes[j].mac[2], c.peerHashes[j].mac[3],
+                snprintf(mac, sizeof(mac), "%02x:%02x:%02x:%02x:%02x:%02x", c.peerHashes[j].mac[0],
+                         c.peerHashes[j].mac[1], c.peerHashes[j].mac[2], c.peerHashes[j].mac[3],
                          c.peerHashes[j].mac[4], c.peerHashes[j].mac[5]);
-                p["mac"]  = mac;
+                p["mac"] = mac;
                 p["hash"] = c.peerHashes[j].hash;
             }
         }
@@ -266,45 +266,48 @@ public:
             if (!pm.active) continue;
             JsonObject o = arr.add<JsonObject>();
             char mac[18];
-            snprintf(mac, sizeof(mac), "%02x:%02x:%02x:%02x:%02x:%02x",
-                     pm.mac[0], pm.mac[1], pm.mac[2], pm.mac[3], pm.mac[4], pm.mac[5]);
+            snprintf(mac, sizeof(mac), "%02x:%02x:%02x:%02x:%02x:%02x", pm.mac[0], pm.mac[1],
+                     pm.mac[2], pm.mac[3], pm.mac[4], pm.mac[5]);
             o["mac"] = mac;
             JsonArray scenes = o["scenes"].to<JsonArray>();
             for (uint8_t j = 0; j < pm.count; j++) {
                 JsonObject s = scenes.add<JsonObject>();
-                s["id"]   = pm.entries[j].id;
+                s["id"] = pm.entries[j].id;
                 s["hash"] = pm.entries[j].hash;
             }
         }
     }
 
-    using BroadcastFn    = std::function<void(const char* id, uint32_t hash)>;
-    using RequestFn      = std::function<void(const char* id)>;
-    using ChunkFn        = std::function<void(const SceneChunkMsg& msg)>;
-    using EditPushFn     = std::function<void(const char* id, uint32_t prevHash)>;
-    using RequestManFn   = std::function<void()>;
+    using BroadcastFn = std::function<void(const char* id, uint32_t hash)>;
+    using RequestFn = std::function<void(const char* id)>;
+    using ChunkFn = std::function<void(const SceneChunkMsg& msg)>;
+    using EditPushFn = std::function<void(const char* id, uint32_t prevHash)>;
+    using RequestManFn = std::function<void()>;
 
     void setBroadcastFns(BroadcastFn forceSet, RequestFn request, ChunkFn chunk,
                          std::function<void(const SceneManifestMsg&)> manifest) {
-        _broadcastForceSet    = forceSet;
-        _broadcastRequest     = request;
-        _broadcastChunk       = chunk;
+        _broadcastForceSet = forceSet;
+        _broadcastRequest = request;
+        _broadcastChunk = chunk;
         _broadcastManifestMsg = manifest;
     }
 
-    void setEditPushFn(EditPushFn fn)         { _broadcastEditPush      = fn; }
+    void setEditPushFn(EditPushFn fn) { _broadcastEditPush = fn; }
     void setRequestManifestFn(RequestManFn fn) { _broadcastRequestManifest = fn; }
 
-private:
+   private:
     // ── Per-peer manifest cache ───────────────────────────────────────────────
 
-    struct PeerManifestEntry { char id[SCENE_ID_LEN]; uint32_t hash; };
+    struct PeerManifestEntry {
+        char id[SCENE_ID_LEN];
+        uint32_t hash;
+    };
 
     struct PeerManifest {
-        uint8_t           mac[6];
-        bool              active = false;
+        uint8_t mac[6];
+        bool active = false;
         PeerManifestEntry entries[SYNC_MAX_PEER_SCENES];
-        uint8_t           count  = 0;
+        uint8_t count = 0;
     };
 
     PeerManifest _peerManifests[PeerRegistry::MAX_PEERS] = {};
@@ -317,7 +320,7 @@ private:
             if (!pm.active) {
                 memcpy(pm.mac, mac, 6);
                 pm.active = true;
-                pm.count  = 0;
+                pm.count = 0;
                 return &pm;
             }
         }
@@ -328,7 +331,8 @@ private:
         PeerManifest* pm = _findOrCreatePeerManifest(mac);
         if (!pm) return;
         if (msg->page == 0) pm->count = 0;
-        uint8_t safeCount = msg->count < MANIFEST_ENTRIES_PER_MSG ? msg->count : MANIFEST_ENTRIES_PER_MSG;
+        uint8_t safeCount =
+            msg->count < MANIFEST_ENTRIES_PER_MSG ? msg->count : MANIFEST_ENTRIES_PER_MSG;
         for (uint8_t i = 0; i < safeCount && pm->count < SYNC_MAX_PEER_SCENES; i++) {
             const SceneManifestEntry& e = msg->entries[i];
             bool found = false;
@@ -349,22 +353,30 @@ private:
 
     // ── Conflict tracking ─────────────────────────────────────────────────────
 
-    struct PeerHash { uint8_t mac[6]; uint32_t hash; bool active; };
+    struct PeerHash {
+        uint8_t mac[6];
+        uint32_t hash;
+        bool active;
+    };
 
     struct Conflict {
-        char     id[SCENE_ID_LEN];
+        char id[SCENE_ID_LEN];
         uint32_t localHash;
         PeerHash peerHashes[PeerRegistry::MAX_PEERS];
     };
 
     static constexpr uint8_t MAX_CONFLICTS = 16;
     Conflict _conflicts[MAX_CONFLICTS] = {};
-    uint8_t  _conflictCount = 0;
+    uint8_t _conflictCount = 0;
 
-    void _registerConflict(const char* id, uint32_t localHash, const uint8_t* peerMac, uint32_t peerHash) {
+    void _registerConflict(const char* id, uint32_t localHash, const uint8_t* peerMac,
+                           uint32_t peerHash) {
         Conflict* c = nullptr;
         for (uint8_t i = 0; i < _conflictCount; i++) {
-            if (strncmp(_conflicts[i].id, id, SCENE_ID_LEN) == 0) { c = &_conflicts[i]; break; }
+            if (strncmp(_conflicts[i].id, id, SCENE_ID_LEN) == 0) {
+                c = &_conflicts[i];
+                break;
+            }
         }
         if (!c) {
             if (_conflictCount >= MAX_CONFLICTS) {
@@ -379,7 +391,7 @@ private:
         for (auto& p : c->peerHashes) {
             if (!p.active || memcmp(p.mac, peerMac, 6) == 0) {
                 memcpy(p.mac, peerMac, 6);
-                p.hash   = peerHash;
+                p.hash = peerHash;
                 p.active = true;
                 return;
             }
@@ -398,23 +410,25 @@ private:
     // ── Manifest processing ───────────────────────────────────────────────────
 
     void _processManifest(const uint8_t* senderMac, const SceneManifestMsg* msg) {
-        uint8_t safeCount = msg->count < MANIFEST_ENTRIES_PER_MSG ? msg->count : MANIFEST_ENTRIES_PER_MSG;
+        uint8_t safeCount =
+            msg->count < MANIFEST_ENTRIES_PER_MSG ? msg->count : MANIFEST_ENTRIES_PER_MSG;
         for (uint8_t i = 0; i < safeCount; i++) {
             const SceneManifestEntry& e = msg->entries[i];
 
             // Skip scenes whose chunk receive is currently in-flight
             if (_findRecv(e.id)) continue;
 
-            uint32_t localHash    = SceneManager::crc32(e.id);
-            bool     localTombstone = (localHash == 0) && SceneManager::isTombstone(e.id);
-            bool     localAbsent    = (localHash == 0) && !localTombstone;
+            uint32_t localHash = SceneManager::crc32(e.id);
+            bool localTombstone = (localHash == 0) && SceneManager::isTombstone(e.id);
+            bool localAbsent = (localHash == 0) && !localTombstone;
 
             if (e.hash == 0) {
                 // Peer has a tombstone (deleted)
                 if (localAbsent || localTombstone) {
                     // Both absent/deleted — nothing to do
                 } else {
-                    Logger::d("[sync] conflict: peer deleted %s, we have hash=%08x", e.id, localHash);
+                    Logger::d("[sync] conflict: peer deleted %s, we have hash=%08x", e.id,
+                              localHash);
                     _registerConflict(e.id, localHash, senderMac, 0);
                 }
             } else if (localAbsent) {
@@ -425,7 +439,8 @@ private:
                 // Identical — no action
             } else {
                 // Hash mismatch — always a conflict (stateless; no auto-apply from manifest)
-                Logger::d("[sync] conflict: scene %s local=%08x peer=%08x", e.id, localHash, e.hash);
+                Logger::d("[sync] conflict: scene %s local=%08x peer=%08x", e.id, localHash,
+                          e.hash);
                 _registerConflict(e.id, localHash, senderMac, e.hash);
             }
         }
@@ -434,15 +449,15 @@ private:
     // ── Fetch queue ───────────────────────────────────────────────────────────
 
     struct FetchEntry {
-        char     id[SCENE_ID_LEN];
-        bool     active;
-        bool     autoAccept;
-        uint8_t  retries;
+        char id[SCENE_ID_LEN];
+        bool active;
+        bool autoAccept;
+        uint8_t retries;
         uint32_t lastRequestMs;
     };
 
     FetchEntry _fetchQueue[SYNC_MAX_FETCH_QUEUE] = {};
-    uint8_t    _fetchQueueCount = 0;
+    uint8_t _fetchQueueCount = 0;
 
     void _enqueueRequest(const char* id, bool autoAccept = false) {
         for (uint8_t i = 0; i < _fetchQueueCount; i++) {
@@ -457,9 +472,9 @@ private:
         }
         FetchEntry& e = _fetchQueue[_fetchQueueCount++];
         strlcpy(e.id, id, SCENE_ID_LEN);
-        e.active        = true;
-        e.autoAccept    = autoAccept;
-        e.retries       = 0;
+        e.active = true;
+        e.autoAccept = autoAccept;
+        e.retries = 0;
         e.lastRequestMs = 0;
     }
 
@@ -493,12 +508,12 @@ private:
     // ── Chunk send ────────────────────────────────────────────────────────────
 
     struct ChunkSendState {
-        char     id[SCENE_ID_LEN];
-        File     file;
+        char id[SCENE_ID_LEN];
+        File file;
         uint16_t totalChunks;
         uint16_t nextChunk;
         uint32_t lastSendMs;
-        bool     active;
+        bool active;
     };
 
     ChunkSendState _send = {};
@@ -510,26 +525,33 @@ private:
         }
         String p = SceneManager::path(id);
         File f = LittleFS.open(p, "r");
-        if (!f) { Logger::e("[sync] chunk send: file not found %s", id); return; }
+        if (!f) {
+            Logger::e("[sync] chunk send: file not found %s", id);
+            return;
+        }
         uint32_t size = f.size();
-        if (size == 0) { f.close(); return; }
+        if (size == 0) {
+            f.close();
+            return;
+        }
         strlcpy(_send.id, id, SCENE_ID_LEN);
-        _send.file        = f;
+        _send.file = f;
         _send.totalChunks = (uint16_t)((size + CHUNK_DATA_SIZE - 1) / CHUNK_DATA_SIZE);
-        _send.nextChunk   = 0;
-        _send.lastSendMs  = 0;
-        _send.active      = true;
-        Logger::i("[sync] starting chunk send for %s (%u bytes, %u chunks)", id, size, _send.totalChunks);
+        _send.nextChunk = 0;
+        _send.lastSendMs = 0;
+        _send.active = true;
+        Logger::i("[sync] starting chunk send for %s (%u bytes, %u chunks)", id, size,
+                  _send.totalChunks);
     }
 
     void _sendNextChunk() {
         if (!_send.active) return;
         SceneChunkMsg msg;
-        msg.type        = MsgType::SceneChunk;
+        msg.type = MsgType::SceneChunk;
         strlcpy(msg.id, _send.id, SCENE_ID_LEN);
-        msg.chunkIndex  = _send.nextChunk;
+        msg.chunkIndex = _send.nextChunk;
         msg.totalChunks = _send.totalChunks;
-        msg.dataLen     = (uint16_t)_send.file.read(msg.data, CHUNK_DATA_SIZE);
+        msg.dataLen = (uint16_t)_send.file.read(msg.data, CHUNK_DATA_SIZE);
         if (msg.dataLen == 0) {
             Logger::w("[sync] chunk send EOF early for %s at chunk %u", _send.id, _send.nextChunk);
             _send.file.close();
@@ -549,15 +571,15 @@ private:
     // ── Chunk receive (pool of SYNC_MAX_RECV_SLOTS) ───────────────────────────
 
     struct ChunkRecvState {
-        char      id[SCENE_ID_LEN];
-        uint8_t*  buffer;
-        bool*     received;
-        uint16_t  totalChunks;
-        uint16_t  gotChunks;
-        uint32_t  bufferSize;
-        uint32_t  lastChunkMs;
-        bool      active;
-        bool      autoApply;  // true = accept regardless of local copy
+        char id[SCENE_ID_LEN];
+        uint8_t* buffer;
+        bool* received;
+        uint16_t totalChunks;
+        uint16_t gotChunks;
+        uint32_t bufferSize;
+        uint32_t lastChunkMs;
+        bool active;
+        bool autoApply;  // true = accept regardless of local copy
     };
 
     ChunkRecvState _recv[SYNC_MAX_RECV_SLOTS] = {};
@@ -574,8 +596,8 @@ private:
             if (!s.active) {
                 memset(&s, 0, sizeof(s));
                 strlcpy(s.id, id, SCENE_ID_LEN);
-                s.active      = true;
-                s.autoApply   = true;
+                s.active = true;
+                s.autoApply = true;
                 s.lastChunkMs = millis();
                 if (totalChunks > 0) {
                     uint32_t est = (uint32_t)totalChunks * CHUNK_DATA_SIZE;
@@ -588,13 +610,15 @@ private:
                     s.received = (bool*)calloc(totalChunks, sizeof(bool));
                     if (!s.buffer || !s.received) {
                         Logger::e("[sync] OOM allocating recv slot for %s", id);
-                        free(s.buffer); free(s.received);
-                        s.buffer = nullptr; s.received = nullptr;
+                        free(s.buffer);
+                        free(s.received);
+                        s.buffer = nullptr;
+                        s.received = nullptr;
                         s.active = false;
                         return nullptr;
                     }
                     s.totalChunks = totalChunks;
-                    s.bufferSize  = est;
+                    s.bufferSize = est;
                 }
                 Logger::i("[sync] recv slot allocated for %s", id);
                 return &s;
@@ -621,7 +645,7 @@ private:
                 return;
             }
             s->totalChunks = msg->totalChunks;
-            s->bufferSize  = est;
+            s->bufferSize = est;
         }
 
         if (msg->chunkIndex >= s->totalChunks) return;
@@ -641,11 +665,11 @@ private:
         char id[SCENE_ID_LEN];
         strlcpy(id, s->id, SCENE_ID_LEN);
 
-        uint32_t totalSize    = (uint32_t)(s->totalChunks - 1) * CHUNK_DATA_SIZE + lastMsg->dataLen;
+        uint32_t totalSize = (uint32_t)(s->totalChunks - 1) * CHUNK_DATA_SIZE + lastMsg->dataLen;
         uint32_t incomingHash = SceneManager::crc32OfData(s->buffer, totalSize);
-        uint32_t localHash    = SceneManager::crc32(id);
-        bool forced           = strncmp(id, _forcedAcceptId, SCENE_ID_LEN) == 0 && _forcedAcceptId[0] != 0;
-        bool autoAccept       = s->autoApply || forced;
+        uint32_t localHash = SceneManager::crc32(id);
+        bool forced = strncmp(id, _forcedAcceptId, SCENE_ID_LEN) == 0 && _forcedAcceptId[0] != 0;
+        bool autoAccept = s->autoApply || forced;
 
         if (localHash == incomingHash) {
             Logger::i("[sync] received scene %s already matches local, discarding", id);
@@ -663,7 +687,8 @@ private:
         if (!forced) {
             size_t freeBytes = LittleFS.totalBytes() - LittleFS.usedBytes();
             if (freeBytes < 20480 && !_isReferencedByGroup(id)) {
-                Logger::w("[sync] low storage (%u B free), skipping non-referenced scene %s", freeBytes, id);
+                Logger::w("[sync] low storage (%u B free), skipping non-referenced scene %s",
+                          freeBytes, id);
                 _resetRecvSlot(*s);
                 _removeFetchEntry(id);
                 return;
@@ -671,7 +696,8 @@ private:
         }
 
         bool ok = SceneManager::saveRaw(id, s->buffer, totalSize);
-        Logger::i("[sync] scene %s saved (%u bytes, hash=%08x) ok=%d", id, totalSize, incomingHash, ok);
+        Logger::i("[sync] scene %s saved (%u bytes, hash=%08x) ok=%d", id, totalSize, incomingHash,
+                  ok);
 
         if (ok && _onSceneSaved) _onSceneSaved(id);
         _clearConflict(id);
@@ -692,15 +718,20 @@ private:
     bool _isReferencedByGroup(const char* id) {
         for (uint8_t i = 0; i < MAX_GROUPS; i++) {
             GroupConfig* g = Config::group(i);
-            if (g && strncmp(g->light.sceneId, id, SCENE_ID_LEN) == 0)
-                return true;
+            if (g && strncmp(g->light.sceneId, id, SCENE_ID_LEN) == 0) return true;
         }
         return false;
     }
 
     void _resetRecvSlot(ChunkRecvState& s) {
-        if (s.buffer)   { free(s.buffer);   s.buffer   = nullptr; }
-        if (s.received) { free(s.received);  s.received = nullptr; }
+        if (s.buffer) {
+            free(s.buffer);
+            s.buffer = nullptr;
+        }
+        if (s.received) {
+            free(s.received);
+            s.received = nullptr;
+        }
         s.active = false;
     }
 
@@ -710,7 +741,7 @@ private:
         uint32_t jitter = (uint32_t)(esp_random() % (maxJitterMs + 1));
         uint32_t fireAt = millis() + jitter;
         if (!_jitteredManifestDue || fireAt < _jitteredManifestAt) {
-            _jitteredManifestAt  = fireAt;
+            _jitteredManifestAt = fireAt;
             _jitteredManifestDue = true;
         }
     }
@@ -724,10 +755,10 @@ private:
         uint8_t idx = 0;
         for (uint8_t page = 0; page < totalPages; page++) {
             SceneManifestMsg msg;
-            msg.type       = MsgType::SceneManifest;
-            msg.page       = page;
+            msg.type = MsgType::SceneManifest;
+            msg.page = page;
             msg.totalPages = totalPages;
-            msg.count      = 0;
+            msg.count = 0;
             while (msg.count < MANIFEST_ENTRIES_PER_MSG && idx < total) {
                 strlcpy(msg.entries[msg.count].id, allEntries[idx].id, SCENE_ID_LEN);
                 msg.entries[msg.count].hash = allEntries[idx].hash;
@@ -740,19 +771,19 @@ private:
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    bool     _broadcastManifestNow      = false;
-    bool     _jitteredManifestDue       = false;
-    uint32_t _jitteredManifestAt        = 0;
-    bool     _followupManifestPending   = false;
-    uint32_t _followupManifestMs        = 0;
-    char     _forcedAcceptId[SCENE_ID_LEN] = {};
+    bool _broadcastManifestNow = false;
+    bool _jitteredManifestDue = false;
+    uint32_t _jitteredManifestAt = 0;
+    bool _followupManifestPending = false;
+    uint32_t _followupManifestMs = 0;
+    char _forcedAcceptId[SCENE_ID_LEN] = {};
 
-    BroadcastFn                          _broadcastForceSet;
-    RequestFn                            _broadcastRequest;
-    ChunkFn                              _broadcastChunk;
+    BroadcastFn _broadcastForceSet;
+    RequestFn _broadcastRequest;
+    ChunkFn _broadcastChunk;
     std::function<void(const SceneManifestMsg&)> _broadcastManifestMsg;
-    EditPushFn                           _broadcastEditPush;
-    RequestManFn                         _broadcastRequestManifest;
-    std::function<void(const char*)>     _onSceneSaved;
-    std::function<void()>                _onSceneListChanged;
+    EditPushFn _broadcastEditPush;
+    RequestManFn _broadcastRequestManifest;
+    std::function<void(const char*)> _onSceneSaved;
+    std::function<void()> _onSceneListChanged;
 };

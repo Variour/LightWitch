@@ -2,14 +2,13 @@
 #include "Pattern.h"
 
 class StaticColor : public Pattern {
-public:
+   public:
     float getPeriod() const override { return 1000.0f; }  // arbitrary, static has no cycle
 
     void applyConfig(const LightConfig& cfg) override {
         _cfg = cfg;
         if (_led) {
-            _led->setColor(applyBrightness(cfg.color.r),
-                           applyBrightness(cfg.color.g),
+            _led->setColor(applyBrightness(cfg.color.r), applyBrightness(cfg.color.g),
                            applyBrightness(cfg.color.b));
         }
     }

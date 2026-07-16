@@ -1,7 +1,9 @@
 #pragma once
 #include <Arduino.h>
 #include <WiFi.h>
+
 #include <functional>
+
 #include "../config/Config.h"
 #include "../logging/Logger.h"
 #include "PeerRegistry.h"
@@ -15,7 +17,7 @@
 // order (first to last, no "last known good" stickiness — see #323), 3
 // attempts of up to 10s each, with a short settle delay between attempts.
 class WifiConnectAttempt {
-public:
+   public:
     using DoneCb = std::function<void(bool success)>;
 
     bool active() const { return _active; }
@@ -24,11 +26,15 @@ public:
     void start(DoneCb onDone) {
         if (_active) return;
         _onDone = onDone;
-        _count  = Config::wifiCount();
-        if (_count == 0) { _active = false; if (_onDone) _onDone(false); return; }
-        _netIdx     = 0;
+        _count = Config::wifiCount();
+        if (_count == 0) {
+            _active = false;
+            if (_onDone) _onDone(false);
+            return;
+        }
+        _netIdx = 0;
         _attemptNum = 0;
-        _active     = true;
+        _active = true;
         WiFi.disconnect(false);
         _beginPreDelay(100);
     }
@@ -53,7 +59,7 @@ public:
             if (millis() - _phaseStart < _preDelayMs) return;
             WiFi.begin(_ssid(), _pass());
             WiFi.setTxPower(WIFI_TX_POWER);
-            _phase      = Phase::Connecting;
+            _phase = Phase::Connecting;
             _phaseStart = millis();
             return;
         }
@@ -71,33 +77,40 @@ public:
         if (millis() - _phaseStart < 10000) return;
 
         _attemptNum++;
-        if (_attemptNum < 3) { WiFi.disconnect(false); _beginPreDelay(2000); return; }
+        if (_attemptNum < 3) {
+            WiFi.disconnect(false);
+            _beginPreDelay(2000);
+            return;
+        }
 
         _attemptNum = 0;
         _netIdx++;
-        if (_netIdx >= _count) { _finish(false); return; }
+        if (_netIdx >= _count) {
+            _finish(false);
+            return;
+        }
         WiFi.disconnect(false);
         _beginPreDelay(100);
     }
 
-private:
+   private:
     enum class Phase { PreDelay, Connecting };
 
-    bool     _active     = false;
-    Phase    _phase      = Phase::PreDelay;
+    bool _active = false;
+    Phase _phase = Phase::PreDelay;
     uint32_t _phaseStart = 0;
     uint32_t _preDelayMs = 0;
-    uint8_t  _count      = 0;
-    uint8_t  _netIdx     = 0;
-    uint8_t  _attemptNum = 0;
-    DoneCb   _onDone;
+    uint8_t _count = 0;
+    uint8_t _netIdx = 0;
+    uint8_t _attemptNum = 0;
+    DoneCb _onDone;
 
     const char* _ssid() const { return Config::wifiNetworks()[_netIdx].ssid; }
     const char* _pass() const { return Config::wifiNetworks()[_netIdx].password; }
 
     void _beginPreDelay(uint32_t ms) {
         _preDelayMs = ms;
-        _phase      = Phase::PreDelay;
+        _phase = Phase::PreDelay;
         _phaseStart = millis();
     }
 
@@ -109,7 +122,7 @@ private:
             WiFi.setTxPower(WIFI_TX_POWER);
         }
         DoneCb cb = _onDone;
-        _onDone   = nullptr;
+        _onDone = nullptr;
         if (cb) cb(ok);
     }
 };
@@ -151,7 +164,7 @@ private:
 // device that couldn't reach any configured network simply stayed on AP
 // until manually rebooted, rather than hammering it forever.
 class WifiElection {
-public:
+   public:
     void begin(PeerRegistry* peers) {
         _peers = peers;
         _enterWaiting();
@@ -167,8 +180,7 @@ public:
     // "everyone connects" immediately instead of being stuck on standby.
     void onPolicyChanged(bool nowEnabled) {
         if (!nowEnabled) {
-            if (WiFi.status() != WL_CONNECTED && !_attempt.active())
-                _attempt.start([](bool) {});
+            if (WiFi.status() != WL_CONNECTED && !_attempt.active()) _attempt.start([](bool) {});
             return;
         }
 
@@ -190,9 +202,12 @@ public:
     // caller must call releaseTemporary() once it knows the real operation
     // has actually finished (see main.cpp's loop()).
     void requestTemporary(std::function<void()> onReady) {
-        if (WiFi.status() == WL_CONNECTED) { onReady(); return; }
+        if (WiFi.status() == WL_CONNECTED) {
+            onReady();
+            return;
+        }
         if (!_otaHold) {
-            _stateBeforeOta    = _state;
+            _stateBeforeOta = _state;
             _otaConnectedFired = false;
         }
         _otaHold = true;
@@ -200,8 +215,11 @@ public:
         // check arriving alongside a local web request) must still get its
         // callback invoked once the connection settles.
         if (_otaCallback) {
-            auto prev    = _otaCallback;
-            _otaCallback = [prev, onReady]() { prev(); onReady(); };
+            auto prev = _otaCallback;
+            _otaCallback = [prev, onReady]() {
+                prev();
+                onReady();
+            };
         } else {
             _otaCallback = onReady;
         }
@@ -216,7 +234,7 @@ public:
     void releaseTemporary() {
         if (!_otaHold || !_otaConnectedFired) return;
         bool wasLeader = _stateBeforeOta == State::Connected || _state == State::Connected;
-        _otaHold           = false;
+        _otaHold = false;
         _otaConnectedFired = false;
         if (wasLeader) {
             _state = State::Connected;
@@ -239,9 +257,10 @@ public:
         // start/stop of the connect attempt is always reported exactly once.
         struct AttemptingGuard {
             WifiElection* self;
-            bool          was;
+            bool was;
             ~AttemptingGuard() {
-                if (self->_attempt.active() != was && self->_onAttemptingChanged) self->_onAttemptingChanged();
+                if (self->_attempt.active() != was && self->_onAttemptingChanged)
+                    self->_onAttemptingChanged();
             }
         } guard{this, _attempt.active()};
 
@@ -266,23 +285,23 @@ public:
                 // the callback so the caller's own guard (e.g. Updater)
                 // reports its normal "not connected to WiFi" failure.
                 std::function<void()> cb = _otaCallback;
-                _otaCallback       = nullptr;
-                _otaHold           = false;
+                _otaCallback = nullptr;
+                _otaHold = false;
                 _otaConnectedFired = false;
                 if (_stateBeforeOta != State::Connecting) _state = _stateBeforeOta;
                 if (cb) cb();
                 return;
             }
-            return; // let the in-flight attempt finish before anything else runs
+            return;  // let the in-flight attempt finish before anything else runs
         }
 
-        if (!Config::get().wifiSingleClientMode) return; // default path: untouched
+        if (!Config::get().wifiSingleClientMode) return;  // default path: untouched
         if (Config::wifiCount() == 0) return;             // not a candidate — nothing to elect
 
         uint8_t ownMac[6];
         WiFi.macAddress(ownMac);
         bool selfConnected = WiFi.status() == WL_CONNECTED;
-        bool anyConnected  = selfConnected || _anyPeerConnected();
+        bool anyConnected = selfConnected || _anyPeerConnected();
 
         switch (_state) {
             case State::Waiting: {
@@ -292,7 +311,8 @@ public:
                     // it independently connected before discovering a peer.
                     // Adopt it; the Connected case below yields it to a
                     // lower-MAC peer if one turns out to also be connected.
-                    Logger::i("[wifi-elect] already connected — adopting as this mesh's WiFi client");
+                    Logger::i(
+                        "[wifi-elect] already connected — adopting as this mesh's WiFi client");
                     _state = State::Connected;
                     return;
                 }
@@ -318,11 +338,13 @@ public:
                     // to break a tie on here (see the Connected case for the
                     // one spot that still needs a MAC-based tiebreaker: both
                     // ending up connected at once).
-                    Logger::i("[wifi-elect] another candidate connected while I was still trying — aborting");
+                    Logger::i(
+                        "[wifi-elect] another candidate connected while I was still trying — "
+                        "aborting");
                     _attempt.abort();
                     _state = State::Standby;
                 }
-                break; // otherwise handled by the DoneCb passed to _attempt.start()
+                break;  // otherwise handled by the DoneCb passed to _attempt.start()
             case State::Connected:
                 if (!selfConnected) {
                     Logger::w("[wifi-elect] lost connection — re-electing");
@@ -393,22 +415,20 @@ public:
         _enterWaiting();
     }
 
-private:
+   private:
     enum class State { Waiting, Connecting, Connected, Standby, GaveUp };
 
-    PeerRegistry*      _peers = nullptr;
-    State              _state = State::Waiting;
+    PeerRegistry* _peers = nullptr;
+    State _state = State::Waiting;
     WifiConnectAttempt _attempt;
 
-    bool                   _otaHold           = false;
-    bool                   _otaConnectedFired = false;
-    State                  _stateBeforeOta    = State::Waiting;
+    bool _otaHold = false;
+    bool _otaConnectedFired = false;
+    State _stateBeforeOta = State::Waiting;
     std::function<void()> _otaCallback;
     std::function<void()> _onAttemptingChanged;
 
-    void _enterWaiting() {
-        _state = State::Waiting;
-    }
+    void _enterWaiting() { _state = State::Waiting; }
 
     void _onAttemptDone(bool ok) {
         if (ok) {
@@ -416,7 +436,9 @@ private:
             _state = State::Connected;
             return;
         }
-        Logger::w("[wifi-elect] failed to connect (all configured networks exhausted) — giving up until something changes");
+        Logger::w(
+            "[wifi-elect] failed to connect (all configured networks exhausted) — giving up until "
+            "something changes");
         _state = State::GaveUp;
     }
 
@@ -433,7 +455,8 @@ private:
     bool _lowerMacPeerConnected(const uint8_t* ownMac) const {
         if (!_peers) return false;
         for (auto& p : *_peers)
-            if (p.active && p.online() && p.wifiConnected && memcmp(p.mac, ownMac, 6) < 0) return true;
+            if (p.active && p.online() && p.wifiConnected && memcmp(p.mac, ownMac, 6) < 0)
+                return true;
         return false;
     }
 };

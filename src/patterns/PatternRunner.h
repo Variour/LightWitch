@@ -1,40 +1,39 @@
 #pragma once
-#include <LittleFS.h>
 #include <ArduinoJson.h>
-#include "Pattern.h"
-#include "StaticColor.h"
+#include <LittleFS.h>
+
+#include "../config/Config.h"
+#include "../led/LedDriver.h"
+#include "../logging/Logger.h"
+#include "../mesh/PeerRegistry.h"
+#include "../scenes/SceneManager.h"
 #include "Breathing.h"
-#include "ColorCycle.h"
-#include "Strobe.h"
 #include "Candle.h"
-#include "SceneMatrix.h"
-#include "SceneString.h"
+#include "ColorCycle.h"
 #include "GradientMatrix.h"
 #include "GradientString.h"
+#include "Pattern.h"
 #include "Proximity.h"
+#include "SceneMatrix.h"
+#include "SceneString.h"
+#include "StaticColor.h"
+#include "Strobe.h"
 #include "TextMatrix.h"
 #include "TimeMatrix.h"
-#include "../led/LedDriver.h"
-#include "../config/Config.h"
-#include "../logging/Logger.h"
-#include "../scenes/SceneManager.h"
-#include "../mesh/PeerRegistry.h"
 
 // Owns the active pattern instance and switches patterns on config change.
 class PatternRunner {
-public:
-    void begin(LedDriver& led) {
-        _led = &led;
-    }
+   public:
+    void begin(LedDriver& led) { _led = &led; }
 
     void setDimensions(uint16_t w, uint16_t h) {
-        _width  = w;
+        _width = w;
         _height = h;
     }
 
     void setMatrixLayout(MatrixStart start, MatrixDirection dir, bool serpentine) {
         _matrixStart = start;
-        _matrixDir   = dir;
+        _matrixDir = dir;
         _matrixSerpentine = serpentine;
         _sceneMatrix.setMatrixLayout(start, dir, serpentine);
     }
@@ -42,23 +41,23 @@ public:
     // Topology: whether the last LED on an axis wraps back to the first (ring/cylinder/torus).
     // Not yet consumed by any pattern — stored here so position-aware modes can query it.
     void setWrap(bool wrapWidth, bool wrapHeight) {
-        _wrapWidth  = wrapWidth;
+        _wrapWidth = wrapWidth;
         _wrapHeight = wrapHeight;
         _gradientString.setWrap(wrapWidth);
         _gradientMatrix.setWrap(wrapWidth);
     }
 
-    bool wrapWidth()  const { return _wrapWidth; }
+    bool wrapWidth() const { return _wrapWidth; }
     bool wrapHeight() const { return _wrapHeight; }
 
     void setPeerRegistry(PeerRegistry* peers) { _proximity.setPeers(peers); }
-    void setGroupId(uint8_t groupId)          { _proximity.setGroupId(groupId); }
+    void setGroupId(uint8_t groupId) { _proximity.setGroupId(groupId); }
 
     void showTest(uint32_t durationMs) {
         if (!_led || _height < 2) return;
-        _testStart    = millis();
+        _testStart = millis();
         _testDuration = durationMs;
-        _testActive   = true;
+        _testActive = true;
         _renderTest();
     }
 
@@ -67,11 +66,13 @@ public:
     // directly from the main loop while an update is in progress.
     void showUpdateProgress(uint8_t percent) {
         if (!_led) return;
-        uint16_t n   = _width * _height;
+        uint16_t n = _width * _height;
         uint16_t lit = (uint16_t)((uint32_t)n * min(percent, (uint8_t)100) / 100);
         for (uint16_t i = 0; i < n; i++) {
-            if (i < lit) _led->setPixel(i, 255, 80, 0);
-            else         _led->setPixel(i, 0,   0,  0);
+            if (i < lit)
+                _led->setPixel(i, 255, 80, 0);
+            else
+                _led->setPixel(i, 0, 0, 0);
         }
         _led->show();
     }
@@ -96,7 +97,7 @@ public:
     // tick() picks it up and applies it before rendering the next frame.
     void applyConfig(const LightConfig& cfg) {
         portENTER_CRITICAL(&_mux);
-        _pendingConfig    = cfg;
+        _pendingConfig = cfg;
         _hasPendingConfig = true;
         portEXIT_CRITICAL(&_mux);
     }
@@ -106,7 +107,10 @@ public:
         bool hasPending;
         portENTER_CRITICAL(&_mux);
         hasPending = _hasPendingConfig;
-        if (hasPending) { pending = _pendingConfig; _hasPendingConfig = false; }
+        if (hasPending) {
+            pending = _pendingConfig;
+            _hasPendingConfig = false;
+        }
         portEXIT_CRITICAL(&_mux);
         if (hasPending) _applyConfig(pending);
 
@@ -131,21 +135,25 @@ public:
             _gradientString.reloadIfCurrent(sceneId);
     }
 
-    float getPhase()        const { return _current ? _current->getPhase()    : 0.0f; }
-    void  snapPhase(float p)      { if (_current) _current->snapPhase(p); }
-    void  resetPhase()            { if (_current) _current->resetPhase(); }
+    float getPhase() const { return _current ? _current->getPhase() : 0.0f; }
+    void snapPhase(float p) {
+        if (_current) _current->snapPhase(p);
+    }
+    void resetPhase() {
+        if (_current) _current->resetPhase();
+    }
 
-private:
+   private:
     void _applyConfig(const LightConfig& cfg) {
         _savedConfig = cfg;
         if (_testActive) return;
         if (cfg.mode == GroupMode::Proximity) {
             _sceneMode = SceneMode::None;
             if (_current != &_proximity) {
-                Logger::i("[pattern] → Proximity  rgb(%u,%u,%u) br=%u scale=%.1f",
-                          cfg.color.r, cfg.color.g, cfg.color.b, cfg.brightness, cfg.proximityScale);
+                Logger::i("[pattern] → Proximity  rgb(%u,%u,%u) br=%u scale=%.1f", cfg.color.r,
+                          cfg.color.g, cfg.color.b, cfg.brightness, cfg.proximityScale);
                 _proximity.begin(*_led, cfg);
-                _current   = &_proximity;
+                _current = &_proximity;
                 _currentId = (PatternId)0xFF;
             } else {
                 _proximity.applyConfig(cfg);
@@ -156,13 +164,14 @@ private:
         if (cfg.mode == GroupMode::Scene) {
             if (_height > 1) {
                 if (_sceneMode != SceneMode::Matrix) {
-                    Logger::i("[pattern] → SceneMatrix  scene=%s br=%u frameDur=%.1fs blend=%s t=%.1fs",
-                              cfg.sceneId, cfg.brightness, cfg.frameDuration,
-                              cfg.transitionEnabled ? "on" : "off", cfg.transitionTime);
+                    Logger::i(
+                        "[pattern] → SceneMatrix  scene=%s br=%u frameDur=%.1fs blend=%s t=%.1fs",
+                        cfg.sceneId, cfg.brightness, cfg.frameDuration,
+                        cfg.transitionEnabled ? "on" : "off", cfg.transitionTime);
                     _sceneMatrix.setDimensions(_width, _height);
                     _sceneMatrix.setMatrixLayout(_matrixStart, _matrixDir, _matrixSerpentine);
                     _sceneMatrix.begin(*_led, cfg);
-                    _current   = &_sceneMatrix;
+                    _current = &_sceneMatrix;
                     _currentId = (PatternId)0xFF;
                     _sceneMode = SceneMode::Matrix;
                 } else {
@@ -171,11 +180,11 @@ private:
             } else {
                 if (_sceneMode != SceneMode::String) {
                     Logger::i("[pattern] → SceneString  scene=%s br=%u transition=%s t=%.1fs",
-                              cfg.sceneId, cfg.brightness,
-                              cfg.transitionEnabled ? "on" : "off", cfg.transitionTime);
+                              cfg.sceneId, cfg.brightness, cfg.transitionEnabled ? "on" : "off",
+                              cfg.transitionTime);
                     _sceneString.setNumLeds(_width);
                     _sceneString.begin(*_led, cfg);
-                    _current   = &_sceneString;
+                    _current = &_sceneString;
                     _currentId = (PatternId)0xFF;
                     _sceneMode = SceneMode::String;
                 } else {
@@ -187,11 +196,12 @@ private:
 
         if (cfg.mode == GroupMode::Time) {
             if (_sceneMode != SceneMode::Time) {
-                Logger::i("[pattern] → Time  24h=%s br=%u", cfg.time24h ? "on" : "off", cfg.brightness);
+                Logger::i("[pattern] → Time  24h=%s br=%u", cfg.time24h ? "on" : "off",
+                          cfg.brightness);
                 _time.setDimensions(_width, _height);
                 _time.setMatrixLayout(_matrixStart, _matrixDir, _matrixSerpentine);
                 _time.begin(*_led, cfg);
-                _current   = &_time;
+                _current = &_time;
                 _currentId = (PatternId)0xFF;
                 _sceneMode = SceneMode::Time;
             } else {
@@ -204,12 +214,13 @@ private:
             if (_height > 1) {
                 if (_sceneMode != SceneMode::GradientMatrix) {
                     Logger::i("[pattern] → GradientMatrix  scene=%s br=%u morph=%s spd=%.1f",
-                              cfg.sceneId, cfg.brightness, cfg.morphEnabled ? "on" : "off", cfg.speed);
+                              cfg.sceneId, cfg.brightness, cfg.morphEnabled ? "on" : "off",
+                              cfg.speed);
                     _gradientMatrix.setDimensions(_width, _height);
                     _gradientMatrix.setMatrixLayout(_matrixStart, _matrixDir, _matrixSerpentine);
                     _gradientMatrix.setWrap(_wrapWidth);
                     _gradientMatrix.begin(*_led, cfg);
-                    _current   = &_gradientMatrix;
+                    _current = &_gradientMatrix;
                     _currentId = (PatternId)0xFF;
                     _sceneMode = SceneMode::GradientMatrix;
                 } else {
@@ -218,11 +229,12 @@ private:
             } else {
                 if (_sceneMode != SceneMode::GradientString) {
                     Logger::i("[pattern] → GradientString  scene=%s br=%u morph=%s spd=%.1f",
-                              cfg.sceneId, cfg.brightness, cfg.morphEnabled ? "on" : "off", cfg.speed);
+                              cfg.sceneId, cfg.brightness, cfg.morphEnabled ? "on" : "off",
+                              cfg.speed);
                     _gradientString.setNumLeds(_width);
                     _gradientString.setWrap(_wrapWidth);
                     _gradientString.begin(*_led, cfg);
-                    _current   = &_gradientString;
+                    _current = &_gradientString;
                     _currentId = (PatternId)0xFF;
                     _sceneMode = SceneMode::GradientString;
                 } else {
@@ -237,11 +249,12 @@ private:
             if (_current != &_textMatrix) {
                 Logger::i("[pattern] → TextMatrix  \"%s\" rgb(%u,%u,%u) br=%u anim=%s spd=%.1f",
                           cfg.text, cfg.color.r, cfg.color.g, cfg.color.b, cfg.brightness,
-                          cfg.textAnimation == TextAnimation::Bounce ? "bounce" : "scroll", cfg.speed);
+                          cfg.textAnimation == TextAnimation::Bounce ? "bounce" : "scroll",
+                          cfg.speed);
                 _textMatrix.setDimensions(_width, _height);
                 _textMatrix.setMatrixLayout(_matrixStart, _matrixDir, _matrixSerpentine);
                 _textMatrix.begin(*_led, cfg);
-                _current   = &_textMatrix;
+                _current = &_textMatrix;
                 _currentId = (PatternId)0xFF;
             } else {
                 _textMatrix.applyConfig(cfg);
@@ -255,17 +268,28 @@ private:
         // rendering — falls through to the Pattern-mode switch below and
         // just shows whatever cfg.pattern last held (defaults to Static).
         if (_current == nullptr || cfg.pattern != _currentId) {
-            static const char* const _names[] = { "Static", "Breathing", "ColorCycle", "Strobe", "Candle" };
+            static const char* const _names[] = {"Static", "Breathing", "ColorCycle", "Strobe",
+                                                 "Candle"};
             const char* name = (uint8_t)cfg.pattern < 5 ? _names[(uint8_t)cfg.pattern] : "?";
-            Logger::i("[pattern] → %s  rgb(%u,%u,%u) br=%u spd=%.1f",
-                      name, cfg.color.r, cfg.color.g, cfg.color.b, cfg.brightness, cfg.speed);
+            Logger::i("[pattern] → %s  rgb(%u,%u,%u) br=%u spd=%.1f", name, cfg.color.r,
+                      cfg.color.g, cfg.color.b, cfg.brightness, cfg.speed);
             _currentId = cfg.pattern;
             switch (cfg.pattern) {
-                case PatternId::Breathing:  _current = &_breathing;  break;
-                case PatternId::ColorCycle: _current = &_colorCycle; break;
-                case PatternId::Strobe:     _current = &_strobe;     break;
-                case PatternId::Candle:     _current = &_candle;     break;
-                default:                    _current = &_static;     break;
+                case PatternId::Breathing:
+                    _current = &_breathing;
+                    break;
+                case PatternId::ColorCycle:
+                    _current = &_colorCycle;
+                    break;
+                case PatternId::Strobe:
+                    _current = &_strobe;
+                    break;
+                case PatternId::Candle:
+                    _current = &_candle;
+                    break;
+                default:
+                    _current = &_static;
+                    break;
             }
             _current->begin(*_led, cfg);
         } else {
@@ -276,53 +300,56 @@ private:
     enum class SceneMode { None, Matrix, String, GradientMatrix, GradientString, Time };
 
     // ── state ────────────────────────────────────────────────────────────────
-    LedDriver*  _led       = nullptr;
-    Pattern*    _current   = nullptr;
-    PatternId   _currentId = PatternId::Static;
-    SceneMode   _sceneMode = SceneMode::None;
-    uint16_t        _width       = 1;
-    uint16_t        _height      = 1;
-    MatrixStart     _matrixStart = MatrixStart::TopLeft;
-    MatrixDirection _matrixDir   = MatrixDirection::Horizontal;
-    bool            _matrixSerpentine = false;
-    bool            _wrapWidth   = false;
-    bool            _wrapHeight  = false;
+    LedDriver* _led = nullptr;
+    Pattern* _current = nullptr;
+    PatternId _currentId = PatternId::Static;
+    SceneMode _sceneMode = SceneMode::None;
+    uint16_t _width = 1;
+    uint16_t _height = 1;
+    MatrixStart _matrixStart = MatrixStart::TopLeft;
+    MatrixDirection _matrixDir = MatrixDirection::Horizontal;
+    bool _matrixSerpentine = false;
+    bool _wrapWidth = false;
+    bool _wrapHeight = false;
 
-    LightConfig  _savedConfig;
-    bool         _testActive   = false;
-    uint32_t     _testStart    = 0;
-    uint32_t     _testDuration = 0;
+    LightConfig _savedConfig;
+    bool _testActive = false;
+    uint32_t _testStart = 0;
+    uint32_t _testDuration = 0;
 
     // ── cross-task config handoff ───────────────────────────────────────────
     // applyConfig() may be called from the web server's request-handling
     // task or the mesh ESP-NOW receive callback, neither of which is
     // guaranteed to run on the same core as tick(). Guarded by _mux so the
     // handoff itself is safe; _applyConfig() only ever runs from tick().
-    portMUX_TYPE _mux              = portMUX_INITIALIZER_UNLOCKED;
-    LightConfig  _pendingConfig;
-    bool         _hasPendingConfig = false;
+    portMUX_TYPE _mux = portMUX_INITIALIZER_UNLOCKED;
+    LightConfig _pendingConfig;
+    bool _hasPendingConfig = false;
 
     // ── pattern instances ─────────────────────────────────────────────────────
-    StaticColor   _static;
-    Breathing     _breathing;
-    ColorCycle    _colorCycle;
-    Strobe        _strobe;
+    StaticColor _static;
+    Breathing _breathing;
+    ColorCycle _colorCycle;
+    Strobe _strobe;
     CandlePattern _candle;
-    SceneMatrix   _sceneMatrix;
-    SceneString   _sceneString;
+    SceneMatrix _sceneMatrix;
+    SceneString _sceneString;
     GradientMatrix _gradientMatrix;
     GradientString _gradientString;
-    Proximity     _proximity;
-    TextMatrix    _textMatrix;
-    TimeMatrix    _time;
+    Proximity _proximity;
+    TextMatrix _textMatrix;
+    TimeMatrix _time;
 
     void _renderTest() {
-        uint16_t n    = _width * _height;
+        uint16_t n = _width * _height;
         uint16_t show = (_width < _height) ? _width : _height;
         for (uint16_t i = 0; i < n; i++) {
-            if      (i == 0)    _led->setPixel(i, 255, 0,   0);
-            else if (i < show)  _led->setPixel(i, 0,   200, 0);
-            else                _led->setPixel(i, 0,   0,   0);
+            if (i == 0)
+                _led->setPixel(i, 255, 0, 0);
+            else if (i < show)
+                _led->setPixel(i, 0, 200, 0);
+            else
+                _led->setPixel(i, 0, 0, 0);
         }
         _led->show();
     }
