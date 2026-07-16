@@ -1,5 +1,8 @@
 # Battery Light
 
+[![Latest release](https://img.shields.io/github/v/release/Variour/batteryLight)](https://github.com/Variour/batteryLight/releases/latest)
+[![License](https://img.shields.io/github/license/Variour/batteryLight)](https://github.com/Variour/batteryLight/blob/main/LICENSE)
+
 ESP32-based addressable RGB light with web interface, OTA updates, and mesh sync.
 
 ---
