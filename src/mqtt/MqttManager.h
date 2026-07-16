@@ -7,6 +7,7 @@
 
 #include <functional>
 
+#include "../battery/BatteryMonitor.h"
 #include "../config/Config.h"
 #include "../logging/Logger.h"
 #include "../scenes/SceneManager.h"
@@ -26,6 +27,7 @@ class MqttManager {
     using GroupSyncToggleFn = std::function<void(const GroupConfig&)>;
     using LightOverrideFn = std::function<void(uint8_t lightIndex)>;
     using SceneSyncToggleFn = std::function<void()>;
+    using BatteryStatusFn = std::function<BatteryMonitor::Status()>;
 
     // Applies + propagates a group's LightConfig change (e.g. main.cpp's
     // applyAndPropagateLightConfig).
@@ -37,6 +39,8 @@ class MqttManager {
     // The device's own sceneSyncEnabled was just turned on via MQTT (was off before) —
     // mirrors WebServer's _postConfig/_setRemoteSceneSync: kick off a re-sync.
     void setOnSceneSyncEnabled(SceneSyncToggleFn fn) { _onSceneSyncEnabled = fn; }
+    // Polled for this device's own current battery status (see BatteryMonitor.h).
+    void setBatteryStatusProvider(BatteryStatusFn fn) { _batteryStatusProvider = fn; }
 
     void begin(const DeviceConfig& cfg) {
         if (strlen(cfg.mqttHost) == 0) return;
@@ -60,6 +64,7 @@ class MqttManager {
         snprintf(_updateStateTopic, sizeof(_updateStateTopic), "%s/update/state", base);
         snprintf(_sceneSyncSetTopic, sizeof(_sceneSyncSetTopic), "%s/scenesync/set", base);
         snprintf(_sceneSyncStateTopic, sizeof(_sceneSyncStateTopic), "%s/scenesync/state", base);
+        snprintf(_batteryStateTopic, sizeof(_batteryStateTopic), "%s/battery/state", base);
         snprintf(_groupSubWildcard, sizeof(_groupSubWildcard), "%s+/set", _groupPrefix);
         snprintf(_lightSubWildcard, sizeof(_lightSubWildcard), "%s+/set", _lightPrefix);
 
@@ -111,6 +116,10 @@ class MqttManager {
             _sceneSyncDirty = false;
             _doPublishSceneSync();
         }
+        if (_batteryDirty) {
+            _batteryDirty = false;
+            _doPublishBattery();
+        }
     }
 
     // All publish* calls are safe from any context (including from within
@@ -127,6 +136,8 @@ class MqttManager {
     // Call after Config::get().sceneSyncEnabled changes via any non-MQTT path
     // (web UI, peer-toggle-self) so the retained MQTT state doesn't go stale.
     void publishSceneSyncState() { _sceneSyncDirty = true; }
+    // Call whenever the battery status (percent/charging) changes meaningfully.
+    void publishBatteryState() { _batteryDirty = true; }
     // Republishes HA discovery (incl. the scene-derived effect list) for
     // every existing group — call after a group or scene is added/renamed/
     // removed/deleted.
@@ -166,6 +177,12 @@ class MqttManager {
 
         _client.publish(_sceneSyncStateTopic, "", /*retain=*/true);
         _sceneSyncDiscoveryTopic(topic, sizeof(topic));
+        _client.publish(topic, "", /*retain=*/true);
+
+        _client.publish(_batteryStateTopic, "", /*retain=*/true);
+        _batteryLevelDiscoveryTopic(topic, sizeof(topic));
+        _client.publish(topic, "", /*retain=*/true);
+        _batteryChargingDiscoveryTopic(topic, sizeof(topic));
         _client.publish(topic, "", /*retain=*/true);
 
         for (uint8_t i = 0; i < MAX_GROUPS; i++) {
@@ -229,6 +246,7 @@ class MqttManager {
     GroupSyncToggleFn _onGroupSyncToggle;
     LightOverrideFn _onLightOverride;
     SceneSyncToggleFn _onSceneSyncEnabled;
+    BatteryStatusFn _batteryStatusProvider;
 
     bool _enabled = false;
     uint32_t _lastAttempt = 0;
@@ -243,6 +261,7 @@ class MqttManager {
     uint8_t _lastOnBrightness[MAX_GROUPS] = {};
     bool _updateDirty = false;
     bool _sceneSyncDirty = false;
+    bool _batteryDirty = false;
 
     char _deviceName[32] = {};
     char _uniqueId[24] = {};
@@ -259,6 +278,7 @@ class MqttManager {
     char _updateStateTopic[112] = {};
     char _sceneSyncSetTopic[112] = {};
     char _sceneSyncStateTopic[112] = {};
+    char _batteryStateTopic[112] = {};
 
     void _groupTopic(uint8_t id, const char* suffix, char* out, size_t outLen) {
         snprintf(out, outLen, "%s%u/%s", _groupPrefix, id, suffix);
@@ -284,6 +304,12 @@ class MqttManager {
     void _sceneSyncDiscoveryTopic(char* out, size_t outLen) {
         snprintf(out, outLen, "homeassistant/switch/%s/scenesync/config", _uniqueId);
     }
+    void _batteryLevelDiscoveryTopic(char* out, size_t outLen) {
+        snprintf(out, outLen, "homeassistant/sensor/%s/battery/config", _uniqueId);
+    }
+    void _batteryChargingDiscoveryTopic(char* out, size_t outLen) {
+        snprintf(out, outLen, "homeassistant/binary_sensor/%s/battery_charging/config", _uniqueId);
+    }
 
     void _connect() {
         Logger::i("[mqtt] connecting to %s:%u ...", _host, _port);
@@ -304,6 +330,7 @@ class MqttManager {
         Config::forEachLight([this](uint8_t i, LightHardwareConfig&) { _doPublishLight(i); });
         _doPublishUpdate();
         _doPublishSceneSync();
+        if (Config::get().batteryMonitoringEnabled) _doPublishBattery();
     }
 
     // ── Discovery ────────────────────────────────────────────────────────────
@@ -317,6 +344,7 @@ class MqttManager {
             [this](uint8_t i, LightHardwareConfig&) { _publishLightDiscovery(i); });
         _publishUpdateDiscovery();
         _publishSceneSyncDiscovery();
+        if (Config::get().batteryMonitoringEnabled) _publishBatteryDiscovery();
         Logger::i("[mqtt] discovery published");
     }
 
@@ -560,6 +588,55 @@ class MqttManager {
         _client.publish(discTopic, s.c_str(), /*retain=*/true);
     }
 
+    // Battery level (sensor, device_class battery, %) and charging state
+    // (binary_sensor, device_class battery_charging), sharing one state topic —
+    // see BatteryMonitor.h for what "charging" actually means here (there's no
+    // real charge-IC signal, just a voltage heuristic).
+    void _publishBatteryDiscovery() {
+        auto dev = [&](JsonDocument& doc) {
+            auto d = doc["device"].to<JsonObject>();
+            d["name"] = _deviceName;
+            d["model"] = "Battery Light";
+            d["manufacturer"] = "DIY";
+            d["identifiers"].to<JsonArray>().add(_uniqueId);
+        };
+        {
+            char discTopic[128];
+            _batteryLevelDiscoveryTopic(discTopic, sizeof(discTopic));
+            JsonDocument doc;
+            doc["name"] = "Battery";
+            char uniq[48];
+            snprintf(uniq, sizeof(uniq), "%s_battery", _uniqueId);
+            doc["unique_id"] = String(uniq);
+            doc["state_topic"] = _batteryStateTopic;
+            doc["value_template"] = "{{ value_json.percent }}";
+            doc["unit_of_measurement"] = "%";
+            doc["device_class"] = "battery";
+            doc["entity_category"] = "diagnostic";
+            dev(doc);
+            String s;
+            serializeJson(doc, s);
+            _client.publish(discTopic, s.c_str(), /*retain=*/true);
+        }
+        {
+            char discTopic[128];
+            _batteryChargingDiscoveryTopic(discTopic, sizeof(discTopic));
+            JsonDocument doc;
+            doc["name"] = "Battery Charging";
+            char uniq[48];
+            snprintf(uniq, sizeof(uniq), "%s_battery_charging", _uniqueId);
+            doc["unique_id"] = String(uniq);
+            doc["state_topic"] = _batteryStateTopic;
+            doc["value_template"] = "{{ 'ON' if value_json.charging else 'OFF' }}";
+            doc["device_class"] = "battery_charging";
+            doc["entity_category"] = "diagnostic";
+            dev(doc);
+            String s;
+            serializeJson(doc, s);
+            _client.publish(discTopic, s.c_str(), /*retain=*/true);
+        }
+    }
+
     // ── State publish ────────────────────────────────────────────────────────
 
     // Resolves the current mode/pattern/sceneId to the matching effect_list
@@ -640,6 +717,19 @@ class MqttManager {
     void _doPublishSceneSync() {
         _client.publish(_sceneSyncStateTopic, Config::get().sceneSyncEnabled ? "ON" : "OFF",
                         /*retain=*/true);
+    }
+
+    void _doPublishBattery() {
+        if (!Config::get().batteryMonitoringEnabled) return;
+        BatteryMonitor::Status bs =
+            _batteryStatusProvider ? _batteryStatusProvider() : BatteryMonitor::Status{};
+        if (!bs.present) return;
+        JsonDocument doc;
+        doc["percent"] = bs.percent;
+        doc["charging"] = bs.state == BatteryMonitor::State::Charging;
+        String s;
+        serializeJson(doc, s);
+        _client.publish(_batteryStateTopic, s.c_str(), /*retain=*/true);
     }
 
     // ── Command handling ─────────────────────────────────────────────────────

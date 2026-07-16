@@ -30,6 +30,8 @@ const MOCK_CONFIG = {
   sceneSyncEnabled: true,
   checkUpdateOnStartup: false,
   wifiSingleClientMode: false,
+  batteryHwSupported: true,
+  batteryMonitoringEnabled: true,
   mqttHost: 'mqtt.local',
   mqttPort: 1883,
   mqttUser: 'lights',
@@ -60,12 +62,12 @@ const mockButtons = [
   },
 ];
 
-const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, channel: 6, channelSearching: false, version: '2026.06.27.0', fwState: 'checking' };
+const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, channel: 6, channelSearching: false, version: '2026.06.27.0', fwState: 'checking', batteryPresent: true, batteryPercent: 82, batteryCharging: false };
 const MOCK_PEERS = [
-  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle'  },
-  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle'  },
-  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: false, wifiConnecting: false, version: '2026.06.27.0', fwState: 'idle'  },
-  { name: 'Mock Light 5', mac: '55:66:77:88:99:aa', lights: [{ index: 0, name: 'Garage', groupId: 0 }], online: true,  rssi: -70, sceneSyncEnabled: true,  wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: true,  version: '2026.01.01.0', fwState: 'idle'  },
+  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 46, batteryCharging: false },
+  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 12, batteryCharging: false },
+  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: false, wifiConnecting: false, version: '2026.06.27.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 97, batteryCharging: true  },
+  { name: 'Mock Light 5', mac: '55:66:77:88:99:aa', lights: [{ index: 0, name: 'Garage', groupId: 0 }], online: true,  rssi: -70, sceneSyncEnabled: true,  wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: true,  version: '2026.01.01.0', fwState: 'idle', batteryPresent: false, batteryPercent: 0,  batteryCharging: false },
 ];
 
 const wifiNetworks = [

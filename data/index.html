@@ -531,8 +531,8 @@ input[type=checkbox]:active { background-color: #1a5; }
     </div>
     <div class="lights-table-wrap">
       <table class="lights-table">
-        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
-        <tbody id="lights-body"><tr><td colspan="7" style="color:#444">Loading…</td></tr></tbody>
+        <thead><tr><th>Name</th><th>Group</th><th>WiFi</th><th id="signal-th">Signal</th><th>Battery</th><th>Fw</th><th>Sync</th><th></th></tr></thead>
+        <tbody id="lights-body"><tr><td colspan="8" style="color:#444">Loading…</td></tr></tbody>
       </table>
     </div>
     <div class="lights-mobile-list" id="lights-mobile-list"><div style="color:#444">Loading…</div></div>
@@ -895,6 +895,16 @@ input[type=checkbox]:active { background-color: #1a5; }
       <input type="checkbox" id="otaEnabled" checked>
       Enable OTA updates
     </label>
+
+    <hr class="section-divider" id="battery-divider" style="display:none">
+    <div id="battery-section" style="display:none">
+      <h3>Battery</h3>
+      <p style="font-size:.78rem;color:#666;margin:0 0 .5rem">Only meaningful if the BAT_ADC solder bridge (200k/100k divider onto GPIO1) is closed on this device.</p>
+      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+        <input type="checkbox" id="batteryMonitoringEnabled">
+        Enable battery monitoring
+      </label>
+    </div>
 
     <hr class="section-divider">
     <h3>MQTT <small>(leave broker blank to disable)</small></h3>
@@ -1778,7 +1788,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
   const showSignal = _groups.some(g => g.mode === 2);
 
   if (!all.length) {
-    body.innerHTML = '<tr><td colspan="7" style="color:#444">No lights found</td></tr>';
+    body.innerHTML = '<tr><td colspan="8" style="color:#444">No lights found</td></tr>';
     mobile.innerHTML = '<div class="light-device-empty">No lights found</div>';
     return;
   }
@@ -1815,6 +1825,33 @@ function renderLights(self, peers, wifiSingleClientMode) {
     const signalTip = `Signal: ${rssiText}`;
     const signalIcon = showSignal && !p.isSelf
       ? `<span aria-label="${esc(signalTip)}"><svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect x="1" y="11" width="2" height="4" rx=".5" fill="${online && p.rssi !== null && p.rssi !== undefined ? '#777' : '#444'}"/><rect x="5" y="8" width="2" height="7" rx=".5" fill="${online && p.rssi !== null && p.rssi !== undefined ? '#777' : '#444'}"/><rect x="9" y="5" width="2" height="10" rx=".5" fill="${online && p.rssi !== null && p.rssi !== undefined ? '#777' : '#444'}"/><rect x="13" y="2" width="2" height="13" rx=".5" fill="${online && p.rssi !== null && p.rssi !== undefined ? '#777' : '#444'}"/></svg></span>`
+      : '';
+
+    // Battery: only shown for devices that actually have monitoring enabled
+    // (BAT_ADC solder bridge + config toggle) — see BatteryMonitor.h. "Charging"
+    // really means "mains-present", since there's no separate charge-IC signal.
+    const battPct = p.batteryPercent || 0;
+    const battColor = !online ? '#444'
+                     : p.batteryCharging ? '#4af'
+                     : battPct <= 15     ? '#c44'
+                     :                     '#4c4';
+    const battTitle = p.batteryCharging
+      ? `Plugged into mains (charging) — ${battPct}%`
+      : `Battery: ${battPct}%`;
+    // Fill rect starts at x=2; body is x=0.5 width=18 stroke-width=1.2, so its
+    // visible interior right edge is ~17.9 — cap fill width at 15 (right edge
+    // 17) so it never pokes past the border at high percentages.
+    const battFillW = Math.max(0, Math.min(15, Math.round(battPct / 100 * 15)));
+    const batteryIcon = p.batteryPresent
+      ? `<span aria-label="${esc(battTitle)}" title="${esc(battTitle)}" style="display:inline-flex;align-items:center;gap:.25rem">
+          <svg width="20" height="12" viewBox="0 0 22 12" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle">
+            <rect x="0.5" y="0.5" width="18" height="11" rx="2" fill="none" stroke="${battColor}" stroke-width="1.2"/>
+            <rect x="19" y="3.5" width="2" height="5" rx="1" fill="${battColor}"/>
+            <rect x="2" y="2" width="${battFillW}" height="8" rx="1" fill="${battColor}"/>
+            ${p.batteryCharging ? `<path d="M10.5 1.2 L6.8 6.6 H9.8 L8.8 10.8 L13.6 5 H10.3 Z" fill="#fff" stroke="#333" stroke-width="0.3"/>` : ''}
+          </svg>
+          <span style="font-size:.72rem;color:#888">${battPct}%</span>
+        </span>`
       : '';
 
     const ver = p.version || '';
@@ -1883,6 +1920,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
       dot,
       wifiIcon,
       signalIcon,
+      batteryIcon,
       ver ? fwIconHtml : '',
       syncCell
     ].filter(Boolean).join('');
@@ -1898,6 +1936,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
         <td>${groupSelects}</td>
         <td style="text-align:center">${wifiIcon}</td>
         <td style="text-align:right;font-size:.78rem;color:#666;white-space:nowrap">${rssiText}</td>
+        <td style="text-align:center">${batteryIcon || '<span style="color:#444">–</span>'}</td>
         <td style="text-align:center;color:#444;font-size:.78rem">${fwIconHtml}</td>
         <td style="text-align:center">${syncCell}</td>
         <td style="text-align:center">${pushCell}</td>`,
@@ -2246,6 +2285,8 @@ async function saveSettings() {
   if (mqttPw) body.mqttPassword  = mqttPw;
   body.githubRepo = $('githubRepo').value;
   body.checkUpdateOnStartup = $('checkUpdateOnStartup').checked;
+  if ($('battery-section').style.display !== 'none')
+    body.batteryMonitoringEnabled = $('batteryMonitoringEnabled').checked;
   if (ghTok)  body.githubToken   = ghTok;
 
   try {
@@ -2504,6 +2545,11 @@ async function loadConfig() {
   if (d.githubRepo !== undefined) $('githubRepo').value = d.githubRepo;
   if (d.timezone   !== undefined) _renderTimezoneOptions(d.timezone);
   $('checkUpdateOnStartup').checked = d.checkUpdateOnStartup === true;
+  if (d.batteryHwSupported === true) {
+    $('battery-divider').style.display = '';
+    $('battery-section').style.display = '';
+    $('batteryMonitoringEnabled').checked = d.batteryMonitoringEnabled === true;
+  }
   if (d.version) {
     $('fw-version').textContent = 'v' + d.version;
     $('upd-current').textContent = d.version;

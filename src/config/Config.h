@@ -316,6 +316,10 @@ struct DeviceConfig {
     bool wifiSingleClientMode = false;
     uint32_t wifiPolicyRevision = 0;
     uint8_t wifiPolicyOriginMac[6] = {};
+    // Optional: BAT_ADC (battery voltage divider) solder-bridged onto GPIO1 —
+    // only meaningful (and only ever offered by the web UI) on boards where
+    // that pin is ADC-capable, see BatteryMonitor::kHwSupported.
+    bool batteryMonitoringEnabled = false;
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];
