@@ -481,7 +481,7 @@ input[type=checkbox]:active { background-color: #1a5; }
 </style>
 </head>
 <body>
-<h1>Battery Light <span id="fw-version" style="font-size:.75rem;color:#444;font-weight:400"></span></h1>
+<h1 style="display:flex;align-items:baseline;justify-content:space-between;gap:.5rem"><span><span id="device-title">Battery Light</span> <span id="fw-version" style="font-size:.75rem;color:#444;font-weight:400"></span></span> <a href="https://github.com/Variour/batteryLight" target="_blank" rel="noopener" style="font-size:.75rem;color:#444;font-weight:400;text-decoration:underline;white-space:nowrap">Battery Light</a></h1>
 
 <!-- Tab bar -->
 <div class="tab-bar">
@@ -2538,6 +2538,7 @@ async function loadConfig() {
   _localConfig = d;
   await _refreshSceneOptions();
   _selfMac  = d.mac || '';
+  if (d.deviceName) $('device-title').textContent = d.deviceName;
   $('deviceName').value = d.deviceName || '';
   $('otaPort').value    = d.otaPort    || 3232;
   $('otaEnabled').checked = d.otaEnabled !== false;
