@@ -63,10 +63,13 @@ void Es8311Driver::_setPaEnabled(bool enabled) {
     }
 }
 
-// Puts the codec into reset, then brings up the clock manager for I2S master
-// mode at I2S_SAMPLE_RATE_HZ/16-bit. When i2sMclkPin is unset, ES8311 derives
-// its internal MCLK from SCLK (BCLK) via its own PLL instead of an external
-// MCLK line — REG_CLK_MANAGER1's top bit selects that source.
+// Puts the codec into reset, then brings up the clock manager for
+// I2S_SAMPLE_RATE_HZ/16-bit. The ESP32 I2S peripheral is the I2S clock master
+// (see begin()'s I2S_MODE_MASTER) — the codec must stay in I2S *slave* mode
+// (REG_RESET bit6 clear) so it doesn't also drive BCLK/LRCK and contend with
+// the ESP32 on those lines. When i2sMclkPin is unset, ES8311 derives its
+// internal MCLK from SCLK (BCLK) via its own PLL instead of an external MCLK
+// line — REG_CLK_MANAGER1's top bit selects that source.
 void Es8311Driver::_resetAndConfigureClocks() {
     _writeReg(REG_RESET, 0x80);  // full reset pulse
     delay(5);
@@ -92,7 +95,12 @@ void Es8311Driver::_resetAndConfigureClocks() {
     _writeReg(REG_SYSTEM_10, 0x1F);
     _writeReg(REG_SYSTEM_11, 0x7F);
 
-    _writeReg(REG_RESET, 0xC0);  // master mode (bit6) + release remaining reset bits
+    // Release the remaining reset bits and leave the codec in I2S slave mode
+    // (bit6=0) — was previously 0xC0, which set bit6 (codec I2S master) and
+    // re-asserted bit7 (reset), holding the chip in reset indefinitely since
+    // nothing later cleared it. See the arduino-audio-driver ES8311 reference
+    // (src/sound/README.md) for the slave-mode 0x00 final value this matches.
+    _writeReg(REG_RESET, 0x00);
 }
 
 void Es8311Driver::_configureFormatAndPower() {
