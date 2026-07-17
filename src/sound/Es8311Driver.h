@@ -28,11 +28,10 @@ class Es8311Driver : public SoundDriver {
     void playTestMelody() override;
 
     // TEMPORARY diagnostic aid for the silent/noisy-speaker bring-up issue —
-    // remove once resolved. Plays silence then a loud reference tone (see
-    // .cpp) to determine whether the audible noise reported on real hardware
-    // depends on the digital audio content at all, or is unrelated to it
-    // (e.g. amp/analog noise floor) — that answer determines whether it's
-    // still worth chasing register values in this file.
+    // remove once resolved. Sweeps REG_CLK_MANAGER2 (pre-divider/
+    // pre-multiplier, which derives DIG_MCLK) across a few candidate values
+    // — see .cpp for why this is the next lead after content-independence
+    // and master-mode-only registers were ruled out on real hardware.
     void runDiagnosticSweep();
 
    private:

@@ -244,39 +244,54 @@ void Es8311Driver::playTestMelody() {
     Logger::i("[sound] playTestMelody: done");
 }
 
-// TEMPORARY — see Es8311Driver.h. Sweeping REG_BCLK_DIV/REG_LRCK_DIV_HI/LO
-// across a wide range (0x01-0x1F divisors, 128-512 LRCK divisor) on real
-// hardware produced *identical* noise every time — those registers likely
-// don't affect anything in I2S slave mode (the codec just samples the
-// external BCLK/LRCK directly; those "clock manager" dividers may only
-// matter when the codec itself is I2S master). So instead of sweeping
-// registers that provably don't matter, this now runs a single content A/B:
-// silence (gain=0, still valid I2S traffic) vs. a loud reference tone, both
-// at identical register/PA state. If they sound the same, the noise isn't
-// coming from the digital audio path at all (e.g. amp/analog-stage noise
-// floor unrelated to DAC content) and no further register in this file is
-// worth chasing — if the tone is audibly different from the silence, the
-// digital path does reach the speaker and something else is corrupting it.
+// TEMPORARY — see Es8311Driver.h. Two things confirmed on real hardware so
+// far: (1) silence and a loud tone produced *identical* noise, meaning the
+// noise doesn't depend on digital audio content at all; (2)
+// REG_BCLK_DIV/REG_LRCK_DIV_HI/LO swept across a wide range also made no
+// difference — consistent with the Linux kernel es8311 driver, where those
+// registers are only written/used in I2S *master* mode (irrelevant here,
+// this codec is slave). REG_CLK_MANAGER2 (pre-divider/pre-multiplier) is
+// the one remaining clock-chain register that matters regardless of master/
+// slave (it derives DIG_MCLK, which everything downstream — OSR, ADC/DAC
+// divider, the DAC's own reconstruction filter — depends on), and two
+// reference sources disagree on its value for our 4.096MHz-MCLK/16kHz
+// operating point (pre_multi=0 vs. 1). If DIG_MCLK itself is wrong, the
+// DAC's internal filtering would produce garbage independent of the actual
+// PCM content, matching both confirmed symptoms above. Sweeps REG02 across
+// a few pre_div/pre_multi combinations with a steady tone after each.
 void Es8311Driver::runDiagnosticSweep() {
     if (!_i2sInstalled) {
         Logger::w("[sound] SWEEP: I2S not installed, skipping");
         return;
     }
 
-    Logger::i("[sound] SWEEP: start (silence vs. tone A/B)");
+    struct Variant {
+        const char* label;
+        uint8_t clkMgr2;
+    };
+    static const Variant VARIANTS[] = {
+        {"clkMgr2=0x00 (pre_div=1,pre_multi=0, current)", 0x00},
+        {"clkMgr2=0x08 (pre_div=1,pre_multi=1)", 0x08},
+        {"clkMgr2=0x20 (pre_div=2,pre_multi=0)", 0x20},
+        {"clkMgr2=0x28 (pre_div=2,pre_multi=1)", 0x28},
+    };
+    constexpr size_t N = sizeof(VARIANTS) / sizeof(VARIANTS[0]);
+
+    Logger::i("[sound] SWEEP: start, %u REG_CLK_MANAGER2 variants", (unsigned)N);
     _writeReg(REG_DAC_VOLUME, DAC_VOLUME_TEST);
     _setPaEnabled(true);
-    esp_task_wdt_reset();
 
-    Logger::i("[sound] SWEEP 1/2: silence (gain=0, PA on, same registers)");
-    _writeToneBlock(440.0f, 1200, 0.0f);
-    delay(400);
-
-    esp_task_wdt_reset();
-    Logger::i("[sound] SWEEP 2/2: tone (440Hz, gain=0.6, PA on, same registers)");
-    _writeToneBlock(440.0f, 1200, 0.6f);
+    for (size_t i = 0; i < N; i++) {
+        esp_task_wdt_reset();
+        const Variant& v = VARIANTS[i];
+        Logger::i("[sound] SWEEP %u/%u: %s", (unsigned)(i + 1), (unsigned)N, v.label);
+        _writeReg(REG_CLK_MANAGER2, v.clkMgr2);
+        _writeToneBlock(440.0f, 700, 0.6f);
+        delay(300);
+    }
 
     _setPaEnabled(false);
     _writeReg(REG_DAC_VOLUME, 0x00);
+    _writeReg(REG_CLK_MANAGER2, 0x00);  // restore current best-derived value
     Logger::i("[sound] SWEEP: done");
 }
