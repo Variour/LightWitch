@@ -37,12 +37,25 @@ The register bring-up sequence was cross-referenced against
 addresses and byte values — not its code, which wasn't copied; see above for
 why that class isn't used directly). That check found and fixed a real gap:
 this driver was missing several system/analog power-up register writes
-(0x0B, 0x0C, 0x10, 0x11, 0x1B, 0x1C) entirely. The clock-divider math
-(REG02/REG05/REG06/REG07/REG08, which vary by sample rate and MCLK
-frequency) is comparatively less certain — the reference implementation
-derives these from a lookup table with bit-packed encodings this driver
-didn't attempt to reverse-engineer with full confidence, so those specific
-values are still a best-effort synthesis for this driver's fixed 16 kHz/
-16-bit target. Re-check against the datasheet / an oscilloscope /
-`pschatzmann/arduino-audio-driver`'s `es8311_coeff_div[]` table on first
-real hardware bring-up if audio comes out garbled or at the wrong pitch.
+(0x0B, 0x0C, 0x10, 0x11, 0x1B, 0x1C) entirely.
+
+Two more real bugs were found and fixed on first real hardware bring-up
+(silent/noisy output on two separate Waveshare ESP32-S3-AUDIO boards),
+cross-checked against Espressif's own `es8311_coeff_div[]` table
+(`espressif/esp-bsp`'s `components/es8311/es8311.c`) for this driver's fixed
+16 kHz/16-bit target with the ESP32 legacy I2S driver's default
+`use_apll=false` 256x MCLK multiple (MCLK = 4.096 MHz for 16 kHz):
+- `REG_RESET`'s final value was `0xC0`, putting the *codec* into I2S master
+  mode (bit6) while the ESP32 I2S peripheral is also configured as master —
+  two masters driving BCLK/LRCK — and re-asserting the reset bit (bit7) that
+  nothing afterwards cleared. Fixed to `0x00` (slave mode, reset released).
+- `REG_BCLK_DIV`/`REG_LRCK_DIV_LO` used the coefficient-table's `bclk_div`
+  value (4) directly instead of the table's `bclk_div - 1` register-encoding
+  rule, and derived `lrck_l` from "BCLK cycles per 16-bit stereo frame" (32)
+  instead of the table's actual value (256, i.e. `lrck_h=0x00,
+  lrck_l=0xff`) — the LRCK divider isn't the physical frame width, it's
+  DIG_MCLK/LRCK per the table. Fixed to `0x03` and `0xff` respectively.
+
+If a different sample rate/bit depth is ever added, re-derive these three
+registers from `es8311_coeff_div[]` for the new MCLK/rate pair rather than
+reusing these fixed values.

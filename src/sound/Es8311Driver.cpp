@@ -82,9 +82,14 @@ void Es8311Driver::_resetAndConfigureClocks() {
     _writeReg(REG_ADC_OSR, 0x10);
     _writeReg(REG_DAC_OSR, 0x10);
     _writeReg(REG_ADC_DAC_DIV, 0x00);
-    _writeReg(REG_BCLK_DIV, 0x04);  // 32 BCLK cycles/slot at 16-bit, no inversion
+    // Matches Espressif's es8311_coeff_div[] table row for a 4.096MHz MCLK
+    // (= 16000Hz * the legacy I2S driver's fixed 256x mclk_multiple with
+    // use_apll=false) at 16kHz: bclk_div=4 encodes as reg_value=bclk_div-1,
+    // and the LRCK divider is 256 (lrck_h=0x00, lrck_l=0xFF), not the
+    // literal "32 BCLK/frame" this was previously (wrongly) derived from.
+    _writeReg(REG_BCLK_DIV, 0x03);
     _writeReg(REG_LRCK_DIV_HI, 0x00);
-    _writeReg(REG_LRCK_DIV_LO, 0x20);  // 32 BCLK periods per LRCK half-cycle (16-bit stereo frame)
+    _writeReg(REG_LRCK_DIV_LO, 0xFF);
 
     // System/analog bring-up — these were entirely missing before being
     // cross-referenced against a real ES8311 driver implementation (see the
