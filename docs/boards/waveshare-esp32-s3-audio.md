@@ -38,7 +38,8 @@ doesn't support mic input yet.
 
 ## Lights
 
-The board has a single onboard WS2812 RGB LED on the back.
+The board has 7 onboard WS2812 RGB LEDs on the back, chained on a single
+data line.
 
 ### Field values
 
@@ -47,7 +48,7 @@ The board has a single onboard WS2812 RGB LED on the back.
 | LED type | WS2812B — single wire |
 | Data pin (GPIO) | GPIO38 |
 | Colour order | GRB *(WS2812B default)* |
-| Length | 1 |
+| Length | 7 |
 | Rows | 1 |
 
 Note that GPIO4 and GPIO5 — the `esp32s3` PlatformIO environment's generic
