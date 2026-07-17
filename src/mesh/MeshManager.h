@@ -754,7 +754,7 @@ class MeshManager {
             case MsgType::GroupSync: {
                 if (len < (int)sizeof(GroupSyncMsg)) return;
                 auto* m = (GroupSyncMsg*)data;
-                Logger::d("[mesh] group-sync rx: group %u \"%s\" exists=%d rev=%lu", m->group.id,
+                Logger::v("[mesh] group-sync rx: group %u \"%s\" exists=%d rev=%lu", m->group.id,
                           m->group.name, m->group.exists, (unsigned long)m->group.revision);
                 _instance->_reconcileGroupSync(m->group);
                 break;
