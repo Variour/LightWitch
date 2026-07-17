@@ -654,6 +654,10 @@ void setup() {
     webServer.setOnTestSound([](uint8_t idx) {
         if (idx < MAX_SOUNDS && Config::get().sounds[idx].exists) _sound.playTestMelody();
     });
+    // TEMPORARY — see Es8311Driver::runDiagnosticSweep()
+    webServer.setOnSweepSound([](uint8_t idx) {
+        if (idx < MAX_SOUNDS && Config::get().sounds[idx].exists) _sound.runDiagnosticSweep();
+    });
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
     Logger::i("[sys] ready");

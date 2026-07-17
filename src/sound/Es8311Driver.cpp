@@ -242,3 +242,56 @@ void Es8311Driver::playTestMelody() {
     _writeReg(REG_DAC_VOLUME, 0x00);
     Logger::i("[sound] playTestMelody: done");
 }
+
+// TEMPORARY — see Es8311Driver.h. REG_BCLK_DIV/REG_LRCK_DIV_HI/LO are live
+// clock-manager registers (no reset-and-reconfigure needed between values),
+// so each variant just rewrites those three and plays a steady reference
+// tone. Variant 0 is this driver's current best-derived values; the rest
+// bracket the uncertainty this bug already surfaced twice (table-literal
+// value, and a few divisor guesses either side).
+void Es8311Driver::runDiagnosticSweep() {
+    if (!_i2sInstalled) {
+        Logger::w("[sound] SWEEP: I2S not installed, skipping");
+        return;
+    }
+
+    struct Variant {
+        const char* label;
+        uint8_t bclkDiv;
+        uint8_t lrckHi;
+        uint8_t lrckLo;
+    };
+    static const Variant VARIANTS[] = {
+        {"bclkDiv=0x07 lrck=256 (current)", 0x07, 0x00, 0xFF},
+        {"bclkDiv=0x03 lrck=256 (table-literal)", 0x03, 0x00, 0xFF},
+        {"bclkDiv=0x01 lrck=256", 0x01, 0x00, 0xFF},
+        {"bclkDiv=0x0F lrck=256", 0x0F, 0x00, 0xFF},
+        {"bclkDiv=0x1F lrck=256", 0x1F, 0x00, 0xFF},
+        {"bclkDiv=0x07 lrck=512", 0x07, 0x01, 0xFF},
+        {"bclkDiv=0x07 lrck=128", 0x07, 0x00, 0x7F},
+    };
+    constexpr size_t N = sizeof(VARIANTS) / sizeof(VARIANTS[0]);
+
+    Logger::i("[sound] SWEEP: start, %u variants", (unsigned)N);
+    _writeReg(REG_DAC_VOLUME, DAC_VOLUME_TEST);
+    _setPaEnabled(true);
+
+    for (size_t i = 0; i < N; i++) {
+        const Variant& v = VARIANTS[i];
+        Logger::i("[sound] SWEEP %u/%u: %s", (unsigned)(i + 1), (unsigned)N, v.label);
+        _writeReg(REG_BCLK_DIV, v.bclkDiv);
+        _writeReg(REG_LRCK_DIV_HI, v.lrckHi);
+        _writeReg(REG_LRCK_DIV_LO, v.lrckLo);
+        _writeToneBlock(440.0f, 600, 0.6f);  // steady A4 — easier to judge "clean tone vs noise" than a melody
+        delay(250);                          // audible gap between variants
+    }
+
+    _setPaEnabled(false);
+    _writeReg(REG_DAC_VOLUME, 0x00);
+    // Restore this driver's current best-derived values so a normal
+    // playTestMelody() right after the sweep isn't left on the last variant.
+    _writeReg(REG_BCLK_DIV, 0x07);
+    _writeReg(REG_LRCK_DIV_HI, 0x00);
+    _writeReg(REG_LRCK_DIV_LO, 0xFF);
+    Logger::i("[sound] SWEEP: done");
+}

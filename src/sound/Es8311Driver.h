@@ -27,6 +27,14 @@ class Es8311Driver : public SoundDriver {
     void begin() override;
     void playTestMelody() override;
 
+    // TEMPORARY diagnostic aid for the silent/noisy-speaker bring-up issue —
+    // remove once the correct BCLK/LRCK divider values are confirmed on real
+    // hardware. Cycles REG_BCLK_DIV/REG_LRCK_DIV_HI/LO through a handful of
+    // candidate values (see .cpp), playing a short steady tone after each so
+    // the working combination (if any) can be identified by ear and matched
+    // against the "[sound] SWEEP n/N: ..." log line active at that moment.
+    void runDiagnosticSweep();
+
    private:
     bool _writeReg(uint8_t reg, uint8_t value);
     void _resetAndConfigureClocks();
