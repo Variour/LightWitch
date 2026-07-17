@@ -36,9 +36,11 @@ static constexpr uint8_t REG_DAC_ANALOG = 0x37;
 static constexpr int I2S_SAMPLE_RATE_HZ = 16000;
 static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 
-// Conservative default output level for the test melody — loud enough to be
-// audible without assuming anything about the attached speaker's sensitivity.
-static constexpr uint8_t DAC_VOLUME_TEST = 0xB0;
+// TEMPORARY: bumped to max while diagnosing the silent-speaker issue, so a
+// working fix is unambiguous (clear tone vs. still-faint noise) instead of a
+// judgment call on volume. Revert to a conservative default (was 0xB0) once
+// confirmed working.
+static constexpr uint8_t DAC_VOLUME_TEST = 0xFF;
 
 bool Es8311Driver::_writeReg(uint8_t reg, uint8_t value) {
     Wire.beginTransmission(_cfg.i2cAddress);
