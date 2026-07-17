@@ -18,11 +18,17 @@ static constexpr uint8_t REG_BCLK_DIV = 0x06;
 static constexpr uint8_t REG_LRCK_DIV_HI = 0x07;
 static constexpr uint8_t REG_LRCK_DIV_LO = 0x08;
 static constexpr uint8_t REG_DAC_FORMAT = 0x09;  // "SDPIN" — serial format for audio into the DAC
+static constexpr uint8_t REG_SYSTEM_0B = 0x0B;
+static constexpr uint8_t REG_SYSTEM_0C = 0x0C;
 static constexpr uint8_t REG_SYSTEM_0D = 0x0D;
 static constexpr uint8_t REG_SYSTEM_0E = 0x0E;
+static constexpr uint8_t REG_SYSTEM_10 = 0x10;
+static constexpr uint8_t REG_SYSTEM_11 = 0x11;
 static constexpr uint8_t REG_SYSTEM_12 = 0x12;  // DAC path power/mute
 static constexpr uint8_t REG_SYSTEM_13 = 0x13;
 static constexpr uint8_t REG_SYSTEM_14 = 0x14;  // analog reference bias
+static constexpr uint8_t REG_ADC_1B = 0x1B;
+static constexpr uint8_t REG_ADC_1C = 0x1C;
 static constexpr uint8_t REG_DAC_MUTE = 0x31;
 static constexpr uint8_t REG_DAC_VOLUME = 0x32;  // 0x00 = mute, 0xFF = max
 static constexpr uint8_t REG_DAC_ANALOG = 0x37;
@@ -71,6 +77,15 @@ void Es8311Driver::_resetAndConfigureClocks() {
     _writeReg(REG_LRCK_DIV_HI, 0x00);
     _writeReg(REG_LRCK_DIV_LO, 0x20);  // 32 BCLK periods per LRCK half-cycle (16-bit stereo frame)
 
+    // System/analog bring-up — these were entirely missing before being
+    // cross-referenced against a real ES8311 driver implementation (see the
+    // accuracy note in src/sound/README.md); values are fixed, not
+    // sample-rate dependent.
+    _writeReg(REG_SYSTEM_0B, 0x00);
+    _writeReg(REG_SYSTEM_0C, 0x00);
+    _writeReg(REG_SYSTEM_10, 0x1F);
+    _writeReg(REG_SYSTEM_11, 0x7F);
+
     _writeReg(REG_RESET, 0xC0);  // master mode (bit6) + release remaining reset bits
 }
 
@@ -81,6 +96,8 @@ void Es8311Driver::_configureFormatAndPower() {
     _writeReg(REG_SYSTEM_0E, 0x02);
     _writeReg(REG_SYSTEM_13, 0x10);
     _writeReg(REG_SYSTEM_14, 0x1A);
+    _writeReg(REG_ADC_1B, 0x0A);
+    _writeReg(REG_ADC_1C, 0x6A);
     _writeReg(REG_DAC_ANALOG, 0x48);
 
     _writeReg(REG_DAC_MUTE, 0x00);    // unmute
