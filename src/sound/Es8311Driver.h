@@ -28,10 +28,10 @@ class Es8311Driver : public SoundDriver {
     void playTestMelody() override;
 
     // TEMPORARY diagnostic aid for the silent/noisy-speaker bring-up issue —
-    // remove once resolved. Sweeps REG_CLK_MANAGER2 (pre-divider/
-    // pre-multiplier, which derives DIG_MCLK) across a few candidate values
-    // — see .cpp for why this is the next lead after content-independence
-    // and master-mode-only registers were ruled out on real hardware.
+    // remove once resolved. Sweeps REG_ADC_OSR/REG_DAC_OSR (oversampling
+    // ratio) across a few candidate values — see .cpp for the empirical
+    // findings (content-independent noise, master-mode-only registers
+    // ruled out, REG_CLK_MANAGER2 confirmed live) that narrowed it to this.
     void runDiagnosticSweep();
 
    private:

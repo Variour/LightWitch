@@ -244,21 +244,18 @@ void Es8311Driver::playTestMelody() {
     Logger::i("[sound] playTestMelody: done");
 }
 
-// TEMPORARY — see Es8311Driver.h. Two things confirmed on real hardware so
-// far: (1) silence and a loud tone produced *identical* noise, meaning the
-// noise doesn't depend on digital audio content at all; (2)
-// REG_BCLK_DIV/REG_LRCK_DIV_HI/LO swept across a wide range also made no
-// difference — consistent with the Linux kernel es8311 driver, where those
-// registers are only written/used in I2S *master* mode (irrelevant here,
-// this codec is slave). REG_CLK_MANAGER2 (pre-divider/pre-multiplier) is
-// the one remaining clock-chain register that matters regardless of master/
-// slave (it derives DIG_MCLK, which everything downstream — OSR, ADC/DAC
-// divider, the DAC's own reconstruction filter — depends on), and two
-// reference sources disagree on its value for our 4.096MHz-MCLK/16kHz
-// operating point (pre_multi=0 vs. 1). If DIG_MCLK itself is wrong, the
-// DAC's internal filtering would produce garbage independent of the actual
-// PCM content, matching both confirmed symptoms above. Sweeps REG02 across
-// a few pre_div/pre_multi combinations with a steady tone after each.
+// TEMPORARY — see Es8311Driver.h. Confirmed on real hardware so far: (1)
+// silence and a loud tone sound identical (noise is content-independent);
+// (2) REG_BCLK_DIV/REG_LRCK_DIV_HI/LO made no difference across a wide
+// sweep (master-mode-only registers, irrelevant to this slave-mode setup);
+// (3) REG_CLK_MANAGER2 (pre-div/pre-multi) DOES audibly change the noise —
+// confirming it's live and relevant, though none of its 4 tested
+// combinations produced a clean tone. Web-sourced register facts have
+// proven unreliable mid-investigation (contradictory re-fetches of the same
+// file), so this sweeps empirically instead of chasing more citations:
+// REG_ADC_OSR/REG_DAC_OSR (0x03/0x04, oversampling ratio) are the one
+// remaining clock-chain register pair never yet varied from their fixed
+// 0x10. Sweeps both together across a few candidate OSR values.
 void Es8311Driver::runDiagnosticSweep() {
     if (!_i2sInstalled) {
         Logger::w("[sound] SWEEP: I2S not installed, skipping");
@@ -267,17 +264,17 @@ void Es8311Driver::runDiagnosticSweep() {
 
     struct Variant {
         const char* label;
-        uint8_t clkMgr2;
+        uint8_t osr;
     };
     static const Variant VARIANTS[] = {
-        {"clkMgr2=0x00 (pre_div=1,pre_multi=0, current)", 0x00},
-        {"clkMgr2=0x08 (pre_div=1,pre_multi=1)", 0x08},
-        {"clkMgr2=0x20 (pre_div=2,pre_multi=0)", 0x20},
-        {"clkMgr2=0x28 (pre_div=2,pre_multi=1)", 0x28},
+        {"osr=0x10 (16, current)", 0x10},
+        {"osr=0x08 (8)", 0x08},
+        {"osr=0x20 (32)", 0x20},
+        {"osr=0x40 (64)", 0x40},
     };
     constexpr size_t N = sizeof(VARIANTS) / sizeof(VARIANTS[0]);
 
-    Logger::i("[sound] SWEEP: start, %u REG_CLK_MANAGER2 variants", (unsigned)N);
+    Logger::i("[sound] SWEEP: start, %u ADC/DAC OSR variants", (unsigned)N);
     _writeReg(REG_DAC_VOLUME, DAC_VOLUME_TEST);
     _setPaEnabled(true);
 
@@ -285,13 +282,15 @@ void Es8311Driver::runDiagnosticSweep() {
         esp_task_wdt_reset();
         const Variant& v = VARIANTS[i];
         Logger::i("[sound] SWEEP %u/%u: %s", (unsigned)(i + 1), (unsigned)N, v.label);
-        _writeReg(REG_CLK_MANAGER2, v.clkMgr2);
+        _writeReg(REG_ADC_OSR, v.osr);
+        _writeReg(REG_DAC_OSR, v.osr);
         _writeToneBlock(440.0f, 700, 0.6f);
         delay(300);
     }
 
     _setPaEnabled(false);
     _writeReg(REG_DAC_VOLUME, 0x00);
-    _writeReg(REG_CLK_MANAGER2, 0x00);  // restore current best-derived value
+    _writeReg(REG_ADC_OSR, 0x10);  // restore current best-derived values
+    _writeReg(REG_DAC_OSR, 0x10);
     Logger::i("[sound] SWEEP: done");
 }
