@@ -23,12 +23,12 @@ conflict with those). See `src/io/Tca9555Expander.h` / `IoExpanderChip` in
 | I2S MCLK pin | GPIO12 |
 | I2S BCLK pin | GPIO13 *(labelled `I2S_SCLK` on the board's silkscreen/pin map — same signal as BCLK)* |
 | I2S WS/LRCK pin | GPIO14 |
-| I2S DOUT pin | GPIO15 |
+| I2S DOUT pin | GPIO16 |
 | Separate speaker amp enable pin | checked |
 | Enable pin source | TCA9555 I2C expander |
 | Enable pin | 8 *(EXIO8)* |
 | TCA9555 I2C address | 0x20 *(TCA9555 default when A0–A2 are strapped low)* |
 | Active high | checked |
 
-GPIO16 (`I2S_DIN`) is the codec's microphone input — not used, this firmware
+GPIO15 (`I2S_DSIN`) is the codec's microphone input — not used, this firmware
 doesn't support mic input yet.
