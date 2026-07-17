@@ -3,7 +3,6 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <driver/i2s.h>
-#include <esp_task_wdt.h>
 #include <math.h>
 
 #include "../logging/Logger.h"
@@ -229,66 +228,15 @@ void Es8311Driver::playTestMelody() {
         uint32_t durationMs;
     };
     static const Note MELODY[] = {
-        {523.25f, 140},   // C5
-        {659.25f, 140},   // E5
-        {783.99f, 140},   // G5
-        {1046.50f, 220},  // C6
-        {783.99f, 260},   // G5 (resolving note)
+        {523.25f, 220},   // C5
+        {659.25f, 220},   // E5
+        {783.99f, 220},   // G5
+        {1046.50f, 320},  // C6
+        {783.99f, 400},   // G5 (resolving note)
     };
     for (const auto& note : MELODY) _writeToneBlock(note.freqHz, note.durationMs, 0.6f);
 
     _setPaEnabled(false);
     _writeReg(REG_DAC_VOLUME, 0x00);
     Logger::i("[sound] playTestMelody: done");
-}
-
-// TEMPORARY — see Es8311Driver.h. Confirmed on real hardware so far: (1)
-// silence and a loud tone sound identical (noise is content-independent);
-// (2) REG_BCLK_DIV/REG_LRCK_DIV_HI/LO made no difference across a wide
-// sweep (master-mode-only registers, irrelevant to this slave-mode setup);
-// (3) REG_CLK_MANAGER2 (pre-div/pre-multi) DOES audibly change the noise —
-// confirming it's live and relevant, though none of its 4 tested
-// combinations produced a clean tone. Web-sourced register facts have
-// proven unreliable mid-investigation (contradictory re-fetches of the same
-// file), so this sweeps empirically instead of chasing more citations:
-// REG_ADC_OSR/REG_DAC_OSR (0x03/0x04, oversampling ratio) are the one
-// remaining clock-chain register pair never yet varied from their fixed
-// 0x10. Sweeps both together across a few candidate OSR values.
-void Es8311Driver::runDiagnosticSweep() {
-    if (!_i2sInstalled) {
-        Logger::w("[sound] SWEEP: I2S not installed, skipping");
-        return;
-    }
-
-    struct Variant {
-        const char* label;
-        uint8_t osr;
-    };
-    static const Variant VARIANTS[] = {
-        {"osr=0x10 (16, current)", 0x10},
-        {"osr=0x08 (8)", 0x08},
-        {"osr=0x20 (32)", 0x20},
-        {"osr=0x40 (64)", 0x40},
-    };
-    constexpr size_t N = sizeof(VARIANTS) / sizeof(VARIANTS[0]);
-
-    Logger::i("[sound] SWEEP: start, %u ADC/DAC OSR variants", (unsigned)N);
-    _writeReg(REG_DAC_VOLUME, DAC_VOLUME_TEST);
-    _setPaEnabled(true);
-
-    for (size_t i = 0; i < N; i++) {
-        esp_task_wdt_reset();
-        const Variant& v = VARIANTS[i];
-        Logger::i("[sound] SWEEP %u/%u: %s", (unsigned)(i + 1), (unsigned)N, v.label);
-        _writeReg(REG_ADC_OSR, v.osr);
-        _writeReg(REG_DAC_OSR, v.osr);
-        _writeToneBlock(440.0f, 700, 0.6f);
-        delay(300);
-    }
-
-    _setPaEnabled(false);
-    _writeReg(REG_DAC_VOLUME, 0x00);
-    _writeReg(REG_ADC_OSR, 0x10);  // restore current best-derived values
-    _writeReg(REG_DAC_OSR, 0x10);
-    Logger::i("[sound] SWEEP: done");
 }

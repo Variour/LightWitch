@@ -27,13 +27,6 @@ class Es8311Driver : public SoundDriver {
     void begin() override;
     void playTestMelody() override;
 
-    // TEMPORARY diagnostic aid for the silent/noisy-speaker bring-up issue —
-    // remove once resolved. Sweeps REG_ADC_OSR/REG_DAC_OSR (oversampling
-    // ratio) across a few candidate values — see .cpp for the empirical
-    // findings (content-independent noise, master-mode-only registers
-    // ruled out, REG_CLK_MANAGER2 confirmed live) that narrowed it to this.
-    void runDiagnosticSweep();
-
    private:
     bool _writeReg(uint8_t reg, uint8_t value);
     void _resetAndConfigureClocks();

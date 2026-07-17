@@ -43,8 +43,6 @@ using TestLightCb = std::function<void(uint8_t)>;
 using TestColorOrderCb = std::function<void(uint8_t)>;
 // Called to play the hardware-verification test melody on a specific sound output index
 using TestSoundCb = std::function<void(uint8_t)>;
-// TEMPORARY — runs Es8311Driver::runDiagnosticSweep() on a sound output index; see its doc comment
-using SweepSoundCb = std::function<void(uint8_t)>;
 // Called when matrix orientation (matrixStart/matrixDir) or wrap topology changes without reboot
 using OrientationChangeCb = std::function<void(uint8_t)>;
 using ColorOrderChangeCb = std::function<void(uint8_t)>;
@@ -242,12 +240,6 @@ class BatteryWebServer {
             "/api/sounds/test", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
                 _testSound(r, d, l);
-            });
-        // TEMPORARY — see SweepSoundCb; not exposed in the UI, curl it directly.
-        _server.on(
-            "/api/sounds/sweep", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _sweepSound(r, d, l);
             });
 
         _server.on("/api/buttons", HTTP_GET, [this](AsyncWebServerRequest* r) { _getButtons(r); });
@@ -543,7 +535,6 @@ class BatteryWebServer {
     void setOnTestLight(TestLightCb cb) { _onTestLight = cb; }
     void setOnTestColorOrder(TestColorOrderCb cb) { _onTestColorOrder = cb; }
     void setOnTestSound(TestSoundCb cb) { _onTestSound = cb; }
-    void setOnSweepSound(SweepSoundCb cb) { _onSweepSound = cb; }
     void setOnOrientationChange(OrientationChangeCb cb) { _onOrientationChange = cb; }
     void setOnColorOrderChange(ColorOrderChangeCb cb) { _onColorOrderChange = cb; }
     void setOnLightBrightnessChange(LightBrightnessChangeCb cb) { _onLightBrightnessChange = cb; }
@@ -581,7 +572,6 @@ class BatteryWebServer {
     TestLightCb _onTestLight;
     TestColorOrderCb _onTestColorOrder;
     TestSoundCb _onTestSound;
-    SweepSoundCb _onSweepSound;
     OrientationChangeCb _onOrientationChange;
     ColorOrderChangeCb _onColorOrderChange;
     LightBrightnessChangeCb _onLightBrightnessChange;
@@ -1891,22 +1881,6 @@ class BatteryWebServer {
             return;
         }
         if (_onTestSound) _onTestSound(idx);
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
-    }
-
-    // ── POST /api/sounds/sweep ────────────────────────────────────────────────
-    // TEMPORARY — see SweepSoundCb. Body: {index}.
-    void _sweepSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        uint8_t idx = doc["index"] | (uint8_t)0xFF;
-        if (idx >= MAX_SOUNDS || !Config::get().sounds[idx].exists) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
-            return;
-        }
-        if (_onSweepSound) _onSweepSound(idx);
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
     }
