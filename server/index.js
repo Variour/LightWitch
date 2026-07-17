@@ -26,7 +26,7 @@ const MOCK_CONFIG = {
   deviceName: 'Mock Device',
   otaPort: 3232,
   otaEnabled: true,
-  logLevel: 1,
+  logLevel: 2, // Info
   sceneSyncEnabled: true,
   checkUpdateOnStartup: false,
   wifiSingleClientMode: false,
