@@ -4514,7 +4514,81 @@ async function testLight(index) {
 
 async function testColorOrder(index) {
   const res = await fetch('/api/lights/testcolor', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
-  if (!res.ok) { const d = await res.json().catch(()=>({})); alert('Error: ' + (d.error || res.status)); }
+  if (!res.ok) { const d = await res.json().catch(()=>({})); alert('Error: ' + (d.error || res.status)); return; }
+  const light = _lights.find(l => l.index === index);
+  if (light) _openColorOrderCheckModal(light);
+}
+
+// Permutation applyColorOrder() on the device uses for each ColorOrder value:
+// wireByte[i] = logical[COLOR_ORDER_PERM[order][i]], with 0=Red, 1=Green, 2=Blue.
+// Mirrors src/config/Config.h's applyColorOrder() — must stay in sync with it.
+const COLOR_ORDER_PERM = [
+  [0, 1, 2], // RGB
+  [0, 2, 1], // RBG
+  [1, 0, 2], // GRB
+  [1, 2, 0], // GBR
+  [2, 0, 1], // BRG
+  [2, 1, 0], // BGR
+];
+const PRIMARY_NAMES = ['Red', 'Green', 'Blue'];
+
+// "Test colours" always drives the light logical red, then green, then blue,
+// regardless of the configured colour order (PatternRunner::_renderColorOrderTest) —
+// so the order the user actually *sees* reveals the light's true wiring. This modal
+// asks for that observed order and derives the colour order setting that would make
+// it show correctly, offering to apply it if it differs from what's configured.
+function _openColorOrderCheckModal(light) {
+  const overlay = document.createElement('div');
+  overlay.id = 'colorcheck-modal-overlay';
+  overlay.className = 'push-overlay';
+  const opts = PRIMARY_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('');
+  overlay.innerHTML = `<div class="push-modal"><div class="card" style="margin:0">
+    <div class="flex-between" style="margin-bottom:.5rem">
+      <h2 style="margin:0">Colour order check</h2>
+      <button class="btn-ghost btn-sm" id="cc-close-btn">✕</button>
+    </div>
+    <p style="font-size:.85rem;color:#888">The light just cycled through three solid colours, one second each. Select the order you actually saw, then check.</p>
+    <label>1st colour shown</label>
+    <select id="cc-o0">${opts}</select>
+    <label>2nd colour shown</label>
+    <select id="cc-o1">${opts}</select>
+    <label>3rd colour shown</label>
+    <select id="cc-o2">${opts}</select>
+    <p id="cc-error" style="color:#c44;font-size:.82rem;display:none">Each colour must be selected exactly once.</p>
+    <button id="cc-check-btn" class="btn-primary" style="width:100%;margin-top:.75rem">Check</button>
+  </div></div>`;
+  overlay.style.display = 'block';
+  document.body.appendChild(overlay);
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.querySelector('#cc-close-btn').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#cc-o1').value = '1';
+  overlay.querySelector('#cc-o2').value = '2';
+  overlay.querySelector('#cc-check-btn').addEventListener('click', () => _checkColorOrder(light, overlay));
+}
+
+async function _checkColorOrder(light, overlay) {
+  const obs = [0, 1, 2].map(i => parseInt(overlay.querySelector(`#cc-o${i}`).value));
+  if (new Set(obs).size !== 3) {
+    overlay.querySelector('#cc-error').style.display = 'block';
+    return;
+  }
+  const current = light.colorOrder || 0;
+  const perm = COLOR_ORDER_PERM[current].map(ci => obs[ci]);
+  const detected = COLOR_ORDER_PERM.findIndex(p => p.every((v, i) => v === perm[i]));
+  overlay.remove();
+  if (detected === current) {
+    showToast(`Colour order is correct (${COLOR_ORDER_NAMES[current]}).`, false);
+    return;
+  }
+  const label = light.name ? `"${light.name}"` : `Light ${light.index}`;
+  _confirmAction(
+    `Detected colour order is ${COLOR_ORDER_NAMES[detected]}, but ${label} is configured as ${COLOR_ORDER_NAMES[current]}. Apply ${COLOR_ORDER_NAMES[detected]}?`,
+    async () => {
+      const res = await _fetchOrAlert('/api/lights/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index: light.index, colorOrder: detected})});
+      if (!res) return;
+      loadConfig().catch(() => {});
+    }
+  );
 }
 
 function openAddLightModal() {
