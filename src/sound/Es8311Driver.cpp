@@ -125,8 +125,8 @@ void Es8311Driver::_configureFormatAndPower() {
     _writeReg(REG_DAC_ANALOG, 0x48);
     _writeReg(REG_GPIO_45, 0x00);
 
-    _writeReg(REG_DAC_FORMAT, 0x0C);   // 16-bit, I2S normal format
-    _writeReg(REG_ADC_FORMAT, 0x4C);   // ADC unused, but the captured working sequence sets this too
+    _writeReg(REG_DAC_FORMAT, 0x0C);  // 16-bit, I2S normal format
+    _writeReg(REG_ADC_FORMAT, 0x4C);  // ADC unused, but the captured working sequence sets this too
 
     _writeReg(REG_DAC_MUTE, 0x00);    // unmute
     _writeReg(REG_DAC_VOLUME, 0x00);  // start silent; playTestMelody() raises this
