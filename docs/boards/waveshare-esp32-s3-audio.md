@@ -1,8 +1,11 @@
-# Waveshare ESP32-S3-AUDIO-Board — Sound configuration
+# Waveshare ESP32-S3-AUDIO-Board — Sound & LED configuration
 
-Per-board field values for **Settings → Sound → Add sound**, for this board's
-onboard ES8311 mono codec + speaker. Build/flash with the `esp32s3`
-PlatformIO environment.
+Per-board field values for **Settings → Sound → Add sound** and
+**Settings → Lights → Add light**, for this board's onboard ES8311 mono
+codec + speaker and its onboard WS2812 RGB LED. Build/flash with the
+`esp32s3` PlatformIO environment.
+
+## Sound
 
 The board's speaker-amp enable line (PA_EN) isn't wired to a native GPIO —
 it sits on **EXIO8** of the onboard TCA9555 I2C GPIO expander (the same
@@ -11,7 +14,7 @@ and camera power/reset lines — EXIO8 is dedicated to PA_EN and doesn't
 conflict with those). See `src/io/Tca9555Expander.h` / `IoExpanderChip` in
 `src/config/Config.h` for how that's represented.
 
-## Field values
+### Field values
 
 | Field | Value |
 |---|---|
@@ -32,3 +35,22 @@ conflict with those). See `src/io/Tca9555Expander.h` / `IoExpanderChip` in
 
 GPIO15 (`I2S_DSIN`) is the codec's microphone input — not used, this firmware
 doesn't support mic input yet.
+
+## Lights
+
+The board has a single onboard WS2812 RGB LED on the back.
+
+### Field values
+
+| Field | Value |
+|---|---|
+| LED type | WS2812B — single wire |
+| Data pin (GPIO) | GPIO38 |
+| Colour order | GRB *(WS2812B default)* |
+| Length | 1 |
+| Rows | 1 |
+
+Note that GPIO4 and GPIO5 — the `esp32s3` PlatformIO environment's generic
+`LED_DATA_PIN`/`LED_CLOCK_PIN` build-flag defaults — are already committed
+to `LCD_SCK` and `BL_PWM` on this board and must not be used for an LED
+strip here; always set the data pin explicitly to GPIO38 as above.
