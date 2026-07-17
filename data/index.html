@@ -4776,6 +4776,7 @@ function _openSoundModal(s) {
         <option value="0"${(s.paExpander||0)===0?' selected':''}>Direct GPIO</option>
         <option value="1"${(s.paExpander||0)===1?' selected':''}>TCA9555 I2C expander <small>(shares the SDA/SCL bus above)</small></option>
       </select>
+      <label id="sm-paEnablePin-label">Enable pin <small>${(s.paExpander||0)===1?'(pin index 0-15 on the expander)':'(GPIO number)'}</small></label>
       <input type="number" id="sm-paEnablePin" value="${hasPa ? s.paEnablePin : ''}" min="0" max="${(s.paExpander||0)===1?15:39}" placeholder="${(s.paExpander||0)===1?'expander pin 0-15':'GPIO'}">
       <div id="sm-paExpanderAddress-wrap" style="${(s.paExpander||0)===1?'':'display:none'}">
         <label>TCA9555 I2C address <small>(0x20 default; set by the A0-A2 address pins)</small></label>
@@ -4804,12 +4805,14 @@ function _openSoundModal(s) {
 
   const paExpanderSelect = overlay.querySelector('#sm-paExpander');
   const paPinInput       = overlay.querySelector('#sm-paEnablePin');
+  const paPinLabel       = overlay.querySelector('#sm-paEnablePin-label');
   const paAddressWrap    = overlay.querySelector('#sm-paExpanderAddress-wrap');
   paExpanderSelect.addEventListener('change', () => {
     const isExpander = paExpanderSelect.value === '1';
     paAddressWrap.style.display = isExpander ? '' : 'none';
     paPinInput.max = isExpander ? '15' : '39';
     paPinInput.placeholder = isExpander ? 'expander pin 0-15' : 'GPIO';
+    paPinLabel.innerHTML = `Enable pin <small>${isExpander ? '(pin index 0-15 on the expander)' : '(GPIO number)'}</small>`;
   });
 }
 

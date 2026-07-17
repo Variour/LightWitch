@@ -135,7 +135,7 @@ Hardware support only for now — adding a sound output brings the codec up and 
 3. Click **Save & Reboot** — hardware changes require a restart to take effect.
 4. Click **Test speaker** to play a short built-in melody and confirm the wiring works.
 
-One sound output per device.
+One sound output per device. For known board-specific pin values, see [docs/boards/](docs/boards/) (currently: [Waveshare ESP32-S3-AUDIO-Board](docs/boards/waveshare-esp32-s3-audio.md)).
 
 ---
 
@@ -195,3 +195,4 @@ See [docs/known-issues.md](docs/known-issues.md).
 - [docs/development.md](docs/development.md) — building from source, OTA via PlatformIO, running the web UI locally
 - [docs/hosting.md](docs/hosting.md) — deploying the web UI to Azure Container Apps
 - [docs/mesh-compatibility.md](docs/mesh-compatibility.md) — mesh wire-protocol compatibility policy and message inventory
+- [docs/boards/](docs/boards/) — per-board pin values for hardware that needs more than "pick a GPIO" (e.g. sound codecs behind an I2C GPIO expander)
