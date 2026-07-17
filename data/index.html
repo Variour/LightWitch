@@ -4722,6 +4722,19 @@ _delegate('sounds-hw-list', 'click', {
 
 let _editSoundIndex = null;
 
+// I2C addresses are conventionally written in hex; accept "0x18" or bare "18"
+// (both treated as hex) and normalize back to a padded "0x.." string.
+function _parseHexByte(raw) {
+  let v = (raw || '').trim();
+  if (/^0x/i.test(v)) v = v.slice(2);
+  if (!/^[0-9a-fA-F]{1,2}$/.test(v)) return NaN;
+  const n = parseInt(v, 16);
+  return (n >= 0 && n <= 127) ? n : NaN;
+}
+function _formatHexByte(n) {
+  return '0x' + (n || 0).toString(16).padStart(2, '0');
+}
+
 async function testSound(index) {
   const res = await fetch('/api/sounds/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
   if (!res.ok) { const d = await res.json().catch(()=>({})); alert('Error: ' + (d.error || res.status)); }
@@ -4759,8 +4772,8 @@ function _openSoundModal(s) {
     <input type="number" id="sm-i2cSdaPin" value="${s.i2cSdaPin}" min="0" max="39">
     <label>I2C SCL pin (GPIO)</label>
     <input type="number" id="sm-i2cSclPin" value="${s.i2cSclPin}" min="0" max="39">
-    <label>I2C address <small>(0x18 default; 0x19 if the chip's CE pin is strapped high)</small></label>
-    <input type="number" id="sm-i2cAddress" value="${s.i2cAddress}" min="0" max="127">
+    <label>I2C address <small>(hex, e.g. 0x18 — "0x" prefix optional; 0x18 default, 0x19 if the chip's CE pin is strapped high)</small></label>
+    <input type="text" id="sm-i2cAddress" value="${_formatHexByte(s.i2cAddress)}" placeholder="0x18" inputmode="text" autocapitalize="off" autocomplete="off" spellcheck="false">
     <label>I2S BCLK pin (GPIO)</label>
     <input type="number" id="sm-i2sBclkPin" value="${s.i2sBclkPin}" min="0" max="39">
     <label>I2S WS/LRCK pin (GPIO)</label>
@@ -4785,8 +4798,8 @@ function _openSoundModal(s) {
       <label id="sm-paEnablePin-label">Enable pin <small>${(s.paExpander||0)===1?'(pin index 0-15 on the expander)':'(GPIO number)'}</small></label>
       <input type="number" id="sm-paEnablePin" value="${hasPa ? s.paEnablePin : ''}" min="0" max="${(s.paExpander||0)===1?15:39}" placeholder="${(s.paExpander||0)===1?'expander pin 0-15':'GPIO'}">
       <div id="sm-paExpanderAddress-wrap" style="${(s.paExpander||0)===1?'':'display:none'}">
-        <label>TCA9555 I2C address <small>(0x20 default; set by the A0-A2 address pins)</small></label>
-        <input type="number" id="sm-paExpanderAddress" value="${s.paExpanderAddress || 0x20}" min="0" max="127">
+        <label>TCA9555 I2C address <small>(hex, e.g. 0x20 — "0x" prefix optional; 0x20 default, set by the A0-A2 address pins)</small></label>
+        <input type="text" id="sm-paExpanderAddress" value="${_formatHexByte(s.paExpanderAddress || 0x20)}" placeholder="0x20" inputmode="text" autocapitalize="off" autocomplete="off" spellcheck="false">
       </div>
       <label style="display:flex;align-items:center;gap:.5rem;margin-top:.4rem">
         <input type="checkbox" id="sm-paEnableActiveHigh" ${s.paEnableActiveHigh!==false?'checked':''}>
@@ -4808,6 +4821,14 @@ function _openSoundModal(s) {
   const paCheck = overlay.querySelector('#sm-hasPa');
   const paOpts  = overlay.querySelector('#sm-pa-opts');
   paCheck.addEventListener('change', () => { paOpts.style.display = paCheck.checked ? '' : 'none'; });
+
+  for (const id of ['sm-i2cAddress', 'sm-paExpanderAddress']) {
+    const input = overlay.querySelector(`#${id}`);
+    input.addEventListener('blur', () => {
+      const n = _parseHexByte(input.value);
+      if (!Number.isNaN(n)) input.value = _formatHexByte(n);
+    });
+  }
 
   const paExpanderSelect = overlay.querySelector('#sm-paExpander');
   const paPinInput       = overlay.querySelector('#sm-paEnablePin');
@@ -4833,7 +4854,7 @@ async function saveSoundModal() {
     chip: parseInt($('sm-chip').value),
     i2cSdaPin: parseInt($('sm-i2cSdaPin').value),
     i2cSclPin: parseInt($('sm-i2cSclPin').value),
-    i2cAddress: parseInt($('sm-i2cAddress').value),
+    i2cAddress: _parseHexByte($('sm-i2cAddress').value),
     i2sBclkPin: parseInt($('sm-i2sBclkPin').value),
     i2sWsPin: parseInt($('sm-i2sWsPin').value),
     i2sDoutPin: parseInt($('sm-i2sDoutPin').value),
@@ -4841,8 +4862,11 @@ async function saveSoundModal() {
     paEnablePin: $('sm-hasPa').checked ? parseInt($('sm-paEnablePin').value) : SOUND_PIN_UNUSED,
     paEnableActiveHigh: $('sm-paEnableActiveHigh').checked,
     paExpander: $('sm-hasPa').checked ? parseInt($('sm-paExpander').value) : 0,
-    paExpanderAddress: parseInt($('sm-paExpanderAddress').value),
+    paExpanderAddress: _parseHexByte($('sm-paExpanderAddress').value),
   };
+  for (const key of ['i2cAddress', 'paExpanderAddress']) {
+    if (Number.isNaN(body[key])) { alert(`Please enter a valid I2C address for ${key} (hex, e.g. 0x18)`); return; }
+  }
   for (const [key, val] of Object.entries(body)) {
     if (typeof val === 'number' && Number.isNaN(val)) { alert(`Please fill in ${key}`); return; }
   }
