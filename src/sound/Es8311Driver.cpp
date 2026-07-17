@@ -87,12 +87,17 @@ void Es8311Driver::_resetAndConfigureClocks() {
     _writeReg(REG_ADC_OSR, 0x10);
     _writeReg(REG_DAC_OSR, 0x10);
     _writeReg(REG_ADC_DAC_DIV, 0x00);
-    // Matches Espressif's es8311_coeff_div[] table row for a 4.096MHz MCLK
-    // (= 16000Hz * the legacy I2S driver's fixed 256x mclk_multiple with
-    // use_apll=false) at 16kHz: bclk_div=4 encodes as reg_value=bclk_div-1,
-    // and the LRCK divider is 256 (lrck_h=0x00, lrck_l=0xFF), not the
-    // literal "32 BCLK/frame" this was previously (wrongly) derived from.
-    _writeReg(REG_BCLK_DIV, 0x03);
+    // DIG_MCLK (=MCLK here, pre_div=1/pre_multi=0 above) is 4.096MHz for
+    // 16000Hz * the legacy I2S driver's 256x mclk_multiple (use_apll=false).
+    // LRCK divisor = DIG_MCLK/LRCK = 4096000/16000 = 256 -> reg=256-1=0xFF.
+    // BCLK divisor = DIG_MCLK/actual-BCLK. Espressif's es8311_coeff_div[]
+    // table assumes a 32-bit-per-channel I2S slot (BCLK = LRCK*64), giving
+    // its bclk_div=4 (reg 0x03) — but this driver's i2s_config_t uses
+    // I2S_BITS_PER_SAMPLE_16BIT/stereo, i.e. BCLK = LRCK*32 = 512kHz, so the
+    // real divisor is 4096000/512000 = 8 -> reg = 8-1 = 0x07. Using the
+    // table's 0x03 as-is (matching a slot width this driver doesn't use)
+    // desyncs the DAC's internal sample timing from the actual bit clock.
+    _writeReg(REG_BCLK_DIV, 0x07);
     _writeReg(REG_LRCK_DIV_HI, 0x00);
     _writeReg(REG_LRCK_DIV_LO, 0xFF);
 

@@ -49,12 +49,18 @@ cross-checked against Espressif's own `es8311_coeff_div[]` table
   mode (bit6) while the ESP32 I2S peripheral is also configured as master —
   two masters driving BCLK/LRCK — and re-asserting the reset bit (bit7) that
   nothing afterwards cleared. Fixed to `0x00` (slave mode, reset released).
-- `REG_BCLK_DIV`/`REG_LRCK_DIV_LO` used the coefficient-table's `bclk_div`
-  value (4) directly instead of the table's `bclk_div - 1` register-encoding
-  rule, and derived `lrck_l` from "BCLK cycles per 16-bit stereo frame" (32)
-  instead of the table's actual value (256, i.e. `lrck_h=0x00,
-  lrck_l=0xff`) — the LRCK divider isn't the physical frame width, it's
-  DIG_MCLK/LRCK per the table. Fixed to `0x03` and `0xff` respectively.
+- `REG_LRCK_DIV_LO` derived `lrck_l` from "BCLK cycles per 16-bit stereo
+  frame" (32) instead of DIG_MCLK/LRCK (4096000/16000 = 256, i.e.
+  `lrck_h=0x00, lrck_l=0xff` after the table's `-1` register encoding).
+  Fixed to `0xff`.
+- `REG_BCLK_DIV` copied the coefficient-table's `bclk_div` value (4, reg
+  0x03) as-is, but that table assumes a 32-bit-per-channel I2S slot
+  (physical BCLK = LRCK*64) — this driver's `i2s_config_t` uses
+  `I2S_BITS_PER_SAMPLE_16BIT`/stereo, i.e. BCLK = LRCK*32 = 512kHz, so the
+  real divisor is DIG_MCLK/BCLK = 4096000/512000 = 8 (reg 0x07), not the
+  table's assumed 4 (reg 0x03). Copying `es8311_coeff_div[]` register values
+  directly is only valid if the I2S slot width matches what generated that
+  table row — it doesn't here. Fixed to `0x07`.
 
 A fourth bug, cross-checked against the Linux kernel `es8311` ALSA driver
 (`sound/soc/codecs/es8311.h`'s `ES8311_CLKMGR1_MCLK_SEL` define — the
