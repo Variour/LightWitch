@@ -972,7 +972,7 @@ input[type=radio]:active { background-color: #1a5; }
   </div>
 
   <div class="card settings-save-bar">
-    <button id="save-reboot-btn" class="btn-primary" style="width:100%">Save &amp; Reboot</button>
+    <button id="save-reboot-btn" class="btn-ghost" style="width:100%" disabled>Save &amp; Reboot</button>
     <div id="save-reboot-status" style="margin-top:.5rem;font-size:.85rem;text-align:center;color:#888"></div>
   </div>
 
@@ -2341,6 +2341,48 @@ async function submitPushConfig() {
 }
 
 // ── Settings save ─────────────────────────────────────────────────────────────
+// Fields covered by saveSettings()'s payload. The Save & Reboot button mirrors
+// the scene editor's Save button: disabled/grey until one of these differs
+// from the last-loaded/last-saved value, then enabled/green. No auto-save.
+const SETTINGS_FIELD_IDS = [
+  'deviceName', 'logLevel', 'timezone', 'apPassword', 'otaPort', 'otaEnabled',
+  'mqttHost', 'mqttPort', 'mqttUser', 'mqttPassword',
+  'githubRepo', 'githubToken', 'checkUpdateOnStartup', 'batteryMonitoringEnabled',
+];
+
+let _settingsBaseline = {};
+
+function _settingsFieldValue(el) {
+  return el.type === 'checkbox' ? el.checked : el.value;
+}
+
+function _captureSettingsBaseline() {
+  _settingsBaseline = {};
+  for (const id of SETTINGS_FIELD_IDS) {
+    const el = $(id);
+    if (el) _settingsBaseline[id] = _settingsFieldValue(el);
+  }
+  _updateSettingsSaveBtnState();
+}
+
+function _isSettingsDirty() {
+  return SETTINGS_FIELD_IDS.some(id => {
+    const el = $(id);
+    return el && _settingsFieldValue(el) !== _settingsBaseline[id];
+  });
+}
+
+function _setSettingsSaveBtnState(dirty) {
+  const btn = $('save-reboot-btn');
+  if (!btn) return;
+  btn.disabled  = !dirty;
+  btn.className = dirty ? 'btn-primary' : 'btn-ghost';
+}
+
+function _updateSettingsSaveBtnState() {
+  _setSettingsSaveBtnState(_isSettingsDirty());
+}
+
 async function saveSettings() {
   const btn    = $('save-reboot-btn');
   const status = $('save-reboot-status');
@@ -2376,12 +2418,15 @@ async function saveSettings() {
     const res = await fetch('/api/config', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     if (!res.ok) throw new Error('HTTP ' + res.status);
   } catch(e) {
-    btn.disabled    = false;
     btn.textContent = 'Save & Reboot';
     status.style.color = '#f66';
     status.textContent = 'Save failed: ' + e.message;
+    _updateSettingsSaveBtnState();
     return;
   }
+
+  // Save succeeded — the currently-entered values are now the saved state.
+  _captureSettingsBaseline();
 
   btn.textContent = 'Saved — rebooting…';
   status.style.color = '#888';
@@ -2393,7 +2438,6 @@ async function saveSettings() {
     status.textContent = 'Device is back online!';
     await new Promise(r => setTimeout(r, 800));
     switchTab('dashboard');
-    btn.disabled    = false;
     btn.textContent = 'Save & Reboot';
     status.textContent = '';
     return;
@@ -2401,7 +2445,6 @@ async function saveSettings() {
 
   status.style.color = '#f66';
   status.textContent = 'Device not responding — check your connection.';
-  btn.disabled    = false;
   btn.textContent = 'Save & Reboot';
 }
 
@@ -2743,6 +2786,7 @@ async function loadConfig() {
     _updApplyStatus(updData);
     if (updData.state === 'checking') _updPollStatus();
   } catch { /* best-effort refresh; ignore network errors */ }
+  _captureSettingsBaseline();
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -5559,6 +5603,12 @@ $('add-button-btn').addEventListener('click', openAddButtonModal);
 $('add-wifi-btn').addEventListener('click', addWifiNetwork);
 $('clear-mqtt-btn').addEventListener('click', clearMqtt);
 $('save-reboot-btn').addEventListener('click', saveSettings);
+SETTINGS_FIELD_IDS.forEach(id => {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('input', _updateSettingsSaveBtnState);
+  el.addEventListener('change', _updateSettingsSaveBtnState);
+});
 $('upd-check-btn').addEventListener('click', checkUpdate);
 $('upd-apply-btn').addEventListener('click', applyUpdate);
 $('pr-load-btn').addEventListener('click', loadPrBuilds);
