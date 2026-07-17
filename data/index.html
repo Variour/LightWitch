@@ -223,11 +223,8 @@ input[type=checkbox]:active { background-color: #1a5; }
 .push-fh small { font-weight:normal }
 .push-ul { font-weight:normal;font-size:.82rem;margin:0;display:flex;align-items:center;gap:.3rem;cursor:pointer }
 
-/* Responsive two-column layout for larger screens */
-.layout { display: grid; grid-template-columns: 1fr; gap: .75rem; }
 @media (max-width: 640px) {
   #tab-dashboard, #tab-scenes, #tab-settings { margin-inline: -1rem; }
-  #tab-dashboard .layout { gap: .5rem; }
   #tab-dashboard .card, #tab-scenes .card, #tab-settings .card { border-radius: 0; }
   .lights-table-wrap { display: none; }
   .lights-mobile-list { display: grid; }
@@ -235,7 +232,6 @@ input[type=checkbox]:active { background-color: #1a5; }
 }
 @media (min-width: 920px) {
   body  { max-width: 1160px; }
-  .layout { grid-template-columns: 1fr 1fr; align-items: start; }
 }
 
 /* ── Scenes ─────────────────────────────────────────────────── */
@@ -493,10 +489,6 @@ input[type=checkbox]:active { background-color: #1a5; }
 
 <!-- ══════════════ DASHBOARD ══════════════ -->
 <div id="tab-dashboard">
-<div class="layout">
-
-<!-- LEFT COLUMN: Connected Lights + Groups -->
-<div>
 
   <!-- CONNECTED LIGHTS -->
   <div class="card">
@@ -550,21 +542,6 @@ input[type=checkbox]:active { background-color: #1a5; }
     </div>
   </div>
 
-</div><!-- /left column -->
-
-<!-- RIGHT COLUMN: Log -->
-<div>
-
-  <!-- LOG -->
-  <div class="card">
-    <h2>Log</h2>
-    <div id="log"></div>
-    <div id="ws-status">WebSocket: connecting…</div>
-    <button class="btn-danger btn-sm" style="margin-top:.4rem;width:100%" id="clear-log-btn">Clear log</button>
-  </div>
-
-</div><!-- /right column -->
-</div><!-- /layout -->
 </div><!-- /tab-dashboard -->
 
 
@@ -939,6 +916,14 @@ input[type=checkbox]:active { background-color: #1a5; }
 
     <button id="save-reboot-btn" class="btn-primary" style="width:100%;margin-top:.5rem">Save &amp; Reboot</button>
     <div id="save-reboot-status" style="margin-top:.5rem;font-size:.85rem;text-align:center;color:#888"></div>
+  </div>
+
+  <!-- LOG -->
+  <div class="card">
+    <h2>Log</h2>
+    <div id="log"></div>
+    <div id="ws-status">WebSocket: connecting…</div>
+    <button class="btn-danger btn-sm" style="margin-top:.4rem;width:100%" id="clear-log-btn">Clear log</button>
   </div>
 
   <!-- FIRMWARE UPDATE -->
