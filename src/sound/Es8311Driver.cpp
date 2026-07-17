@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <driver/i2s.h>
+#include <esp_task_wdt.h>
 #include <math.h>
 
 #include "../logging/Logger.h"
@@ -277,6 +278,12 @@ void Es8311Driver::runDiagnosticSweep() {
     _setPaEnabled(true);
 
     for (size_t i = 0; i < N; i++) {
+        // This whole loop runs synchronously inside the HTTP request
+        // callback (on the async_tcp task) — resetting that task's own task
+        // watchdog registration here is what stopped it tripping mid-sweep
+        // and rebooting the device once total sweep time grew past the
+        // default ~5s TWDT window.
+        esp_task_wdt_reset();
         const Variant& v = VARIANTS[i];
         Logger::i("[sound] SWEEP %u/%u: %s", (unsigned)(i + 1), (unsigned)N, v.label);
         _writeReg(REG_BCLK_DIV, v.bclkDiv);
