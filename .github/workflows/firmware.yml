@@ -16,7 +16,6 @@ on:
       - 'include/**'
       - 'lib/**'
       - 'scripts/**'
-      - 'data/**'
       - '.github/workflows/firmware.yml'
 
 concurrency:
@@ -25,7 +24,6 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   setup:
@@ -34,7 +32,6 @@ jobs:
       matrix: ${{ steps.matrix.outputs.value }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
-      firmware_changed: ${{ steps.filter.outputs.firmware }}
     steps:
       - id: matrix
         run: |
@@ -50,24 +47,8 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - id: filter
-        if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            firmware:
-              - 'platformio.ini'
-              - 'partitions.csv'
-              - 'requirements.txt'
-              - 'src/**'
-              - 'include/**'
-              - 'lib/**'
-              - 'scripts/**'
-              - '.github/workflows/firmware.yml'
-
   build:
     needs: setup
-    if: github.event_name != 'pull_request' || needs.setup.outputs.firmware_changed == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
