@@ -28,20 +28,23 @@ static constexpr uint8_t REG_SYSTEM_11 = 0x11;
 static constexpr uint8_t REG_SYSTEM_12 = 0x12;  // DAC path power/mute
 static constexpr uint8_t REG_SYSTEM_13 = 0x13;
 static constexpr uint8_t REG_SYSTEM_14 = 0x14;  // analog reference bias
+static constexpr uint8_t REG_SYSTEM_15 = 0x15;
+static constexpr uint8_t REG_ADC_16 = 0x16;
+static constexpr uint8_t REG_ADC_17 = 0x17;
+static constexpr uint8_t REG_ADC_FORMAT = 0x0A;  // "SDPOUT" — ADC's own serial format register
 static constexpr uint8_t REG_ADC_1B = 0x1B;
 static constexpr uint8_t REG_ADC_1C = 0x1C;
 static constexpr uint8_t REG_DAC_MUTE = 0x31;
 static constexpr uint8_t REG_DAC_VOLUME = 0x32;  // 0x00 = mute, 0xFF = max
 static constexpr uint8_t REG_DAC_ANALOG = 0x37;
+static constexpr uint8_t REG_GPIO_45 = 0x45;
 
 static constexpr int I2S_SAMPLE_RATE_HZ = 16000;
 static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 
-// TEMPORARY: bumped to max while diagnosing the silent-speaker issue, so a
-// working fix is unambiguous (clear tone vs. still-faint noise) instead of a
-// judgment call on volume. Revert to a conservative default (was 0xB0) once
-// confirmed working.
-static constexpr uint8_t DAC_VOLUME_TEST = 0xFF;
+// Conservative default output level for the test melody — loud enough to be
+// audible without assuming anything about the attached speaker's sensitivity.
+static constexpr uint8_t DAC_VOLUME_TEST = 0xB0;
 
 bool Es8311Driver::_writeReg(uint8_t reg, uint8_t value) {
     Wire.beginTransmission(_cfg.i2cAddress);
@@ -68,71 +71,66 @@ void Es8311Driver::_setPaEnabled(bool enabled) {
 
 // Puts the codec into reset, then brings up the clock manager for
 // I2S_SAMPLE_RATE_HZ/16-bit. The ESP32 I2S peripheral is the I2S clock master
-// (see begin()'s I2S_MODE_MASTER) — the codec must stay in I2S *slave* mode
-// (REG_RESET bit6 clear) so it doesn't also drive BCLK/LRCK and contend with
-// the ESP32 on those lines. When i2sMclkPin is unset, ES8311 derives its
-// internal MCLK from SCLK (BCLK) via its own PLL instead of an external MCLK
-// line — REG_CLK_MANAGER1's top bit selects that source.
+// (see begin()'s I2S_MODE_MASTER); the codec stays I2S slave. When
+// i2sMclkPin is unset, ES8311 derives its internal MCLK from SCLK (BCLK) via
+// its own PLL instead of an external MCLK line — REG_CLK_MANAGER1's top bit
+// selects that source.
+//
+// This whole sequence (register order and values) was directly captured via
+// I2C bus logging from pschatzmann's arduino-audio-driver ES8311 codec class
+// running on the exact same board/wiring and confirmed to produce clean
+// audio — see src/sound/README.md's accuracy note. Three values here
+// (REG_RESET's final 0x80, REG_CLK_MANAGER1's polarity, REG_BCLK_DIV) were
+// previously "fixed" based on web-sourced register documentation that turned
+// out to be wrong; this capture is ground truth from working hardware, not
+// another citation, and takes precedence over those earlier fixes.
 void Es8311Driver::_resetAndConfigureClocks() {
     _writeReg(REG_RESET, 0x80);  // full reset pulse
     delay(5);
     _writeReg(REG_RESET, 0x1F);  // release reset, keep analog blocks powered down until configured
     delay(5);
 
-    // REG_CLK_MANAGER1 bit7 (per the Linux kernel es8311 driver's
-    // ES8311_CLKMGR1_MCLK_SEL): 1 = external MCLK pin, 0 = derive from
-    // BCLK/SCLK — the inverse of what this used to write.
     bool mclkFromSclk = _cfg.i2sMclkPin == SOUND_PIN_UNUSED;
-    _writeReg(REG_CLK_MANAGER1, mclkFromSclk ? 0x3F : 0xBF);
+    _writeReg(REG_CLK_MANAGER1, mclkFromSclk ? 0xBF : 0x3F);
     _writeReg(REG_CLK_MANAGER2, 0x00);  // pre-divider=1, pre-multiplier=1
     _writeReg(REG_ADC_OSR, 0x10);
+    _writeReg(REG_ADC_16, 0x24);
     _writeReg(REG_DAC_OSR, 0x10);
     _writeReg(REG_ADC_DAC_DIV, 0x00);
-    // DIG_MCLK (=MCLK here, pre_div=1/pre_multi=0 above) is 4.096MHz for
-    // 16000Hz * the legacy I2S driver's 256x mclk_multiple (use_apll=false).
-    // LRCK divisor = DIG_MCLK/LRCK = 4096000/16000 = 256 -> reg=256-1=0xFF.
-    // BCLK divisor = DIG_MCLK/actual-BCLK. Espressif's es8311_coeff_div[]
-    // table assumes a 32-bit-per-channel I2S slot (BCLK = LRCK*64), giving
-    // its bclk_div=4 (reg 0x03) — but this driver's i2s_config_t uses
-    // I2S_BITS_PER_SAMPLE_16BIT/stereo, i.e. BCLK = LRCK*32 = 512kHz, so the
-    // real divisor is 4096000/512000 = 8 -> reg = 8-1 = 0x07. Using the
-    // table's 0x03 as-is (matching a slot width this driver doesn't use)
-    // desyncs the DAC's internal sample timing from the actual bit clock.
-    _writeReg(REG_BCLK_DIV, 0x07);
+    _writeReg(REG_BCLK_DIV, 0x03);
     _writeReg(REG_LRCK_DIV_HI, 0x00);
     _writeReg(REG_LRCK_DIV_LO, 0xFF);
 
-    // System/analog bring-up — these were entirely missing before being
-    // cross-referenced against a real ES8311 driver implementation (see the
-    // accuracy note in src/sound/README.md); values are fixed, not
-    // sample-rate dependent.
     _writeReg(REG_SYSTEM_0B, 0x00);
     _writeReg(REG_SYSTEM_0C, 0x00);
     _writeReg(REG_SYSTEM_10, 0x1F);
     _writeReg(REG_SYSTEM_11, 0x7F);
 
-    // Release the remaining reset bits and leave the codec in I2S slave mode
-    // (bit6=0) — was previously 0xC0, which set bit6 (codec I2S master) and
-    // re-asserted bit7 (reset), holding the chip in reset indefinitely since
-    // nothing later cleared it. See the arduino-audio-driver ES8311 reference
-    // (src/sound/README.md) for the slave-mode 0x00 final value this matches.
-    _writeReg(REG_RESET, 0x00);
+    // Final reset-register value stays 0x80 (not 0x00, as previously assumed
+    // — bit7 apparently isn't "held in reset" here) — matches the captured
+    // working sequence exactly.
+    _writeReg(REG_RESET, 0x80);
 }
 
 void Es8311Driver::_configureFormatAndPower() {
-    _writeReg(REG_DAC_FORMAT, 0x0C);  // 16-bit, I2S normal format
-
-    _writeReg(REG_SYSTEM_0D, 0x01);
-    _writeReg(REG_SYSTEM_0E, 0x02);
     _writeReg(REG_SYSTEM_13, 0x10);
-    _writeReg(REG_SYSTEM_14, 0x1A);
     _writeReg(REG_ADC_1B, 0x0A);
     _writeReg(REG_ADC_1C, 0x6A);
+
+    _writeReg(REG_ADC_17, 0xBF);
+    _writeReg(REG_SYSTEM_0E, 0x02);
+    _writeReg(REG_SYSTEM_12, 0x00);  // DAC path powered on
+    _writeReg(REG_SYSTEM_14, 0x1A);
+    _writeReg(REG_SYSTEM_0D, 0x01);
+    _writeReg(REG_SYSTEM_15, 0x40);
     _writeReg(REG_DAC_ANALOG, 0x48);
+    _writeReg(REG_GPIO_45, 0x00);
+
+    _writeReg(REG_DAC_FORMAT, 0x0C);   // 16-bit, I2S normal format
+    _writeReg(REG_ADC_FORMAT, 0x4C);   // ADC unused, but the captured working sequence sets this too
 
     _writeReg(REG_DAC_MUTE, 0x00);    // unmute
     _writeReg(REG_DAC_VOLUME, 0x00);  // start silent; playTestMelody() raises this
-    _writeReg(REG_SYSTEM_12, 0x00);   // DAC path powered on
 }
 
 void Es8311Driver::begin() {

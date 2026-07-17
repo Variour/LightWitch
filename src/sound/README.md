@@ -31,46 +31,33 @@ surrounding framework to pull in, so there was no integration friction.
 
 ## Accuracy note
 
-The register bring-up sequence was cross-referenced against
+The register bring-up sequence was originally cross-referenced against
 `pschatzmann/arduino-audio-driver`'s `ES8311` class
-(`src/Codecs/es8311/ES8311.h`) for the *facts* it encodes (register
-addresses and byte values — not its code, which wasn't copied; see above for
-why that class isn't used directly). That check found and fixed a real gap:
-this driver was missing several system/analog power-up register writes
-(0x0B, 0x0C, 0x10, 0x11, 0x1B, 0x1C) entirely.
+(`src/Codecs/es8311/ES8311.h`) and other secondary sources (Espressif's
+`es8311_coeff_div[]` table, the Linux kernel `es8311` ALSA driver) for the
+*facts* they encode — not their code, which wasn't copied; see above for why
+that class isn't used directly. That process found and fixed a real gap
+(several system/analog power-up register writes — 0x0B, 0x0C, 0x10, 0x11,
+0x1B, 0x1C — were missing entirely), but it also produced several **wrong**
+fixes: web-fetched summaries of source code proved unreliable for bit-exact
+register facts mid-investigation (contradictory re-fetches of the same
+file), and three separate "corrections" — `REG_RESET`'s final value,
+`REG_CLK_MANAGER1`'s MCLK-source polarity, and `REG_BCLK_DIV` — turned out
+to be backwards relative to what actually works on real hardware.
 
-Two more real bugs were found and fixed on first real hardware bring-up
-(silent/noisy output on two separate Waveshare ESP32-S3-AUDIO boards),
-cross-checked against Espressif's own `es8311_coeff_div[]` table
-(`espressif/esp-bsp`'s `components/es8311/es8311.c`) for this driver's fixed
-16 kHz/16-bit target with the ESP32 legacy I2S driver's default
-`use_apll=false` 256x MCLK multiple (MCLK = 4.096 MHz for 16 kHz):
-- `REG_RESET`'s final value was `0xC0`, putting the *codec* into I2S master
-  mode (bit6) while the ESP32 I2S peripheral is also configured as master —
-  two masters driving BCLK/LRCK — and re-asserting the reset bit (bit7) that
-  nothing afterwards cleared. Fixed to `0x00` (slave mode, reset released).
-- `REG_LRCK_DIV_LO` derived `lrck_l` from "BCLK cycles per 16-bit stereo
-  frame" (32) instead of DIG_MCLK/LRCK (4096000/16000 = 256, i.e.
-  `lrck_h=0x00, lrck_l=0xff` after the table's `-1` register encoding).
-  Fixed to `0xff`.
-- `REG_BCLK_DIV` copied the coefficient-table's `bclk_div` value (4, reg
-  0x03) as-is, but that table assumes a 32-bit-per-channel I2S slot
-  (physical BCLK = LRCK*64) — this driver's `i2s_config_t` uses
-  `I2S_BITS_PER_SAMPLE_16BIT`/stereo, i.e. BCLK = LRCK*32 = 512kHz, so the
-  real divisor is DIG_MCLK/BCLK = 4096000/512000 = 8 (reg 0x07), not the
-  table's assumed 4 (reg 0x03). Copying `es8311_coeff_div[]` register values
-  directly is only valid if the I2S slot width matches what generated that
-  table row — it doesn't here. Fixed to `0x07`.
-
-A fourth bug, cross-checked against the Linux kernel `es8311` ALSA driver
-(`sound/soc/codecs/es8311.h`'s `ES8311_CLKMGR1_MCLK_SEL` define — the
-clearest source found for this specific bit's polarity): `REG_CLK_MANAGER1`
-bit7 is 1 = external MCLK pin, 0 = derive MCLK from BCLK/SCLK. This driver's
-`mclkFromSclk ? 0xBF : 0x3F` had that backwards — a board with a wired MCLK
-pin (bit7 should be 1) got `0x3F` (bit7=0, BCLK-derived), so the codec
-clocked itself from the wrong source entirely regardless of how correct the
-divider registers above were. Fixed to `mclkFromSclk ? 0x3F : 0xBF`.
+The sequence now in `_resetAndConfigureClocks()`/`_configureFormatAndPower()`
+was instead captured directly off the I2C bus: `pschatzmann/arduino-audio-driver`
+was temporarily wired up in a standalone throwaway PlatformIO project (same
+board, same pins, same I2C address), confirmed to produce a clean tone, and
+its actual register writes logged via its own I2C-bus debug tracing. That
+capture is ground truth from working hardware, not another citation, and is
+what this file's values now match — including two registers (0x16, 0x0A)
+this driver hadn't written at all before, since ADC-related registers
+seemed irrelevant to a DAC-only codec but the working capture set them
+regardless.
 
 If a different sample rate/bit depth is ever added, re-derive
-REG_BCLK_DIV/REG_LRCK_DIV_HI/REG_LRCK_DIV_LO from `es8311_coeff_div[]` for
-the new MCLK/rate pair rather than reusing these fixed values.
+REG_CLK_MANAGER2/REG_ADC_OSR/REG_DAC_OSR/REG_ADC_DAC_DIV/REG_BCLK_DIV/
+REG_LRCK_DIV_HI/REG_LRCK_DIV_LO for the new MCLK/rate pair — ideally the same
+way (capture a known-working reference's actual register writes) rather than
+computing them from a coefficient table read secondhand.
