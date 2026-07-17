@@ -50,8 +50,3 @@ data line.
 | Colour order | GRB *(WS2812B default)* |
 | Length | 7 |
 | Rows | 1 |
-
-Note that GPIO4 and GPIO5 — the `esp32s3` PlatformIO environment's generic
-`LED_DATA_PIN`/`LED_CLOCK_PIN` build-flag defaults — are already committed
-to `LCD_SCK` and `BL_PWM` on this board and must not be used for an LED
-strip here; always set the data pin explicitly to GPIO38 as above.
