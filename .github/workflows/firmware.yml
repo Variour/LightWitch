@@ -16,7 +16,6 @@ on:
       - 'include/**'
       - 'lib/**'
       - 'scripts/**'
-      - 'data/**'
       - '.github/workflows/firmware.yml'
 
 concurrency:
