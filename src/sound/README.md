@@ -56,6 +56,15 @@ cross-checked against Espressif's own `es8311_coeff_div[]` table
   lrck_l=0xff`) — the LRCK divider isn't the physical frame width, it's
   DIG_MCLK/LRCK per the table. Fixed to `0x03` and `0xff` respectively.
 
-If a different sample rate/bit depth is ever added, re-derive these three
-registers from `es8311_coeff_div[]` for the new MCLK/rate pair rather than
-reusing these fixed values.
+A fourth bug, cross-checked against the Linux kernel `es8311` ALSA driver
+(`sound/soc/codecs/es8311.h`'s `ES8311_CLKMGR1_MCLK_SEL` define — the
+clearest source found for this specific bit's polarity): `REG_CLK_MANAGER1`
+bit7 is 1 = external MCLK pin, 0 = derive MCLK from BCLK/SCLK. This driver's
+`mclkFromSclk ? 0xBF : 0x3F` had that backwards — a board with a wired MCLK
+pin (bit7 should be 1) got `0x3F` (bit7=0, BCLK-derived), so the codec
+clocked itself from the wrong source entirely regardless of how correct the
+divider registers above were. Fixed to `mclkFromSclk ? 0x3F : 0xBF`.
+
+If a different sample rate/bit depth is ever added, re-derive
+REG_BCLK_DIV/REG_LRCK_DIV_HI/REG_LRCK_DIV_LO from `es8311_coeff_div[]` for
+the new MCLK/rate pair rather than reusing these fixed values.

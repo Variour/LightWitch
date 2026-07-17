@@ -78,8 +78,11 @@ void Es8311Driver::_resetAndConfigureClocks() {
     _writeReg(REG_RESET, 0x1F);  // release reset, keep analog blocks powered down until configured
     delay(5);
 
+    // REG_CLK_MANAGER1 bit7 (per the Linux kernel es8311 driver's
+    // ES8311_CLKMGR1_MCLK_SEL): 1 = external MCLK pin, 0 = derive from
+    // BCLK/SCLK — the inverse of what this used to write.
     bool mclkFromSclk = _cfg.i2sMclkPin == SOUND_PIN_UNUSED;
-    _writeReg(REG_CLK_MANAGER1, mclkFromSclk ? 0xBF : 0x3F);
+    _writeReg(REG_CLK_MANAGER1, mclkFromSclk ? 0x3F : 0xBF);
     _writeReg(REG_CLK_MANAGER2, 0x00);  // pre-divider=1, pre-multiplier=1
     _writeReg(REG_ADC_OSR, 0x10);
     _writeReg(REG_DAC_OSR, 0x10);
