@@ -244,61 +244,39 @@ void Es8311Driver::playTestMelody() {
     Logger::i("[sound] playTestMelody: done");
 }
 
-// TEMPORARY — see Es8311Driver.h. REG_BCLK_DIV/REG_LRCK_DIV_HI/LO are live
-// clock-manager registers (no reset-and-reconfigure needed between values),
-// so each variant just rewrites those three and plays a steady reference
-// tone. Variant 0 is this driver's current best-derived values; the rest
-// bracket the uncertainty this bug already surfaced twice (table-literal
-// value, and a few divisor guesses either side).
+// TEMPORARY — see Es8311Driver.h. Sweeping REG_BCLK_DIV/REG_LRCK_DIV_HI/LO
+// across a wide range (0x01-0x1F divisors, 128-512 LRCK divisor) on real
+// hardware produced *identical* noise every time — those registers likely
+// don't affect anything in I2S slave mode (the codec just samples the
+// external BCLK/LRCK directly; those "clock manager" dividers may only
+// matter when the codec itself is I2S master). So instead of sweeping
+// registers that provably don't matter, this now runs a single content A/B:
+// silence (gain=0, still valid I2S traffic) vs. a loud reference tone, both
+// at identical register/PA state. If they sound the same, the noise isn't
+// coming from the digital audio path at all (e.g. amp/analog-stage noise
+// floor unrelated to DAC content) and no further register in this file is
+// worth chasing — if the tone is audibly different from the silence, the
+// digital path does reach the speaker and something else is corrupting it.
 void Es8311Driver::runDiagnosticSweep() {
     if (!_i2sInstalled) {
         Logger::w("[sound] SWEEP: I2S not installed, skipping");
         return;
     }
 
-    struct Variant {
-        const char* label;
-        uint8_t bclkDiv;
-        uint8_t lrckHi;
-        uint8_t lrckLo;
-    };
-    static const Variant VARIANTS[] = {
-        {"bclkDiv=0x07 lrck=256 (current)", 0x07, 0x00, 0xFF},
-        {"bclkDiv=0x03 lrck=256 (table-literal)", 0x03, 0x00, 0xFF},
-        {"bclkDiv=0x01 lrck=256", 0x01, 0x00, 0xFF},
-        {"bclkDiv=0x0F lrck=256", 0x0F, 0x00, 0xFF},
-        {"bclkDiv=0x1F lrck=256", 0x1F, 0x00, 0xFF},
-        {"bclkDiv=0x07 lrck=512", 0x07, 0x01, 0xFF},
-        {"bclkDiv=0x07 lrck=128", 0x07, 0x00, 0x7F},
-    };
-    constexpr size_t N = sizeof(VARIANTS) / sizeof(VARIANTS[0]);
-
-    Logger::i("[sound] SWEEP: start, %u variants", (unsigned)N);
+    Logger::i("[sound] SWEEP: start (silence vs. tone A/B)");
     _writeReg(REG_DAC_VOLUME, DAC_VOLUME_TEST);
     _setPaEnabled(true);
+    esp_task_wdt_reset();
 
-    for (size_t i = 0; i < N; i++) {
-        // This whole loop runs synchronously inside the HTTP request
-        // callback (on the async_tcp task) — resetting that task's own task
-        // watchdog registration here is what stopped it tripping mid-sweep
-        // and rebooting the device once total sweep time grew past the
-        // default ~5s TWDT window.
-        esp_task_wdt_reset();
-        const Variant& v = VARIANTS[i];
-        Logger::i("[sound] SWEEP %u/%u: %s", (unsigned)(i + 1), (unsigned)N, v.label);
-        _writeReg(REG_BCLK_DIV, v.bclkDiv);
-        _writeReg(REG_LRCK_DIV_HI, v.lrckHi);
-        _writeReg(REG_LRCK_DIV_LO, v.lrckLo);
-        _writeToneBlock(440.0f, 600, 0.6f);  // steady A4 — easier to judge "clean tone vs noise" than a melody
-        delay(250);                          // audible gap between variants
-    }
+    Logger::i("[sound] SWEEP 1/2: silence (gain=0, PA on, same registers)");
+    _writeToneBlock(440.0f, 1200, 0.0f);
+    delay(400);
+
+    esp_task_wdt_reset();
+    Logger::i("[sound] SWEEP 2/2: tone (440Hz, gain=0.6, PA on, same registers)");
+    _writeToneBlock(440.0f, 1200, 0.6f);
 
     _setPaEnabled(false);
     _writeReg(REG_DAC_VOLUME, 0x00);
-    // Restore this driver's current best-derived values so a normal
-    // playTestMelody() right after the sweep isn't left on the last variant.
-    _writeReg(REG_BCLK_DIV, 0x07);
-    _writeReg(REG_LRCK_DIV_HI, 0x00);
-    _writeReg(REG_LRCK_DIV_LO, 0xFF);
     Logger::i("[sound] SWEEP: done");
 }
