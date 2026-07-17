@@ -654,7 +654,11 @@ void setup() {
     webServer.setOnTestSound([](uint8_t idx) {
         if (idx < MAX_SOUNDS && Config::get().sounds[idx].exists) _sound.playTestMelody();
     });
-    // TEMPORARY — see Es8311Driver::runDiagnosticSweep()
+    // TEMPORARY — see Es8311Driver::runDiagnosticSweep(). This boot-time log
+    // line exists solely so a serial log can confirm this build actually
+    // includes the sweep endpoint, since FW_VERSION isn't tied to the git
+    // commit — remove this together with the rest of the sweep code.
+    Logger::i("[sound] diagnostic sweep endpoint available (POST /api/sounds/sweep)");
     webServer.setOnSweepSound([](uint8_t idx) {
         if (idx < MAX_SOUNDS && Config::get().sounds[idx].exists) _sound.runDiagnosticSweep();
     });
