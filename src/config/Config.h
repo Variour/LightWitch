@@ -4,6 +4,8 @@
 
 #include <functional>
 
+#include "../logging/Logger.h"
+
 #ifndef LED_DATA_PIN
 #define LED_DATA_PIN 25
 #endif
@@ -352,7 +354,7 @@ struct DeviceConfig {
     char apPassword[64] = "batterylight";
     uint16_t otaPort = 3232;
     bool otaEnabled = true;
-    uint8_t logLevel = 0;
+    uint8_t logLevel = (uint8_t)LogLevel::DEBUG;
     char mqttHost[64] = "";
     uint16_t mqttPort = 1883;
     char mqttUser[32] = "";

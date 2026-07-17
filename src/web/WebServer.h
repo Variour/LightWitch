@@ -1005,10 +1005,11 @@ class BatteryWebServer {
 
     void _pushLog(LogLevel level, const char* msg) {
         if (!_ws || _ws->count() == 0) return;
-        const char* lv = level == LogLevel::ERROR  ? "E"
-                         : level == LogLevel::WARN ? "W"
-                         : level == LogLevel::INFO ? "I"
-                                                   : "D";
+        const char* lv = level == LogLevel::ERROR     ? "E"
+                         : level == LogLevel::WARN    ? "W"
+                         : level == LogLevel::INFO    ? "I"
+                         : level == LogLevel::VERBOSE ? "V"
+                                                      : "D";
         char buf[320];
         snprintf(buf, sizeof(buf), "{\"t\":\"log\",\"l\":\"%s\",\"m\":%s}", lv,
                  _jsonStr(msg).c_str());

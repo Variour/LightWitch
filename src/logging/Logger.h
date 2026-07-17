@@ -4,7 +4,8 @@
 #include <functional>
 #include <vector>
 
-enum class LogLevel { DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3 };
+// Ascending severity — also the persisted/wire representation (Config::logLevel, web UI select).
+enum class LogLevel { VERBOSE = 0, DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4 };
 
 class Logger {
    public:
@@ -14,6 +15,12 @@ class Logger {
     static void setLevel(LogLevel lv) { _minLevel = lv; }
     static LogLevel getLevel() { return _minLevel; }
 
+    static void v(const char* fmt, ...) {
+        va_list a;
+        va_start(a, fmt);
+        _vlog(LogLevel::VERBOSE, fmt, a);
+        va_end(a);
+    }
     static void d(const char* fmt, ...) {
         va_list a;
         va_start(a, fmt);

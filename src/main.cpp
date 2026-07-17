@@ -84,10 +84,11 @@ static String _cfgSyncBuf;
 static uint16_t _cfgSyncExpected = 0;
 
 static void serialSink(LogLevel level, const char* msg) {
-    const char* p = level == LogLevel::ERROR  ? "[E]"
-                    : level == LogLevel::WARN ? "[W]"
-                    : level == LogLevel::INFO ? "[I]"
-                                              : "[D]";
+    const char* p = level == LogLevel::ERROR     ? "[E]"
+                    : level == LogLevel::WARN    ? "[W]"
+                    : level == LogLevel::INFO    ? "[I]"
+                    : level == LogLevel::VERBOSE ? "[V]"
+                                                 : "[D]";
     Serial.printf("%s %s\n", p, msg);
 }
 
