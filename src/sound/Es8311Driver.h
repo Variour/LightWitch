@@ -28,7 +28,7 @@ class Es8311Driver : public SoundDriver {
     void playTestMelody() override;
 
    private:
-    void _writeReg(uint8_t reg, uint8_t value);
+    bool _writeReg(uint8_t reg, uint8_t value);
     void _resetAndConfigureClocks();
     void _configureFormatAndPower();
     void _setPaEnabled(bool enabled);

@@ -27,11 +27,16 @@ static constexpr uint8_t REG_SYSTEM_11 = 0x11;
 static constexpr uint8_t REG_SYSTEM_12 = 0x12;  // DAC path power/mute
 static constexpr uint8_t REG_SYSTEM_13 = 0x13;
 static constexpr uint8_t REG_SYSTEM_14 = 0x14;  // analog reference bias
+static constexpr uint8_t REG_SYSTEM_15 = 0x15;
+static constexpr uint8_t REG_ADC_16 = 0x16;
+static constexpr uint8_t REG_ADC_17 = 0x17;
+static constexpr uint8_t REG_ADC_FORMAT = 0x0A;  // "SDPOUT" — ADC's own serial format register
 static constexpr uint8_t REG_ADC_1B = 0x1B;
 static constexpr uint8_t REG_ADC_1C = 0x1C;
 static constexpr uint8_t REG_DAC_MUTE = 0x31;
 static constexpr uint8_t REG_DAC_VOLUME = 0x32;  // 0x00 = mute, 0xFF = max
 static constexpr uint8_t REG_DAC_ANALOG = 0x37;
+static constexpr uint8_t REG_GPIO_45 = 0x45;
 
 static constexpr int I2S_SAMPLE_RATE_HZ = 16000;
 static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
@@ -40,16 +45,22 @@ static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 // audible without assuming anything about the attached speaker's sensitivity.
 static constexpr uint8_t DAC_VOLUME_TEST = 0xB0;
 
-void Es8311Driver::_writeReg(uint8_t reg, uint8_t value) {
+bool Es8311Driver::_writeReg(uint8_t reg, uint8_t value) {
     Wire.beginTransmission(_cfg.i2cAddress);
     Wire.write(reg);
     Wire.write(value);
-    Wire.endTransmission();
+    uint8_t err = Wire.endTransmission();
+    if (err != 0) {
+        Logger::w("[sound] ES8311 write reg 0x%02X failed (I2C error %u, addr 0x%02X)", reg, err,
+                  _cfg.i2cAddress);
+    }
+    return err == 0;
 }
 
 void Es8311Driver::_setPaEnabled(bool enabled) {
     if (_cfg.paEnablePin == SOUND_PIN_UNUSED) return;
     bool driveHigh = enabled == _cfg.paEnableActiveHigh;
+    Logger::d("[sound] PA enable pin -> %s", driveHigh ? "HIGH" : "LOW");
     if (_cfg.paExpander == IoExpanderChip::TCA9555) {
         _paExpander.write(_cfg.paEnablePin, driveHigh);
     } else {
@@ -57,10 +68,21 @@ void Es8311Driver::_setPaEnabled(bool enabled) {
     }
 }
 
-// Puts the codec into reset, then brings up the clock manager for I2S master
-// mode at I2S_SAMPLE_RATE_HZ/16-bit. When i2sMclkPin is unset, ES8311 derives
-// its internal MCLK from SCLK (BCLK) via its own PLL instead of an external
-// MCLK line — REG_CLK_MANAGER1's top bit selects that source.
+// Puts the codec into reset, then brings up the clock manager for
+// I2S_SAMPLE_RATE_HZ/16-bit. The ESP32 I2S peripheral is the I2S clock master
+// (see begin()'s I2S_MODE_MASTER); the codec stays I2S slave. When
+// i2sMclkPin is unset, ES8311 derives its internal MCLK from SCLK (BCLK) via
+// its own PLL instead of an external MCLK line — REG_CLK_MANAGER1's top bit
+// selects that source.
+//
+// This whole sequence (register order and values) was directly captured via
+// I2C bus logging from pschatzmann's arduino-audio-driver ES8311 codec class
+// running on the exact same board/wiring and confirmed to produce clean
+// audio — see src/sound/README.md's accuracy note. Three values here
+// (REG_RESET's final 0x80, REG_CLK_MANAGER1's polarity, REG_BCLK_DIV) were
+// previously "fixed" based on web-sourced register documentation that turned
+// out to be wrong; this capture is ground truth from working hardware, not
+// another citation, and takes precedence over those earlier fixes.
 void Es8311Driver::_resetAndConfigureClocks() {
     _writeReg(REG_RESET, 0x80);  // full reset pulse
     delay(5);
@@ -71,38 +93,43 @@ void Es8311Driver::_resetAndConfigureClocks() {
     _writeReg(REG_CLK_MANAGER1, mclkFromSclk ? 0xBF : 0x3F);
     _writeReg(REG_CLK_MANAGER2, 0x00);  // pre-divider=1, pre-multiplier=1
     _writeReg(REG_ADC_OSR, 0x10);
+    _writeReg(REG_ADC_16, 0x24);
     _writeReg(REG_DAC_OSR, 0x10);
     _writeReg(REG_ADC_DAC_DIV, 0x00);
-    _writeReg(REG_BCLK_DIV, 0x04);  // 32 BCLK cycles/slot at 16-bit, no inversion
+    _writeReg(REG_BCLK_DIV, 0x03);
     _writeReg(REG_LRCK_DIV_HI, 0x00);
-    _writeReg(REG_LRCK_DIV_LO, 0x20);  // 32 BCLK periods per LRCK half-cycle (16-bit stereo frame)
+    _writeReg(REG_LRCK_DIV_LO, 0xFF);
 
-    // System/analog bring-up — these were entirely missing before being
-    // cross-referenced against a real ES8311 driver implementation (see the
-    // accuracy note in src/sound/README.md); values are fixed, not
-    // sample-rate dependent.
     _writeReg(REG_SYSTEM_0B, 0x00);
     _writeReg(REG_SYSTEM_0C, 0x00);
     _writeReg(REG_SYSTEM_10, 0x1F);
     _writeReg(REG_SYSTEM_11, 0x7F);
 
-    _writeReg(REG_RESET, 0xC0);  // master mode (bit6) + release remaining reset bits
+    // Final reset-register value stays 0x80 (not 0x00, as previously assumed
+    // — bit7 apparently isn't "held in reset" here) — matches the captured
+    // working sequence exactly.
+    _writeReg(REG_RESET, 0x80);
 }
 
 void Es8311Driver::_configureFormatAndPower() {
-    _writeReg(REG_DAC_FORMAT, 0x0C);  // 16-bit, I2S normal format
-
-    _writeReg(REG_SYSTEM_0D, 0x01);
-    _writeReg(REG_SYSTEM_0E, 0x02);
     _writeReg(REG_SYSTEM_13, 0x10);
-    _writeReg(REG_SYSTEM_14, 0x1A);
     _writeReg(REG_ADC_1B, 0x0A);
     _writeReg(REG_ADC_1C, 0x6A);
+
+    _writeReg(REG_ADC_17, 0xBF);
+    _writeReg(REG_SYSTEM_0E, 0x02);
+    _writeReg(REG_SYSTEM_12, 0x00);  // DAC path powered on
+    _writeReg(REG_SYSTEM_14, 0x1A);
+    _writeReg(REG_SYSTEM_0D, 0x01);
+    _writeReg(REG_SYSTEM_15, 0x40);
     _writeReg(REG_DAC_ANALOG, 0x48);
+    _writeReg(REG_GPIO_45, 0x00);
+
+    _writeReg(REG_DAC_FORMAT, 0x0C);  // 16-bit, I2S normal format
+    _writeReg(REG_ADC_FORMAT, 0x4C);  // ADC unused, but the captured working sequence sets this too
 
     _writeReg(REG_DAC_MUTE, 0x00);    // unmute
     _writeReg(REG_DAC_VOLUME, 0x00);  // start silent; playTestMelody() raises this
-    _writeReg(REG_SYSTEM_12, 0x00);   // DAC path powered on
 }
 
 void Es8311Driver::begin() {
@@ -187,8 +214,12 @@ void Es8311Driver::_writeToneBlock(float freqHz, uint32_t durationMs, float gain
 // let the user confirm the wiring/pins are correct from the web UI — no
 // content/pattern system involved, see SoundDriver.h.
 void Es8311Driver::playTestMelody() {
-    if (!_i2sInstalled) return;
+    if (!_i2sInstalled) {
+        Logger::w("[sound] playTestMelody: I2S not installed, skipping");
+        return;
+    }
 
+    Logger::i("[sound] playTestMelody: start");
     _writeReg(REG_DAC_VOLUME, DAC_VOLUME_TEST);
     _setPaEnabled(true);
 
@@ -197,14 +228,15 @@ void Es8311Driver::playTestMelody() {
         uint32_t durationMs;
     };
     static const Note MELODY[] = {
-        {523.25f, 140},   // C5
-        {659.25f, 140},   // E5
-        {783.99f, 140},   // G5
-        {1046.50f, 220},  // C6
-        {783.99f, 260},   // G5 (resolving note)
+        {523.25f, 220},   // C5
+        {659.25f, 220},   // E5
+        {783.99f, 220},   // G5
+        {1046.50f, 320},  // C6
+        {783.99f, 400},   // G5 (resolving note)
     };
     for (const auto& note : MELODY) _writeToneBlock(note.freqHz, note.durationMs, 0.6f);
 
     _setPaEnabled(false);
     _writeReg(REG_DAC_VOLUME, 0x00);
+    Logger::i("[sound] playTestMelody: done");
 }
