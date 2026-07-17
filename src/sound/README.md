@@ -4,16 +4,28 @@ The codec bring-up in `Es8311Driver.cpp` is an original implementation written
 against the publicly documented ES8311 register map (Everest Semiconductor
 datasheet — register addresses and their purpose are factual/functional
 information, not copyrightable expression), not a vendored copy of any
-existing driver (e.g. Espressif's `es8311` component, `esp-adf`, or a
-community Arduino library). I2C access uses the Arduino `Wire` library
-(already a transitive dependency of this project's Arduino core) and I2S
-output uses `driver/i2s.h`, which ships with `arduino-esp32` — no new entry
-in `platformio.ini`'s `lib_deps` was needed, so there's no third-party
-license to track for this feature.
+existing driver. This project has no `LICENSE` file (i.e. all rights
+reserved / no explicit permission to redistribute), which rules out the
+actively-maintained Arduino-ecosystem ES8311 libraries
+([`pschatzmann/arduino-audio-driver`](https://github.com/pschatzmann/arduino-audio-driver)
+and its predecessor `arduino-audiokit`) — both are GPL-3.0, which would
+require the whole firmware binary to be distributed under GPL-3.0-compatible
+terms. Espressif's own `es8311`/`esp_codec_dev` components are Apache-2.0
+(no such conflict), but they're ESP-IDF components, not Arduino libraries —
+using them here would mean either vendoring their source under an Apache-2.0
+attribution/NOTICE, or moving this project's `framework = arduino` build to
+a mixed `arduino, espidf` setup, both bigger changes than writing the
+(fairly small) I2C bring-up sequence directly.
 
-If a second sound chip is added later and an existing library turns out to be
-the better choice for it, check and document that library's license the same
-way `Adafruit_WS2801`/`Adafruit_NeoPixel` are tracked for the LED drivers.
+I2C access uses the Arduino `Wire` library (already a transitive dependency
+of this project's Arduino core) and I2S output uses `driver/i2s.h`, which
+ships with `arduino-esp32` — no new entry in `platformio.ini`'s `lib_deps`
+was needed for this driver specifically.
+
+This is a different call than `src/io/Tca9555Expander` in the sibling `io`
+directory, which *does* use an external library — see `src/io/README.md` for
+why: no GPL conflict there, and a well-tested, MIT-licensed, PlatformIO-
+registry library already existed with no integration friction.
 
 ## Accuracy note
 
