@@ -99,3 +99,79 @@ describe('POST /api/lights/update', () => {
     assert.equal(res.status, 404);
   });
 });
+
+describe('GET /api/sounds', () => {
+  test('returns the configured sound outputs', async () => {
+    const res = await fetch(`${baseUrl}/api/sounds`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(Array.isArray(body.sounds));
+    assert.ok(body.sounds.some(s => s.name === 'Speaker'));
+  });
+});
+
+describe('POST /api/sounds/add', () => {
+  test('rejects once the (single) sound slot is already taken', async () => {
+    const res = await fetch(`${baseUrl}/api/sounds/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ i2cSdaPin: 1, i2cSclPin: 2, i2sBclkPin: 3, i2sWsPin: 4, i2sDoutPin: 6 }),
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'sound limit reached');
+  });
+});
+
+describe('POST /api/sounds/update', () => {
+  test('returns 404 for an unknown sound index', async () => {
+    const res = await fetch(`${baseUrl}/api/sounds/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: 99, name: 'Nope' }),
+    });
+    assert.equal(res.status, 404);
+  });
+
+  test('rejects a pin that collides with a configured light', async () => {
+    const res = await fetch(`${baseUrl}/api/sounds/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: 0, i2sDoutPin: 13 }),  // 13 = Living room light's dataPin
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'pin already in use');
+  });
+
+  test('renaming does not require the other hardware fields', async () => {
+    const res = await fetch(`${baseUrl}/api/sounds/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: 0, name: 'Renamed speaker' }),
+    });
+    assert.equal(res.status, 200);
+    const { sounds } = await (await fetch(`${baseUrl}/api/sounds`)).json();
+    assert.equal(sounds.find(s => s.index === 0).name, 'Renamed speaker');
+  });
+
+  test('an expander PA-enable pin index does not collide with a same-numbered GPIO', async () => {
+    // The mock sound starts with paExpander=1 (TCA9555); pin 4 is a native GPIO
+    // used by the "Wall switch" button, but as an expander pin index it's a
+    // different address space and must be accepted.
+    const res = await fetch(`${baseUrl}/api/sounds/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: 0, paEnablePin: 4 }),
+    });
+    assert.equal(res.status, 200);
+  });
+
+  test('the same pin number is rejected once switched to a direct GPIO', async () => {
+    const res = await fetch(`${baseUrl}/api/sounds/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: 0, paExpander: 0, paEnablePin: 4 }),
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'pin already in use');
+  });
+});

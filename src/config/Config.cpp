@@ -126,6 +126,40 @@ void deserializeButton(JsonVariant o, ButtonHardwareConfig& b) {
     b.onDoubleClick = deserializeButtonAction(o["onDoubleClick"], b.onDoubleClick);
 }
 
+void serializeSound(JsonObject o, const SoundHardwareConfig& s) {
+    o["name"] = s.name;
+    o["chip"] = (uint8_t)s.chip;
+    o["i2cSdaPin"] = s.i2cSdaPin;
+    o["i2cSclPin"] = s.i2cSclPin;
+    o["i2cAddress"] = s.i2cAddress;
+    o["i2sMclkPin"] = s.i2sMclkPin;
+    o["i2sBclkPin"] = s.i2sBclkPin;
+    o["i2sWsPin"] = s.i2sWsPin;
+    o["i2sDoutPin"] = s.i2sDoutPin;
+    o["paEnablePin"] = s.paEnablePin;
+    o["paEnableActiveHigh"] = s.paEnableActiveHigh;
+    o["paExpander"] = (uint8_t)s.paExpander;
+    o["paExpanderAddress"] = s.paExpanderAddress;
+    o["exists"] = s.exists;
+}
+
+void deserializeSound(JsonVariant o, SoundHardwareConfig& s) {
+    strlcpy(s.name, o["name"] | "", sizeof(s.name));
+    s.chip = (SoundChip)(uint8_t)(o["chip"] | (uint8_t)SoundChip::ES8311);
+    s.i2cSdaPin = o["i2cSdaPin"] | SOUND_PIN_UNUSED;
+    s.i2cSclPin = o["i2cSclPin"] | SOUND_PIN_UNUSED;
+    s.i2cAddress = o["i2cAddress"] | (uint8_t)0x18;
+    s.i2sMclkPin = o["i2sMclkPin"] | SOUND_PIN_UNUSED;
+    s.i2sBclkPin = o["i2sBclkPin"] | SOUND_PIN_UNUSED;
+    s.i2sWsPin = o["i2sWsPin"] | SOUND_PIN_UNUSED;
+    s.i2sDoutPin = o["i2sDoutPin"] | SOUND_PIN_UNUSED;
+    s.paEnablePin = o["paEnablePin"] | SOUND_PIN_UNUSED;
+    s.paEnableActiveHigh = o["paEnableActiveHigh"] | true;
+    s.paExpander = (IoExpanderChip)(uint8_t)(o["paExpander"] | (uint8_t)IoExpanderChip::None);
+    s.paExpanderAddress = o["paExpanderAddress"] | (uint8_t)0x20;
+    s.exists = o["exists"] | false;
+}
+
 static bool migrateDoc(JsonDocument& doc) {
     uint8_t ver = doc["schemaVersion"] | (uint8_t)0;
     if (ver > CONFIG_SCHEMA_VERSION) {
@@ -213,6 +247,13 @@ static void applyDoc(JsonDocument& doc) {
         for (JsonVariant v : doc["buttons"].as<JsonArray>()) {
             uint8_t idx = v["index"] | (uint8_t)0;
             if (idx < MAX_BUTTONS) deserializeButton(v, Config::get().buttons[idx]);
+        }
+    }
+
+    if (doc["sounds"].is<JsonArray>()) {
+        for (JsonVariant v : doc["sounds"].as<JsonArray>()) {
+            uint8_t idx = v["index"] | (uint8_t)0;
+            if (idx < MAX_SOUNDS) deserializeSound(v, Config::get().sounds[idx]);
         }
     }
 }
@@ -331,6 +372,14 @@ bool Config::save() {
         JsonObject o = buttonsArr.add<JsonObject>();
         o["index"] = i;
         serializeButton(o, _cfg.buttons[i]);
+    }
+
+    JsonArray soundsArr = doc["sounds"].to<JsonArray>();
+    for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
+        if (!_cfg.sounds[i].exists) continue;
+        JsonObject o = soundsArr.add<JsonObject>();
+        o["index"] = i;
+        serializeSound(o, _cfg.sounds[i]);
     }
 
     bool fsOk = false;
@@ -602,7 +651,7 @@ bool Config::moveWifiNetwork(const char* ssid, int8_t direction) {
     return saveWifi();
 }
 
-bool Config::isPinInUse(uint8_t pin, int8_t excludeButtonIndex) {
+bool Config::isPinInUse(uint8_t pin, int8_t excludeButtonIndex, int8_t excludeSoundIndex) {
     for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
         auto& l = _cfg.lights[i];
         if (l.exists && (l.dataPin == pin || l.clockPin == pin)) return true;
@@ -611,6 +660,20 @@ bool Config::isPinInUse(uint8_t pin, int8_t excludeButtonIndex) {
         if ((int8_t)i == excludeButtonIndex) continue;
         auto& b = _cfg.buttons[i];
         if (b.exists && b.pin == pin) return true;
+    }
+    if (pin != SOUND_PIN_UNUSED) {
+        for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
+            if ((int8_t)i == excludeSoundIndex) continue;
+            auto& s = _cfg.sounds[i];
+            if (!s.exists) continue;
+            if (s.i2cSdaPin == pin || s.i2cSclPin == pin || s.i2sMclkPin == pin ||
+                s.i2sBclkPin == pin || s.i2sWsPin == pin || s.i2sDoutPin == pin)
+                return true;
+            // paEnablePin only occupies the ESP32 GPIO address space when it's a
+            // direct pin — on an expander it's a pin index in a separate space
+            // (see IoExpanderChip) and must not be cross-checked against real GPIOs.
+            if (s.paExpander == IoExpanderChip::None && s.paEnablePin == pin) return true;
+        }
     }
     return false;
 }

@@ -873,6 +873,11 @@ input[type=checkbox]:active { background-color: #1a5; }
     <button class="btn-ghost" style="width:100%" id="add-light-btn">Add light</button>
 
     <hr class="section-divider">
+    <h3>Sound</h3>
+    <div id="sounds-hw-list" style="margin-bottom:.75rem"></div>
+    <button class="btn-ghost" style="width:100%" id="add-sound-btn">Add sound</button>
+
+    <hr class="section-divider">
     <h3>Buttons</h3>
     <div id="buttons-hw-list" style="margin-bottom:.75rem"></div>
     <button class="btn-ghost" style="width:100%" id="add-button-btn">Add button</button>
@@ -2545,6 +2550,7 @@ async function loadConfig() {
   if (d.logLevel !== undefined) $('logLevel').value = d.logLevel;
   if (d.lights) renderLightsHw(d.lights);
   loadButtons().catch(() => {});
+  loadSounds().catch(() => {});
   if (d.mqttHost   !== undefined) $('mqttHost').value   = d.mqttHost;
   if (d.mqttPort   !== undefined) $('mqttPort').value   = d.mqttPort;
   if (d.mqttUser   !== undefined) $('mqttUser').value   = d.mqttUser;
@@ -4546,7 +4552,7 @@ function _openLightModal(l) {
     <label>Rows <small>(1 = string, >1 = matrix)</small></label>
     <input type="number" id="lm-height" value="${l.height}" min="1" max="100">
     <label style="display:flex;align-items:center;gap:.5rem">
-      <input type="checkbox" id="lm-wrapWidth" style="width:auto" ${l.wrapWidth?'checked':''}>
+      <input type="checkbox" id="lm-wrapWidth" ${l.wrapWidth?'checked':''}>
       <span>Wrap around <small>(last LED of a row connects back to the first — ring)</small></span>
     </label>
     <div id="lm-matrix-opts" style="${l.height > 1 ? '' : 'display:none'}">
@@ -4563,11 +4569,11 @@ function _openLightModal(l) {
         <option value="1"${(l.matrixDir||0)===1?' selected':''}>Vertical (columns first)</option>
       </select>
       <label style="display:flex;align-items:center;gap:.5rem">
-        <input type="checkbox" id="lm-matrixSerpentine" style="width:auto" ${l.matrixSerpentine?'checked':''}>
+        <input type="checkbox" id="lm-matrixSerpentine" ${l.matrixSerpentine?'checked':''}>
         <span>Serpentine wiring <small>(zig-zag — every other row/column runs in reverse, common on continuous-strip matrix panels)</small></span>
       </label>
       <label style="display:flex;align-items:center;gap:.5rem">
-        <input type="checkbox" id="lm-wrapHeight" style="width:auto" ${l.wrapHeight?'checked':''}>
+        <input type="checkbox" id="lm-wrapHeight" ${l.wrapHeight?'checked':''}>
         <span>Wrap vertically <small>(last row connects back to the first)</small></span>
       </label>
     </div>
@@ -4658,6 +4664,202 @@ async function deleteLight(index) {
     if (!res) return;
     // Delete always triggers a restart: wait for it to come back before refreshing,
     // otherwise loadConfig() races the reboot and the UI is left showing stale data.
+    await _waitForDeviceOnline();
+    loadConfig().catch(() => {});
+  });
+}
+
+// ── Sound hardware management ───────────────────────────────────────────────────
+// Hardware bring-up only for now — no pattern/trigger system hangs off this yet,
+// see src/sound/SoundDriver.h. Every field except name requires a reboot, so
+// (unlike the light modal) the save button never needs a dynamic label.
+const SOUND_CHIP_NAMES = ['ES8311'];
+const SOUND_PIN_UNUSED = 255;
+let _sounds = [];
+
+async function loadSounds() {
+  const res = await fetch('/api/sounds');
+  const d = await res.json();
+  renderSoundsHw(d.sounds || []);
+}
+
+function renderSoundsHw(sounds) {
+  _sounds = sounds || [];
+  const el = $('sounds-hw-list');
+  if (!el) return;
+  if (!sounds || !sounds.length) {
+    el.innerHTML = '<p style="color:#555;font-size:.85rem">No sound output configured.</p>';
+    return;
+  }
+  el.innerHTML = sounds.map(s => {
+    const label = s.name ? s.name : `Sound ${s.index}`;
+    const mclk = s.i2sMclkPin === SOUND_PIN_UNUSED ? 'from BCLK' : `GPIO${s.i2sMclkPin}`;
+    const pa = s.paEnablePin === SOUND_PIN_UNUSED ? 'none'
+      : s.paExpander === 1 ? `TCA9555:${s.paEnablePin}`
+      : `GPIO${s.paEnablePin}`;
+    return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
+      <div class="light-hw-row">
+        <div>
+          <strong>${esc(label)}</strong>
+          <span style="color:#888;font-size:.82rem;margin-left:.5rem">${SOUND_CHIP_NAMES[s.chip] || 'Unknown'}</span>
+        </div>
+        <div class="light-hw-actions">
+          <button class="btn-ghost btn-sm" data-action="testSound" data-index="${s.index}">Test speaker</button>
+          <button class="btn-ghost btn-sm" data-action="openEditSoundModal" data-index="${s.index}">Edit</button>
+          <button class="btn-ghost btn-sm" style="color:#c44" data-action="deleteSound" data-index="${s.index}">Delete</button>
+        </div>
+      </div>
+      <div style="font-size:.8rem;color:#888;margin-top:.25rem">i2c sda=GPIO${s.i2cSdaPin} scl=GPIO${s.i2cSclPin} addr=0x${s.i2cAddress.toString(16)} · i2s bclk=GPIO${s.i2sBclkPin} ws=GPIO${s.i2sWsPin} dout=GPIO${s.i2sDoutPin} mclk=${mclk} · pa=${pa}</div>
+    </div>`;
+  }).join('');
+}
+
+_delegate('sounds-hw-list', 'click', {
+  testSound:          el => testSound(Number(el.dataset.index)),
+  openEditSoundModal: el => openEditSoundModal(_sounds.find(s => s.index === Number(el.dataset.index))),
+  deleteSound:        el => deleteSound(Number(el.dataset.index)),
+});
+
+let _editSoundIndex = null;
+
+async function testSound(index) {
+  const res = await fetch('/api/sounds/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
+  if (!res.ok) { const d = await res.json().catch(()=>({})); alert('Error: ' + (d.error || res.status)); }
+}
+
+function openAddSoundModal() {
+  _editSoundIndex = null;
+  _openSoundModal({index: null, name: '', chip: 0, i2cSdaPin: '', i2cSclPin: '', i2cAddress: 0x18, i2sMclkPin: SOUND_PIN_UNUSED, i2sBclkPin: '', i2sWsPin: '', i2sDoutPin: '', paEnablePin: SOUND_PIN_UNUSED, paEnableActiveHigh: true, paExpander: 0, paExpanderAddress: 0x20});
+}
+
+function openEditSoundModal(s) {
+  _editSoundIndex = s.index;
+  _openSoundModal(s);
+}
+
+function _openSoundModal(s) {
+  const title = _editSoundIndex === null ? 'Add sound' : `Edit sound ${s.index}`;
+  const hasMclk = s.i2sMclkPin !== SOUND_PIN_UNUSED;
+  const hasPa = s.paEnablePin !== SOUND_PIN_UNUSED;
+  const overlay = document.createElement('div');
+  overlay.id = 'sound-modal-overlay';
+  overlay.className = 'push-overlay';
+  overlay.innerHTML = `<div class="push-modal"><div class="card" style="margin:0">
+    <div class="flex-between" style="margin-bottom:.5rem">
+      <h2 style="margin:0">${title}</h2>
+      <button class="btn-ghost btn-sm" id="sm-close-btn">✕</button>
+    </div>
+    <label>Name <small>(optional)</small></label>
+    <input type="text" id="sm-name" value="${esc(s.name||'')}" maxlength="19" placeholder="e.g. Speaker">
+    <label>Chip</label>
+    <select id="sm-chip">
+      <option value="0"${(s.chip||0)===0?' selected':''}>ES8311 — mono I2S codec</option>
+    </select>
+    <label>I2C SDA pin (GPIO)</label>
+    <input type="number" id="sm-i2cSdaPin" value="${s.i2cSdaPin}" min="0" max="39">
+    <label>I2C SCL pin (GPIO)</label>
+    <input type="number" id="sm-i2cSclPin" value="${s.i2cSclPin}" min="0" max="39">
+    <label>I2C address <small>(0x18 default; 0x19 if the chip's CE pin is strapped high)</small></label>
+    <input type="number" id="sm-i2cAddress" value="${s.i2cAddress}" min="0" max="127">
+    <label>I2S BCLK pin (GPIO)</label>
+    <input type="number" id="sm-i2sBclkPin" value="${s.i2sBclkPin}" min="0" max="39">
+    <label>I2S WS/LRCK pin (GPIO)</label>
+    <input type="number" id="sm-i2sWsPin" value="${s.i2sWsPin}" min="0" max="39">
+    <label>I2S DOUT pin (GPIO)</label>
+    <input type="number" id="sm-i2sDoutPin" value="${s.i2sDoutPin}" min="0" max="39">
+    <label style="display:flex;align-items:center;gap:.5rem">
+      <input type="checkbox" id="sm-hasMclk" ${hasMclk?'checked':''}>
+      <span>Board wires a separate MCLK pin <small>(unchecked = derive MCLK from BCLK, common on smaller boards)</small></span>
+    </label>
+    <input type="number" id="sm-i2sMclkPin" value="${hasMclk ? s.i2sMclkPin : ''}" min="0" max="39" placeholder="GPIO" style="${hasMclk ? '' : 'display:none'}">
+    <label style="display:flex;align-items:center;gap:.5rem">
+      <input type="checkbox" id="sm-hasPa" ${hasPa?'checked':''}>
+      <span>Separate speaker amp enable pin</span>
+    </label>
+    <div id="sm-pa-opts" style="${hasPa ? '' : 'display:none'}">
+      <label>Enable pin source</label>
+      <select id="sm-paExpander">
+        <option value="0"${(s.paExpander||0)===0?' selected':''}>Direct GPIO</option>
+        <option value="1"${(s.paExpander||0)===1?' selected':''}>TCA9555 I2C expander <small>(shares the SDA/SCL bus above)</small></option>
+      </select>
+      <label id="sm-paEnablePin-label">Enable pin <small>${(s.paExpander||0)===1?'(pin index 0-15 on the expander)':'(GPIO number)'}</small></label>
+      <input type="number" id="sm-paEnablePin" value="${hasPa ? s.paEnablePin : ''}" min="0" max="${(s.paExpander||0)===1?15:39}" placeholder="${(s.paExpander||0)===1?'expander pin 0-15':'GPIO'}">
+      <div id="sm-paExpanderAddress-wrap" style="${(s.paExpander||0)===1?'':'display:none'}">
+        <label>TCA9555 I2C address <small>(0x20 default; set by the A0-A2 address pins)</small></label>
+        <input type="number" id="sm-paExpanderAddress" value="${s.paExpanderAddress || 0x20}" min="0" max="127">
+      </div>
+      <label style="display:flex;align-items:center;gap:.5rem;margin-top:.4rem">
+        <input type="checkbox" id="sm-paEnableActiveHigh" ${s.paEnableActiveHigh!==false?'checked':''}>
+        <span>Active high</span>
+      </label>
+    </div>
+    <button id="sm-save-btn" class="btn-primary" style="width:100%;margin-top:.75rem">Save &amp; Reboot</button>
+  </div></div>`;
+  overlay.style.display = 'block';
+  document.body.appendChild(overlay);
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.querySelector('#sm-close-btn').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#sm-save-btn').addEventListener('click', saveSoundModal);
+
+  const mclkCheck = overlay.querySelector('#sm-hasMclk');
+  const mclkInput = overlay.querySelector('#sm-i2sMclkPin');
+  mclkCheck.addEventListener('change', () => { mclkInput.style.display = mclkCheck.checked ? '' : 'none'; });
+
+  const paCheck = overlay.querySelector('#sm-hasPa');
+  const paOpts  = overlay.querySelector('#sm-pa-opts');
+  paCheck.addEventListener('change', () => { paOpts.style.display = paCheck.checked ? '' : 'none'; });
+
+  const paExpanderSelect = overlay.querySelector('#sm-paExpander');
+  const paPinInput       = overlay.querySelector('#sm-paEnablePin');
+  const paPinLabel       = overlay.querySelector('#sm-paEnablePin-label');
+  const paAddressWrap    = overlay.querySelector('#sm-paExpanderAddress-wrap');
+  paExpanderSelect.addEventListener('change', () => {
+    const isExpander = paExpanderSelect.value === '1';
+    paAddressWrap.style.display = isExpander ? '' : 'none';
+    paPinInput.max = isExpander ? '15' : '39';
+    paPinInput.placeholder = isExpander ? 'expander pin 0-15' : 'GPIO';
+    paPinLabel.innerHTML = `Enable pin <small>${isExpander ? '(pin index 0-15 on the expander)' : '(GPIO number)'}</small>`;
+  });
+}
+
+// Always waits for a reboot even though a name-only edit doesn't actually
+// trigger one server-side (see WebServer.h::_updateSound) — harmless (the
+// device answers /api/config throughout), just a few seconds slower than
+// strictly necessary; not worth mirroring the light modal's dynamic
+// reboot-detection for this simpler, all-hardware modal.
+async function saveSoundModal() {
+  const body = {
+    name: $('sm-name').value.trim(),
+    chip: parseInt($('sm-chip').value),
+    i2cSdaPin: parseInt($('sm-i2cSdaPin').value),
+    i2cSclPin: parseInt($('sm-i2cSclPin').value),
+    i2cAddress: parseInt($('sm-i2cAddress').value),
+    i2sBclkPin: parseInt($('sm-i2sBclkPin').value),
+    i2sWsPin: parseInt($('sm-i2sWsPin').value),
+    i2sDoutPin: parseInt($('sm-i2sDoutPin').value),
+    i2sMclkPin: $('sm-hasMclk').checked ? parseInt($('sm-i2sMclkPin').value) : SOUND_PIN_UNUSED,
+    paEnablePin: $('sm-hasPa').checked ? parseInt($('sm-paEnablePin').value) : SOUND_PIN_UNUSED,
+    paEnableActiveHigh: $('sm-paEnableActiveHigh').checked,
+    paExpander: $('sm-hasPa').checked ? parseInt($('sm-paExpander').value) : 0,
+    paExpanderAddress: parseInt($('sm-paExpanderAddress').value),
+  };
+  for (const [key, val] of Object.entries(body)) {
+    if (typeof val === 'number' && Number.isNaN(val)) { alert(`Please fill in ${key}`); return; }
+  }
+  const url = _editSoundIndex === null ? '/api/sounds/add' : '/api/sounds/update';
+  if (_editSoundIndex !== null) body.index = _editSoundIndex;
+  const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const d = await res.json();
+  if (!res.ok) { alert('Error: ' + (d.error || res.status)); return; }
+  $('sound-modal-overlay')?.remove();
+  await _waitForDeviceOnline();
+  loadConfig().catch(() => {});
+}
+
+async function deleteSound(index) {
+  await _confirmAction(`Delete sound ${index}? The device will reboot.`, async () => {
+    const res = await _fetchOrAlert('/api/sounds/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index})});
+    if (!res) return;
     await _waitForDeviceOnline();
     loadConfig().catch(() => {});
   });
@@ -4868,7 +5070,7 @@ function _openButtonModal(b) {
     <label>GPIO pin</label>
     <input type="number" id="bm-pin" value="${b.pin || 0}" min="0" max="39">
     <label style="display:flex;align-items:center;gap:.5rem">
-      <input type="checkbox" id="bm-activeLow" style="width:auto" ${b.activeLow !== false ? 'checked' : ''}>
+      <input type="checkbox" id="bm-activeLow" ${b.activeLow !== false ? 'checked' : ''}>
       <span>Active low <small>(pressed reads LOW — typical wiring: button to GND, internal pull-up)</small></span>
     </label>
     <hr class="section-divider">
@@ -4989,6 +5191,7 @@ $('zoom-out-btn').addEventListener('click', zoomOut);
 $('zoom-in-btn').addEventListener('click', zoomIn);
 
 $('add-light-btn').addEventListener('click', openAddLightModal);
+$('add-sound-btn').addEventListener('click', openAddSoundModal);
 $('add-button-btn').addEventListener('click', openAddButtonModal);
 $('add-wifi-btn').addEventListener('click', addWifiNetwork);
 $('clear-mqtt-btn').addEventListener('click', clearMqtt);

@@ -294,6 +294,59 @@ struct LightHardwareConfig {
     bool exists = false;
 };
 
+// Sentinel for an unused/unconfigured GPIO pin field on a SoundHardwareConfig.
+static constexpr uint8_t SOUND_PIN_UNUSED = 0xFF;
+
+// Sound output chip. Only ES8311 (mono I2C-controlled I2S codec) is supported
+// today; the enum exists so a second chip can be added without reshaping the
+// config, REST API, or UI (see LedType/LightHardwareConfig for the precedent).
+enum class SoundChip : uint8_t {
+    ES8311 = 0,
+};
+
+// Generic I2C GPIO expander chip. Some boards don't wire a control signal
+// (e.g. speaker-amp enable) to a native ESP32 GPIO at all — it sits behind an
+// expander chip shared with other peripherals instead. This is a general,
+// chip-level abstraction (not board-specific) so any future pin that needs
+// this can reuse it; see src/io/Tca9555Expander.h.
+enum class IoExpanderChip : uint8_t {
+    None = 0,     // the pin field it applies to is a native ESP32 GPIO
+    TCA9555 = 1,  // the pin field it applies to is a pin index (0-15) on a TCA9555
+};
+
+// Per-sound-output physical hardware configuration, stored in DeviceConfig.
+// Hardware support only for now — nothing in Config/main.cpp/WebServer yet
+// decides *what* plays; that's a separate, later step (see LightHardwareConfig
+// vs. LightConfig/GroupConfig for how lights eventually split this).
+struct SoundHardwareConfig {
+    char name[20] = "";
+    SoundChip chip = SoundChip::ES8311;
+    uint8_t i2cSdaPin = SOUND_PIN_UNUSED;
+    uint8_t i2cSclPin = SOUND_PIN_UNUSED;
+    uint8_t i2cAddress =
+        0x18;  // ES8311 default 7-bit address; 0x19 if the CE/AD pin is strapped high
+    // ES8311 can derive its internal MCLK from SCLK via PLL when the board doesn't
+    // wire a separate MCLK line — SOUND_PIN_UNUSED selects that mode.
+    uint8_t i2sMclkPin = SOUND_PIN_UNUSED;
+    uint8_t i2sBclkPin = SOUND_PIN_UNUSED;
+    uint8_t i2sWsPin = SOUND_PIN_UNUSED;
+    uint8_t i2sDoutPin = SOUND_PIN_UNUSED;
+    // Some boards gate a separate speaker amp via a GPIO instead of relying on the
+    // codec's own output stage; SOUND_PIN_UNUSED = no such pin. paExpander selects
+    // whether paEnablePin is a native GPIO (None) or a pin index on the expander
+    // (sharing the codec's I2C bus at paExpanderAddress) — see IoExpanderChip.
+    uint8_t paEnablePin = SOUND_PIN_UNUSED;
+    bool paEnableActiveHigh = true;
+    IoExpanderChip paExpander = IoExpanderChip::None;
+    uint8_t paExpanderAddress = 0x20;  // TCA9555 default 7-bit address (A0-A2 strapped low)
+    bool exists = false;
+};
+
+void serializeSound(JsonObject o, const SoundHardwareConfig& s);
+void deserializeSound(JsonVariant o, SoundHardwareConfig& s);
+
+static constexpr uint8_t MAX_SOUNDS = 1;
+
 struct DeviceConfig {
     char deviceName[32] = "light";
     char apPassword[64] = "batterylight";
@@ -323,6 +376,7 @@ struct DeviceConfig {
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];
+    SoundHardwareConfig sounds[MAX_SOUNDS];
 };
 
 class Config {
@@ -392,6 +446,14 @@ class Config {
         }
     }
 
+    // Invoke fn(index, sound) for every configured sound output where sound.exists is true.
+    static void forEachSound(const std::function<void(uint8_t, SoundHardwareConfig&)>& fn) {
+        for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
+            auto& s = _cfg.sounds[i];
+            if (s.exists) fn(i, s);
+        }
+    }
+
     // Merges an incoming GroupSync against local state. A single revision +
     // originMac now governs the whole group (see GroupConfig::revision), so
     // this either adopts the incoming group wholesale or rejects it wholesale
@@ -406,10 +468,15 @@ class Config {
 
     static void applyConfigSync(const char* json, size_t len);
 
-    // True if `pin` is already used by a configured light (data/clock pin) or
-    // by another configured button. Pass the button's own index as
-    // excludeButtonIndex when validating an update to an existing button.
-    static bool isPinInUse(uint8_t pin, int8_t excludeButtonIndex = -1);
+    // True if `pin` is already used by a configured light (data/clock pin), a
+    // configured sound output (I2C/I2S pins, plus its PA-enable pin only when
+    // that's a native GPIO — an expander-backed PA pin lives in a separate
+    // address space, see IoExpanderChip), or by another configured button.
+    // Pass the button's own index as excludeButtonIndex, or a sound's own
+    // index as excludeSoundIndex, when validating an update to an existing
+    // button/sound. SOUND_PIN_UNUSED never counts as "in use".
+    static bool isPinInUse(uint8_t pin, int8_t excludeButtonIndex = -1,
+                           int8_t excludeSoundIndex = -1);
 
    private:
     static DeviceConfig _cfg;
