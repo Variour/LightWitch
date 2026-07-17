@@ -155,6 +155,8 @@ input[type=checkbox]:active { background-color: #1a5; }
 .dot-on  { background: #4f4; }
 .dot-off { background: #444; }
 .self-tag { font-size: .7rem; color: #4af; margin-left: 4px; }
+.light-device-link { color: inherit; text-decoration: none; }
+.light-device-link:hover { text-decoration: underline; }
 
 /* Group cards */
 .group-card  { background: #161616; border-radius: 8px; padding: .8rem;
@@ -1811,6 +1813,10 @@ function renderLights(self, peers, wifiSingleClientMode) {
     const syncCell = `<input type="checkbox" aria-label="${esc(syncTip)}" ${syncEnabled?'checked':''} data-action="setSceneSync" data-mac="${mac}">`;
 
     const wifiOn = p.wifiConnected === true;
+    const nameEsc = esc(p.name);
+    const nameHtml = wifiOn
+      ? `<a class="light-device-link" href="http://${nameEsc}.local" target="_blank" rel="noopener">${nameEsc}</a>`
+      : nameEsc;
     const wifiConnecting = !wifiOn && p.wifiConnecting === true;
     // Single-client mode: a candidate (has WiFi networks configured) that isn't
     // currently connected is standing by on purpose, not broken — give it its
@@ -1932,7 +1938,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
     return {
       mac,
       table: `
-        <td>${dot}${esc(p.name)}${selfTag}</td>
+        <td>${dot}${nameHtml}${selfTag}</td>
         <td>${groupSelects}</td>
         <td style="text-align:center">${wifiIcon}</td>
         <td style="text-align:right;font-size:.78rem;color:#666;white-space:nowrap">${rssiText}</td>
@@ -1944,7 +1950,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
         <div class="light-device-header">
           <div class="light-device-title">
             <div class="light-device-title-line">
-              <span class="light-device-name">${esc(p.name)}</span>${selfTag}
+              <span class="light-device-name">${nameHtml}</span>${selfTag}
               <span class="light-device-icons">${mobileIcons}</span>
             </div>
           </div>
