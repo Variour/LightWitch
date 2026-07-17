@@ -40,16 +40,22 @@ static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 // audible without assuming anything about the attached speaker's sensitivity.
 static constexpr uint8_t DAC_VOLUME_TEST = 0xB0;
 
-void Es8311Driver::_writeReg(uint8_t reg, uint8_t value) {
+bool Es8311Driver::_writeReg(uint8_t reg, uint8_t value) {
     Wire.beginTransmission(_cfg.i2cAddress);
     Wire.write(reg);
     Wire.write(value);
-    Wire.endTransmission();
+    uint8_t err = Wire.endTransmission();
+    if (err != 0) {
+        Logger::w("[sound] ES8311 write reg 0x%02X failed (I2C error %u, addr 0x%02X)", reg, err,
+                  _cfg.i2cAddress);
+    }
+    return err == 0;
 }
 
 void Es8311Driver::_setPaEnabled(bool enabled) {
     if (_cfg.paEnablePin == SOUND_PIN_UNUSED) return;
     bool driveHigh = enabled == _cfg.paEnableActiveHigh;
+    Logger::d("[sound] PA enable pin -> %s", driveHigh ? "HIGH" : "LOW");
     if (_cfg.paExpander == IoExpanderChip::TCA9555) {
         _paExpander.write(_cfg.paEnablePin, driveHigh);
     } else {
@@ -187,8 +193,12 @@ void Es8311Driver::_writeToneBlock(float freqHz, uint32_t durationMs, float gain
 // let the user confirm the wiring/pins are correct from the web UI — no
 // content/pattern system involved, see SoundDriver.h.
 void Es8311Driver::playTestMelody() {
-    if (!_i2sInstalled) return;
+    if (!_i2sInstalled) {
+        Logger::w("[sound] playTestMelody: I2S not installed, skipping");
+        return;
+    }
 
+    Logger::i("[sound] playTestMelody: start");
     _writeReg(REG_DAC_VOLUME, DAC_VOLUME_TEST);
     _setPaEnabled(true);
 
@@ -207,4 +217,5 @@ void Es8311Driver::playTestMelody() {
 
     _setPaEnabled(false);
     _writeReg(REG_DAC_VOLUME, 0x00);
+    Logger::i("[sound] playTestMelody: done");
 }
