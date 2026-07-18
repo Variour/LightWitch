@@ -47,6 +47,17 @@ input[type=checkbox]:checked {
   background: #2a6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' d='M3 8.5l3.2 3.2L13 4.5'/%3E%3C/svg%3E") no-repeat center / 65%;
 }
 input[type=checkbox]:active { background-color: #1a5; }
+input[type=radio] {
+  appearance: none; -webkit-appearance: none;
+  width: 1.1rem; height: 1.1rem; margin: 0; flex-shrink: 0;
+  border-radius: 50%; border: 2px solid #444; background: #111; cursor: pointer;
+  transition: background-color .15s, border-color .15s;
+}
+input[type=radio]:checked { background: #2a6; border-color: #2a6; box-shadow: inset 0 0 0 3px #111; }
+input[type=radio]:active { background-color: #1a5; }
+.color-radio-group { display: flex; gap: 1rem; margin-bottom: .55rem; }
+.color-radio-group label { display: flex; align-items: center; gap: .35rem;
+                            font-size: .85rem; color: #eee; cursor: pointer; margin-bottom: 0; }
 
 .toast { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
          background: #222; color: #eee; padding: .6rem 1rem; border-radius: 8px;
@@ -4645,7 +4656,9 @@ function _openColorOrderCheckModal(light) {
   const overlay = document.createElement('div');
   overlay.id = 'colorcheck-modal-overlay';
   overlay.className = 'push-overlay';
-  const opts = PRIMARY_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('');
+  const radios = pos => PRIMARY_NAMES.map((n, i) =>
+    `<label><input type="radio" name="cc-pos${pos}" value="${i}"${i === pos ? ' checked' : ''}> ${n}</label>`
+  ).join('');
   overlay.innerHTML = `<div class="push-modal"><div class="card" style="margin:0">
     <div class="flex-between" style="margin-bottom:.5rem">
       <h2 style="margin:0">Colour order check</h2>
@@ -4653,11 +4666,11 @@ function _openColorOrderCheckModal(light) {
     </div>
     <p style="font-size:.85rem;color:#888">The light just cycled through three solid colours, one second each. Select the order you actually saw, then check.</p>
     <label>1st colour shown</label>
-    <select id="cc-o0">${opts}</select>
+    <div class="color-radio-group">${radios(0)}</div>
     <label>2nd colour shown</label>
-    <select id="cc-o1">${opts}</select>
+    <div class="color-radio-group">${radios(1)}</div>
     <label>3rd colour shown</label>
-    <select id="cc-o2">${opts}</select>
+    <div class="color-radio-group">${radios(2)}</div>
     <p id="cc-error" style="color:#c44;font-size:.82rem;display:none">Each colour must be selected exactly once.</p>
     <button id="cc-check-btn" class="btn-primary" style="width:100%;margin-top:.75rem">Check</button>
   </div></div>`;
@@ -4665,13 +4678,11 @@ function _openColorOrderCheckModal(light) {
   document.body.appendChild(overlay);
   overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
   overlay.querySelector('#cc-close-btn').addEventListener('click', () => overlay.remove());
-  overlay.querySelector('#cc-o1').value = '1';
-  overlay.querySelector('#cc-o2').value = '2';
   overlay.querySelector('#cc-check-btn').addEventListener('click', () => _checkColorOrder(light, overlay));
 }
 
 async function _checkColorOrder(light, overlay) {
-  const obs = [0, 1, 2].map(i => parseInt(overlay.querySelector(`#cc-o${i}`).value));
+  const obs = [0, 1, 2].map(i => parseInt(overlay.querySelector(`input[name="cc-pos${i}"]:checked`).value));
   if (new Set(obs).size !== 3) {
     overlay.querySelector('#cc-error').style.display = 'block';
     return;
