@@ -1,0 +1,22 @@
+name: PR build cleanup
+
+# Deliberately has no `paths` filter, unlike firmware.yml's pull_request
+# trigger — this must always run when a PR closes so the pr-<number>
+# prerelease (if one was ever published) is removed regardless of which
+# files the PR happened to touch. See firmware.yml's publish-pr-build job.
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  delete-pr-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete pr-${{ github.event.pull_request.number }} release and tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "pr-${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" --yes --cleanup-tag || true

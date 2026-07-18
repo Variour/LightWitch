@@ -185,6 +185,9 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().checkUpdateOnStartup = doc["checkUpdateOnStartup"] | false;
     Config::get().wifiSingleClientMode = doc["wifiSingleClientMode"] | false;
     Config::get().batteryMonitoringEnabled = doc["batteryMonitoringEnabled"] | false;
+    Config::get().prOtaEnabled = doc["prOtaEnabled"] | false;
+    strlcpy(Config::get().prTrack, doc["prTrack"] | "", sizeof(Config::get().prTrack));
+    Config::get().prTrackAssetId = doc["prTrackAssetId"] | (uint32_t)0;
     Config::get().wifiPolicyRevision = doc["wifiPolicyRevision"] | (uint32_t)0;
     for (uint8_t i = 0; i < 6; i++)
         Config::get().wifiPolicyOriginMac[i] = doc["wifiPolicyOriginMac"][i] | (uint8_t)0;
@@ -310,6 +313,9 @@ bool Config::save() {
     doc["checkUpdateOnStartup"] = _cfg.checkUpdateOnStartup;
     doc["wifiSingleClientMode"] = _cfg.wifiSingleClientMode;
     doc["batteryMonitoringEnabled"] = _cfg.batteryMonitoringEnabled;
+    doc["prOtaEnabled"] = _cfg.prOtaEnabled;
+    doc["prTrack"] = _cfg.prTrack;
+    doc["prTrackAssetId"] = _cfg.prTrackAssetId;
     doc["wifiPolicyRevision"] = _cfg.wifiPolicyRevision;
     {
         JsonArray origin = doc["wifiPolicyOriginMac"].to<JsonArray>();

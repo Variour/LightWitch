@@ -16,12 +16,19 @@
 #include "CaBundle.h"
 
 // GitHub API-based OTA updater.
-// Checks the latest release in the configured private repo using a PAT,
-// then flashes firmware and filesystem images if a newer version is available.
+//
+// Normally checks the latest release in the configured repo using a PAT,
+// then flashes firmware and filesystem images if a newer version is
+// available. If Config::prOtaEnabled is set and Config::prTrack names a PR
+// (see applyPrAsync), the same check/apply flow instead follows that PR's
+// prerelease (tag "pr-<n>") so a device already running a PR build keeps
+// picking up newer pushes to that PR through the ordinary "Check"/"Install
+// update" UI, without needing to reopen the PR picker each time.
 
 class Updater {
    public:
     enum class State { Idle, Checking, Downloading, Error, Done };
+    enum class PrListState { Idle, Loading, Done, Error };
 
     struct Status {
         State state = State::Idle;
@@ -32,7 +39,30 @@ class Updater {
         const char* error = nullptr;
     };
 
+    struct PrBuild {
+        int number = 0;
+        String title;
+        String tag;
+    };
+
+    struct PrListStatus {
+        PrListState state = PrListState::Idle;
+        std::vector<PrBuild> builds;
+        const char* error = nullptr;
+    };
+
     static Status& status() { return _status; }
+    static PrListStatus& prListStatus() { return _prListStatus; }
+
+    // True only for the esp32dev board family — the only one CI publishes
+    // PR prerelease builds for (see .github/workflows/firmware.yml).
+    static constexpr bool isEsp32Dev() {
+#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+        return false;
+#else
+        return true;
+#endif
+    }
 
     // Non-blocking check: spawns a task. Safe to call from web handler.
     static void checkAsync() {
@@ -49,6 +79,9 @@ class Updater {
     }
 
     // Non-blocking update: spawns a task. Safe to call from web handler.
+    // Installs whatever the last successful check found — the latest
+    // tagged release, or the tracked PR's latest build if Config::prTrack
+    // is set (see class comment).
     static void applyAsync() {
         if (_status.state == State::Downloading) return;
         if (!_status.hasUpdate) return;
@@ -79,9 +112,57 @@ class Updater {
         }
     }
 
+    // Non-blocking: lists open PRs that currently have a published firmware
+    // prerelease (tag "pr-<n>"). Only ever runs when explicitly requested —
+    // gated on Config::prOtaEnabled so it costs nothing unless the user has
+    // both opted in to the feature and pressed "Load open PRs".
+    static void listPrBuildsAsync() {
+        if (!Config::get().prOtaEnabled) {
+            _prListStatus.state = PrListState::Error;
+            _prListStatus.error = "PR installs are disabled";
+            return;
+        }
+        if (_prListStatus.state == PrListState::Loading) return;
+        if (WiFi.status() != WL_CONNECTED) {
+            _prListStatus.state = PrListState::Error;
+            _prListStatus.error = "not connected to WiFi";
+            return;
+        }
+        _prListStatus.state = PrListState::Loading;
+        _prListStatus.error = nullptr;
+        xTaskCreate(_listPrBuildsTask, "fw_prlist", 8192, nullptr, 1, nullptr);
+    }
+
+    // Non-blocking: installs a specific build directly (no hasUpdate gate —
+    // this is an explicit "install this" action, not a check-then-apply).
+    // tag == "" installs the latest tagged release and clears the PR track;
+    // tag == "pr-<n>" installs that PR's current build and starts tracking
+    // it, so the ordinary check/apply flow follows it from then on. Gated
+    // on Config::prOtaEnabled, same as listPrBuildsAsync().
+    static void applyPrAsync(const String& tag) {
+        if (!Config::get().prOtaEnabled) {
+            _status.state = State::Error;
+            _status.error = "PR installs are disabled";
+            return;
+        }
+        if (_status.state == State::Downloading) return;
+        if (WiFi.status() != WL_CONNECTED) {
+            _status.state = State::Error;
+            _status.error = "not connected to WiFi";
+            return;
+        }
+        _pendingTag = tag;
+        _status = Status{};
+        _status.state = State::Downloading;
+        _status.progress = 0;
+        xTaskCreate(_applyPrTask, "fw_applypr", 8192, nullptr, 1, nullptr);
+    }
+
    private:
     static Status _status;
+    static PrListStatus _prListStatus;
     static std::atomic<bool> _triggerPending;
+    static String _pendingTag;
 
     static String _authHeader() {
         String h = "Bearer ";
@@ -103,8 +184,13 @@ class Updater {
         return http.GET();
     }
 
-    // Returns false on transport/parse error. Fills latestVersion and _firmwareAssetId/_fsAssetId.
-    static bool _fetchLatestRelease() {
+    // Fetches release metadata for `tag` ("" = /releases/latest, else
+    // /releases/tags/<tag>). On success fills _firmwareAssetId/_fsAssetId
+    // and outTagName, and returns true. Does not touch _status.hasUpdate/
+    // latestVersion — callers interpret the result themselves, since a
+    // normal release and a PR prerelease need different comparison logic
+    // (see _checkForUpdate).
+    static bool _fetchRelease(const String& tag, String& outTagName) {
         auto& c = Config::get();
         if (strlen(c.githubToken) == 0) {
             _status.error = "no GitHub token configured";
@@ -113,7 +199,7 @@ class Updater {
 
         String url = "https://api.github.com/repos/";
         url += c.githubRepo;
-        url += "/releases/latest";
+        url += tag.isEmpty() ? "/releases/latest" : ("/releases/tags/" + tag);
 
         WiFiClientSecure tls;
         HTTPClient http;
@@ -137,18 +223,12 @@ class Updater {
             return false;
         }
 
-        const char* tag = doc["tag_name"] | "";
-        if (!tag[0]) {
+        const char* tagName = doc["tag_name"] | "";
+        if (!tagName[0]) {
             _status.error = "no tag_name in release";
             return false;
         }
-
-        // Strip leading 'v'
-        _status.latestVersion = (tag[0] == 'v') ? String(tag + 1) : String(tag);
-        _status.hasUpdate = _status.latestVersion != FW_VERSION;
-
-        Logger::i("[upd] current=%s latest=%s hasUpdate=%d", FW_VERSION,
-                  _status.latestVersion.c_str(), _status.hasUpdate);
+        outTagName = tagName;
 
         // Find asset IDs for firmware and filesystem
         _firmwareAssetId = 0;
@@ -160,9 +240,39 @@ class Updater {
             if (!_fsAssetId && strcmp(name, "littlefs.bin") == 0) _fsAssetId = id;
         }
 
+        return true;
+    }
+
+    // Used by the normal check/apply/trigger flow. Follows Config::prTrack
+    // (the currently-tracked PR) when prOtaEnabled is on and a track is
+    // set, otherwise behaves exactly as before: compares against the
+    // latest tagged release.
+    static bool _checkForUpdate() {
+        auto& c = Config::get();
+        bool tracking = c.prOtaEnabled && strlen(c.prTrack) > 0;
+        String tag = tracking ? String(c.prTrack) : String();
+        String tagName;
+        if (!_fetchRelease(tag, tagName)) return false;
+
+        if (!tracking) {
+            // Strip leading 'v'
+            _status.latestVersion = (tagName[0] == 'v') ? tagName.substring(1) : tagName;
+            _status.hasUpdate = _status.latestVersion != FW_VERSION;
+        } else {
+            // Prerelease tags are stable ("pr-<n>") across pushes to the
+            // same PR, so the tag itself can't signal "is there a newer
+            // build" — compare the firmware asset's id instead, which
+            // changes every time CI republishes the release.
+            _status.latestVersion = tag;
+            _status.hasUpdate = _firmwareAssetId != 0 && _firmwareAssetId != c.prTrackAssetId;
+        }
+
+        Logger::i("[upd] current=%s latest=%s hasUpdate=%d", FW_VERSION,
+                  _status.latestVersion.c_str(), _status.hasUpdate);
+
         if (_status.hasUpdate) {
             if (!_firmwareAssetId) Logger::w("[upd] no firmware asset found in release");
-            if (!_fsAssetId) Logger::w("[upd] no littlefs asset found in release");
+            if (!tracking && !_fsAssetId) Logger::w("[upd] no littlefs asset found in release");
         }
 
         return true;
@@ -242,7 +352,7 @@ class Updater {
     }
 
     static void _checkTask(void*) {
-        bool ok = _fetchLatestRelease();
+        bool ok = _checkForUpdate();
         if (!ok && !_status.error) _status.error = "check failed";
         _status.state = ok ? State::Idle : State::Error;
         if (_triggerPending && _status.hasUpdate) {
@@ -291,16 +401,9 @@ class Updater {
         Logger::i("[upd] restored %u/%u scene(s)", restored, (unsigned)scenes.size());
     }
 
-    static void _applyTask(void*) {
-        // Re-fetch to get asset IDs if needed
-        if (!_firmwareAssetId && !_fsAssetId) {
-            if (!_fetchLatestRelease()) {
-                _status.state = State::Error;
-                vTaskDelete(nullptr);
-                return;
-            }
-        }
-
+    // Flashes whatever _firmwareAssetId/_fsAssetId currently point at.
+    // Shared by the normal apply flow and explicit PR installs.
+    static bool _flashAndMaybeReboot() {
         bool ok = true;
         if (_firmwareAssetId) {
             ok = _downloadAndFlash(_firmwareAssetId, U_FLASH, "firmware");
@@ -311,8 +414,29 @@ class Updater {
             ok = _downloadAndFlash(_fsAssetId, U_SPIFFS, "filesystem");
             if (ok && !scenes.empty()) _restoreScenes(scenes);
         }
+        return ok;
+    }
+
+    static void _applyTask(void*) {
+        // Re-fetch to get asset IDs if needed
+        if (!_firmwareAssetId && !_fsAssetId) {
+            if (!_checkForUpdate()) {
+                _status.state = State::Error;
+                vTaskDelete(nullptr);
+                return;
+            }
+        }
+
+        bool ok = _flashAndMaybeReboot();
 
         if (ok) {
+            // If this device is tracking a PR, remember which build we just
+            // installed so the next check doesn't immediately re-offer it.
+            auto& c = Config::get();
+            if (c.prOtaEnabled && strlen(c.prTrack) > 0) {
+                c.prTrackAssetId = _firmwareAssetId;
+                Config::save();
+            }
             Logger::i("[upd] update complete — rebooting");
             _status.state = State::Done;
             delay(500);
@@ -323,13 +447,108 @@ class Updater {
         vTaskDelete(nullptr);
     }
 
+    static void _applyPrTask(void*) {
+        String tag = _pendingTag;
+        String tagName;
+        if (!_fetchRelease(tag, tagName)) {
+            _status.state = State::Error;
+            vTaskDelete(nullptr);
+            return;
+        }
+        if (!_firmwareAssetId) {
+            _status.error = "no firmware asset found for that build";
+            _status.state = State::Error;
+            vTaskDelete(nullptr);
+            return;
+        }
+
+        bool ok = _flashAndMaybeReboot();
+
+        if (ok) {
+            auto& c = Config::get();
+            strlcpy(c.prTrack, tag.c_str(), sizeof(c.prTrack));
+            c.prTrackAssetId = tag.isEmpty() ? 0 : _firmwareAssetId;
+            Config::save();
+            Logger::i("[upd] PR install complete (tag=%s) — rebooting",
+                      tag.isEmpty() ? "latest" : tag.c_str());
+            _status.state = State::Done;
+            delay(500);
+            ESP.restart();
+        } else {
+            _status.state = State::Error;
+        }
+        vTaskDelete(nullptr);
+    }
+
+    static void _listPrBuildsTask(void*) {
+        auto& c = Config::get();
+        if (strlen(c.githubToken) == 0) {
+            _prListStatus.error = "no GitHub token configured";
+            _prListStatus.state = PrListState::Error;
+            vTaskDelete(nullptr);
+            return;
+        }
+
+        String url = "https://api.github.com/repos/";
+        url += c.githubRepo;
+        url += "/releases?per_page=30";
+
+        WiFiClientSecure tls;
+        HTTPClient http;
+        int code = _httpGet(tls, http, url, "application/vnd.github+json");
+        if (code != 200) {
+            Logger::e("[upd] releases list API returned %d", code);
+            snprintf(_prListErrorBuf, sizeof(_prListErrorBuf), "GitHub API error (HTTP %d)", code);
+            _prListStatus.error = _prListErrorBuf;
+            _prListStatus.state = PrListState::Error;
+            http.end();
+            vTaskDelete(nullptr);
+            return;
+        }
+
+        String body = http.getString();
+        http.end();
+
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, body);
+        if (err) {
+            Logger::e("[upd] JSON parse error: %s", err.c_str());
+            _prListStatus.error = "JSON parse error";
+            _prListStatus.state = PrListState::Error;
+            vTaskDelete(nullptr);
+            return;
+        }
+
+        std::vector<PrBuild> builds;
+        for (JsonVariant rel : doc.as<JsonArray>()) {
+            bool prerelease = rel["prerelease"] | false;
+            const char* tag = rel["tag_name"] | "";
+            if (!prerelease || strncmp(tag, "pr-", 3) != 0) continue;
+            PrBuild b;
+            b.tag = tag;
+            b.number = atoi(tag + 3);
+            const char* name = rel["name"] | tag;
+            b.title = name;
+            builds.push_back(std::move(b));
+        }
+
+        _prListStatus.builds = std::move(builds);
+        _prListStatus.state = PrListState::Done;
+        Logger::i("[upd] found %u open PR build(s)", (unsigned)_prListStatus.builds.size());
+        vTaskDelete(nullptr);
+    }
+
     static uint32_t _firmwareAssetId;
     static uint32_t _fsAssetId;
     static char _errorBuf[48];
+    static char _prListErrorBuf[48];
 };
 
 inline Updater::Status Updater::_status;
+inline Updater::PrListStatus Updater::_prListStatus;
 inline std::atomic<bool> Updater::_triggerPending{false};
+inline String Updater::_pendingTag;
 inline uint32_t Updater::_firmwareAssetId = 0;
 inline uint32_t Updater::_fsAssetId = 0;
 inline char Updater::_errorBuf[48] = {};
+inline char Updater::_prListErrorBuf[48] = {};

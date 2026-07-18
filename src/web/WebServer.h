@@ -472,6 +472,54 @@ class BatteryWebServer {
             r->send(200, "application/json", "{\"ok\":true}");
         });
 
+        // Experimental "install from PR" flow — every endpoint below requires
+        // Config::prOtaEnabled, so it costs nothing unless explicitly opted in.
+        _server.on("/api/update/prs/refresh", HTTP_POST, [this](AsyncWebServerRequest* r) {
+            if (!Config::get().prOtaEnabled) {
+                r->send(403, "application/json", "{\"error\":\"PR installs are disabled\"}");
+                return;
+            }
+            if (_onRequestWifi)
+                _onRequestWifi([]() { Updater::listPrBuildsAsync(); });
+            else
+                Updater::listPrBuildsAsync();
+            r->send(200, "application/json", "{\"ok\":true}");
+        });
+
+        _server.on("/api/update/prs", HTTP_GET, [](AsyncWebServerRequest* r) {
+            auto& s = Updater::prListStatus();
+            JsonDocument doc;
+            doc["state"] = _prListStateToString(s.state);
+            JsonArray arr = doc["prs"].to<JsonArray>();
+            for (auto& b : s.builds) {
+                JsonObject o = arr.add<JsonObject>();
+                o["number"] = b.number;
+                o["title"] = b.title;
+                o["tag"] = b.tag;
+            }
+            if (s.error) doc["error"] = s.error;
+            String out;
+            serializeJson(doc, out);
+            r->send(200, "application/json", out);
+        });
+
+        _server.on(
+            "/api/update/apply-pr", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                if (!Config::get().prOtaEnabled) {
+                    r->send(403, "application/json", "{\"error\":\"PR installs are disabled\"}");
+                    return;
+                }
+                JsonDocument doc;
+                if (!_parseJson(r, doc, d, l)) return;
+                String tag = doc["tag"] | "";
+                if (_onRequestWifi)
+                    _onRequestWifi([tag]() { Updater::applyPrAsync(tag); });
+                else
+                    Updater::applyPrAsync(tag);
+                r->send(200, "application/json", "{\"ok\":true}");
+            });
+
         _server.on("/api/reset", HTTP_POST, [](AsyncWebServerRequest* r) {
             Config::reset();
             r->send(200, "application/json", "{\"ok\":true}");
@@ -626,6 +674,12 @@ class BatteryWebServer {
     static const char* _fwStateToString(Updater::State s) { return _fwStateName((uint8_t)s); }
     static const char* _fwStateToString(FwState s) { return _fwStateName((uint8_t)s); }
 
+    static const char* _prListStateToString(Updater::PrListState s) {
+        static const char* kNames[] = {"idle", "loading", "done", "error"};
+        uint8_t v = (uint8_t)s;
+        return v < 4 ? kNames[v] : "idle";
+    }
+
     // ── GET /api/config ──────────────────────────────────────────────────────
     void _getConfig(AsyncWebServerRequest* r) {
         auto& c = Config::get();
@@ -641,6 +695,9 @@ class BatteryWebServer {
         doc["wifiSingleClientMode"] = c.wifiSingleClientMode;
         doc["batteryHwSupported"] = BatteryMonitor::kHwSupported;
         doc["batteryMonitoringEnabled"] = c.batteryMonitoringEnabled;
+        doc["prOtaBoardSupported"] = Updater::isEsp32Dev();
+        doc["prOtaEnabled"] = c.prOtaEnabled;
+        doc["prTrack"] = c.prTrack;
         doc["mqttHost"] = c.mqttHost;
         doc["mqttPort"] = c.mqttPort;
         doc["mqttUser"] = c.mqttUser;
@@ -704,6 +761,7 @@ class BatteryWebServer {
             c.checkUpdateOnStartup = (bool)doc["checkUpdateOnStartup"];
         if (!doc["batteryMonitoringEnabled"].isNull())
             c.batteryMonitoringEnabled = (bool)doc["batteryMonitoringEnabled"];
+        if (!doc["prOtaEnabled"].isNull()) c.prOtaEnabled = (bool)doc["prOtaEnabled"];
         // wifiSingleClientMode is intentionally not handled here — it's a
         // runtime-safe, mesh-wide toggle exposed from the device list instead
         // (POST /api/mesh/wifipolicy), so flipping it doesn't force the
