@@ -54,10 +54,11 @@ class Updater {
     static Status& status() { return _status; }
     static PrListStatus& prListStatus() { return _prListStatus; }
 
-    // True only for the esp32dev board family — the only one CI publishes
-    // PR prerelease builds for (see .github/workflows/firmware.yml).
-    static constexpr bool isEsp32Dev() {
-#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+    // True for the board families CI publishes PR prerelease builds for
+    // (esp32dev, esp32s3 — see .github/workflows/firmware.yml). esp32c3 is
+    // not built for PRs, so it stays excluded.
+    static constexpr bool supportsPrOta() {
+#if defined(CONFIG_IDF_TARGET_ESP32C3)
         return false;
 #else
         return true;
