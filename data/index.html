@@ -911,6 +911,12 @@ input[type=checkbox]:active { background-color: #1a5; }
       <div id="storage-file-list" style="margin-bottom:.5rem"></div>
       <input type="file" id="storage-upload-input" accept=".wav" style="display:none">
       <button class="btn-ghost" style="width:100%" id="storage-upload-btn">Upload .wav file</button>
+      <div id="storage-upload-progress-wrap" style="display:none;margin-top:.5rem">
+        <div style="background:#222;border-radius:4px;height:6px;overflow:hidden">
+          <div id="storage-upload-progress-bar" style="background:#4af;height:100%;width:0%;transition:width .1s"></div>
+        </div>
+        <div id="storage-upload-status" style="font-size:.78rem;color:#888;margin-top:.25rem"></div>
+      </div>
     </div>
 
     <hr class="section-divider">
@@ -5119,20 +5125,58 @@ async function deleteStorageFile(name) {
 }
 
 $('storage-upload-btn')?.addEventListener('click', () => $('storage-upload-input').click());
-$('storage-upload-input')?.addEventListener('change', async e => {
+$('storage-upload-input')?.addEventListener('change', e => {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
   if (!/\.wav$/i.test(file.name)) { alert('Only .wav files are supported.'); return; }
-  const res = await fetch(`/api/storage/upload?name=${encodeURIComponent(file.name)}`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/octet-stream'},
-    body: file,
-  });
-  const d = await res.json().catch(() => ({}));
-  if (!res.ok) { alert('Error: ' + (d.error || res.status)); return; }
-  loadStorage().catch(() => {});
+  uploadStorageFile(file);
 });
+
+// Uses XMLHttpRequest rather than fetch() — fetch has no upload-progress event,
+// and a multi-MB .wav file over the device's own WiFi is slow enough that
+// silent, unbounded waiting is a real UX gap.
+function uploadStorageFile(file) {
+  const btn    = $('storage-upload-btn');
+  const wrap   = $('storage-upload-progress-wrap');
+  const bar    = $('storage-upload-progress-bar');
+  const status = $('storage-upload-status');
+
+  btn.disabled = true;
+  btn.textContent = 'Uploading…';
+  wrap.style.display = '';
+  bar.style.width = '0%';
+  status.textContent = `0% of ${fmtBytes(file.size)}`;
+
+  const finish = () => {
+    btn.disabled = false;
+    btn.textContent = 'Upload .wav file';
+    wrap.style.display = 'none';
+  };
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `/api/storage/upload?name=${encodeURIComponent(file.name)}`);
+  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+  xhr.upload.addEventListener('progress', ev => {
+    if (!ev.lengthComputable) return;
+    const pct = Math.round((ev.loaded / ev.total) * 100);
+    bar.style.width = pct + '%';
+    status.textContent = `${pct}% of ${fmtBytes(file.size)}`;
+  });
+  xhr.addEventListener('load', () => {
+    finish();
+    if (xhr.status < 200 || xhr.status >= 300) {
+      const d = (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })();
+      alert('Error: ' + (d.error || xhr.status));
+    }
+    loadStorage().catch(() => {});
+  });
+  xhr.addEventListener('error', () => {
+    finish();
+    alert('Error: upload failed');
+  });
+  xhr.send(file);
+}
 
 // ── Buttons ───────────────────────────────────────────────────────────────────
 // ActionId values must match the C++ enum ordinals in src/config/Config.h exactly.
