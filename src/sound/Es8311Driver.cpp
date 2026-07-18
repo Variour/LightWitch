@@ -80,7 +80,7 @@ bool Es8311Driver::_writeReg(uint8_t reg, uint8_t value) {
 }
 
 void Es8311Driver::_setPaEnabled(bool enabled) {
-    if (_cfg.paEnablePin == SOUND_PIN_UNUSED) return;
+    if (_cfg.paEnablePin == PIN_UNUSED) return;
     bool driveHigh = enabled == _cfg.paEnableActiveHigh;
     Logger::d("[sound] PA enable pin -> %s", driveHigh ? "HIGH" : "LOW");
     if (_cfg.paExpander == IoExpanderChip::TCA9555) {
@@ -111,7 +111,7 @@ void Es8311Driver::_resetAndConfigureClocks() {
     _writeReg(REG_RESET, 0x1F);  // release reset, keep analog blocks powered down until configured
     delay(5);
 
-    bool mclkFromSclk = _cfg.i2sMclkPin == SOUND_PIN_UNUSED;
+    bool mclkFromSclk = _cfg.i2sMclkPin == PIN_UNUSED;
     _writeReg(REG_CLK_MANAGER1, mclkFromSclk ? 0xBF : 0x3F);
     _writeReg(REG_CLK_MANAGER2, 0x00);  // pre-divider=1, pre-multiplier=1
     _writeReg(REG_ADC_OSR, 0x10);
@@ -155,16 +155,16 @@ void Es8311Driver::_configureFormatAndPower() {
 }
 
 void Es8311Driver::begin() {
-    if (_cfg.i2cSdaPin == SOUND_PIN_UNUSED || _cfg.i2cSclPin == SOUND_PIN_UNUSED ||
-        _cfg.i2sBclkPin == SOUND_PIN_UNUSED || _cfg.i2sWsPin == SOUND_PIN_UNUSED ||
-        _cfg.i2sDoutPin == SOUND_PIN_UNUSED) {
+    if (_i2cSdaPin == PIN_UNUSED || _i2cSclPin == PIN_UNUSED ||
+        _cfg.i2sBclkPin == PIN_UNUSED || _cfg.i2sWsPin == PIN_UNUSED ||
+        _cfg.i2sDoutPin == PIN_UNUSED) {
         Logger::w("[sound] ES8311 pins incomplete — not initializing");
         return;
     }
 
-    Wire.begin(_cfg.i2cSdaPin, _cfg.i2cSclPin);
+    // Wire.begin() already called for the device-wide I2C bus in main.cpp.
 
-    if (_cfg.paEnablePin != SOUND_PIN_UNUSED) {
+    if (_cfg.paEnablePin != PIN_UNUSED) {
         if (_cfg.paExpander == IoExpanderChip::TCA9555) {
             _paExpander.setup(_cfg.paExpanderAddress);
             _paExpander.beginOutput(_cfg.paEnablePin);
@@ -194,8 +194,7 @@ void Es8311Driver::begin() {
     }
 
     i2s_pin_config_t pinConfig = {};
-    pinConfig.mck_io_num =
-        _cfg.i2sMclkPin == SOUND_PIN_UNUSED ? I2S_PIN_NO_CHANGE : _cfg.i2sMclkPin;
+    pinConfig.mck_io_num = _cfg.i2sMclkPin == PIN_UNUSED ? I2S_PIN_NO_CHANGE : _cfg.i2sMclkPin;
     pinConfig.bck_io_num = _cfg.i2sBclkPin;
     pinConfig.ws_io_num = _cfg.i2sWsPin;
     pinConfig.data_out_num = _cfg.i2sDoutPin;
@@ -204,7 +203,7 @@ void Es8311Driver::begin() {
 
     _i2sInstalled = true;
     Logger::i("[sound] ES8311 initialized: sda=GPIO%d scl=GPIO%d bclk=GPIO%d ws=GPIO%d dout=GPIO%d",
-              _cfg.i2cSdaPin, _cfg.i2cSclPin, _cfg.i2sBclkPin, _cfg.i2sWsPin, _cfg.i2sDoutPin);
+              _i2cSdaPin, _i2cSclPin, _cfg.i2sBclkPin, _cfg.i2sWsPin, _cfg.i2sDoutPin);
 }
 
 // Writes durationMs of a sine tone at freqHz to both I2S slots (mono content

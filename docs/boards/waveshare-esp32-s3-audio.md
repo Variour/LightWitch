@@ -1,8 +1,23 @@
-# Waveshare ESP32-S3-AUDIO-Board — Sound & LED configuration
+# Waveshare ESP32-S3-AUDIO-Board — Sound, Button & LED configuration
 
-Per-board field values for **Settings → Sound → Add sound** and
+Per-board field values for **Settings → Hardware → I2C bus**,
+**Settings → Sound → Add sound**, **Settings → Hardware → Add button**, and
 **Settings → Lights → Add light**, for this board's onboard ES8311 mono
-codec + speaker and its onboard WS2812 RGB LED.
+codec + speaker, its TCA9555-backed buttons, and its onboard WS2812 RGB LED.
+
+## I2C bus
+
+The codec, the TCA9555 I/O expander, and the RTC all share a single I2C bus.
+Configure this **before** adding the sound output or any TCA9555-backed
+button below — both require it.
+
+### Field values
+
+| Field | Value |
+|---|---|
+| This board has an I2C bus | checked |
+| SDA pin | GPIO11 |
+| SCL pin | GPIO10 |
 
 ## Sound
 
@@ -14,8 +29,6 @@ it sits on **EXIO8** of the onboard TCA9555 I2C GPIO expander.
 | Field | Value |
 |---|---|
 | Chip | ES8311 |
-| I2C SDA pin | GPIO11 |
-| I2C SCL pin | GPIO10 |
 | I2C address | 0x18 *(ES8311 default)* |
 | I2S BCLK pin | GPIO13 *(labelled `I2S_SCLK` on the board's silkscreen/pin map — same signal as BCLK)* |
 | I2S WS/LRCK pin | GPIO14 |
@@ -37,26 +50,29 @@ The board has 5 physical buttons: **RESET**, **BOOT**, and **KEY1**–**KEY3**.
 
 - **RESET** is wired to the ESP32-S3's `CHIP_PU` (EN) pin — a hardware reset
   line, not something firmware can read as a button.
-- **BOOT** is wired to native **GPIO0** (also the boot-mode strapping pin) —
-  the only one of the five that can currently be configured as a button in
-  this firmware.
+- **BOOT** is wired to native **GPIO0** (also the boot-mode strapping pin).
 - **KEY1**, **KEY2**, **KEY3** are wired to **EXIO9**, **EXIO10**, **EXIO11**
-  on the onboard TCA9555 I2C GPIO expander, not to native ESP32 GPIOs.
+  on the onboard TCA9555 I2C GPIO expander (same expander/address as Sound's
+  PA-enable pin above), not to native ESP32 GPIOs.
 
-### Field values (BOOT button only)
+### Field values — BOOT
 
 | Field | Value |
 |---|---|
-| GPIO pin | GPIO0 |
+| Pin source | Direct GPIO |
+| Pin | 0 *(GPIO0)* |
 | Active low | checked *(button pulls to GND when pressed)* |
 
-### KEY1–KEY3 are not usable yet
+### Field values — KEY1 / KEY2 / KEY3
 
-This firmware's button configuration only supports a native ESP32 GPIO pin —
-unlike Sound's PA-enable pin, there's no I2C-expander source option for
-buttons. Since KEY1–KEY3 sit behind the TCA9555 expander, they can't be
-wired up through the current "Add button" form; expander support would need
-to be added to the button handling code before these three could be used.
+Add one button per key; only **Pin** differs between them.
+
+| Field | Value |
+|---|---|
+| Pin source | TCA9555 I2C expander |
+| Pin | 9 for KEY1, 10 for KEY2, 11 for KEY3 *(EXIO9/EXIO10/EXIO11)* |
+| TCA9555 I2C address | 0x20 *(TCA9555 default when A0–A2 are strapped low)* |
+| Active low | checked *(button pulls to GND when pressed; the board provides its own pull-up — the TCA9555 has no internal pull resistors)* |
 
 ## Lights
 

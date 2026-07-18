@@ -23,3 +23,19 @@ void Tca9555Expander::write(uint8_t pin, bool high) {
                   _i2cAddress, _expander->lastError());
     }
 }
+
+void Tca9555Expander::beginInput(uint8_t pin) {
+    if (pin > 15) return;
+    _expander = std::make_unique<TCA9555>(_i2cAddress);
+    if (!_expander->isConnected())
+        Logger::w("[io] TCA9555 not responding at address 0x%02X", _i2cAddress);
+    if (!_expander->pinMode1(pin, INPUT)) {
+        Logger::w("[io] TCA9555 pinMode1(pin=%u) failed at address 0x%02X (error %d)", pin,
+                  _i2cAddress, _expander->lastError());
+    }
+}
+
+bool Tca9555Expander::read(uint8_t pin) {
+    if (pin > 15 || !_expander) return false;
+    return _expander->read1(pin) != LOW;
+}

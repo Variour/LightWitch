@@ -924,6 +924,19 @@ input[type=radio]:active { background-color: #1a5; }
     <button class="btn-ghost" style="width:100%" id="add-light-btn">Add light</button>
 
     <hr class="section-divider">
+    <h3>I2C bus <small>(shared by Sound &amp; TCA9555-backed buttons)</small></h3>
+    <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+      <input type="checkbox" id="hasI2cBus">
+      This board has an I2C bus
+    </label>
+    <div id="i2c-bus-fields" style="display:none">
+      <label>SDA pin (GPIO)</label>
+      <input type="number" id="i2cSdaPin" min="0" max="39">
+      <label>SCL pin (GPIO)</label>
+      <input type="number" id="i2cSclPin" min="0" max="39">
+    </div>
+
+    <hr class="section-divider">
     <h3>Sound</h3>
     <div id="sounds-hw-list" style="margin-bottom:.75rem"></div>
     <button class="btn-ghost" style="width:100%" id="add-sound-btn">Add sound</button>
@@ -1157,6 +1170,10 @@ let _wifiSingleClientMode = false;
 let _sceneOptions = [];
 const _debounce = {};
 let _syncConflicts  = [];
+
+// Sentinel for an unused/unconfigured GPIO pin field — matches Config.h's
+// PIN_UNUSED (used by the device I2C bus, sound, and button hardware config).
+const PIN_UNUSED = 255;
 
 const PATTERNS = [
   { name:'Static Color',  desc:'Steady color. Adjust color and brightness.',                 hasColor: true,  syncable: false },
@@ -2465,11 +2482,13 @@ const SETTINGS_FIELD_IDS = [
   'deviceName', 'logLevel', 'timezone', 'apPassword', 'otaPort', 'otaEnabled',
   'mqttHost', 'mqttPort', 'mqttUser', 'mqttPassword',
   'githubRepo', 'githubToken', 'checkUpdateOnStartup', 'prOtaEnabled', 'batteryMonitoringEnabled',
+  'hasI2cBus', 'i2cSdaPin', 'i2cSclPin',
 ];
 // Subset of SETTINGS_FIELD_IDS that actually triggers a device reboot (see
 // _postConfig in WebServer.h) — the button label reflects whether any of
-// these are among the currently-pending (dirty) changes.
-const REBOOT_FIELD_IDS = ['deviceName', 'otaPort', 'otaEnabled'];
+// these are among the currently-pending (dirty) changes. The I2C bus has no
+// live-reconfigure path (see _postConfig), so it always reboots too.
+const REBOOT_FIELD_IDS = ['deviceName', 'otaPort', 'otaEnabled', 'hasI2cBus', 'i2cSdaPin', 'i2cSclPin'];
 
 let _settingsBaseline = {};
 
@@ -2539,6 +2558,20 @@ async function saveSettings() {
   body.prOtaEnabled = $('prOtaEnabled').checked;
   if ($('battery-section').style.display !== 'none')
     body.batteryMonitoringEnabled = $('batteryMonitoringEnabled').checked;
+  if ($('hasI2cBus').checked) {
+    const sda = parseInt($('i2cSdaPin').value);
+    const scl = parseInt($('i2cSclPin').value);
+    if (Number.isNaN(sda) || Number.isNaN(scl)) {
+      alert('Please fill in the I2C bus SDA/SCL pins');
+      _updateSettingsSaveBtnState();
+      return;
+    }
+    body.i2cSdaPin = sda;
+    body.i2cSclPin = scl;
+  } else {
+    body.i2cSdaPin = PIN_UNUSED;
+    body.i2cSclPin = PIN_UNUSED;
+  }
   if (ghTok)  body.githubToken   = ghTok;
 
   let rebooting;
@@ -2956,6 +2989,14 @@ async function loadConfig() {
     prTrackRow.style.display = '';
   } else {
     prTrackRow.style.display = 'none';
+  }
+  {
+    const hasBus = d.i2cSdaPin !== undefined && d.i2cSdaPin !== PIN_UNUSED &&
+                   d.i2cSclPin !== undefined && d.i2cSclPin !== PIN_UNUSED;
+    $('hasI2cBus').checked = hasBus;
+    $('i2c-bus-fields').style.display = hasBus ? '' : 'none';
+    $('i2cSdaPin').value = hasBus ? d.i2cSdaPin : '';
+    $('i2cSclPin').value = hasBus ? d.i2cSclPin : '';
   }
   if (d.version) {
     $('fw-version').textContent = 'v' + d.version;
@@ -5144,7 +5185,6 @@ async function deleteLight(index) {
 // see src/sound/SoundDriver.h. Every field except name requires a reboot, so
 // (unlike the light modal) the save button never needs a dynamic label.
 const SOUND_CHIP_NAMES = ['ES8311'];
-const SOUND_PIN_UNUSED = 255;
 let _sounds = [];
 
 async function loadSounds() {
@@ -5163,8 +5203,8 @@ function renderSoundsHw(sounds) {
   }
   el.innerHTML = sounds.map(s => {
     const label = s.name ? s.name : `Sound ${s.index}`;
-    const mclk = s.i2sMclkPin === SOUND_PIN_UNUSED ? 'from BCLK' : `GPIO${s.i2sMclkPin}`;
-    const pa = s.paEnablePin === SOUND_PIN_UNUSED ? 'none'
+    const mclk = s.i2sMclkPin === PIN_UNUSED ? 'from BCLK' : `GPIO${s.i2sMclkPin}`;
+    const pa = s.paEnablePin === PIN_UNUSED ? 'none'
       : s.paExpander === 1 ? `TCA9555:${s.paEnablePin}`
       : `GPIO${s.paEnablePin}`;
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
@@ -5179,7 +5219,7 @@ function renderSoundsHw(sounds) {
           <button class="btn-ghost btn-sm" style="color:#c44" data-action="deleteSound" data-index="${s.index}">Delete</button>
         </div>
       </div>
-      <div style="font-size:.8rem;color:#888;margin-top:.25rem">i2c sda=GPIO${s.i2cSdaPin} scl=GPIO${s.i2cSclPin} addr=0x${s.i2cAddress.toString(16)} · i2s bclk=GPIO${s.i2sBclkPin} ws=GPIO${s.i2sWsPin} dout=GPIO${s.i2sDoutPin} mclk=${mclk} · pa=${pa}</div>
+      <div style="font-size:.8rem;color:#888;margin-top:.25rem">i2c addr=0x${s.i2cAddress.toString(16)} · i2s bclk=GPIO${s.i2sBclkPin} ws=GPIO${s.i2sWsPin} dout=GPIO${s.i2sDoutPin} mclk=${mclk} · pa=${pa}</div>
     </div>`;
   }).join('');
 }
@@ -5212,7 +5252,7 @@ async function testSound(index) {
 
 function openAddSoundModal() {
   _editSoundIndex = null;
-  _openSoundModal({index: null, name: '', chip: 0, i2cSdaPin: '', i2cSclPin: '', i2cAddress: 0x18, i2sMclkPin: SOUND_PIN_UNUSED, i2sBclkPin: '', i2sWsPin: '', i2sDoutPin: '', paEnablePin: SOUND_PIN_UNUSED, paEnableActiveHigh: true, paExpander: 0, paExpanderAddress: 0x20});
+  _openSoundModal({index: null, name: '', chip: 0, i2cAddress: 0x18, i2sMclkPin: PIN_UNUSED, i2sBclkPin: '', i2sWsPin: '', i2sDoutPin: '', paEnablePin: PIN_UNUSED, paEnableActiveHigh: true, paExpander: 0, paExpanderAddress: 0x20});
 }
 
 function openEditSoundModal(s) {
@@ -5222,8 +5262,8 @@ function openEditSoundModal(s) {
 
 function _openSoundModal(s) {
   const title = _editSoundIndex === null ? 'Add sound' : `Edit sound ${s.index}`;
-  const hasMclk = s.i2sMclkPin !== SOUND_PIN_UNUSED;
-  const hasPa = s.paEnablePin !== SOUND_PIN_UNUSED;
+  const hasMclk = s.i2sMclkPin !== PIN_UNUSED;
+  const hasPa = s.paEnablePin !== PIN_UNUSED;
   const overlay = document.createElement('div');
   overlay.id = 'sound-modal-overlay';
   overlay.className = 'push-overlay';
@@ -5238,11 +5278,7 @@ function _openSoundModal(s) {
     <select id="sm-chip">
       <option value="0"${(s.chip||0)===0?' selected':''}>ES8311 — mono I2S codec</option>
     </select>
-    <label>I2C SDA pin (GPIO)</label>
-    <input type="number" id="sm-i2cSdaPin" value="${s.i2cSdaPin}" min="0" max="39">
-    <label>I2C SCL pin (GPIO)</label>
-    <input type="number" id="sm-i2cSclPin" value="${s.i2cSclPin}" min="0" max="39">
-    <label>I2C address <small>(hex, e.g. 0x18 — "0x" prefix optional; 0x18 default, 0x19 if the chip's CE pin is strapped high)</small></label>
+    <label>I2C address <small>(hex, e.g. 0x18 — "0x" prefix optional; 0x18 default, 0x19 if the chip's CE pin is strapped high — uses the device I2C bus configured above in Hardware &gt; I2C bus)</small></label>
     <input type="text" id="sm-i2cAddress" value="${_formatHexByte(s.i2cAddress)}" placeholder="0x18" inputmode="text" autocapitalize="off" autocomplete="off" spellcheck="false">
     <label>I2S BCLK pin (GPIO)</label>
     <input type="number" id="sm-i2sBclkPin" value="${s.i2sBclkPin}" min="0" max="39">
@@ -5322,14 +5358,12 @@ async function saveSoundModal() {
   const body = {
     name: $('sm-name').value.trim(),
     chip: parseInt($('sm-chip').value),
-    i2cSdaPin: parseInt($('sm-i2cSdaPin').value),
-    i2cSclPin: parseInt($('sm-i2cSclPin').value),
     i2cAddress: _parseHexByte($('sm-i2cAddress').value),
     i2sBclkPin: parseInt($('sm-i2sBclkPin').value),
     i2sWsPin: parseInt($('sm-i2sWsPin').value),
     i2sDoutPin: parseInt($('sm-i2sDoutPin').value),
-    i2sMclkPin: $('sm-hasMclk').checked ? parseInt($('sm-i2sMclkPin').value) : SOUND_PIN_UNUSED,
-    paEnablePin: $('sm-hasPa').checked ? parseInt($('sm-paEnablePin').value) : SOUND_PIN_UNUSED,
+    i2sMclkPin: $('sm-hasMclk').checked ? parseInt($('sm-i2sMclkPin').value) : PIN_UNUSED,
+    paEnablePin: $('sm-hasPa').checked ? parseInt($('sm-paEnablePin').value) : PIN_UNUSED,
     paEnableActiveHigh: $('sm-paEnableActiveHigh').checked,
     paExpander: $('sm-hasPa').checked ? parseInt($('sm-paExpander').value) : 0,
     paExpanderAddress: _parseHexByte($('sm-paExpanderAddress').value),
@@ -5620,11 +5654,12 @@ function renderButtonsHw(buttons) {
     const summary = ['onShortPress', 'onLongPress', 'onDoubleClick']
       .map(k => { const m = _actionMeta(b[k] && b[k].action); return m ? m.label : null; })
       .filter(Boolean);
+    const pinLabel = (b.expander || 0) === 1 ? `TCA9555:${b.pin}` : `GPIO${b.pin}`;
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div class="flex-between">
         <div>
           <strong>${esc(label)}</strong>
-          <span style="color:#888;font-size:.82rem;margin-left:.5rem">GPIO${b.pin}</span>
+          <span style="color:#888;font-size:.82rem;margin-left:.5rem">${pinLabel}</span>
         </div>
         <div style="display:flex;gap:.4rem">
           <button class="btn-ghost btn-sm" data-action="openEditButtonModal" data-index="${b.index}">Edit</button>
@@ -5645,7 +5680,7 @@ let _editButtonIndex = null;
 
 function openAddButtonModal() {
   _editButtonIndex = null;
-  _openButtonModal({index: null, name: '', pin: 0, activeLow: true, onShortPress: null, onLongPress: null, onDoubleClick: null});
+  _openButtonModal({index: null, name: '', pin: 0, activeLow: true, expander: 0, expanderAddress: 0x20, onShortPress: null, onLongPress: null, onDoubleClick: null});
 }
 
 function openEditButtonModal(b) {
@@ -5665,11 +5700,20 @@ function _openButtonModal(b) {
     </div>
     <label>Name <small>(optional)</small></label>
     <input type="text" id="bm-name" value="${esc(b.name || '')}" maxlength="19" placeholder="e.g. Living room switch">
-    <label>GPIO pin</label>
-    <input type="number" id="bm-pin" value="${b.pin || 0}" min="0" max="39">
+    <label>Pin source</label>
+    <select id="bm-expander">
+      <option value="0"${(b.expander||0)===0?' selected':''}>Direct GPIO</option>
+      <option value="1"${(b.expander||0)===1?' selected':''}>TCA9555 I2C expander <small>(uses the device I2C bus configured in Hardware &gt; I2C bus)</small></option>
+    </select>
+    <label id="bm-pin-label">Pin <small>${(b.expander||0)===1?'(pin index 0-15 on the expander)':'(GPIO number)'}</small></label>
+    <input type="number" id="bm-pin" value="${b.pin || 0}" min="0" max="${(b.expander||0)===1?15:39}">
+    <div id="bm-expanderAddress-wrap" style="${(b.expander||0)===1?'':'display:none'}">
+      <label>TCA9555 I2C address <small>(hex, e.g. 0x20 — "0x" prefix optional; 0x20 default, set by the A0-A2 address pins)</small></label>
+      <input type="text" id="bm-expanderAddress" value="${_formatHexByte(b.expanderAddress || 0x20)}" placeholder="0x20" inputmode="text" autocapitalize="off" autocomplete="off" spellcheck="false">
+    </div>
     <label style="display:flex;align-items:center;gap:.5rem">
       <input type="checkbox" id="bm-activeLow" ${b.activeLow !== false ? 'checked' : ''}>
-      <span>Active low <small>(pressed reads LOW — typical wiring: button to GND, internal pull-up)</small></span>
+      <span>Active low <small>(pressed reads LOW — typical wiring: button to GND, pull-up to 3V3)</small></span>
     </label>
     <hr class="section-divider">
     ${_renderActionSlot('bm-short',  'Short press',  b.onShortPress)}
@@ -5687,17 +5731,39 @@ function _openButtonModal(b) {
       _updateActionParamVisibility(prefix, parseInt(e.target.value), null);
     });
   });
+
+  overlay.querySelector('#bm-expanderAddress').addEventListener('blur', e => {
+    const n = _parseHexByte(e.target.value);
+    if (!Number.isNaN(n)) e.target.value = _formatHexByte(n);
+  });
+
+  const expanderSelect = overlay.querySelector('#bm-expander');
+  const pinInput        = overlay.querySelector('#bm-pin');
+  const pinLabel         = overlay.querySelector('#bm-pin-label');
+  const addressWrap      = overlay.querySelector('#bm-expanderAddress-wrap');
+  expanderSelect.addEventListener('change', () => {
+    const isExpander = expanderSelect.value === '1';
+    addressWrap.style.display = isExpander ? '' : 'none';
+    pinInput.max = isExpander ? '15' : '39';
+    pinLabel.innerHTML = `Pin <small>${isExpander ? '(pin index 0-15 on the expander)' : '(GPIO number)'}</small>`;
+  });
 }
 
 async function saveButtonModal() {
   const body = {
-    name:      $('bm-name').value.trim(),
-    pin:       parseInt($('bm-pin').value) || 0,
-    activeLow: $('bm-activeLow').checked,
+    name:            $('bm-name').value.trim(),
+    pin:             parseInt($('bm-pin').value) || 0,
+    activeLow:       $('bm-activeLow').checked,
+    expander:        parseInt($('bm-expander').value),
+    expanderAddress: _parseHexByte($('bm-expanderAddress').value),
     onShortPress:  _readActionSlot('bm-short'),
     onLongPress:   _readActionSlot('bm-long'),
     onDoubleClick: _readActionSlot('bm-double'),
   };
+  if (body.expander === 1 && Number.isNaN(body.expanderAddress)) {
+    alert('Please enter a valid TCA9555 I2C address (hex, e.g. 0x20)');
+    return;
+  }
   const url = _editButtonIndex === null ? '/api/buttons/add' : '/api/buttons/update';
   if (_editButtonIndex !== null) body.index = _editButtonIndex;
   const res = await _fetchOrAlert(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
@@ -5789,6 +5855,7 @@ $('zoom-out-btn').addEventListener('click', zoomOut);
 $('zoom-in-btn').addEventListener('click', zoomIn);
 
 $('add-light-btn').addEventListener('click', openAddLightModal);
+$('hasI2cBus').addEventListener('change', e => { $('i2c-bus-fields').style.display = e.target.checked ? '' : 'none'; });
 $('add-sound-btn').addEventListener('click', openAddSoundModal);
 $('add-button-btn').addEventListener('click', openAddButtonModal);
 $('add-wifi-btn').addEventListener('click', addWifiNetwork);

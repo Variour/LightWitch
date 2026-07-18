@@ -3,6 +3,7 @@
 
 #include "../actions/ActionExecutor.h"
 #include "../config/Config.h"
+#include "../io/Tca9555Expander.h"
 
 // Polls configured GPIO buttons and detects short press / long press /
 // double click, firing the matching ButtonAction through ActionExecutor.
@@ -19,13 +20,23 @@ class ButtonManager {
 
     void begin() { reconfigure(); }
 
-    // Re-reads Config and re-applies pinMode for every configured button.
-    // Called after any button add/update/delete — GPIO input reconfiguration
-    // has no driver library to reinitialize, so no device reboot is needed.
+    // Re-reads Config and re-applies pin setup for every configured button.
+    // Called after any button add/update/delete. Native-GPIO reconfiguration
+    // has no driver library to reinitialize; an expander-backed button just
+    // re-runs its (idempotent) pinMode1 setup — either way no device reboot
+    // is needed. Assumes the device I2C bus (Wire) is already begun (see
+    // main.cpp) when any button uses a TCA9555 expander.
     void reconfigure() {
         for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
             auto& b = Config::get().buttons[i];
-            if (b.exists) pinMode(b.pin, b.activeLow ? INPUT_PULLUP : INPUT_PULLDOWN);
+            if (b.exists) {
+                if (b.expander == IoExpanderChip::TCA9555) {
+                    _expanders[i].setup(b.expanderAddress);
+                    _expanders[i].beginInput(b.pin);
+                } else {
+                    pinMode(b.pin, b.activeLow ? INPUT_PULLUP : INPUT_PULLDOWN);
+                }
+            }
             _state[i] = ButtonState{};
         }
     }
@@ -46,11 +57,13 @@ class ButtonManager {
     };
 
     ButtonState _state[MAX_BUTTONS];
+    Tca9555Expander _expanders[MAX_BUTTONS];
     ActionExecutor* _executor = nullptr;
 
-    static bool _readActive(const ButtonHardwareConfig& b) {
-        int level = digitalRead(b.pin);
-        return b.activeLow ? (level == LOW) : (level == HIGH);
+    bool _readActive(uint8_t i, const ButtonHardwareConfig& b) {
+        bool high = b.expander == IoExpanderChip::TCA9555 ? _expanders[i].read(b.pin)
+                                                            : digitalRead(b.pin) == HIGH;
+        return b.activeLow ? !high : high;
     }
 
     void _fire(const ButtonAction& action) {
@@ -59,7 +72,7 @@ class ButtonManager {
 
     void _tickButton(uint8_t i, ButtonHardwareConfig& b, uint32_t now) {
         auto& s = _state[i];
-        bool active = _readActive(b);
+        bool active = _readActive(i, b);
 
         switch (s.state) {
             case ClickState::Idle:

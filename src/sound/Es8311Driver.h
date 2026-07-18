@@ -20,9 +20,18 @@
 // The speaker-amp enable pin (paEnablePin) may be a native ESP32 GPIO or a
 // pin on a TCA9555 I2C expander sharing this codec's bus — see
 // IoExpanderChip in Config.h and src/io/Tca9555Expander.h.
+//
+// The codec's I2C control interface lives on the device-wide I2C bus
+// (DeviceConfig::i2cSdaPin/i2cSclPin, not part of SoundHardwareConfig) —
+// main.cpp brings that bus up once at startup, so begin() only needs the
+// pins to validate/log with, not to call Wire.begin() itself.
 class Es8311Driver : public SoundDriver {
    public:
-    void setup(const SoundHardwareConfig& cfg) { _cfg = cfg; }
+    void setup(const SoundHardwareConfig& cfg, uint8_t i2cSdaPin, uint8_t i2cSclPin) {
+        _cfg = cfg;
+        _i2cSdaPin = i2cSdaPin;
+        _i2cSclPin = i2cSclPin;
+    }
 
     void begin() override;
     void playTestMelody() override;
@@ -36,6 +45,8 @@ class Es8311Driver : public SoundDriver {
     void _writeSilenceFrames(uint32_t frames);
 
     SoundHardwareConfig _cfg;
+    uint8_t _i2cSdaPin = PIN_UNUSED;
+    uint8_t _i2cSclPin = PIN_UNUSED;
     Tca9555Expander _paExpander;
     bool _i2sInstalled = false;
 };

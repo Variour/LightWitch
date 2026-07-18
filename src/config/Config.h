@@ -201,7 +201,12 @@ static constexpr uint8_t MAX_GROUPS = 8;
 static constexpr uint8_t MAX_LIGHTS = 4;
 static constexpr uint8_t MAX_BUTTONS = 4;
 static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
-static constexpr uint8_t CONFIG_SCHEMA_VERSION = 2;
+// v3: moved Sound's per-instance i2cSdaPin/i2cSclPin to a device-wide I2C bus
+// (DeviceConfig::i2cSdaPin/i2cSclPin) and added ButtonHardwareConfig::expander/
+// expanderAddress — a saved v2 config's sound entry would silently lose its
+// I2C pins, so this bumps to force the usual "older schema -> reset to
+// defaults" path instead of loading a half-working config.
+static constexpr uint8_t CONFIG_SCHEMA_VERSION = 3;
 
 // Parameters for a ButtonAction. Which member is meaningful depends on the
 // ActionId — numberValue covers steps/fixed values/enum ordinals,
@@ -257,13 +262,34 @@ LightConfig deserializeLightConfig(JsonVariant j, const LightConfig& def = Light
 void serializeGroup(JsonObject o, const GroupConfig& g);
 void deserializeGroup(JsonVariant o, GroupConfig& g);
 
+// Sentinel for an unused/unconfigured GPIO pin field (button pin, sound I2S
+// pin, device I2C bus pin, ...).
+static constexpr uint8_t PIN_UNUSED = 0xFF;
+
+// Generic I2C GPIO expander chip. Some boards don't wire a control signal
+// (e.g. speaker-amp enable, a button) to a native ESP32 GPIO at all — it sits
+// behind an expander chip shared with other peripherals instead. This is a
+// general, chip-level abstraction (not board-specific) so any future pin that
+// needs this can reuse it; see src/io/Tca9555Expander.h.
+enum class IoExpanderChip : uint8_t {
+    None = 0,     // the pin field it applies to is a native ESP32 GPIO
+    TCA9555 = 1,  // the pin field it applies to is a pin index (0-15) on a TCA9555
+};
+
 // Physical GPIO button configuration, stored in DeviceConfig. Each button has
 // up to three independently-assignable actions (short press, long press,
 // double click); an unassigned slot has action == ActionId::None.
+//
+// pin may be a native ESP32 GPIO or a pin index (0-15) on a TCA9555 I2C
+// expander — see expander/IoExpanderChip. An expander-backed button shares
+// DeviceConfig's device-wide i2cSdaPin/i2cSclPin bus.
 struct ButtonHardwareConfig {
     char name[20] = "";
     uint8_t pin = 0;
-    bool activeLow = true;  // true = pressed reads LOW (INPUT_PULLUP wiring)
+    bool activeLow = true;  // true = pressed reads LOW (INPUT_PULLUP wiring, or an
+                             // external pull-up on the expander pin — TCA9555 has none built in)
+    IoExpanderChip expander = IoExpanderChip::None;
+    uint8_t expanderAddress = 0x20;  // TCA9555 default 7-bit address (A0-A2 strapped low)
     ButtonAction onShortPress;
     ButtonAction onLongPress;
     ButtonAction onDoubleClick;
@@ -304,9 +330,6 @@ struct LightHardwareConfig {
     bool exists = false;
 };
 
-// Sentinel for an unused/unconfigured GPIO pin field on a SoundHardwareConfig.
-static constexpr uint8_t SOUND_PIN_UNUSED = 0xFF;
-
 // Sound output chip. Only ES8311 (mono I2C-controlled I2S codec) is supported
 // today; the enum exists so a second chip can be added without reshaping the
 // config, REST API, or UI (see LedType/LightHardwareConfig for the precedent).
@@ -314,38 +337,30 @@ enum class SoundChip : uint8_t {
     ES8311 = 0,
 };
 
-// Generic I2C GPIO expander chip. Some boards don't wire a control signal
-// (e.g. speaker-amp enable) to a native ESP32 GPIO at all — it sits behind an
-// expander chip shared with other peripherals instead. This is a general,
-// chip-level abstraction (not board-specific) so any future pin that needs
-// this can reuse it; see src/io/Tca9555Expander.h.
-enum class IoExpanderChip : uint8_t {
-    None = 0,     // the pin field it applies to is a native ESP32 GPIO
-    TCA9555 = 1,  // the pin field it applies to is a pin index (0-15) on a TCA9555
-};
-
 // Per-sound-output physical hardware configuration, stored in DeviceConfig.
 // Hardware support only for now — nothing in Config/main.cpp/WebServer yet
 // decides *what* plays; that's a separate, later step (see LightHardwareConfig
 // vs. LightConfig/GroupConfig for how lights eventually split this).
+//
+// The codec's I2C control interface sits on DeviceConfig's device-wide
+// i2cSdaPin/i2cSclPin bus (not a per-sound field) — that bus is shared with
+// any expander-backed button and, perspectively, other I2C peripherals.
 struct SoundHardwareConfig {
     char name[20] = "";
     SoundChip chip = SoundChip::ES8311;
-    uint8_t i2cSdaPin = SOUND_PIN_UNUSED;
-    uint8_t i2cSclPin = SOUND_PIN_UNUSED;
     uint8_t i2cAddress =
         0x18;  // ES8311 default 7-bit address; 0x19 if the CE/AD pin is strapped high
     // ES8311 can derive its internal MCLK from SCLK via PLL when the board doesn't
-    // wire a separate MCLK line — SOUND_PIN_UNUSED selects that mode.
-    uint8_t i2sMclkPin = SOUND_PIN_UNUSED;
-    uint8_t i2sBclkPin = SOUND_PIN_UNUSED;
-    uint8_t i2sWsPin = SOUND_PIN_UNUSED;
-    uint8_t i2sDoutPin = SOUND_PIN_UNUSED;
+    // wire a separate MCLK line — PIN_UNUSED selects that mode.
+    uint8_t i2sMclkPin = PIN_UNUSED;
+    uint8_t i2sBclkPin = PIN_UNUSED;
+    uint8_t i2sWsPin = PIN_UNUSED;
+    uint8_t i2sDoutPin = PIN_UNUSED;
     // Some boards gate a separate speaker amp via a GPIO instead of relying on the
-    // codec's own output stage; SOUND_PIN_UNUSED = no such pin. paExpander selects
+    // codec's own output stage; PIN_UNUSED = no such pin. paExpander selects
     // whether paEnablePin is a native GPIO (None) or a pin index on the expander
-    // (sharing the codec's I2C bus at paExpanderAddress) — see IoExpanderChip.
-    uint8_t paEnablePin = SOUND_PIN_UNUSED;
+    // (sharing the device I2C bus at paExpanderAddress) — see IoExpanderChip.
+    uint8_t paEnablePin = PIN_UNUSED;
     bool paEnableActiveHigh = true;
     IoExpanderChip paExpander = IoExpanderChip::None;
     uint8_t paExpanderAddress = 0x20;  // TCA9555 default 7-bit address (A0-A2 strapped low)
@@ -399,6 +414,12 @@ struct DeviceConfig {
     // pushes, so the tag alone can't signal that. Meaningless when prTrack
     // is empty. Also internal-only, like prTrack.
     uint32_t prTrackAssetId = 0;
+    // Board's shared I2C bus, used by any configured I2C peripheral that needs
+    // one — currently the sound codec's control interface and any button
+    // wired through a TCA9555 expander (see IoExpanderChip). PIN_UNUSED on
+    // either pin means no I2C bus is configured on this device.
+    uint8_t i2cSdaPin = PIN_UNUSED;
+    uint8_t i2cSclPin = PIN_UNUSED;
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];
@@ -497,15 +518,32 @@ class Config {
     // True if `pin` is already used by a configured light (dataPin always;
     // clockPin only when that light is WS2801 — WS2812B is single-wire, so a
     // default/leftover clockPin value there is never actually driven), a
-    // configured sound output (I2C/I2S pins, plus its PA-enable pin only when
+    // configured sound output (I2S pins, plus its PA-enable pin only when
     // that's a native GPIO — an expander-backed PA pin lives in a separate
-    // address space, see IoExpanderChip), or by another configured button.
-    // Pass the button's own index as excludeButtonIndex, a sound's own index
-    // as excludeSoundIndex, or a light's own index as excludeLightIndex, when
-    // validating an update to an existing button/sound/light. SOUND_PIN_UNUSED
-    // never counts as "in use".
+    // address space, see IoExpanderChip), another configured button (native-GPIO
+    // pin only — same reasoning), or the device's own I2C bus pins. Pass the
+    // button's own index as excludeButtonIndex, a sound's own index as
+    // excludeSoundIndex, or a light's own index as excludeLightIndex, when
+    // validating an update to an existing button/sound/light. Pass
+    // excludeI2cBus=true when validating a *new* i2cSdaPin/i2cSclPin pair
+    // itself, so an unchanged pin doesn't collide with its own old value.
+    // PIN_UNUSED never counts as "in use".
     static bool isPinInUse(uint8_t pin, int8_t excludeButtonIndex = -1,
-                           int8_t excludeSoundIndex = -1, int8_t excludeLightIndex = -1);
+                           int8_t excludeSoundIndex = -1, int8_t excludeLightIndex = -1,
+                           bool excludeI2cBus = false);
+
+    // True if (address, pin) on a TCA9555 expander is already claimed by
+    // another configured button, or by the sound output's PA-enable pin (when
+    // that's expander-backed). Pass the button's own index as
+    // excludeButtonIndex when validating an update to an existing button, or
+    // excludeSoundPa=true when validating the sound output's own PA pin.
+    static bool isExpanderPinInUse(uint8_t address, uint8_t pin, int8_t excludeButtonIndex = -1,
+                                   bool excludeSoundPa = false);
+
+    // True if the device I2C bus is still needed by a configured sound output
+    // or an expander-backed button — used to reject clearing
+    // i2cSdaPin/i2cSclPin while something still depends on them.
+    static bool i2cBusInUse();
 
    private:
     static DeviceConfig _cfg;
