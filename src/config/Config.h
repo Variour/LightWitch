@@ -335,6 +335,12 @@ struct LightHardwareConfig {
     bool exists = false;
 };
 
+// Usable range for SoundHardwareConfig::volume (raw ES8311 REG_DAC_VOLUME
+// register value, out of the register's full 0-255 range) — every path that
+// sets it (web, mesh, mqtt) clamps to this range.
+static constexpr uint8_t SOUND_VOLUME_MIN = 50;
+static constexpr uint8_t SOUND_VOLUME_MAX = 200;
+
 // Sound output chip. Only ES8311 (mono I2C-controlled I2S codec) is supported
 // today; the enum exists so a second chip can be added without reshaping the
 // config, REST API, or UI (see LedType/LightHardwareConfig for the precedent).
@@ -373,10 +379,11 @@ struct SoundHardwareConfig {
     // (and that locally has the referenced file) participates. See AudioGroupConfig.
     uint8_t audioGroupId = 0;
     // Output level, written directly to the codec's hardware volume register
-    // (ES8311 REG_DAC_VOLUME: 0 = mute, 255 = max). Not part of a play
-    // trigger — set independently, but (unlike a light's brightnessOverride)
-    // settable from any device's dashboard for any peer, not just locally;
-    // see SetVolumeMsg.
+    // (ES8311 REG_DAC_VOLUME). Clamped to [SOUND_VOLUME_MIN, SOUND_VOLUME_MAX]
+    // everywhere it's set, not the register's full 0-255 range. Not part of a
+    // play trigger — set independently, but (unlike a light's
+    // brightnessOverride) settable from any device's dashboard for any peer,
+    // not just locally; see SetVolumeMsg.
     uint8_t volume = 200;
     bool exists = false;
 };

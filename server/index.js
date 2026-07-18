@@ -67,6 +67,10 @@ const MOCK_CONFIG = {
 // now — see MOCK_CONFIG.i2cSdaPin/i2cSclPin/expanderChip/expanderAddress —
 // not per-sound/per-button fields.
 const PIN_UNUSED = 255;
+// Mirrors Config.h::SOUND_VOLUME_MIN/MAX.
+const SOUND_VOLUME_MIN = 50;
+const SOUND_VOLUME_MAX = 200;
+const clampVolume = v => Math.max(SOUND_VOLUME_MIN, Math.min(SOUND_VOLUME_MAX, Number(v)));
 // paViaExpander: false = paEnablePin is a native GPIO, true = it's a pin
 // index (0-15) on the device's expander instead — mirrors
 // SoundHardwareConfig::paViaExpander.
@@ -120,7 +124,7 @@ const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: tr
 const MOCK_PEERS = [
   { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], sound: { name: 'Kitchen Speaker', audioGroupId: 0, volume: 180 }, online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 46, batteryCharging: false },
   { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], sound: null, online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 12, batteryCharging: false },
-  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], sound: { name: 'Living Room Speaker', audioGroupId: 1, volume: 220 }, online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: false, wifiConnecting: false, version: '2026.06.27.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 97, batteryCharging: true  },
+  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], sound: { name: 'Living Room Speaker', audioGroupId: 1, volume: 200 }, online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: false, wifiConnecting: false, version: '2026.06.27.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 97, batteryCharging: true  },
   { name: 'Mock Light 5', mac: '55:66:77:88:99:aa', lights: [{ index: 0, name: 'Garage', groupId: 0 }], sound: null, online: true,  rssi: -70, sceneSyncEnabled: true,  wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: true,  version: '2026.01.01.0', fwState: 'idle', batteryPresent: false, batteryPercent: 0,  batteryCharging: false },
 ];
 
@@ -424,7 +428,7 @@ app.post('/api/peers/setvolume', (req, res) => {
   const { mac, volume } = req.body || {};
   if (mac === MOCK_SELF.mac) {
     const sound = mockSounds.find(s => s.exists);
-    if (sound) sound.volume = volume;
+    if (sound) sound.volume = clampVolume(volume);
     broadcastPeers();
   }
   res.json({ ok: true });
@@ -690,6 +694,7 @@ app.post('/api/sounds/update', (req, res) => {
     const conflict = soundPinConflict(candidate, index);
     if (conflict) return res.status(400).json({ error: conflict });
   }
+  if ('volume' in fields) fields.volume = clampVolume(fields.volume);
   Object.assign(sound, fields);
   broadcastPeers();
   res.json({ ok: true });

@@ -330,7 +330,7 @@ void Es8311Driver::setVolume(uint8_t volume) {
     if (!_cmdQueue) return;
     PlayerCommand cmd{};
     cmd.type = PlayerCommand::Type::SetVolume;
-    cmd.volume = volume;
+    cmd.volume = (uint8_t)constrain((int)volume, SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
     xQueueSend(_cmdQueue, &cmd, 0);
 }
 

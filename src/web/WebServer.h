@@ -1392,7 +1392,8 @@ class BatteryWebServer {
     void _setRemoteVolume(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
-        uint8_t volume = doc["volume"] | (uint8_t)0;
+        uint8_t volume = (uint8_t)constrain((int)(doc["volume"] | (uint8_t)0), SOUND_VOLUME_MIN,
+                                            SOUND_VOLUME_MAX);
         const char* macStr = doc["mac"] | "";
 
         if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
@@ -2277,12 +2278,14 @@ class BatteryWebServer {
         auto& existing = Config::get().sounds[idx];
         if (!doc["name"].isNull()) strlcpy(existing.name, doc["name"] | "", sizeof(existing.name));
 
-        // Group membership and volume are neither hardware config (no reboot)
-        // nor mesh-synced state — applied immediately, volume live to the driver.
+        // Group membership and volume aren't hardware config (no reboot needed)
+        // — applied immediately, volume live to the driver. Also settable
+        // cross-device via /api/peers/setaudiogroup and /api/peers/setvolume.
         if (!doc["audioGroupId"].isNull()) existing.audioGroupId = doc["audioGroupId"];
         bool volumeChanged = false;
         if (!doc["volume"].isNull()) {
-            existing.volume = doc["volume"];
+            existing.volume =
+                (uint8_t)constrain((int)doc["volume"], SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
             volumeChanged = true;
         }
 

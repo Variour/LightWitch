@@ -1912,13 +1912,18 @@ function _renderAudioGroupOptions(selectedGroupId) {
 // lights in the same Connected Lights row, same as _renderLightGroupSelect,
 // but (unlike light group assignment) settable for any peer, not just self:
 // there's no local-only "brightness override" equivalent restriction here.
+// Mirrors src/config/Config.h's SOUND_VOLUME_MIN/MAX.
+const SOUND_VOLUME_MIN = 50;
+const SOUND_VOLUME_MAX = 200;
+
 function _renderSoundControl(mac, sound) {
   if (!sound) return '';
   const label = sound.name ? esc(sound.name) : 'Speaker';
+  const volume = Math.max(SOUND_VOLUME_MIN, Math.min(SOUND_VOLUME_MAX, sound.volume));
   return `<div class="sound-row" style="display:flex;align-items:center;gap:.35rem;margin-top:.3rem" title="Audio group and volume for this device's speaker">
     <span style="font-size:.72rem;color:#888;white-space:nowrap">🔊 ${label}</span>
     <select data-action="assignAudioGroup" data-mac="${mac}">${_renderAudioGroupOptions(sound.audioGroupId)}</select>
-    <input type="range" min="0" max="255" value="${sound.volume}" style="flex:1;min-width:60px;margin:0"
+    <input type="range" min="${SOUND_VOLUME_MIN}" max="${SOUND_VOLUME_MAX}" value="${volume}" style="flex:1;min-width:60px;margin:0"
            aria-label="Volume for ${label}" title="Volume" data-action="onSpeakerVolumeInput" data-mac="${mac}">
   </div>`;
 }

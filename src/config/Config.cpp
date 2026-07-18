@@ -146,7 +146,8 @@ void deserializeSound(JsonVariant o, SoundHardwareConfig& s) {
     s.paEnableActiveHigh = o["paEnableActiveHigh"] | true;
     s.paViaExpander = o["paViaExpander"] | false;
     s.audioGroupId = o["audioGroupId"] | (uint8_t)0;
-    s.volume = o["volume"] | (uint8_t)200;
+    s.volume =
+        (uint8_t)constrain((int)(o["volume"] | (uint8_t)200), SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
     s.exists = o["exists"] | false;
 }
 

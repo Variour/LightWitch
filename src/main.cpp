@@ -689,6 +689,7 @@ void setup() {
     // Another device told this device (or a peer) to change its sound output's
     // volume — cross-device control from any dashboard, applied live.
     mesh.setOnSetVolume([](const uint8_t* targetMac, uint8_t volume) {
+        volume = (uint8_t)constrain((int)volume, SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
         uint8_t own[6];
         WiFi.macAddress(own);
         if (memcmp(targetMac, own, 6) == 0) {
