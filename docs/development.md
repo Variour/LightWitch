@@ -66,6 +66,17 @@ pio run -e batterylight1_ota -t upload && pio run -e batterylight1_ota -t upload
 
 ---
 
+## Installing PR firmware builds (experimental)
+
+CI publishes every open PR's `esp32dev` and `esp32s3` builds as a GitHub prerelease (tag `pr-<number>`), so a device can install and track it directly over the air — no PlatformIO needed. `esp32c3` is not built for PRs and stays unsupported.
+
+1. In the web UI, **Settings → Updates**: set `Repository` and a GitHub PAT, enable **"Allow installing PR builds"**, then save & reboot. See [README: Firmware updates from GitHub releases](../README.md#firmware-updates-from-github-releases-device-web-ui) for the required token permissions.
+2. In **Firmware update**, click **"Load open PRs"**, pick the PR from the dropdown, then **"Install selected build"**.
+3. The device flashes firmware + filesystem, preserves scenes, and reboots. It now tracks that PR — the normal "Check"/"Install update" flow follows new pushes to it instead of official releases.
+4. To go back to official releases, select **"— Latest release (leave PR track) —"** and install.
+
+---
+
 ## Local web UI development
 
 Run the web interface locally without hardware:
