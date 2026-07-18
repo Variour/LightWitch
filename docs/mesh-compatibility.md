@@ -75,6 +75,16 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `MeshPolicy` | `MeshPolicyMsg` fixed-size | `len >= sizeof(MeshPolicyMsg)` | Raw fixed struct representing replicated state. |
 | `WifiRetry` | `WifiRetryMsg` fixed-size | exact `sizeof(WifiRetryMsg)` | No payload beyond message type. |
 | `MeshSearch` | `MeshSearchMsg` fixed-size | exact `sizeof(MeshSearchMsg)` | No payload beyond message type. |
+| `AudioGroupSync` | `AudioGroupSyncMsg` fixed-size | `len >= sizeof(AudioGroupSyncMsg)` | Raw nested `AudioGroupConfig` layout; no versioning. Mirrors `GroupSync`. |
+| `SetPlaylistSync` | `SetPlaylistSyncMsg` fixed-size | `len >= sizeof(SetPlaylistSyncMsg)` | Raw fixed struct; target filtering happens after parse. Mirrors `SetSceneSync`. |
+| `PlaylistManifest` | `PlaylistManifestMsg` variable-length (`count` entries) | header must be present, `count <= PLAYLIST_MANIFEST_ENTRIES_PER_MSG`, and buffer must contain all advertised entries | Mirrors `SceneManifest`. |
+| `PlaylistRequest` | `PlaylistRequestMsg` fixed-size | `len >= sizeof(PlaylistRequestMsg)` | Mirrors `SceneRequest`. |
+| `PlaylistChunk` | `PlaylistChunkMsg` variable-length (`dataLen` bytes used) | header must be present, `dataLen <= PLAYLIST_CHUNK_DATA_SIZE`, and buffer must contain all advertised bytes | Mirrors `SceneChunk`. Playlist metadata only — the audio files a playlist references are never sent this way. |
+| `PlaylistForceSet` | `PlaylistForceSetMsg` fixed-size | `len >= sizeof(PlaylistForceSetMsg)` | Mirrors `SceneForceSet`. |
+| `PlaylistEditPush` | `PlaylistEditPushMsg` fixed-size | `len >= sizeof(PlaylistEditPushMsg)` | Mirrors `SceneEditPush`. |
+| `RequestPlaylistManifest` | `RequestPlaylistManifestMsg` fixed-size | exact `sizeof(RequestPlaylistManifestMsg)` | No payload beyond message type. Mirrors `RequestManifest`. |
+| `PlayAudio` | `PlayAudioMsg` fixed-size | `len >= sizeof(PlayAudioMsg)` | Raw fixed struct. One-shot playback trigger — see `PlayAudioMsg`'s comment for the start-sync/participation contract. |
+| `StopAudio` | `StopAudioMsg` fixed-size | `len >= sizeof(StopAudioMsg)` | Raw fixed struct. |
 
 ## Audit conclusions
 

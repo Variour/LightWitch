@@ -42,6 +42,17 @@ class MeshManager {
         std::function<void(const uint8_t* mac, const char* id, uint32_t prevHash)>;
     using RequestManifestCb = std::function<void()>;
     using SetSceneSyncCb = std::function<void(bool enabled)>;
+    using AudioGroupSyncCb = std::function<void(const AudioGroupConfig&)>;
+    using PlaylistManifestCb = std::function<void(const uint8_t* mac, const PlaylistManifestMsg*)>;
+    using PlaylistRequestCb = std::function<void(const uint8_t* mac, const char* id)>;
+    using PlaylistChunkCb = std::function<void(const PlaylistChunkMsg*)>;
+    using PlaylistForceSetCb = std::function<void(const char* id, uint32_t hash)>;
+    using PlaylistEditPushCb =
+        std::function<void(const uint8_t* mac, const char* id, uint32_t prevHash)>;
+    using RequestPlaylistManifestCb = std::function<void()>;
+    using SetPlaylistSyncCb = std::function<void(bool enabled)>;
+    using PlayAudioCb = std::function<void(const PlayAudioMsg&)>;
+    using StopAudioCb = std::function<void(uint8_t audioGroupId)>;
     using ConfigChunkCb = std::function<void(const uint8_t* srcMac, const ConfigChunkMsg*)>;
     using TriggerUpdateCb = std::function<void()>;
     // Called when this device is told to check for a firmware update (no auto-install)
@@ -82,6 +93,18 @@ class MeshManager {
     void setOnSceneEditPush(SceneEditPushCb cb) { _onSceneEditPush = cb; }
     void setOnRequestManifest(RequestManifestCb cb) { _onRequestManifest = cb; }
     void setOnSetSceneSync(SetSceneSyncCb cb) { _onSetSceneSync = cb; }
+    void setOnAudioGroupSync(AudioGroupSyncCb cb) { _onAudioGroupSync = cb; }
+    void setOnPlaylistManifest(PlaylistManifestCb cb) { _onPlaylistManifest = cb; }
+    void setOnPlaylistRequest(PlaylistRequestCb cb) { _onPlaylistRequest = cb; }
+    void setOnPlaylistChunk(PlaylistChunkCb cb) { _onPlaylistChunk = cb; }
+    void setOnPlaylistForceSet(PlaylistForceSetCb cb) { _onPlaylistForceSet = cb; }
+    void setOnPlaylistEditPush(PlaylistEditPushCb cb) { _onPlaylistEditPush = cb; }
+    void setOnRequestPlaylistManifest(RequestPlaylistManifestCb cb) {
+        _onRequestPlaylistManifest = cb;
+    }
+    void setOnSetPlaylistSync(SetPlaylistSyncCb cb) { _onSetPlaylistSync = cb; }
+    void setOnPlayAudio(PlayAudioCb cb) { _onPlayAudio = cb; }
+    void setOnStopAudio(StopAudioCb cb) { _onStopAudio = cb; }
     void setOnConfigChunk(ConfigChunkCb cb) { _onConfigChunk = cb; }
     void setOnTriggerUpdate(TriggerUpdateCb cb) { _onTriggerUpdate = cb; }
     void setOnCheckUpdate(CheckUpdateCb cb) { _onCheckUpdate = cb; }
@@ -134,6 +157,11 @@ class MeshManager {
         if (now - _lastGroupSync >= 15000) {
             _lastGroupSync = now;
             broadcastAllGroups();
+        }
+        // Same self-healing re-advertisement as light groups above, for audio groups.
+        if (now - _lastAudioGroupSync >= 15000) {
+            _lastAudioGroupSync = now;
+            broadcastAllAudioGroups();
         }
 
         // Proximity: enable sniffer + ping if any light is in proximity mode
@@ -312,6 +340,80 @@ class MeshManager {
         _send(&msg, sizeof(msg));
     }
 
+    void broadcastAudioGroupSync(const AudioGroupConfig& g) {
+        if (!_ready) return;
+        AudioGroupSyncMsg msg;
+        msg.group = g;
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastAllAudioGroups() {
+        for (uint8_t i = 0; i < MAX_AUDIO_GROUPS; i++)
+            if (Config::get().audioGroups[i].exists) broadcastAudioGroupSync(Config::get().audioGroups[i]);
+    }
+
+    void broadcastPlaylistManifest(const PlaylistManifestMsg& msg) {
+        if (!_ready) return;
+        size_t msgSize =
+            offsetof(PlaylistManifestMsg, entries) + msg.count * sizeof(PlaylistManifestEntry);
+        _send(&msg, msgSize);
+    }
+
+    void broadcastPlaylistRequest(const char* id) {
+        if (!_ready) return;
+        PlaylistRequestMsg msg;
+        strlcpy(msg.id, id, PLAYLIST_ID_LEN);
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastPlaylistChunk(const PlaylistChunkMsg& msg) {
+        if (!_ready) return;
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastPlaylistEditPush(const char* id, uint32_t prevHash) {
+        if (!_ready) return;
+        PlaylistEditPushMsg msg;
+        strlcpy(msg.id, id, PLAYLIST_ID_LEN);
+        msg.prevHash = prevHash;
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastPlaylistForceSet(const char* id, uint32_t hash) {
+        if (!_ready) return;
+        PlaylistForceSetMsg msg;
+        strlcpy(msg.id, id, PLAYLIST_ID_LEN);
+        msg.hash = hash;
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastRequestPlaylistManifest() {
+        if (!_ready) return;
+        RequestPlaylistManifestMsg msg;
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastSetPlaylistSync(const uint8_t* targetMac, bool enabled) {
+        if (!_ready) return;
+        SetPlaylistSyncMsg msg;
+        msg.enabled = enabled ? 1 : 0;
+        memcpy(msg.targetMac, targetMac, 6);
+        _send(&msg, sizeof(msg));
+    }
+
+    // Triggers synchronized playback across an audio group — see PlayAudioMsg.
+    void broadcastPlayAudio(const PlayAudioMsg& msg) {
+        if (!_ready) return;
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastStopAudio(uint8_t audioGroupId) {
+        if (!_ready) return;
+        StopAudioMsg msg;
+        msg.audioGroupId = audioGroupId;
+        _send(&msg, sizeof(msg));
+    }
+
     void broadcastTriggerUpdate(const uint8_t* targetMac) {
         if (!_ready) return;
         TriggerUpdateMsg msg;
@@ -371,6 +473,7 @@ class MeshManager {
     uint32_t _lastHeartbeat = 0;
     uint32_t _lastMeshPolicySync = 0;
     uint32_t _lastGroupSync = 0;
+    uint32_t _lastAudioGroupSync = 0;
     uint32_t _lastPhaseBroadcast = 0;
     uint32_t _lastProximityPing = 0;
     uint8_t _lastSentGroup = 0xFF;
@@ -390,6 +493,16 @@ class MeshManager {
     SceneEditPushCb _onSceneEditPush;
     RequestManifestCb _onRequestManifest;
     SetSceneSyncCb _onSetSceneSync;
+    AudioGroupSyncCb _onAudioGroupSync;
+    PlaylistManifestCb _onPlaylistManifest;
+    PlaylistRequestCb _onPlaylistRequest;
+    PlaylistChunkCb _onPlaylistChunk;
+    PlaylistForceSetCb _onPlaylistForceSet;
+    PlaylistEditPushCb _onPlaylistEditPush;
+    RequestPlaylistManifestCb _onRequestPlaylistManifest;
+    SetPlaylistSyncCb _onSetPlaylistSync;
+    PlayAudioCb _onPlayAudio;
+    StopAudioCb _onStopAudio;
     ConfigChunkCb _onConfigChunk;
     TriggerUpdateCb _onTriggerUpdate;
     CheckUpdateCb _onCheckUpdate;
@@ -610,6 +723,15 @@ class MeshManager {
         if (Config::compareGroupRevision(local, remote) > 0) broadcastGroupSync(local);
     }
 
+    // Mirrors _reconcileGroupSync for AudioGroupConfig.
+    void _reconcileAudioGroupSync(const AudioGroupConfig& remote) {
+        if (remote.id >= MAX_AUDIO_GROUPS || !_onAudioGroupSync) return;
+        const AudioGroupConfig& local = Config::get().audioGroups[remote.id];
+        bool remoteAhead = !local.exists || Config::compareAudioGroupRevision(remote, local) > 0;
+        if (remoteAhead) _onAudioGroupSync(remote);
+        if (Config::compareAudioGroupRevision(local, remote) > 0) broadcastAudioGroupSync(local);
+    }
+
     template <typename T>
     static bool _hasExactLen(int len) {
         return len == (int)sizeof(T);
@@ -724,6 +846,7 @@ class MeshManager {
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, isNew);
                 if (isNew) {
                     _instance->broadcastAllGroups();
+                    _instance->broadcastAllAudioGroups();
                     _instance->broadcastMeshPolicy(_instance->_currentMeshPolicyState());
                 }
                 break;
@@ -887,6 +1010,77 @@ class MeshManager {
             case MsgType::MeshSearch: {
                 if (!_hasExactLen<MeshSearchMsg>(len)) return;
                 if (_instance->_onMeshSearch) _instance->_onMeshSearch();
+                break;
+            }
+            case MsgType::AudioGroupSync: {
+                if (len < (int)sizeof(AudioGroupSyncMsg)) return;
+                auto* m = (AudioGroupSyncMsg*)data;
+                _instance->_reconcileAudioGroupSync(m->group);
+                break;
+            }
+            case MsgType::PlaylistManifest: {
+                if (len < (int)offsetof(PlaylistManifestMsg, entries)) return;
+                auto* m = (PlaylistManifestMsg*)data;
+                if (!_hasVariableArrayLen(len, offsetof(PlaylistManifestMsg, entries), m->count,
+                                          sizeof(PlaylistManifestEntry),
+                                          PLAYLIST_MANIFEST_ENTRIES_PER_MSG))
+                    return;
+                if (_instance->_onPlaylistManifest) _instance->_onPlaylistManifest(mac, m);
+                break;
+            }
+            case MsgType::PlaylistRequest: {
+                if (len < (int)sizeof(PlaylistRequestMsg)) return;
+                auto* m = (PlaylistRequestMsg*)data;
+                if (_instance->_onPlaylistRequest) _instance->_onPlaylistRequest(mac, m->id);
+                break;
+            }
+            case MsgType::PlaylistChunk: {
+                if (len < (int)offsetof(PlaylistChunkMsg, data)) return;
+                auto* m = (PlaylistChunkMsg*)data;
+                if (!_hasVariablePayloadLen(len, offsetof(PlaylistChunkMsg, data), m->dataLen,
+                                            PLAYLIST_CHUNK_DATA_SIZE))
+                    return;
+                if (_instance->_onPlaylistChunk) _instance->_onPlaylistChunk(m);
+                break;
+            }
+            case MsgType::PlaylistForceSet: {
+                if (len < (int)sizeof(PlaylistForceSetMsg)) return;
+                auto* m = (PlaylistForceSetMsg*)data;
+                if (_instance->_onPlaylistForceSet) _instance->_onPlaylistForceSet(m->id, m->hash);
+                break;
+            }
+            case MsgType::PlaylistEditPush: {
+                if (len < (int)sizeof(PlaylistEditPushMsg)) return;
+                auto* m = (PlaylistEditPushMsg*)data;
+                if (_instance->_onPlaylistEditPush)
+                    _instance->_onPlaylistEditPush(mac, m->id, m->prevHash);
+                break;
+            }
+            case MsgType::RequestPlaylistManifest: {
+                if (!_hasExactLen<RequestPlaylistManifestMsg>(len)) return;
+                if (_instance->_onRequestPlaylistManifest) _instance->_onRequestPlaylistManifest();
+                break;
+            }
+            case MsgType::SetPlaylistSync: {
+                if (len < (int)sizeof(SetPlaylistSyncMsg)) return;
+                auto* m = (SetPlaylistSyncMsg*)data;
+                uint8_t own[6];
+                WiFi.macAddress(own);
+                if (memcmp(m->targetMac, own, 6) == 0) {
+                    if (_instance->_onSetPlaylistSync) _instance->_onSetPlaylistSync(m->enabled != 0);
+                }
+                break;
+            }
+            case MsgType::PlayAudio: {
+                if (len < (int)sizeof(PlayAudioMsg)) return;
+                auto* m = (PlayAudioMsg*)data;
+                if (_instance->_onPlayAudio) _instance->_onPlayAudio(*m);
+                break;
+            }
+            case MsgType::StopAudio: {
+                if (len < (int)sizeof(StopAudioMsg)) return;
+                auto* m = (StopAudioMsg*)data;
+                if (_instance->_onStopAudio) _instance->_onStopAudio(m->audioGroupId);
                 break;
             }
             default:
