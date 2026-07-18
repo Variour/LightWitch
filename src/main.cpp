@@ -163,8 +163,8 @@ static void applyPlayAudioLocally(const PlayAudioMsg& msg) {
     if (msg.isPlaylist) {
         String files[PlaylistManager::MAX_FILES_PER_PLAYLIST];
         bool loop = false;
-        uint8_t count =
-            PlaylistManager::readFiles(msg.id, files, PlaylistManager::MAX_FILES_PER_PLAYLIST, loop);
+        uint8_t count = PlaylistManager::readFiles(msg.id, files,
+                                                   PlaylistManager::MAX_FILES_PER_PLAYLIST, loop);
         if (count == 0) {
             Logger::i("[audio] playlist %s unknown/empty locally — not participating", msg.id);
             return;
@@ -846,7 +846,8 @@ void setup() {
     webServer.setOnSoundVolumeChange([](uint8_t idx, uint8_t volume) {
         if (idx < MAX_SOUNDS && Config::get().sounds[idx].exists) _sound.setVolume(volume);
     });
-    webServer.setOnAudioGroupSync([](const AudioGroupConfig& g) { mesh.broadcastAudioGroupSync(g); });
+    webServer.setOnAudioGroupSync(
+        [](const AudioGroupConfig& g) { mesh.broadcastAudioGroupSync(g); });
     webServer.setOnPlayFile([](uint8_t audioGroupId, const char* filename, bool loop) {
         triggerPlaySingleFile(audioGroupId, filename, loop);
     });

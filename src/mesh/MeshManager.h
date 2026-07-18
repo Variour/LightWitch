@@ -349,7 +349,8 @@ class MeshManager {
 
     void broadcastAllAudioGroups() {
         for (uint8_t i = 0; i < MAX_AUDIO_GROUPS; i++)
-            if (Config::get().audioGroups[i].exists) broadcastAudioGroupSync(Config::get().audioGroups[i]);
+            if (Config::get().audioGroups[i].exists)
+                broadcastAudioGroupSync(Config::get().audioGroups[i]);
     }
 
     void broadcastPlaylistManifest(const PlaylistManifestMsg& msg) {
@@ -1067,7 +1068,8 @@ class MeshManager {
                 uint8_t own[6];
                 WiFi.macAddress(own);
                 if (memcmp(m->targetMac, own, 6) == 0) {
-                    if (_instance->_onSetPlaylistSync) _instance->_onSetPlaylistSync(m->enabled != 0);
+                    if (_instance->_onSetPlaylistSync)
+                        _instance->_onSetPlaylistSync(m->enabled != 0);
                 }
                 break;
             }

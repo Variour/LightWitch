@@ -369,7 +369,7 @@ struct PlayAudioMsg {
     uint8_t isPlaylist;  // 0 = single file (filename below), 1 = playlist (id below)
     uint8_t loop;
     uint16_t startDelayMs;
-    char id[PLAYLIST_ID_LEN];            // playlist id, meaningful when isPlaylist
+    char id[PLAYLIST_ID_LEN];           // playlist id, meaningful when isPlaylist
     char filename[AUDIO_FILENAME_LEN];  // SD filename, meaningful when !isPlaylist
 };
 

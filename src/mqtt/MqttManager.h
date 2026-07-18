@@ -300,10 +300,10 @@ class MqttManager {
     char _user[32] = {};
     char _pass[64] = {};
 
-    char _groupPrefix[80] = {};       // "batterylight/<dev>/group/"
-    char _lightPrefix[80] = {};       // "batterylight/<dev>/light/"
-    char _groupSubWildcard[96] = {};  // "batterylight/<dev>/group/+/set"
-    char _lightSubWildcard[96] = {};  // "batterylight/<dev>/light/+/set"
+    char _groupPrefix[80] = {};            // "batterylight/<dev>/group/"
+    char _lightPrefix[80] = {};            // "batterylight/<dev>/light/"
+    char _groupSubWildcard[96] = {};       // "batterylight/<dev>/group/+/set"
+    char _lightSubWildcard[96] = {};       // "batterylight/<dev>/light/+/set"
     char _audioGroupPrefix[80] = {};       // "batterylight/<dev>/audiogroup/"
     char _audioGroupSubWildcard[96] = {};  // "batterylight/<dev>/audiogroup/+/set"
     char _updateSetTopic[112] = {};

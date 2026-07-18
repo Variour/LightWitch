@@ -54,7 +54,8 @@ class Es8311Driver : public SoundDriver {
     void setVolume(uint8_t volume) override;
 
    private:
-    static constexpr uint8_t MAX_PLAY_FILES = 32;  // mirrors PlaylistManager::MAX_FILES_PER_PLAYLIST
+    static constexpr uint8_t MAX_PLAY_FILES =
+        32;  // mirrors PlaylistManager::MAX_FILES_PER_PLAYLIST
 
     struct PlayerCommand {
         enum class Type : uint8_t { Play, Stop, SetVolume, TestMelody } type;

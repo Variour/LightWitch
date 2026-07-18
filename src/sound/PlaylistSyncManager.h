@@ -15,8 +15,13 @@
 // metadata (name/loop/file list) is ever synced this way — the audio files a
 // playlist references are never distributed over mesh (see PlayAudioMsg).
 
-static constexpr uint8_t PLAYLIST_SYNC_MAX_PEER_PLAYLISTS = 32;
-static constexpr uint8_t PLAYLIST_SYNC_MAX_FETCH_QUEUE = 8;
+// Smaller than SceneSyncManager's equivalents (32 scenes, 16 conflicts) —
+// this cache is PeerRegistry::MAX_PEERS-scaled (16), so at the scene-sized
+// value it alone ran the classic ESP32 target out of DRAM at link time.
+// Playlists are a much smaller, more occasional entity than scenes; 8 per
+// peer is generous for realistic use and saves ~15 KB of static RAM.
+static constexpr uint8_t PLAYLIST_SYNC_MAX_PEER_PLAYLISTS = 8;
+static constexpr uint8_t PLAYLIST_SYNC_MAX_FETCH_QUEUE = 4;
 static constexpr uint32_t PLAYLIST_SYNC_MAX_PLAYLIST_BYTES = 4096;
 static constexpr uint32_t PLAYLIST_SYNC_REQUEST_RETRY_MS = 6000;
 static constexpr uint8_t PLAYLIST_SYNC_MAX_RETRIES = 3;
@@ -199,8 +204,7 @@ class PlaylistSyncManager {
             ChunkRecvState& s = _recv[i];
             if (!s.active) continue;
             if (now - s.lastChunkMs > 10000) {
-                Logger::w("[plsync] receive timeout for %s, falling back to PlaylistRequest",
-                          s.id);
+                Logger::w("[plsync] receive timeout for %s, falling back to PlaylistRequest", s.id);
                 _enqueueRequest(s.id, s.autoApply);
                 _resetRecvSlot(s);
             }
@@ -331,7 +335,7 @@ class PlaylistSyncManager {
         PeerHash peerHashes[PeerRegistry::MAX_PEERS];
     };
 
-    static constexpr uint8_t MAX_CONFLICTS = 16;
+    static constexpr uint8_t MAX_CONFLICTS = 8;  // see PLAYLIST_SYNC_MAX_PEER_PLAYLISTS above
     Conflict _conflicts[MAX_CONFLICTS] = {};
     uint8_t _conflictCount = 0;
 
@@ -486,7 +490,8 @@ class PlaylistSyncManager {
         }
         strlcpy(_send.id, id, PLAYLIST_ID_LEN);
         _send.file = f;
-        _send.totalChunks = (uint16_t)((size + PLAYLIST_CHUNK_DATA_SIZE - 1) / PLAYLIST_CHUNK_DATA_SIZE);
+        _send.totalChunks =
+            (uint16_t)((size + PLAYLIST_CHUNK_DATA_SIZE - 1) / PLAYLIST_CHUNK_DATA_SIZE);
         _send.nextChunk = 0;
         _send.lastSendMs = 0;
         _send.active = true;
@@ -613,7 +618,8 @@ class PlaylistSyncManager {
         char id[PLAYLIST_ID_LEN];
         strlcpy(id, s->id, PLAYLIST_ID_LEN);
 
-        uint32_t totalSize = (uint32_t)(s->totalChunks - 1) * PLAYLIST_CHUNK_DATA_SIZE + lastMsg->dataLen;
+        uint32_t totalSize =
+            (uint32_t)(s->totalChunks - 1) * PLAYLIST_CHUNK_DATA_SIZE + lastMsg->dataLen;
         uint32_t incomingHash = PlaylistManager::crc32OfData(s->buffer, totalSize);
         uint32_t localHash = PlaylistManager::crc32(id);
         bool forced = strncmp(id, _forcedAcceptId, PLAYLIST_ID_LEN) == 0 && _forcedAcceptId[0] != 0;
@@ -686,7 +692,8 @@ class PlaylistSyncManager {
     void _broadcastManifest() {
         PlaylistManager::ManifestEntry allEntries[64];
         uint8_t total = PlaylistManager::buildManifestEntries(allEntries, 64);
-        uint8_t totalPages = (total + PLAYLIST_MANIFEST_ENTRIES_PER_MSG - 1) / PLAYLIST_MANIFEST_ENTRIES_PER_MSG;
+        uint8_t totalPages =
+            (total + PLAYLIST_MANIFEST_ENTRIES_PER_MSG - 1) / PLAYLIST_MANIFEST_ENTRIES_PER_MSG;
         if (totalPages == 0) totalPages = 1;
 
         uint8_t idx = 0;

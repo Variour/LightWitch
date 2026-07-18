@@ -316,10 +316,11 @@ class BatteryWebServer {
         // Specific routes registered before /api/playlists for the same
         // prefix-matching reason as scenes above.
         PlaylistManager::init();
-        _server.on("/api/playlists/create", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-                   [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                       _createPlaylist(r, d, l);
-                   });
+        _server.on(
+            "/api/playlists/create", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _createPlaylist(r, d, l);
+            });
         _server.on(
             "/api/playlists/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
