@@ -372,10 +372,11 @@ struct SoundHardwareConfig {
     // trigger targets a group, and every device whose sound output is a member
     // (and that locally has the referenced file) participates. See AudioGroupConfig.
     uint8_t audioGroupId = 0;
-    // Device-local output level, written directly to the codec's hardware volume
-    // register (ES8311 REG_DAC_VOLUME: 0 = mute, 255 = max) — not synced over mesh,
-    // not part of a play trigger, same "local to this device" treatment as
-    // LightHardwareConfig::brightnessOverride.
+    // Output level, written directly to the codec's hardware volume register
+    // (ES8311 REG_DAC_VOLUME: 0 = mute, 255 = max). Not part of a play
+    // trigger — set independently, but (unlike a light's brightnessOverride)
+    // settable from any device's dashboard for any peer, not just locally;
+    // see SetVolumeMsg.
     uint8_t volume = 200;
     bool exists = false;
 };

@@ -42,12 +42,14 @@ enum class MsgType : uint8_t {
     RequestPlaylistManifest = 30,
     PlayAudio = 31,
     StopAudio = 32,
+    SetSoundGroup = 33,
+    SetVolume = 34,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
 
 // Reset to 1 before first real deployment.
-static constexpr uint8_t PRESENCE_MSG_VERSION = 2;
+static constexpr uint8_t PRESENCE_MSG_VERSION = 3;
 
 // lightGroupIds: groupId for each light slot; 0xFF means that slot is empty.
 // Receivers require an exact sizeof(PresenceMsg) frame for this schema.
@@ -74,6 +76,16 @@ struct PresenceMsg {
     uint8_t batteryPresent;
     uint8_t batteryPercent;
     uint8_t batteryCharging;
+    // Sound output advertisement — mirrors lightGroupIds/lightNames but for the
+    // one sound output a device may have (see MAX_SOUNDS), so peers can render
+    // a "Connected Speakers" dashboard table and offer cross-device audio-group
+    // assignment/volume control the same way they do for lights (see
+    // SetSoundGroupMsg/SetVolumeMsg below). soundAudioGroupId/soundVolume are
+    // only meaningful when hasSound is set.
+    uint8_t hasSound;
+    uint8_t soundAudioGroupId;
+    uint8_t soundVolume;
+    char soundName[20];
 };
 
 struct LightConfigMsg {
@@ -88,6 +100,26 @@ struct SetGroupMsg {
     uint8_t targetMac[6];
     uint8_t lightIndex;
     uint8_t groupId;
+};
+
+// Broadcast to move a specific peer's sound output to a different audio group
+// — mirrors SetGroupMsg for lights (no light index equivalent since MAX_SOUNDS
+// is 1). Every receiving device applies it if targeted and updates its own
+// peer-registry cache of the target's group either way, same pattern as
+// SetGroupMsg (see MeshManager::setOnSetSoundGroup).
+struct SetSoundGroupMsg {
+    MsgType type = MsgType::SetSoundGroup;
+    uint8_t targetMac[6];
+    uint8_t audioGroupId;
+};
+
+// Broadcast to change a specific peer's sound output volume from any device's
+// dashboard — cross-device control, unlike SoundHardwareConfig::volume being
+// merely a local default. Mirrors SetSoundGroupMsg.
+struct SetVolumeMsg {
+    MsgType type = MsgType::SetVolume;
+    uint8_t targetMac[6];
+    uint8_t volume;
 };
 
 // Sent when a group is created, renamed, deleted, syncEnabled toggled, or its

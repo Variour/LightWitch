@@ -115,6 +115,11 @@ using PlayPlaylistCb = std::function<void(uint8_t audioGroupId, const char* play
 using StopAudioCb = std::function<void(uint8_t audioGroupId)>;
 // Called after a playlist is created or deleted (not edited) — mirrors SceneListChangedCb
 using PlaylistListChangedCb = std::function<void()>;
+// Called to move a specific peer's sound output to a different audio group — mirrors
+// SetRemoteGroupCb, called only for a genuinely remote target (own-mac is applied directly).
+using SetRemoteAudioGroupCb = std::function<void(const uint8_t* mac, uint8_t audioGroupId)>;
+// Called to change a specific peer's sound output volume — mirrors SetRemoteAudioGroupCb.
+using SetRemoteVolumeCb = std::function<void(const uint8_t* mac, uint8_t volume)>;
 
 class BatteryWebServer {
    private:
@@ -242,6 +247,16 @@ class BatteryWebServer {
             "/api/peers/setgroup", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
                 _setRemoteGroup(r, d, l);
+            });
+        _server.on(
+            "/api/peers/setaudiogroup", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _setRemoteAudioGroup(r, d, l);
+            });
+        _server.on(
+            "/api/peers/setvolume", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _setRemoteVolume(r, d, l);
             });
 
         _server.on("/api/lights", HTTP_GET, [this](AsyncWebServerRequest* r) { _getLights(r); });
@@ -732,6 +747,8 @@ class BatteryWebServer {
     void setOnPlayPlaylist(PlayPlaylistCb cb) { _onPlayPlaylist = cb; }
     void setOnStopAudio(StopAudioCb cb) { _onStopAudio = cb; }
     void setOnPlaylistListChanged(PlaylistListChangedCb cb) { _onPlaylistListChanged = cb; }
+    void setOnSetRemoteAudioGroup(SetRemoteAudioGroupCb cb) { _onSetRemoteAudioGroup = cb; }
+    void setOnSetRemoteVolume(SetRemoteVolumeCb cb) { _onSetRemoteVolume = cb; }
     void pushAudioGroups() { _pushAudioGroups(); }
 
    private:
@@ -784,6 +801,8 @@ class BatteryWebServer {
     PlayPlaylistCb _onPlayPlaylist;
     StopAudioCb _onStopAudio;
     PlaylistListChangedCb _onPlaylistListChanged;
+    SetRemoteAudioGroupCb _onSetRemoteAudioGroup;
+    SetRemoteVolumeCb _onSetRemoteVolume;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -1131,6 +1150,17 @@ class BatteryWebServer {
                 lo["brightnessOverride"] = c.lights[i].brightnessOverride;
             }
         }
+        {
+            self["sound"] = nullptr;
+            for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
+                if (!c.sounds[i].exists) continue;
+                JsonObject so = self["sound"].to<JsonObject>();
+                so["name"] = c.sounds[i].name;
+                so["audioGroupId"] = c.sounds[i].audioGroupId;
+                so["volume"] = c.sounds[i].volume;
+                break;
+            }
+        }
 
         JsonArray arr = doc["peers"].to<JsonArray>();
         if (_peers) {
@@ -1156,6 +1186,14 @@ class BatteryWebServer {
                     lo["index"] = i;
                     lo["name"] = p.lightNames[i];
                     lo["groupId"] = p.lightGroupIds[i];
+                }
+                if (p.hasSound) {
+                    JsonObject so = o["sound"].to<JsonObject>();
+                    so["name"] = p.soundName;
+                    so["audioGroupId"] = p.soundAudioGroupId;
+                    so["volume"] = p.soundVolume;
+                } else {
+                    o["sound"] = nullptr;
                 }
             }
         }
@@ -1312,6 +1350,69 @@ class BatteryWebServer {
         }
 
         if (_onSetRemote) _onSetRemote(mac, lightIndex, groupId);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/peers/setaudiogroup ────────────────────────────────────────
+    // Body: {mac, audioGroupId} — mirrors _setRemoteGroup for the (single, see
+    // MAX_SOUNDS) sound output a device may have.
+    void _setRemoteAudioGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t audioGroupId = doc["audioGroupId"] | (uint8_t)0;
+        const char* macStr = doc["mac"] | "";
+
+        if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
+            if (Config::audioGroup(audioGroupId)) {
+                Config::forEachSound(
+                    [&](uint8_t, SoundHardwareConfig& s) { s.audioGroupId = audioGroupId; });
+                Config::save();
+            }
+            auto ok = _makeOk();
+            _sendJson(r, 200, ok);
+            _pushPeers();
+            return;
+        }
+
+        uint8_t mac[6];
+        if (!_parseMac(macStr, mac)) {
+            auto e = _makeErr("bad mac");
+            _sendJson(r, 400, e);
+            return;
+        }
+
+        if (_onSetRemoteAudioGroup) _onSetRemoteAudioGroup(mac, audioGroupId);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/peers/setvolume ────────────────────────────────────────────
+    // Body: {mac, volume} — mirrors _setRemoteAudioGroup.
+    void _setRemoteVolume(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t volume = doc["volume"] | (uint8_t)0;
+        const char* macStr = doc["mac"] | "";
+
+        if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
+            Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) { s.volume = volume; });
+            Config::save();
+            if (_onSoundVolumeChange) _onSoundVolumeChange(0, volume);
+            auto ok = _makeOk();
+            _sendJson(r, 200, ok);
+            _pushPeers();
+            return;
+        }
+
+        uint8_t mac[6];
+        if (!_parseMac(macStr, mac)) {
+            auto e = _makeErr("bad mac");
+            _sendJson(r, 400, e);
+            return;
+        }
+
+        if (_onSetRemoteVolume) _onSetRemoteVolume(mac, volume);
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
     }

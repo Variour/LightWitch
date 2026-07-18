@@ -671,6 +671,35 @@ void setup() {
         publishTelemetry();
     });
 
+    // Another device told this device (or a peer) to move its sound output to
+    // a different audio group — mirrors setOnSetGroup above.
+    mesh.setOnSetSoundGroup([](const uint8_t* targetMac, uint8_t audioGroupId) {
+        uint8_t own[6];
+        WiFi.macAddress(own);
+        if (memcmp(targetMac, own, 6) == 0 && Config::audioGroup(audioGroupId)) {
+            Config::forEachSound(
+                [&](uint8_t, SoundHardwareConfig& s) { s.audioGroupId = audioGroupId; });
+            Config::save();
+            Logger::i("[mesh] sound output moved to audio group %u", audioGroupId);
+        }
+        mesh.peers.updateSoundGroup(targetMac, audioGroupId);
+        publishTelemetry();
+    });
+
+    // Another device told this device (or a peer) to change its sound output's
+    // volume — cross-device control from any dashboard, applied live.
+    mesh.setOnSetVolume([](const uint8_t* targetMac, uint8_t volume) {
+        uint8_t own[6];
+        WiFi.macAddress(own);
+        if (memcmp(targetMac, own, 6) == 0) {
+            Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) { s.volume = volume; });
+            Config::save();
+            _sound.setVolume(volume);
+        }
+        mesh.peers.updateSoundVolume(targetMac, volume);
+        publishTelemetry();
+    });
+
     mesh.setOnGroupSync([](const GroupConfig& g) {
         bool didApply = Config::applyGroupSync(g);
         // Re-check the actual local state after the merge: a stale tombstone
@@ -855,6 +884,11 @@ void setup() {
         triggerPlayPlaylist(audioGroupId, playlistId);
     });
     webServer.setOnStopAudio([](uint8_t audioGroupId) { triggerStopAudio(audioGroupId); });
+    webServer.setOnSetRemoteAudioGroup([](const uint8_t* mac, uint8_t audioGroupId) {
+        mesh.broadcastSetSoundGroup(mac, audioGroupId);
+    });
+    webServer.setOnSetRemoteVolume(
+        [](const uint8_t* mac, uint8_t volume) { mesh.broadcastSetVolume(mac, volume); });
     // No setOnPlaylistListChanged wiring: unlike scenes, playlists have no MQTT
     // HA-discovery entities to resync (see MqttManager.h — audio groups are
     // command-topic only, no state/discovery) and no PatternRunner-equivalent

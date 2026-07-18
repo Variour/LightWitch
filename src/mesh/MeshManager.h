@@ -53,6 +53,8 @@ class MeshManager {
     using SetPlaylistSyncCb = std::function<void(bool enabled)>;
     using PlayAudioCb = std::function<void(const PlayAudioMsg&)>;
     using StopAudioCb = std::function<void(uint8_t audioGroupId)>;
+    using SetSoundGroupCb = std::function<void(const uint8_t* targetMac, uint8_t audioGroupId)>;
+    using SetVolumeCb = std::function<void(const uint8_t* targetMac, uint8_t volume)>;
     using ConfigChunkCb = std::function<void(const uint8_t* srcMac, const ConfigChunkMsg*)>;
     using TriggerUpdateCb = std::function<void()>;
     // Called when this device is told to check for a firmware update (no auto-install)
@@ -105,6 +107,8 @@ class MeshManager {
     void setOnSetPlaylistSync(SetPlaylistSyncCb cb) { _onSetPlaylistSync = cb; }
     void setOnPlayAudio(PlayAudioCb cb) { _onPlayAudio = cb; }
     void setOnStopAudio(StopAudioCb cb) { _onStopAudio = cb; }
+    void setOnSetSoundGroup(SetSoundGroupCb cb) { _onSetSoundGroup = cb; }
+    void setOnSetVolume(SetVolumeCb cb) { _onSetVolume = cb; }
     void setOnConfigChunk(ConfigChunkCb cb) { _onConfigChunk = cb; }
     void setOnTriggerUpdate(TriggerUpdateCb cb) { _onTriggerUpdate = cb; }
     void setOnCheckUpdate(CheckUpdateCb cb) { _onCheckUpdate = cb; }
@@ -207,6 +211,22 @@ class MeshManager {
         msg.type = MsgType::SetGroup;
         msg.lightIndex = lightIndex;
         msg.groupId = groupId;
+        memcpy(msg.targetMac, targetMac, 6);
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastSetSoundGroup(const uint8_t* targetMac, uint8_t audioGroupId) {
+        if (!_ready) return;
+        SetSoundGroupMsg msg;
+        msg.audioGroupId = audioGroupId;
+        memcpy(msg.targetMac, targetMac, 6);
+        _send(&msg, sizeof(msg));
+    }
+
+    void broadcastSetVolume(const uint8_t* targetMac, uint8_t volume) {
+        if (!_ready) return;
+        SetVolumeMsg msg;
+        msg.volume = volume;
         memcpy(msg.targetMac, targetMac, 6);
         _send(&msg, sizeof(msg));
     }
@@ -504,6 +524,8 @@ class MeshManager {
     SetPlaylistSyncCb _onSetPlaylistSync;
     PlayAudioCb _onPlayAudio;
     StopAudioCb _onStopAudio;
+    SetSoundGroupCb _onSetSoundGroup;
+    SetVolumeCb _onSetVolume;
     ConfigChunkCb _onConfigChunk;
     TriggerUpdateCb _onTriggerUpdate;
     CheckUpdateCb _onCheckUpdate;
@@ -784,6 +806,18 @@ class MeshManager {
                 strlcpy(msg.lightNames[slot], l.name, 20);
             }
         });
+
+        msg.hasSound = 0;
+        msg.soundAudioGroupId = 0;
+        msg.soundVolume = 0;
+        msg.soundName[0] = '\0';
+        Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
+            msg.hasSound = 1;
+            msg.soundAudioGroupId = s.audioGroupId;
+            msg.soundVolume = s.volume;
+            strlcpy(msg.soundName, s.name, sizeof(msg.soundName));
+        });
+
         _send(&msg, sizeof(msg));
     }
 
@@ -842,7 +876,8 @@ class MeshManager {
                     mac, m->name, m->lightCount, m->lightGroupIds, m->lightNames,
                     m->sceneSyncEnabled != 0, m->wifiConnected != 0, m->fwVersion,
                     (FwState)m->fwState, m->hasWifiNetworks != 0, m->wifiConnecting != 0,
-                    m->batteryPresent != 0, m->batteryPercent, m->batteryCharging != 0);
+                    m->batteryPresent != 0, m->batteryPercent, m->batteryCharging != 0,
+                    m->hasSound != 0, m->soundAudioGroupId, m->soundVolume, m->soundName);
                 if (_instance->_onPeerHeard) _instance->_onPeerHeard(mac);
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, isNew);
                 if (isNew) {
@@ -873,6 +908,19 @@ class MeshManager {
                 if (_instance->_onSetGroup)
                     _instance->_onSetGroup(m->targetMac, m->lightIndex, m->groupId);
                 _instance->peers.updateLightGroup(mac, m->lightIndex, m->groupId);
+                break;
+            }
+            case MsgType::SetSoundGroup: {
+                if (len < (int)sizeof(SetSoundGroupMsg)) return;
+                auto* m = (SetSoundGroupMsg*)data;
+                if (_instance->_onSetSoundGroup)
+                    _instance->_onSetSoundGroup(m->targetMac, m->audioGroupId);
+                break;
+            }
+            case MsgType::SetVolume: {
+                if (len < (int)sizeof(SetVolumeMsg)) return;
+                auto* m = (SetVolumeMsg*)data;
+                if (_instance->_onSetVolume) _instance->_onSetVolume(m->targetMac, m->volume);
                 break;
             }
             case MsgType::GroupSync: {

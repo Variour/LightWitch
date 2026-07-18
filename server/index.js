@@ -22,6 +22,13 @@ function mockSelfLights() {
     ({ index, name, groupId, ledType, width, height, wrapWidth, brightnessOverrideEnabled, brightnessOverride }));
 }
 
+// Same "derive from the live hardware config, never a second static copy"
+// approach as mockSelfLights(), for the one sound output a device may have.
+function mockSelfSound() {
+  const sound = mockSounds.find(s => s.exists);
+  return sound ? { name: sound.name, audioGroupId: sound.audioGroupId, volume: sound.volume } : null;
+}
+
 const MOCK_CONFIG = {
   deviceName: 'Mock Device',
   otaPort: 3232,
@@ -111,10 +118,10 @@ const mockButtons = [
 // selfWithLights() from the module's wifiConnected SSID-tracking state below.
 const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  hasWifiNetworks: true,  wifiConnecting: false, channel: 6, channelSearching: false, version: '2026.06.27.0', fwState: 'checking', batteryPresent: true, batteryPercent: 82, batteryCharging: false };
 const MOCK_PEERS = [
-  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 46, batteryCharging: false },
-  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 12, batteryCharging: false },
-  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: false, wifiConnecting: false, version: '2026.06.27.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 97, batteryCharging: true  },
-  { name: 'Mock Light 5', mac: '55:66:77:88:99:aa', lights: [{ index: 0, name: 'Garage', groupId: 0 }], online: true,  rssi: -70, sceneSyncEnabled: true,  wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: true,  version: '2026.01.01.0', fwState: 'idle', batteryPresent: false, batteryPercent: 0,  batteryCharging: false },
+  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], sound: { name: 'Kitchen Speaker', audioGroupId: 0, volume: 180 }, online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 46, batteryCharging: false },
+  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], sound: null, online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 12, batteryCharging: false },
+  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], sound: { name: 'Living Room Speaker', audioGroupId: 1, volume: 220 }, online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: false, wifiConnecting: false, version: '2026.06.27.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 97, batteryCharging: true  },
+  { name: 'Mock Light 5', mac: '55:66:77:88:99:aa', lights: [{ index: 0, name: 'Garage', groupId: 0 }], sound: null, online: true,  rssi: -70, sceneSyncEnabled: true,  wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: true,  version: '2026.01.01.0', fwState: 'idle', batteryPresent: false, batteryPercent: 0,  batteryCharging: false },
 ];
 
 const wifiNetworks = [
@@ -159,6 +166,7 @@ function selfWithLights() {
     ip: wifiConnected !== null ? MOCK_SELF_IP : '',
     wifiAwaitingApConfirm: mockWifiAwaitingApConfirm,
     lights: mockSelfLights(),
+    sound: mockSelfSound(),
   };
 }
 
@@ -397,6 +405,26 @@ app.post('/api/peers/setgroup', (req, res) => {
   if (mac === MOCK_SELF.mac) {
     const light = mockLights.find(l => l.index === lightIndex);
     if (light) light.groupId = groupId;
+    broadcastPeers();
+  }
+  res.json({ ok: true });
+});
+app.post('/api/peers/setaudiogroup', (req, res) => {
+  const { mac, audioGroupId } = req.body || {};
+  // Mirrors /api/peers/setgroup: only self-mac assignments are persisted
+  // locally; remote peers would relay over the mesh on real hardware.
+  if (mac === MOCK_SELF.mac) {
+    const sound = mockSounds.find(s => s.exists);
+    if (sound && mockAudioGroups.find(g => g.id === audioGroupId)) sound.audioGroupId = audioGroupId;
+    broadcastPeers();
+  }
+  res.json({ ok: true });
+});
+app.post('/api/peers/setvolume', (req, res) => {
+  const { mac, volume } = req.body || {};
+  if (mac === MOCK_SELF.mac) {
+    const sound = mockSounds.find(s => s.exists);
+    if (sound) sound.volume = volume;
     broadcastPeers();
   }
   res.json({ ok: true });
@@ -651,8 +679,9 @@ app.post('/api/sounds/update', (req, res) => {
   const sound = mockSounds.find(s => s.index === index);
   if (!sound) return res.status(404).json({ error: 'not found' });
   const candidate = { ...sound, ...fields };
-  // audioGroupId/volume are neither hardware config (no reboot) nor
-  // mesh-synced state — applied live, same as WebServer.h::_updateSound.
+  // audioGroupId/volume aren't hardware config (no reboot needed) — applied
+  // live, same as WebServer.h::_updateSound. They're also settable
+  // cross-device via /api/peers/setaudiogroup and /api/peers/setvolume below.
   const hwChanged = Object.keys(fields).some(k => k !== 'name' && k !== 'audioGroupId' && k !== 'volume');
   if (hwChanged) {
     if ([candidate.i2sBclkPin, candidate.i2sWsPin, candidate.i2sDoutPin].includes(PIN_UNUSED)) {
@@ -662,6 +691,7 @@ app.post('/api/sounds/update', (req, res) => {
     if (conflict) return res.status(400).json({ error: conflict });
   }
   Object.assign(sound, fields);
+  broadcastPeers();
   res.json({ ok: true });
 });
 app.post('/api/sounds/delete', (req, res) => {

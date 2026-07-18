@@ -519,7 +519,7 @@ input[type=radio]:active { background-color: #1a5; }
 
   <!-- CONNECTED LIGHTS -->
   <div class="card">
-    <h2 style="margin:0 0 .5rem;display:flex;align-items:center;gap:.4rem">Connected Lights
+    <h2 style="margin:0 0 .5rem;display:flex;align-items:center;gap:.4rem">Connected Devices
       <button type="button" class="legend-toggle" aria-expanded="false" aria-controls="lights-legend" aria-label="What do these controls and icons mean?">i</button>
     </h2>
     <div class="legend" id="lights-legend">
@@ -576,7 +576,7 @@ input[type=radio]:active { background-color: #1a5; }
       <button type="button" class="legend-toggle" aria-expanded="false" aria-controls="audio-legend" aria-label="How does audio playback sync work?">i</button>
     </h2>
     <div class="legend" id="audio-legend">
-      <div class="legend-row"><b>Audio groups</b><span>A play/stop command targets a group — every device whose sound output is a member (and that locally has the file) plays in sync. Assign a device's sound output to a group under Settings → Hardware → Sound.</span></div>
+      <div class="legend-row"><b>Audio groups</b><span>A play/stop command targets a group — every device whose sound output is a member (and that locally has the file) plays in sync. Assign a device's sound output to a group — and set its volume — from any device's dashboard, in the Connected Lights table below (🔊 row per device).</span></div>
       <div class="legend-row"><b>Playlists</b><span>Ordered file lists with their own loop setting, synced across the mesh as metadata only — each device still needs the referenced files uploaded locally under Settings → Hardware → Storage.</span></div>
       <div class="legend-row"><b>Missing files</b><span>A device without a referenced file simply doesn't play it — no error, no warning.</span></div>
     </div>
@@ -1902,6 +1902,27 @@ function _renderLightGroupSelect(mac, light) {
   return `<select data-action="assignGroup" data-mac="${mac}" data-light-index="${light.index}">${_renderGroupOptions(light.groupId)}</select>`;
 }
 
+function _renderAudioGroupOptions(selectedGroupId) {
+  return _audioGroups.map(g =>
+    `<option value="${g.id}"${g.id === selectedGroupId ? ' selected' : ''}>${esc(g.name)}</option>`
+  ).join('');
+}
+
+// Audio group + volume for a device's sound output — shown alongside its
+// lights in the same Connected Lights row, same as _renderLightGroupSelect,
+// but (unlike light group assignment) settable for any peer, not just self:
+// there's no local-only "brightness override" equivalent restriction here.
+function _renderSoundControl(mac, sound) {
+  if (!sound) return '';
+  const label = sound.name ? esc(sound.name) : 'Speaker';
+  return `<div class="sound-row" style="display:flex;align-items:center;gap:.35rem;margin-top:.3rem" title="Audio group and volume for this device's speaker">
+    <span style="font-size:.72rem;color:#888;white-space:nowrap">🔊 ${label}</span>
+    <select data-action="assignAudioGroup" data-mac="${mac}">${_renderAudioGroupOptions(sound.audioGroupId)}</select>
+    <input type="range" min="0" max="255" value="${sound.volume}" style="flex:1;min-width:60px;margin:0"
+           aria-label="Volume for ${label}" title="Volume" data-action="onSpeakerVolumeInput" data-mac="${mac}">
+  </div>`;
+}
+
 // Ad-hoc per-light brightness override — only ever shown for this device's own
 // lights (see renderLights): overriding a remote peer's light isn't wired up,
 // the override is local-only hardware config, not a mesh-synced setting.
@@ -2112,7 +2133,8 @@ function renderLights(self, peers, wifiSingleClientMode) {
 
     const pushCell = p.isSelf ? '' : `<button class="btn-ghost btn-sm" data-action="openPushModal" data-mac="${mac}" data-name="${esc(p.name)}">Push</button>`;
     const lights = p.lights || [];
-    const groupSelects = lights.length === 0
+    const soundHtml = _renderSoundControl(mac, p.sound);
+    const groupSelects = (lights.length === 0
       ? '<span style="color:#555;font-size:.78rem">no lights</span>'
       : lights.map(l => {
           const lightLabel = l.name ? esc(l.name) : `L${l.index}`;
@@ -2122,9 +2144,9 @@ function renderLights(self, peers, wifiSingleClientMode) {
             <div style="display:flex;align-items:center;gap:.25rem">${label}${_renderLightGroupSelect(mac, l)}</div>
             ${override}
           </div>`;
-        }).join('');
+        }).join('')) + soundHtml;
 
-    const mobileLights = lights.length === 0
+    const mobileLights = (lights.length === 0
       ? '<div class="light-device-empty">No lights exposed</div>'
       : lights.map(l => {
           const lightLabel = l.name ? esc(l.name) : `Light ${l.index}`;
@@ -2136,7 +2158,7 @@ function renderLights(self, peers, wifiSingleClientMode) {
             ${_renderLightGroupSelect(mac, l)}
             ${override}
           </div>`;
-        }).join('');
+        }).join('')) + soundHtml;
 
     const mobileIcons = [
       dot,
@@ -2277,6 +2299,28 @@ async function assignGroup(mac, lightIndex, groupId) {
   }, 'Failed to assign group');
 }
 
+async function assignAudioGroup(mac, audioGroupId) {
+  await _fetchOrToast('/api/peers/setaudiogroup', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({mac, audioGroupId})
+  }, 'Failed to assign audio group');
+}
+
+// Debounced while dragging, same pattern as onLightBrightnessOverrideInput —
+// keyed per-mac since multiple devices' sliders can exist on screen at once.
+function onSpeakerVolumeInput(sliderEl) {
+  const mac = sliderEl.dataset.mac;
+  clearTimeout(_debounce['vol-' + mac]);
+  _debounce['vol-' + mac] = setTimeout(() => setSpeakerVolume(mac, parseInt(sliderEl.value)), 300);
+}
+
+async function setSpeakerVolume(mac, volume) {
+  await _fetchOrToast('/api/peers/setvolume', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({mac, volume})
+  }, 'Failed to set volume');
+}
+
 async function setSceneSync(mac, enabled) {
   await _fetchOrToast('/api/peers/setscenesync', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -2296,11 +2340,13 @@ for (const rootId of ['lights-body', 'lights-mobile-list']) {
   });
   _delegate(rootId, 'change', {
     assignGroup:                     el => assignGroup(el.dataset.mac, Number(el.dataset.lightIndex), parseInt(el.value)),
+    assignAudioGroup:                el => assignAudioGroup(el.dataset.mac, parseInt(el.value)),
     onLightBrightnessOverrideToggle: el => onLightBrightnessOverrideToggle(el),
     setSceneSync:                    el => setSceneSync(el.dataset.mac, el.checked),
   });
   _delegate(rootId, 'input', {
     onLightBrightnessOverrideInput: el => onLightBrightnessOverrideInput(el),
+    onSpeakerVolumeInput:           el => onSpeakerVolumeInput(el),
   });
 }
 
@@ -5322,8 +5368,6 @@ function renderSoundsHw(sounds) {
     const pa = s.paEnablePin === PIN_UNUSED ? 'none'
       : s.paViaExpander ? `TCA9555:${s.paEnablePin}`
       : `GPIO${s.paEnablePin}`;
-    const audioGroupId = s.audioGroupId || 0;
-    const volume = s.volume ?? 200;
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div class="light-hw-row">
         <div>
@@ -5337,18 +5381,7 @@ function renderSoundsHw(sounds) {
         </div>
       </div>
       <div style="font-size:.8rem;color:#888;margin-top:.25rem">i2c addr=0x${s.i2cAddress.toString(16)} · i2s bclk=GPIO${s.i2sBclkPin} ws=GPIO${s.i2sWsPin} dout=GPIO${s.i2sDoutPin} mclk=${mclk} · pa=${pa}</div>
-      <div class="row" style="margin-top:.5rem">
-        <div>
-          <label style="margin:0 0 .2rem">Audio group</label>
-          <select data-action="onSoundAudioGroupChange" data-index="${s.index}" style="margin-bottom:0">
-            ${_audioGroups.map(g => `<option value="${g.id}"${audioGroupId === g.id ? ' selected' : ''}>${esc(g.name)}</option>`).join('')}
-          </select>
-        </div>
-        <div>
-          <label style="margin:0 0 .2rem">Volume <span id="sound-vol-label-${s.index}">${Math.round((volume / 255) * 100)}%</span></label>
-          <input type="range" min="0" max="255" value="${volume}" data-action="onSoundVolumeInput" data-index="${s.index}" style="margin-bottom:0">
-        </div>
-      </div>
+      <div style="font-size:.78rem;color:#666;margin-top:.4rem">Audio group and volume: manage on the Dashboard, in the Connected Lights table — same as light group assignment, and controllable from any device in the mesh.</div>
     </div>`;
   }).join('');
 }
@@ -5358,31 +5391,6 @@ _delegate('sounds-hw-list', 'click', {
   openEditSoundModal: el => openEditSoundModal(_sounds.find(s => s.index === Number(el.dataset.index))),
   deleteSound:        el => deleteSound(Number(el.dataset.index)),
 });
-_delegate('sounds-hw-list', 'change', {
-  onSoundAudioGroupChange: el => setSoundAudioGroup(Number(el.dataset.index), Number(el.value)),
-});
-_delegate('sounds-hw-list', 'input', {
-  onSoundVolumeInput: el => onSoundVolumeInput(Number(el.dataset.index), el.value),
-});
-
-async function setSoundAudioGroup(index, audioGroupId) {
-  await _fetchOrToast('/api/sounds/update', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({index, audioGroupId})
-  }, 'Failed to set audio group');
-}
-
-function onSoundVolumeInput(index, value) {
-  const label = $(`sound-vol-label-${index}`);
-  if (label) label.textContent = Math.round((value / 255) * 100) + '%';
-  clearTimeout(_debounce['sound-vol-' + index]);
-  _debounce['sound-vol-' + index] = setTimeout(() => {
-    _fetchOrToast('/api/sounds/update', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({index, volume: Number(value)})
-    }, 'Failed to set volume');
-  }, 300);
-}
 
 let _editSoundIndex = null;
 
@@ -5620,6 +5628,7 @@ function renderAudioGroupsList(groups) {
   }
   renderSoundsHw(_sounds);  // refresh sound cards' group dropdowns with fresh names
   renderPlayAudioGroupOptions();
+  renderLights(_self, _peers);  // refresh Connected Lights' speaker group dropdowns too
 }
 
 _delegate('audiogroups-list', 'change', {
