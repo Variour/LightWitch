@@ -119,7 +119,8 @@ using PlaylistListChangedCb = std::function<void()>;
 // SetRemoteGroupCb, called only for a genuinely remote target (own-mac is applied directly).
 using SetRemoteAudioGroupCb = std::function<void(const uint8_t* mac, uint8_t audioGroupId)>;
 // Called to change a specific peer's sound output volume — mirrors SetRemoteAudioGroupCb.
-using SetRemoteVolumeCb = std::function<void(const uint8_t* mac, uint8_t volume)>;
+using SetRemoteVolumeCb =
+    std::function<void(const uint8_t* mac, uint8_t volume, bool overrideEnabled)>;
 
 class BatteryWebServer {
    private:
@@ -1157,7 +1158,11 @@ class BatteryWebServer {
                 JsonObject so = self["sound"].to<JsonObject>();
                 so["name"] = c.sounds[i].name;
                 so["audioGroupId"] = c.sounds[i].audioGroupId;
-                so["volume"] = c.sounds[i].volume;
+                so["volumeOverrideEnabled"] = c.sounds[i].volumeOverrideEnabled;
+                // Effective (currently applied) volume — own override if
+                // enabled, else the audio group's shared volume. See
+                // Config::effectiveSoundVolume.
+                so["volume"] = Config::effectiveSoundVolume(c.sounds[i]);
                 break;
             }
         }
@@ -1191,7 +1196,8 @@ class BatteryWebServer {
                     JsonObject so = o["sound"].to<JsonObject>();
                     so["name"] = p.soundName;
                     so["audioGroupId"] = p.soundAudioGroupId;
-                    so["volume"] = p.soundVolume;
+                    so["volumeOverrideEnabled"] = p.soundVolumeOverrideEnabled;
+                    so["volume"] = p.soundVolume;  // effective volume, see PresenceMsg::soundVolume
                 } else {
                     o["sound"] = nullptr;
                 }
@@ -1388,16 +1394,23 @@ class BatteryWebServer {
     }
 
     // ── POST /api/peers/setvolume ────────────────────────────────────────────
-    // Body: {mac, volume} — mirrors _setRemoteAudioGroup.
+    // Body: {mac, volume, overrideEnabled} — mirrors _setRemoteAudioGroup.
+    // overrideEnabled=false clears the override (the target reverts to
+    // following its audio group's shared volume); volume is only meaningful
+    // when overrideEnabled is true.
     void _setRemoteVolume(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
         uint8_t volume = (uint8_t)constrain((int)(doc["volume"] | (uint8_t)0), SOUND_VOLUME_MIN,
                                             SOUND_VOLUME_MAX);
+        bool overrideEnabled = doc["overrideEnabled"] | false;
         const char* macStr = doc["mac"] | "";
 
         if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
-            Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) { s.volume = volume; });
+            Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
+                s.volumeOverrideEnabled = overrideEnabled;
+                if (overrideEnabled) s.volume = volume;
+            });
             Config::save();
             if (_onSoundVolumeChange) _onSoundVolumeChange(0, volume);
             auto ok = _makeOk();
@@ -1413,7 +1426,7 @@ class BatteryWebServer {
             return;
         }
 
-        if (_onSetRemoteVolume) _onSetRemoteVolume(mac, volume);
+        if (_onSetRemoteVolume) _onSetRemoteVolume(mac, volume, overrideEnabled);
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
     }
@@ -2278,11 +2291,19 @@ class BatteryWebServer {
         auto& existing = Config::get().sounds[idx];
         if (!doc["name"].isNull()) strlcpy(existing.name, doc["name"] | "", sizeof(existing.name));
 
-        // Group membership and volume aren't hardware config (no reboot needed)
-        // — applied immediately, volume live to the driver. Also settable
-        // cross-device via /api/peers/setaudiogroup and /api/peers/setvolume.
-        if (!doc["audioGroupId"].isNull()) existing.audioGroupId = doc["audioGroupId"];
+        // Group membership, volume, and its override flag aren't hardware config
+        // (no reboot needed) — applied immediately, volume live to the driver.
+        // Also settable cross-device via /api/peers/setaudiogroup and
+        // /api/peers/setvolume.
         bool volumeChanged = false;
+        if (!doc["audioGroupId"].isNull()) {
+            existing.audioGroupId = doc["audioGroupId"];
+            volumeChanged = true;  // this sound's shared-volume source just changed
+        }
+        if (!doc["volumeOverrideEnabled"].isNull()) {
+            existing.volumeOverrideEnabled = doc["volumeOverrideEnabled"];
+            volumeChanged = true;
+        }
         if (!doc["volume"].isNull()) {
             existing.volume =
                 (uint8_t)constrain((int)doc["volume"], SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
@@ -2429,7 +2450,8 @@ class BatteryWebServer {
     }
 
     // ── POST /api/audiogroups/update ─────────────────────────────────────────
-    // Body: {id, name}
+    // Body: {id, name?, volume?} — volume is this group's shared volume,
+    // followed live by every member device without its own volumeOverrideEnabled.
     void _updateAudioGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2441,6 +2463,8 @@ class BatteryWebServer {
             return;
         }
         if (!doc["name"].isNull()) strlcpy(g->name, doc["name"], sizeof(g->name));
+        if (!doc["volume"].isNull())
+            g->volume = (uint8_t)constrain((int)doc["volume"], SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
         Config::bumpAudioGroupRevision(*g);
         Config::save();
         if (_onAudioGroupSync) _onAudioGroupSync(*g);

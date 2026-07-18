@@ -135,6 +135,17 @@ static void publishGroupSync(const GroupConfig& g) {
         mqtt.clearGroupRetained(g.id);
 }
 
+// ── Audio volume ─────────────────────────────────────────────────────────────
+// Recomputes this device's sound output's effective volume (own override if
+// enabled, else its audio group's shared volume — see
+// Config::effectiveSoundVolume) and applies it live. Call after anything that
+// could change the outcome: this device's own override/value, its group
+// membership, or that group's shared volume.
+static void applyEffectiveVolume() {
+    Config::forEachSound(
+        [](uint8_t, SoundHardwareConfig& s) { _sound.setVolume(Config::effectiveSoundVolume(s)); });
+}
+
 // ── Audio playback triggers ─────────────────────────────────────────────────
 // Fixed lead time given to every scheduled PlayAudio trigger — see
 // PlayAudioMsg's contract in MeshTypes.h. Generous enough to absorb SD-card
@@ -486,6 +497,7 @@ void setup() {
         _sound.begin();
         _sound.setSdCard(&_sdCard);
     });
+    applyEffectiveVolume();
 
     // Wire MQTT: every group and light gets its own topic (see MqttManager.h) —
     // funnels into the same apply/propagate + mesh-broadcast paths web/buttons use.
@@ -609,6 +621,11 @@ void setup() {
                 if (s.audioGroupId == g.id) s.audioGroupId = 0;
             });
             Config::save();
+            applyEffectiveVolume();
+        } else if (didApply) {
+            // Adopted (possibly changed) volume — re-apply if this device is a
+            // member and isn't overriding it.
+            applyEffectiveVolume();
         }
         if (didApply || !applied) webServer.pushAudioGroups();
     });
@@ -680,6 +697,7 @@ void setup() {
             Config::forEachSound(
                 [&](uint8_t, SoundHardwareConfig& s) { s.audioGroupId = audioGroupId; });
             Config::save();
+            applyEffectiveVolume();  // its shared volume comes from the new group now
             Logger::i("[mesh] sound output moved to audio group %u", audioGroupId);
         }
         mesh.peers.updateSoundGroup(targetMac, audioGroupId);
@@ -687,17 +705,23 @@ void setup() {
     });
 
     // Another device told this device (or a peer) to change its sound output's
-    // volume — cross-device control from any dashboard, applied live.
-    mesh.setOnSetVolume([](const uint8_t* targetMac, uint8_t volume) {
+    // volume override — cross-device control from any dashboard, applied live.
+    // overrideEnabled=false clears the override (revert to following the
+    // audio group's shared volume) — see SetVolumeMsg.
+    mesh.setOnSetVolume([](const uint8_t* targetMac, uint8_t volume, bool overrideEnabled) {
         volume = (uint8_t)constrain((int)volume, SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
         uint8_t own[6];
         WiFi.macAddress(own);
         if (memcmp(targetMac, own, 6) == 0) {
-            Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) { s.volume = volume; });
+            Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
+                s.volumeOverrideEnabled = overrideEnabled;
+                if (overrideEnabled) s.volume = volume;
+            });
             Config::save();
-            _sound.setVolume(volume);
+            applyEffectiveVolume();
         }
-        mesh.peers.updateSoundVolume(targetMac, volume);
+        mesh.peers.updateSoundVolumeOverride(targetMac, overrideEnabled);
+        if (overrideEnabled) mesh.peers.updateSoundVolume(targetMac, volume);
         publishTelemetry();
     });
 
@@ -873,11 +897,13 @@ void setup() {
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
     webServer.setPlaylistSync(&playlistSync);
-    webServer.setOnSoundVolumeChange([](uint8_t idx, uint8_t volume) {
-        if (idx < MAX_SOUNDS && Config::get().sounds[idx].exists) _sound.setVolume(volume);
+    // idx/volume args no longer directly meaningful (volume now only applies
+    // when that sound's volumeOverrideEnabled is set) — just re-resolve.
+    webServer.setOnSoundVolumeChange([](uint8_t, uint8_t) { applyEffectiveVolume(); });
+    webServer.setOnAudioGroupSync([](const AudioGroupConfig& g) {
+        mesh.broadcastAudioGroupSync(g);
+        applyEffectiveVolume();  // in case this device is a member and isn't overriding
     });
-    webServer.setOnAudioGroupSync(
-        [](const AudioGroupConfig& g) { mesh.broadcastAudioGroupSync(g); });
     webServer.setOnPlayFile([](uint8_t audioGroupId, const char* filename, bool loop) {
         triggerPlaySingleFile(audioGroupId, filename, loop);
     });
@@ -888,8 +914,9 @@ void setup() {
     webServer.setOnSetRemoteAudioGroup([](const uint8_t* mac, uint8_t audioGroupId) {
         mesh.broadcastSetSoundGroup(mac, audioGroupId);
     });
-    webServer.setOnSetRemoteVolume(
-        [](const uint8_t* mac, uint8_t volume) { mesh.broadcastSetVolume(mac, volume); });
+    webServer.setOnSetRemoteVolume([](const uint8_t* mac, uint8_t volume, bool overrideEnabled) {
+        mesh.broadcastSetVolume(mac, volume, overrideEnabled);
+    });
     // No setOnPlaylistListChanged wiring: unlike scenes, playlists have no MQTT
     // HA-discovery entities to resync (see MqttManager.h — audio groups are
     // command-topic only, no state/discovery) and no PatternRunner-equivalent

@@ -131,6 +131,9 @@ void serializeSound(JsonObject o, const SoundHardwareConfig& s) {
     o["paEnablePin"] = s.paEnablePin;
     o["paEnableActiveHigh"] = s.paEnableActiveHigh;
     o["paViaExpander"] = s.paViaExpander;
+    o["audioGroupId"] = s.audioGroupId;
+    o["volumeOverrideEnabled"] = s.volumeOverrideEnabled;
+    o["volume"] = s.volume;
     o["exists"] = s.exists;
 }
 
@@ -146,6 +149,7 @@ void deserializeSound(JsonVariant o, SoundHardwareConfig& s) {
     s.paEnableActiveHigh = o["paEnableActiveHigh"] | true;
     s.paViaExpander = o["paViaExpander"] | false;
     s.audioGroupId = o["audioGroupId"] | (uint8_t)0;
+    s.volumeOverrideEnabled = o["volumeOverrideEnabled"] | false;
     s.volume =
         (uint8_t)constrain((int)(o["volume"] | (uint8_t)200), SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
     s.exists = o["exists"] | false;
@@ -155,12 +159,15 @@ void serializeAudioGroup(JsonObject o, const AudioGroupConfig& g) {
     o["id"] = g.id;
     o["name"] = g.name;
     o["exists"] = g.exists;
+    o["volume"] = g.volume;
 }
 
 void deserializeAudioGroup(JsonVariant o, AudioGroupConfig& g) {
     g.id = o["id"] | (uint8_t)0;
     g.exists = o["exists"] | false;
     strlcpy(g.name, o["name"] | "Default", sizeof(g.name));
+    g.volume =
+        (uint8_t)constrain((int)(o["volume"] | (uint8_t)200), SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
 }
 
 static bool migrateDoc(JsonDocument& doc) {

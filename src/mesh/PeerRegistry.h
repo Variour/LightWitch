@@ -15,6 +15,7 @@ struct PeerInfo {
     bool hasSound = false;
     uint8_t soundAudioGroupId = 0;
     uint8_t soundVolume = 0;
+    bool soundVolumeOverrideEnabled = false;
     char soundName[20] = {};
     uint32_t lastSeen = 0;
     bool active = false;
@@ -54,7 +55,7 @@ class PeerRegistry {
                 bool wifiConnecting = false, bool batteryPresent = false,
                 uint8_t batteryPercent = 0, bool batteryCharging = false, bool hasSound = false,
                 uint8_t soundAudioGroupId = 0, uint8_t soundVolume = 0,
-                const char* soundName = "") {
+                bool soundVolumeOverrideEnabled = false, const char* soundName = "") {
         PeerInfo* p = _find(mac);
         bool isNew = (p == nullptr || !p->active);
         if (!p) p = _slot();
@@ -94,6 +95,7 @@ class PeerRegistry {
         p->hasSound = hasSound;
         p->soundAudioGroupId = soundAudioGroupId;
         p->soundVolume = soundVolume;
+        p->soundVolumeOverrideEnabled = soundVolumeOverrideEnabled;
         strlcpy(p->soundName, soundName, sizeof(p->soundName));
         p->lastSeen = millis();
         p->active = true;
@@ -137,6 +139,15 @@ class PeerRegistry {
         if (auto* p = _find(mac)) {
             if (p->soundVolume != volume) {
                 p->soundVolume = volume;
+                if (_onChange) _onChange();
+            }
+        }
+    }
+
+    void updateSoundVolumeOverride(const uint8_t* mac, bool enabled) {
+        if (auto* p = _find(mac)) {
+            if (p->soundVolumeOverrideEnabled != enabled) {
+                p->soundVolumeOverrideEnabled = enabled;
                 if (_onChange) _onChange();
             }
         }

@@ -376,14 +376,22 @@ struct SoundHardwareConfig {
     bool paViaExpander = false;
     // Which AudioGroupConfig this device's sound output belongs to — a play/stop
     // trigger targets a group, and every device whose sound output is a member
-    // (and that locally has the referenced file) participates. See AudioGroupConfig.
+    // (and that locally has the referenced file) participates. Also determines
+    // which group's shared volume this device follows when volumeOverrideEnabled
+    // is false. See AudioGroupConfig.
     uint8_t audioGroupId = 0;
+    // When true, this device's sound output uses `volume` instead of following
+    // its audio group's shared volume (AudioGroupConfig::volume) — mirrors
+    // LightHardwareConfig::brightnessOverride(Enabled), but (unlike that) both
+    // this flag and `volume` remain settable from any device's dashboard for
+    // any peer, not just locally; see SetVolumeMsg.
+    bool volumeOverrideEnabled = false;
     // Output level, written directly to the codec's hardware volume register
-    // (ES8311 REG_DAC_VOLUME). Clamped to [SOUND_VOLUME_MIN, SOUND_VOLUME_MAX]
-    // everywhere it's set, not the register's full 0-255 range. Not part of a
-    // play trigger — set independently, but (unlike a light's
-    // brightnessOverride) settable from any device's dashboard for any peer,
-    // not just locally; see SetVolumeMsg.
+    // (ES8311 REG_DAC_VOLUME) when volumeOverrideEnabled is set — otherwise
+    // this device's sound output follows its audio group's shared volume
+    // instead (see AudioGroupConfig::volume). Clamped to [SOUND_VOLUME_MIN,
+    // SOUND_VOLUME_MAX] everywhere it's set, not the register's full 0-255
+    // range.
     uint8_t volume = 200;
     bool exists = false;
 };
@@ -395,16 +403,20 @@ static constexpr uint8_t MAX_AUDIO_GROUPS = 8;
 
 // A named grouping of sound outputs (see SoundHardwareConfig::audioGroupId) that a
 // play/stop trigger targets together — the audio-side equivalent of a light
-// GroupConfig. Unlike GroupConfig there is no per-group runtime payload and no
-// continuous phase sync: playback triggers are one-shot broadcast events (see
-// PlayAudioMsg), so this struct only carries identity (name/exists), not state.
-// Same revision+originMac reconciliation pattern as GroupConfig — see
+// GroupConfig. Unlike GroupConfig there's no continuous phase sync (playback
+// triggers are one-shot broadcast events, see PlayAudioMsg), but `volume` is
+// genuinely shared, continuously-synced state — every member device without
+// its own volumeOverrideEnabled follows it live, mirroring LightConfig's
+// relationship to a light's brightnessOverride. Same revision+originMac
+// reconciliation pattern as GroupConfig — see
 // Config::applyAudioGroupSync/compareAudioGroupRevision — the whole group
-// (name/exists together) moves and reconciles as one unit.
+// (name/exists/volume together) moves and reconciles as one unit.
 struct AudioGroupConfig {
     uint8_t id = 0;
     char name[24] = {};
     bool exists = false;
+    uint8_t volume =
+        200;  // clamped to [SOUND_VOLUME_MIN, SOUND_VOLUME_MAX], see SoundHardwareConfig
     uint32_t revision = 0;
     uint8_t originMac[6] = {};
 };
@@ -573,6 +585,17 @@ class Config {
     // Merges an incoming AudioGroupSync against local state — mirrors applyGroupSync.
     // Returns true if it was adopted (caller should persist).
     static bool applyAudioGroupSync(const AudioGroupConfig& g);
+
+    // Resolves a sound output's currently-applicable volume: its own override
+    // when volumeOverrideEnabled, otherwise its audio group's shared volume
+    // (falling back to s.volume itself if that group doesn't exist, e.g. a
+    // stale audioGroupId). Shared by presence advertisement, the peers JSON,
+    // and the driver-applying code so all three agree.
+    static uint8_t effectiveSoundVolume(const SoundHardwareConfig& s) {
+        if (s.volumeOverrideEnabled) return s.volume;
+        AudioGroupConfig* g = audioGroup(s.audioGroupId);
+        return g ? g->volume : s.volume;
+    }
 
     // Merges an incoming GroupSync against local state. A single revision +
     // originMac now governs the whole group (see GroupConfig::revision), so

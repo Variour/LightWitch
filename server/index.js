@@ -26,7 +26,16 @@ function mockSelfLights() {
 // approach as mockSelfLights(), for the one sound output a device may have.
 function mockSelfSound() {
   const sound = mockSounds.find(s => s.exists);
-  return sound ? { name: sound.name, audioGroupId: sound.audioGroupId, volume: sound.volume } : null;
+  return sound ? { name: sound.name, audioGroupId: sound.audioGroupId,
+    volumeOverrideEnabled: sound.volumeOverrideEnabled, volume: effectiveSoundVolume(sound) } : null;
+}
+
+// Mirrors Config::effectiveSoundVolume: own override if enabled, else the
+// audio group's shared volume.
+function effectiveSoundVolume(sound) {
+  if (sound.volumeOverrideEnabled) return sound.volume;
+  const group = mockAudioGroups.find(g => g.id === sound.audioGroupId);
+  return group ? group.volume : sound.volume;
 }
 
 const MOCK_CONFIG = {
@@ -78,15 +87,15 @@ const mockSounds = [
   { index: 0, name: 'Speaker', chip: 0, i2cAddress: 0x18,
     i2sMclkPin: PIN_UNUSED, i2sBclkPin: 15, i2sWsPin: 16, i2sDoutPin: 17,
     paEnablePin: 8, paEnableActiveHigh: true, paViaExpander: true,
-    audioGroupId: 0, volume: 200, exists: true },
+    audioGroupId: 0, volumeOverrideEnabled: false, volume: 200, exists: true },
 ];
 
 // Mirrors AudioGroupConfig from Config.h — id 0 (Default) always exists,
-// same as light groups; no per-group payload since play/stop is a one-shot
-// trigger, not continuously-synced state.
+// same as light groups. volume is the group's shared volume, followed by
+// every member device without its own volumeOverrideEnabled.
 const mockAudioGroups = [
-  { id: 0, name: 'Default', exists: true },
-  { id: 1, name: 'Living Room Speakers', exists: true },
+  { id: 0, name: 'Default', exists: true, volume: 200 },
+  { id: 1, name: 'Living Room Speakers', exists: true, volume: 150 },
 ];
 
 // Mirrors PlaylistManager's storage shape (id/name/loop/files). files
@@ -122,9 +131,9 @@ const mockButtons = [
 // selfWithLights() from the module's wifiConnected SSID-tracking state below.
 const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  hasWifiNetworks: true,  wifiConnecting: false, channel: 6, channelSearching: false, version: '2026.06.27.0', fwState: 'checking', batteryPresent: true, batteryPercent: 82, batteryCharging: false };
 const MOCK_PEERS = [
-  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], sound: { name: 'Kitchen Speaker', audioGroupId: 0, volume: 180 }, online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 46, batteryCharging: false },
+  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], sound: { name: 'Kitchen Speaker', audioGroupId: 0, volumeOverrideEnabled: true, volume: 180 }, online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 46, batteryCharging: false },
   { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], sound: null, online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 12, batteryCharging: false },
-  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], sound: { name: 'Living Room Speaker', audioGroupId: 1, volume: 200 }, online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: false, wifiConnecting: false, version: '2026.06.27.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 97, batteryCharging: true  },
+  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], sound: { name: 'Living Room Speaker', audioGroupId: 1, volumeOverrideEnabled: false, volume: 150 }, online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: false, wifiConnecting: false, version: '2026.06.27.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 97, batteryCharging: true  },
   { name: 'Mock Light 5', mac: '55:66:77:88:99:aa', lights: [{ index: 0, name: 'Garage', groupId: 0 }], sound: null, online: true,  rssi: -70, sceneSyncEnabled: true,  wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: true,  version: '2026.01.01.0', fwState: 'idle', batteryPresent: false, batteryPercent: 0,  batteryCharging: false },
 ];
 
@@ -425,10 +434,13 @@ app.post('/api/peers/setaudiogroup', (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/peers/setvolume', (req, res) => {
-  const { mac, volume } = req.body || {};
+  const { mac, volume, overrideEnabled } = req.body || {};
   if (mac === MOCK_SELF.mac) {
     const sound = mockSounds.find(s => s.exists);
-    if (sound) sound.volume = clampVolume(volume);
+    if (sound) {
+      sound.volumeOverrideEnabled = Boolean(overrideEnabled);
+      if (overrideEnabled) sound.volume = clampVolume(volume);
+    }
     broadcastPeers();
   }
   res.json({ ok: true });
@@ -724,7 +736,7 @@ app.post('/api/audiogroups/create', (req, res) => {
     .find(i => !mockAudioGroups.find(g => g.id === i));
   if (free === undefined) return res.status(400).json({ error: 'group limit reached' });
   const { name = 'New Group' } = req.body || {};
-  mockAudioGroups.push({ id: free, name, exists: true });
+  mockAudioGroups.push({ id: free, name, exists: true, volume: SOUND_VOLUME_MAX });
   res.json({ ok: true, id: free });
   broadcastAudioGroups();
 });
@@ -732,6 +744,7 @@ app.post('/api/audiogroups/update', (req, res) => {
   const { id, ...fields } = req.body || {};
   const group = mockAudioGroups.find(g => g.id === id);
   if (!group) return res.status(404).json({ error: 'not found' });
+  if ('volume' in fields) fields.volume = clampVolume(fields.volume);
   Object.assign(group, fields);
   res.json({ ok: true });
   broadcastAudioGroups();

@@ -49,7 +49,7 @@ enum class MsgType : uint8_t {
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
 
 // Reset to 1 before first real deployment.
-static constexpr uint8_t PRESENCE_MSG_VERSION = 3;
+static constexpr uint8_t PRESENCE_MSG_VERSION = 4;
 
 // lightGroupIds: groupId for each light slot; 0xFF means that slot is empty.
 // Receivers require an exact sizeof(PresenceMsg) frame for this schema.
@@ -78,13 +78,17 @@ struct PresenceMsg {
     uint8_t batteryCharging;
     // Sound output advertisement — mirrors lightGroupIds/lightNames but for the
     // one sound output a device may have (see MAX_SOUNDS), so peers can render
-    // a "Connected Speakers" dashboard table and offer cross-device audio-group
+    // a "Connected Devices" dashboard table and offer cross-device audio-group
     // assignment/volume control the same way they do for lights (see
-    // SetSoundGroupMsg/SetVolumeMsg below). soundAudioGroupId/soundVolume are
-    // only meaningful when hasSound is set.
+    // SetSoundGroupMsg/SetVolumeMsg below). soundAudioGroupId/soundVolume/
+    // soundVolumeOverrideEnabled are only meaningful when hasSound is set.
+    // soundVolume is the *effective* (currently applied) volume — the sound
+    // output's own override when soundVolumeOverrideEnabled, otherwise its
+    // audio group's shared volume (see AudioGroupConfig::volume).
     uint8_t hasSound;
     uint8_t soundAudioGroupId;
     uint8_t soundVolume;
+    uint8_t soundVolumeOverrideEnabled;
     char soundName[20];
 };
 
@@ -113,13 +117,17 @@ struct SetSoundGroupMsg {
     uint8_t audioGroupId;
 };
 
-// Broadcast to change a specific peer's sound output volume from any device's
-// dashboard — cross-device control, unlike SoundHardwareConfig::volume being
-// merely a local default. Mirrors SetSoundGroupMsg.
+// Broadcast to change a specific peer's sound output volume override from any
+// device's dashboard — cross-device control, unlike a light's
+// brightnessOverride being local-only. overrideEnabled=false clears the
+// override (the target reverts to following its audio group's shared
+// volume, see AudioGroupConfig::volume); volume is only meaningful when
+// overrideEnabled is true. Mirrors SetSoundGroupMsg.
 struct SetVolumeMsg {
     MsgType type = MsgType::SetVolume;
     uint8_t targetMac[6];
     uint8_t volume;
+    uint8_t overrideEnabled;
 };
 
 // Sent when a group is created, renamed, deleted, syncEnabled toggled, or its

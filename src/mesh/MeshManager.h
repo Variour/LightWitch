@@ -54,7 +54,8 @@ class MeshManager {
     using PlayAudioCb = std::function<void(const PlayAudioMsg&)>;
     using StopAudioCb = std::function<void(uint8_t audioGroupId)>;
     using SetSoundGroupCb = std::function<void(const uint8_t* targetMac, uint8_t audioGroupId)>;
-    using SetVolumeCb = std::function<void(const uint8_t* targetMac, uint8_t volume)>;
+    using SetVolumeCb =
+        std::function<void(const uint8_t* targetMac, uint8_t volume, bool overrideEnabled)>;
     using ConfigChunkCb = std::function<void(const uint8_t* srcMac, const ConfigChunkMsg*)>;
     using TriggerUpdateCb = std::function<void()>;
     // Called when this device is told to check for a firmware update (no auto-install)
@@ -223,10 +224,11 @@ class MeshManager {
         _send(&msg, sizeof(msg));
     }
 
-    void broadcastSetVolume(const uint8_t* targetMac, uint8_t volume) {
+    void broadcastSetVolume(const uint8_t* targetMac, uint8_t volume, bool overrideEnabled) {
         if (!_ready) return;
         SetVolumeMsg msg;
         msg.volume = volume;
+        msg.overrideEnabled = overrideEnabled ? 1 : 0;
         memcpy(msg.targetMac, targetMac, 6);
         _send(&msg, sizeof(msg));
     }
@@ -810,11 +812,13 @@ class MeshManager {
         msg.hasSound = 0;
         msg.soundAudioGroupId = 0;
         msg.soundVolume = 0;
+        msg.soundVolumeOverrideEnabled = 0;
         msg.soundName[0] = '\0';
         Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
             msg.hasSound = 1;
             msg.soundAudioGroupId = s.audioGroupId;
-            msg.soundVolume = s.volume;
+            msg.soundVolume = Config::effectiveSoundVolume(s);
+            msg.soundVolumeOverrideEnabled = s.volumeOverrideEnabled ? 1 : 0;
             strlcpy(msg.soundName, s.name, sizeof(msg.soundName));
         });
 
@@ -877,7 +881,8 @@ class MeshManager {
                     m->sceneSyncEnabled != 0, m->wifiConnected != 0, m->fwVersion,
                     (FwState)m->fwState, m->hasWifiNetworks != 0, m->wifiConnecting != 0,
                     m->batteryPresent != 0, m->batteryPercent, m->batteryCharging != 0,
-                    m->hasSound != 0, m->soundAudioGroupId, m->soundVolume, m->soundName);
+                    m->hasSound != 0, m->soundAudioGroupId, m->soundVolume,
+                    m->soundVolumeOverrideEnabled != 0, m->soundName);
                 if (_instance->_onPeerHeard) _instance->_onPeerHeard(mac);
                 if (_instance->_onPresence) _instance->_onPresence(mac, m->name, isNew);
                 if (isNew) {
@@ -920,7 +925,8 @@ class MeshManager {
             case MsgType::SetVolume: {
                 if (len < (int)sizeof(SetVolumeMsg)) return;
                 auto* m = (SetVolumeMsg*)data;
-                if (_instance->_onSetVolume) _instance->_onSetVolume(m->targetMac, m->volume);
+                if (_instance->_onSetVolume)
+                    _instance->_onSetVolume(m->targetMac, m->volume, m->overrideEnabled != 0);
                 break;
             }
             case MsgType::GroupSync: {
