@@ -141,7 +141,15 @@ One sound output per device. For known board-specific pin values, see [docs/boar
 
 ## Storage (SD card)
 
-On boards with an onboard SD card reader (currently just the [Waveshare ESP32-S3-AUDIO-Board](docs/boards/waveshare-esp32-s3-audio.md)), the firmware detects it automatically at boot — there's nothing to configure. When a card is present, **Settings → Storage** shows its capacity and lets you upload, list, and delete `.wav` audio files.
+**Supported hardware:** only the [Waveshare ESP32-S3-AUDIO-Board](docs/boards/waveshare-esp32-s3-audio.md) has an SD card reader — its firmware detects the card automatically at boot, with nothing to configure in Settings. Other boards (plain ESP32, ESP32-C3, generic ESP32-S3 devkits) don't have this reader and won't show a Storage section at all.
+
+**Preparing the card:**
+
+1. Format the card **FAT32** (the usual format for cards up to 32 GB; if a larger/pre-formatted card isn't recognized, reformat it to FAT32).
+2. Insert it before powering the device on, or reboot the device after inserting it — the card is only detected once, at boot, not while running.
+3. Open **Settings → Storage**: if the card was detected, you'll see its used/total capacity and a file list.
+
+**What you can manage:** `.wav` audio files only, uploaded and deleted individually from **Settings → Storage** — there are no folders, just a flat list. Any other file already on the card (e.g. left over from formatting it on a computer) is ignored and won't show up here.
 
 This is storage only for now — the device doesn't yet play uploaded files back through the speaker; that's a separate future step.
 
