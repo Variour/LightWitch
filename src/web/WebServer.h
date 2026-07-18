@@ -1986,9 +1986,14 @@ class BatteryWebServer {
         doc["present"] = present;
         doc["totalBytes"] = present ? _sdCard->totalBytes() : 0;
         doc["usedBytes"] = present ? _sdCard->usedBytes() : 0;
+        // Only list files this API can actually manage (see _isValidWavName) —
+        // the card's root can otherwise hold arbitrary pre-existing files (a
+        // prior recording, OS-created metadata from formatting the card on a
+        // computer, ...) that would show up here but always 400 on delete.
         JsonArray files = doc["files"].to<JsonArray>();
         if (present) {
             _sdCard->forEachFile([&](const String& name, size_t size) {
+                if (!_isValidWavName(name)) return;
                 JsonObject o = files.add<JsonObject>();
                 o["name"] = name;
                 o["size"] = size;

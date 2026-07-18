@@ -177,7 +177,7 @@ describe('POST /api/sounds/update', () => {
 });
 
 describe('GET /api/storage', () => {
-  test('returns hardware support, card presence, and the file list', async () => {
+  test('returns hardware support, card presence, and the .wav file list', async () => {
     const res = await fetch(`${baseUrl}/api/storage`);
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -185,7 +185,17 @@ describe('GET /api/storage', () => {
     assert.equal(body.present, true);
     assert.ok(Array.isArray(body.files));
     assert.ok(body.files.some(f => f.name === 'doorbell.wav'));
-    assert.equal(body.usedBytes, body.files.reduce((s, f) => s + f.size, 0));
+  });
+
+  // The card's root can carry pre-existing, non-.wav files (a prior
+  // recording, OS metadata from formatting on a computer, ...) — those must
+  // never be listed, since upload/delete would 400 "invalid filename" on
+  // them (this is the bug this test guards against — see WebServer.h::_getStorage).
+  test('excludes non-.wav files from the list but still counts them in usedBytes', async () => {
+    const res = await fetch(`${baseUrl}/api/storage`);
+    const body = await res.json();
+    assert.ok(!body.files.some(f => f.name === 'IMG_0001.JPG'));
+    assert.ok(body.usedBytes > body.files.reduce((s, f) => s + f.size, 0));
   });
 });
 

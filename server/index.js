@@ -515,12 +515,14 @@ const mockStorage = {
   files: [
     { name: 'doorbell.wav', size: 245760 },
     { name: 'alarm.wav', size: 1048576 },
+    // A pre-existing, non-.wav file — exercises GET /api/storage filtering
+    // it out of the list (see WebServer.h::_getStorage): a real card can
+    // easily carry one of these (a prior recording, OS metadata from
+    // formatting on a computer, ...) and it must never be listed, since
+    // upload/delete would 400 "invalid filename" on it.
+    { name: 'IMG_0001.JPG', size: 3145728 },
   ],
 };
-
-function storageUsedBytes() {
-  return mockStorage.files.reduce((sum, f) => sum + f.size, 0);
-}
 
 // Mirrors WebServer.h::_isValidWavName: bare filename (no path separators),
 // non-empty, ending in ".wav" (case-insensitive).
@@ -529,12 +531,20 @@ function isValidWavName(name) {
     !name.includes('/') && !name.includes('\\') && /\.wav$/i.test(name);
 }
 
+function storageWavFiles() {
+  return mockStorage.files.filter(f => isValidWavName(f.name));
+}
+
+function storageUsedBytes() {
+  return mockStorage.files.reduce((sum, f) => sum + f.size, 0);
+}
+
 app.get('/api/storage', (_req, res) => res.json({
   hwSupported: mockStorage.hwSupported,
   present: mockStorage.present,
   totalBytes: mockStorage.present ? mockStorage.totalBytes : 0,
   usedBytes: mockStorage.present ? storageUsedBytes() : 0,
-  files: mockStorage.present ? mockStorage.files : [],
+  files: mockStorage.present ? storageWavFiles() : [],
 }));
 
 app.post('/api/storage/upload', express.raw({ type: 'application/octet-stream', limit: '64mb' }), (req, res) => {
