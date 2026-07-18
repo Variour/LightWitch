@@ -695,7 +695,7 @@ class BatteryWebServer {
         doc["wifiSingleClientMode"] = c.wifiSingleClientMode;
         doc["batteryHwSupported"] = BatteryMonitor::kHwSupported;
         doc["batteryMonitoringEnabled"] = c.batteryMonitoringEnabled;
-        doc["prOtaBoardSupported"] = Updater::isEsp32Dev();
+        doc["prOtaBoardSupported"] = Updater::supportsPrOta();
         doc["prOtaEnabled"] = c.prOtaEnabled;
         doc["prTrack"] = c.prTrack;
         doc["mqttHost"] = c.mqttHost;
