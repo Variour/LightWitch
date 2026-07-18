@@ -31,6 +31,33 @@ it sits on **EXIO8** of the onboard TCA9555 I2C GPIO expander.
 GPIO15 (`I2S_DSIN`) is the codec's microphone input — not used, this firmware
 doesn't support mic input yet.
 
+## Buttons
+
+The board has 5 physical buttons: **RESET**, **BOOT**, and **KEY1**–**KEY3**.
+
+- **RESET** is wired to the ESP32-S3's `CHIP_PU` (EN) pin — a hardware reset
+  line, not something firmware can read as a button.
+- **BOOT** is wired to native **GPIO0** (also the boot-mode strapping pin) —
+  the only one of the five that can currently be configured as a button in
+  this firmware.
+- **KEY1**, **KEY2**, **KEY3** are wired to **EXIO9**, **EXIO10**, **EXIO11**
+  on the onboard TCA9555 I2C GPIO expander, not to native ESP32 GPIOs.
+
+### Field values (BOOT button only)
+
+| Field | Value |
+|---|---|
+| GPIO pin | GPIO0 |
+| Active low | checked *(button pulls to GND when pressed)* |
+
+### KEY1–KEY3 are not usable yet
+
+This firmware's button configuration only supports a native ESP32 GPIO pin —
+unlike Sound's PA-enable pin, there's no I2C-expander source option for
+buttons. Since KEY1–KEY3 sit behind the TCA9555 expander, they can't be
+wired up through the current "Add button" form; expander support would need
+to be added to the button handling code before these three could be used.
+
 ## Lights
 
 The board has 7 onboard WS2812 RGB LEDs on the back, chained on a single
