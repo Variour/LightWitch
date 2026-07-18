@@ -135,6 +135,88 @@ static void publishGroupSync(const GroupConfig& g) {
         mqtt.clearGroupRetained(g.id);
 }
 
+// ── Audio playback triggers ─────────────────────────────────────────────────
+// Fixed lead time given to every scheduled PlayAudio trigger — see
+// PlayAudioMsg's contract in MeshTypes.h. Generous enough to absorb SD-card
+// open/parse latency plus ESP-NOW broadcast jitter on every participating
+// device; devices that still can't finish preparing in time skip playback
+// entirely rather than starting late (see Es8311Driver::_runPlayback).
+static constexpr uint16_t AUDIO_PLAY_START_DELAY_MS = 400;
+
+// True if this device has a sound output assigned to audioGroupId — the same
+// membership test both the local-trigger path and the mesh receive path use,
+// so a device outside the target group is never affected either way.
+static bool isAudioGroupMember(uint8_t audioGroupId) {
+    bool member = false;
+    Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
+        if (s.audioGroupId == audioGroupId) member = true;
+    });
+    return member;
+}
+
+// Applies an already-built PlayAudioMsg on this device only if it's a member
+// of the target group — used both for the originating device (which doesn't
+// get its own ESP-NOW broadcast echoed back, so must apply locally too, same
+// as applyAndPropagateLightConfig does for light edits) and for mesh.setOnPlayAudio.
+static void applyPlayAudioLocally(const PlayAudioMsg& msg) {
+    if (!isAudioGroupMember(msg.audioGroupId)) return;
+    if (msg.isPlaylist) {
+        String files[PlaylistManager::MAX_FILES_PER_PLAYLIST];
+        bool loop = false;
+        uint8_t count =
+            PlaylistManager::readFiles(msg.id, files, PlaylistManager::MAX_FILES_PER_PLAYLIST, loop);
+        if (count == 0) {
+            Logger::i("[audio] playlist %s unknown/empty locally — not participating", msg.id);
+            return;
+        }
+        _sound.scheduleFiles(files, count, loop, msg.startDelayMs);
+    } else {
+        String file = msg.filename;
+        _sound.scheduleFiles(&file, 1, msg.loop != 0, msg.startDelayMs);
+    }
+}
+
+static void applyStopAudioLocally(uint8_t audioGroupId) {
+    if (!isAudioGroupMember(audioGroupId)) return;
+    _sound.stop();
+}
+
+// Starts synchronized playback of a single SD-card file across every device
+// in audioGroupId (see PlayAudioMsg). Applies locally first (ESP-NOW
+// broadcast never loops back to the sender), then broadcasts.
+static void triggerPlaySingleFile(uint8_t audioGroupId, const char* filename, bool loop) {
+    PlayAudioMsg msg{};
+    msg.type = MsgType::PlayAudio;
+    msg.audioGroupId = audioGroupId;
+    msg.isPlaylist = 0;
+    msg.loop = loop ? 1 : 0;
+    msg.startDelayMs = AUDIO_PLAY_START_DELAY_MS;
+    msg.id[0] = '\0';
+    strlcpy(msg.filename, filename, AUDIO_FILENAME_LEN);
+    applyPlayAudioLocally(msg);
+    mesh.broadcastPlayAudio(msg);
+}
+
+// Starts synchronized playback of a saved playlist (its own stored loop flag
+// applies — see PlaylistManager) across every device in audioGroupId.
+static void triggerPlayPlaylist(uint8_t audioGroupId, const char* playlistId) {
+    PlayAudioMsg msg{};
+    msg.type = MsgType::PlayAudio;
+    msg.audioGroupId = audioGroupId;
+    msg.isPlaylist = 1;
+    msg.loop = 0;  // ignored for playlists — the playlist's own loop flag wins
+    msg.startDelayMs = AUDIO_PLAY_START_DELAY_MS;
+    msg.filename[0] = '\0';
+    strlcpy(msg.id, playlistId, PLAYLIST_ID_LEN);
+    applyPlayAudioLocally(msg);
+    mesh.broadcastPlayAudio(msg);
+}
+
+static void triggerStopAudio(uint8_t audioGroupId) {
+    applyStopAudioLocally(audioGroupId);
+    mesh.broadcastStopAudio(audioGroupId);
+}
+
 // Re-applies a single light's effective config — its (possibly just
 // reassigned) group's config, with its own brightness override layered on
 // top if enabled — to its runner and pushes state to the dashboard. Used
@@ -505,6 +587,9 @@ void setup() {
     });
     mesh.setOnRequestPlaylistManifest([]() { playlistSync.onRequestManifest(); });
     mesh.setOnSetPlaylistSync([](bool enabled) { playlistSync.onSetPlaylistSync(enabled); });
+
+    mesh.setOnPlayAudio([](const PlayAudioMsg& msg) { applyPlayAudioLocally(msg); });
+    mesh.setOnStopAudio([](uint8_t audioGroupId) { applyStopAudioLocally(audioGroupId); });
 
     mesh.setOnAudioGroupSync([](const AudioGroupConfig& g) {
         bool didApply = Config::applyAudioGroupSync(g);
