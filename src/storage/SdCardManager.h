@@ -111,6 +111,18 @@ class SdCardManager {
 #endif
     }
 
+    // Opens `name` (a bare filename, no path separators) at the SD root for
+    // reading. Returns an invalid File on failure or if no card is mounted.
+    File openForRead(const String& name) {
+#if BL_SD_CARD_HW
+        if (!_mounted) return File();
+        return SD_MMC.open("/" + name, FILE_READ);
+#else
+        (void)name;
+        return File();
+#endif
+    }
+
     bool deleteFile(const String& name) {
 #if BL_SD_CARD_HW
         if (!_mounted) return false;

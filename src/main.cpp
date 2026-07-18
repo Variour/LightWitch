@@ -397,12 +397,12 @@ void setup() {
                   Config::get().i2cSclPin);
     }
 
-    // Initialise the sound output, if configured — hardware bring-up only for
-    // now (see SoundDriver.h), so there's no per-loop pipeline to wire up here.
+    // Initialise the sound output, if configured.
     Config::forEachSound([](uint8_t, SoundHardwareConfig& s) {
         _sound.setup(s, Config::get().i2cSdaPin, Config::get().i2cSclPin,
                      Config::get().expanderAddress);
         _sound.begin();
+        _sound.setSdCard(&_sdCard);
     });
 
     // Wire MQTT: every group and light gets its own topic (see MqttManager.h) —
