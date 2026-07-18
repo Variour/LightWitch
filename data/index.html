@@ -1236,14 +1236,6 @@ function switchTab(tab, pushHistory = true) {
 }
 
 // ── Groups UI ─────────────────────────────────────────────────────────────────
-// Text and Time modes only make sense on a matrix; only this device's own
-// lights carry width/height today (see _getPeers in WebServer.h), so a group
-// fed only by peer lights won't show either option even if those peer lights
-// are matrices.
-function groupHasMatrixLight(id) {
-  return Boolean(_self?.lights?.some(l => l.groupId === id && l.height > 1));
-}
-
 function renderGroups(groups) {
   _groups = groups;
   if (_self) renderLights(_self, _peers);
@@ -1278,9 +1270,7 @@ function renderGroups(groups) {
     const gradientStopCount = Number(g.gradientStopCount) || 0;
     const text = String(g.text || '');
     const textAnimation = Number(g.textAnimation) || 0;
-    const showText = groupHasMatrixLight(g.id) || mode === 4;
     const time24h = g.time24h !== false;
-    const showTime = groupHasMatrixLight(g.id) || mode === 5;
     if (!skip) card.innerHTML = `
       <div class="group-header">
         <input type="text" value="${esc(g.name)}" data-action="renameGroup" data-id="${g.id}"
@@ -1295,8 +1285,8 @@ function renderGroups(groups) {
             <option value="1"${mode===1?' selected':''}>Scene</option>
             <option value="2"${mode===2?' selected':''}>Proximity</option>
             <option value="3"${mode===3?' selected':''}>Gradient</option>
-            ${showText ? `<option value="4"${mode===4?' selected':''}>Text</option>` : ''}
-            ${showTime ? `<option value="5"${mode===5?' selected':''}>Time</option>` : ''}
+            <option value="4"${mode===4?' selected':''}>Text</option>
+            <option value="5"${mode===5?' selected':''}>Time</option>
           </select>
           <p class="pattern-desc">Pattern runs the chosen animation. Scene picks a color from a saved scene. Proximity shifts color from red to green based on the nearest same-group node's signal. Gradient blends across a scene's colors along the light. Text scrolls or bounces a message across a matrix light. Time shows the current clock on a matrix light.</p>
         </div>
@@ -2697,7 +2687,7 @@ async function loadConfig() {
   const pr = await fetch('/api/peers');
   const pd = await pr.json();
   renderLights(pd.self, pd.peers || [], pd.wifiSingleClientMode === true);
-  _refreshSceneOptionViews();  // re-render group cards now that _self.lights (and Text-mode eligibility) is known
+  _refreshSceneOptionViews();  // re-render group cards now that scene options are known
   try {
     const updRes  = await fetch('/api/update/status');
     const updData = await updRes.json();
