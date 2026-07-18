@@ -570,6 +570,59 @@ input[type=radio]:active { background-color: #1a5; }
     </div>
   </div>
 
+  <!-- AUDIO -->
+  <div class="card" id="audio-card">
+    <h2 style="margin:0 0 .5rem;display:flex;align-items:center;gap:.4rem">Audio
+      <button type="button" class="legend-toggle" aria-expanded="false" aria-controls="audio-legend" aria-label="How does audio playback sync work?">i</button>
+    </h2>
+    <div class="legend" id="audio-legend">
+      <div class="legend-row"><b>Audio groups</b><span>A play/stop command targets a group — every device whose sound output is a member (and that locally has the file) plays in sync. Assign a device's sound output to a group under Settings → Hardware → Sound.</span></div>
+      <div class="legend-row"><b>Playlists</b><span>Ordered file lists with their own loop setting, synced across the mesh as metadata only — each device still needs the referenced files uploaded locally under Settings → Hardware → Storage.</span></div>
+      <div class="legend-row"><b>Missing files</b><span>A device without a referenced file simply doesn't play it — no error, no warning.</span></div>
+    </div>
+
+    <h3>Audio groups</h3>
+    <div id="audiogroups-list"></div>
+    <div class="add-group-row">
+      <input type="text" id="new-audiogroup-name" placeholder="New audio group name…">
+      <button class="btn-primary btn-sm" id="create-audiogroup-btn">+ Add</button>
+    </div>
+
+    <hr class="section-divider">
+    <h3>Playlists</h3>
+    <div id="playlists-list"></div>
+    <div class="add-group-row">
+      <input type="text" id="new-playlist-name" placeholder="New playlist name…">
+      <button class="btn-primary btn-sm" id="create-playlist-btn">+ Add</button>
+    </div>
+
+    <hr class="section-divider">
+    <h3>Play</h3>
+    <label>Audio group</label>
+    <select id="play-audiogroup"></select>
+    <label>Source</label>
+    <select id="play-source-type">
+      <option value="file">Single file</option>
+      <option value="playlist">Playlist</option>
+    </select>
+    <div id="play-file-wrap">
+      <label>File</label>
+      <select id="play-filename"></select>
+      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+        <input type="checkbox" id="play-file-loop">
+        Loop
+      </label>
+    </div>
+    <div id="play-playlist-wrap" style="display:none">
+      <label>Playlist</label>
+      <select id="play-playlist-id"></select>
+    </div>
+    <div class="row" style="margin-top:.5rem">
+      <button class="btn-primary" id="play-btn">▶ Play</button>
+      <button class="btn-danger" id="stop-btn">■ Stop</button>
+    </div>
+  </div>
+
 </div><!-- /tab-dashboard -->
 
 
@@ -2938,8 +2991,10 @@ async function loadConfig() {
   if (d.logLevel !== undefined) $('logLevel').value = d.logLevel;
   if (d.lights) renderLightsHw(d.lights);
   loadButtons().catch(() => {});
+  await loadAudioGroups().catch(() => {});
   loadSounds().catch(() => {});
   loadStorage().catch(() => {});
+  loadPlaylists().catch(() => {});
   if (d.mqttHost   !== undefined) $('mqttHost').value   = d.mqttHost;
   if (d.mqttPort   !== undefined) $('mqttPort').value   = d.mqttPort;
   if (d.mqttUser   !== undefined) $('mqttUser').value   = d.mqttUser;
@@ -3034,6 +3089,7 @@ function connectWs() {
       if (d.t === 'log')    appendLog(d.l, d.m);
       if (d.t === 'peers') { renderLights(d.self, d.peers || [], d.wifiSingleClientMode === true); _refreshSceneOptionViews(); }
       if (d.t === 'groups') renderGroups(d.list || []);
+      if (d.t === 'audioGroups') renderAudioGroupsList(d.list || []);
     } catch { /* ignore malformed/unexpected WS messages */ }
   };
 }
@@ -5266,6 +5322,8 @@ function renderSoundsHw(sounds) {
     const pa = s.paEnablePin === PIN_UNUSED ? 'none'
       : s.paViaExpander ? `TCA9555:${s.paEnablePin}`
       : `GPIO${s.paEnablePin}`;
+    const audioGroupId = s.audioGroupId || 0;
+    const volume = s.volume ?? 200;
     return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
       <div class="light-hw-row">
         <div>
@@ -5279,6 +5337,18 @@ function renderSoundsHw(sounds) {
         </div>
       </div>
       <div style="font-size:.8rem;color:#888;margin-top:.25rem">i2c addr=0x${s.i2cAddress.toString(16)} · i2s bclk=GPIO${s.i2sBclkPin} ws=GPIO${s.i2sWsPin} dout=GPIO${s.i2sDoutPin} mclk=${mclk} · pa=${pa}</div>
+      <div class="row" style="margin-top:.5rem">
+        <div>
+          <label style="margin:0 0 .2rem">Audio group</label>
+          <select data-action="onSoundAudioGroupChange" data-index="${s.index}" style="margin-bottom:0">
+            ${_audioGroups.map(g => `<option value="${g.id}"${audioGroupId === g.id ? ' selected' : ''}>${esc(g.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="margin:0 0 .2rem">Volume <span id="sound-vol-label-${s.index}">${Math.round((volume / 255) * 100)}%</span></label>
+          <input type="range" min="0" max="255" value="${volume}" data-action="onSoundVolumeInput" data-index="${s.index}" style="margin-bottom:0">
+        </div>
+      </div>
     </div>`;
   }).join('');
 }
@@ -5288,6 +5358,31 @@ _delegate('sounds-hw-list', 'click', {
   openEditSoundModal: el => openEditSoundModal(_sounds.find(s => s.index === Number(el.dataset.index))),
   deleteSound:        el => deleteSound(Number(el.dataset.index)),
 });
+_delegate('sounds-hw-list', 'change', {
+  onSoundAudioGroupChange: el => setSoundAudioGroup(Number(el.dataset.index), Number(el.value)),
+});
+_delegate('sounds-hw-list', 'input', {
+  onSoundVolumeInput: el => onSoundVolumeInput(Number(el.dataset.index), el.value),
+});
+
+async function setSoundAudioGroup(index, audioGroupId) {
+  await _fetchOrToast('/api/sounds/update', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({index, audioGroupId})
+  }, 'Failed to set audio group');
+}
+
+function onSoundVolumeInput(index, value) {
+  const label = $(`sound-vol-label-${index}`);
+  if (label) label.textContent = Math.round((value / 255) * 100) + '%';
+  clearTimeout(_debounce['sound-vol-' + index]);
+  _debounce['sound-vol-' + index] = setTimeout(() => {
+    _fetchOrToast('/api/sounds/update', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({index, volume: Number(value)})
+    }, 'Failed to set volume');
+  }, 300);
+}
 
 let _editSoundIndex = null;
 
@@ -5460,16 +5555,22 @@ function fmtBytes(n) {
   return n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${(n / 1024).toFixed(0)} KB`;
 }
 
+let _storageFiles = [];
+
 function renderStorage(d) {
   const statusEl = $('storage-status');
   const listEl = $('storage-file-list');
   if (!d.present) {
     statusEl.textContent = 'No SD card detected.';
     listEl.innerHTML = '';
+    _storageFiles = [];
+    renderPlayFileOptions();
     return;
   }
   statusEl.textContent = `${fmtBytes(d.usedBytes)} used of ${fmtBytes(d.totalBytes)}`;
   const files = d.files || [];
+  _storageFiles = files;
+  renderPlayFileOptions();
   listEl.innerHTML = files.length
     ? files.map(f => `<div class="light-hw-row">
         <span>${esc(f.name)}</span>
@@ -5492,6 +5593,253 @@ async function deleteStorageFile(name) {
     loadStorage().catch(() => {});
   });
 }
+
+// ── Audio groups ─────────────────────────────────────────────────────────────
+// Mirrors the light-group list above (renderGroups/createGroup/renameGroup/
+// deleteGroup) — no per-mode payload, since a play/stop command is a one-shot
+// trigger, not continuously-synced state (see src/config/Config.h's
+// AudioGroupConfig comment).
+let _audioGroups = [];
+
+async function loadAudioGroups() {
+  const res = await fetch('/api/audiogroups');
+  const d = await res.json();
+  renderAudioGroupsList(d.audioGroups || []);
+}
+
+function renderAudioGroupsList(groups) {
+  _audioGroups = groups || [];
+  const el = $('audiogroups-list');
+  if (el) {
+    el.innerHTML = _audioGroups.length ? _audioGroups.map(g => `
+      <div class="group-header" style="margin-bottom:.4rem">
+        <input type="text" value="${esc(g.name)}" data-action="renameAudioGroup" data-id="${g.id}"
+               ${g.id === 0 ? 'readonly style="color:#666"' : ''}>
+        ${g.id !== 0 ? `<button class="btn-danger btn-sm" data-action="deleteAudioGroup" data-id="${g.id}">✕</button>` : ''}
+      </div>`).join('') : '<p style="color:#555;font-size:.85rem">No audio groups.</p>';
+  }
+  renderSoundsHw(_sounds);  // refresh sound cards' group dropdowns with fresh names
+  renderPlayAudioGroupOptions();
+}
+
+_delegate('audiogroups-list', 'change', {
+  renameAudioGroup: el => renameAudioGroup(Number(el.dataset.id), el.value),
+});
+_delegate('audiogroups-list', 'click', {
+  deleteAudioGroup: el => deleteAudioGroup(Number(el.dataset.id)),
+});
+
+async function createAudioGroup() {
+  const inp = $('new-audiogroup-name');
+  const name = inp.value.trim();
+  if (!name) return;
+  const res = await _fetchOrToast('/api/audiogroups/create', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})
+  }, 'Failed to create audio group');
+  if (res) { inp.value = ''; await loadAudioGroups(); }
+}
+$('create-audiogroup-btn').addEventListener('click', createAudioGroup);
+
+async function renameAudioGroup(id, name) {
+  if (!name.trim()) return;
+  await _fetchOrToast('/api/audiogroups/update', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id, name: name.trim()})
+  }, 'Failed to rename audio group');
+}
+
+async function deleteAudioGroup(id) {
+  await _confirmAction('Delete audio group?', async () => {
+    const res = await _fetchOrToast('/api/audiogroups/delete', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id})
+    }, 'Failed to delete audio group');
+    if (res) await loadAudioGroups();
+  });
+}
+
+// ── Playlists ────────────────────────────────────────────────────────────────
+let _playlists = [];
+
+async function loadPlaylists() {
+  const res = await fetch('/api/playlists');
+  const d = await res.json();
+  renderPlaylistsList(d.playlists || []);
+}
+
+function renderPlaylistsList(playlists) {
+  _playlists = playlists || [];
+  const el = $('playlists-list');
+  el.innerHTML = _playlists.length ? _playlists.map(p => `
+    <div class="light-hw-row" style="margin-bottom:.4rem">
+      <div>
+        <strong>${esc(p.name)}</strong>
+        <span style="color:#888;font-size:.82rem;margin-left:.5rem">${(p.files || []).length} file(s)${p.loop ? ' · loop' : ''}</span>
+      </div>
+      <div class="light-hw-actions">
+        <button class="btn-ghost btn-sm" data-action="openEditPlaylistModal" data-id="${esc(p.id)}">Edit</button>
+        <button class="btn-ghost btn-sm" style="color:#c44" data-action="deletePlaylist" data-id="${esc(p.id)}">Delete</button>
+      </div>
+    </div>`).join('') : '<p style="color:#555;font-size:.85rem">No playlists.</p>';
+  renderPlayPlaylistOptions();
+}
+
+_delegate('playlists-list', 'click', {
+  openEditPlaylistModal: el => openEditPlaylistModal(_playlists.find(p => p.id === el.dataset.id)),
+  deletePlaylist: el => deletePlaylist(el.dataset.id),
+});
+
+async function createPlaylist() {
+  const inp = $('new-playlist-name');
+  const name = inp.value.trim();
+  if (!name) return;
+  const res = await _fetchOrToast('/api/playlists/create', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})
+  }, 'Failed to create playlist');
+  if (res) { inp.value = ''; await loadPlaylists(); }
+}
+$('create-playlist-btn').addEventListener('click', createPlaylist);
+
+async function deletePlaylist(id) {
+  await _confirmAction('Delete playlist?', async () => {
+    const res = await _fetchOrToast('/api/playlists/delete', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id})
+    }, 'Failed to delete playlist');
+    if (res) await loadPlaylists();
+  });
+}
+
+let _editPlaylistId = null;
+let _editPlaylistFiles = [];
+
+function openEditPlaylistModal(p) {
+  _editPlaylistId = p.id;
+  _editPlaylistFiles = [...(p.files || [])];
+  const overlay = document.createElement('div');
+  overlay.id = 'playlist-modal-overlay';
+  overlay.className = 'push-overlay';
+  overlay.innerHTML = `<div class="push-modal"><div class="card" style="margin:0">
+    <div class="flex-between" style="margin-bottom:.5rem">
+      <h2 style="margin:0">Edit playlist</h2>
+      <button class="btn-ghost btn-sm" id="pm-close-btn">✕</button>
+    </div>
+    <label>Name</label>
+    <input type="text" id="pm-name" value="${esc(p.name)}">
+    <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+      <input type="checkbox" id="pm-loop" ${p.loop ? 'checked' : ''}>
+      Loop the whole playlist
+    </label>
+    <label>Files <small>(played in this order)</small></label>
+    <div id="pm-files-list" style="margin-bottom:.5rem"></div>
+    <div class="row">
+      <select id="pm-add-file">${_storageFiles.map(f => `<option value="${esc(f.name)}">${esc(f.name)}</option>`).join('') || '<option value="">(no files uploaded)</option>'}</select>
+      <button class="btn-ghost btn-sm" id="pm-add-file-btn">+ Add</button>
+    </div>
+    <button id="pm-save-btn" class="btn-primary" style="width:100%;margin-top:.75rem">Save</button>
+  </div></div>`;
+  overlay.style.display = 'block';
+  document.body.appendChild(overlay);
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.querySelector('#pm-close-btn').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#pm-save-btn').addEventListener('click', savePlaylistModal);
+  overlay.querySelector('#pm-add-file-btn').addEventListener('click', () => {
+    const sel = overlay.querySelector('#pm-add-file');
+    if (sel.value) { _editPlaylistFiles.push(sel.value); _renderPlaylistFilesList(overlay); }
+  });
+  _renderPlaylistFilesList(overlay);
+}
+
+function _renderPlaylistFilesList(overlay) {
+  const el = overlay.querySelector('#pm-files-list');
+  el.innerHTML = _editPlaylistFiles.length ? _editPlaylistFiles.map((f, i) => `
+    <div class="light-hw-row" style="padding:.3rem .5rem">
+      <span>${i + 1}. ${esc(f)}</span>
+      <div class="light-hw-actions">
+        <button type="button" class="btn-ghost btn-sm" data-pm-action="up" data-i="${i}" ${i === 0 ? 'disabled' : ''}>↑</button>
+        <button type="button" class="btn-ghost btn-sm" data-pm-action="down" data-i="${i}" ${i === _editPlaylistFiles.length - 1 ? 'disabled' : ''}>↓</button>
+        <button type="button" class="btn-ghost btn-sm" style="color:#c44" data-pm-action="remove" data-i="${i}">✕</button>
+      </div>
+    </div>`).join('') : '<p style="color:#555;font-size:.85rem">No files yet.</p>';
+  el.querySelectorAll('[data-pm-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.i);
+      const action = btn.dataset.pmAction;
+      if (action === 'up' && i > 0)
+        [_editPlaylistFiles[i - 1], _editPlaylistFiles[i]] = [_editPlaylistFiles[i], _editPlaylistFiles[i - 1]];
+      if (action === 'down' && i < _editPlaylistFiles.length - 1)
+        [_editPlaylistFiles[i + 1], _editPlaylistFiles[i]] = [_editPlaylistFiles[i], _editPlaylistFiles[i + 1]];
+      if (action === 'remove') _editPlaylistFiles.splice(i, 1);
+      _renderPlaylistFilesList(overlay);
+    });
+  });
+}
+
+async function savePlaylistModal() {
+  const overlay = $('playlist-modal-overlay');
+  const name = overlay.querySelector('#pm-name').value.trim();
+  if (!name) { alert('Please enter a name'); return; }
+  const body = {id: _editPlaylistId, name, loop: overlay.querySelector('#pm-loop').checked, files: _editPlaylistFiles};
+  const res = await _fetchOrAlert('/api/playlists/save', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!res) return;
+  overlay.remove();
+  await loadPlaylists();
+}
+
+// ── Play / stop ──────────────────────────────────────────────────────────────
+function renderPlayAudioGroupOptions() {
+  const sel = $('play-audiogroup');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = _audioGroups.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  if (_audioGroups.some(g => String(g.id) === prev)) sel.value = prev;
+}
+
+function renderPlayPlaylistOptions() {
+  const sel = $('play-playlist-id');
+  if (!sel) return;
+  sel.innerHTML = _playlists.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')
+    || '<option value="">(no playlists)</option>';
+}
+
+function renderPlayFileOptions() {
+  const sel = $('play-filename');
+  if (!sel) return;
+  sel.innerHTML = _storageFiles.map(f => `<option value="${esc(f.name)}">${esc(f.name)}</option>`).join('')
+    || '<option value="">(no files uploaded)</option>';
+}
+
+$('play-source-type')?.addEventListener('change', () => {
+  const isFile = $('play-source-type').value === 'file';
+  $('play-file-wrap').style.display = isFile ? '' : 'none';
+  $('play-playlist-wrap').style.display = isFile ? 'none' : '';
+});
+
+$('play-btn')?.addEventListener('click', async () => {
+  const audioGroupId = Number($('play-audiogroup').value);
+  if (Number.isNaN(audioGroupId)) { alert('No audio group available — create one first.'); return; }
+  if ($('play-source-type').value === 'file') {
+    const filename = $('play-filename').value;
+    if (!filename) { alert('No file available on this device — upload one under Settings → Hardware → Storage.'); return; }
+    await _fetchOrAlert('/api/audio/play/file', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({audioGroupId, filename, loop: $('play-file-loop').checked})
+    });
+  } else {
+    const playlistId = $('play-playlist-id').value;
+    if (!playlistId) { alert('No playlist available — create one first.'); return; }
+    await _fetchOrAlert('/api/audio/play/playlist', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({audioGroupId, playlistId})
+    });
+  }
+});
+
+$('stop-btn')?.addEventListener('click', async () => {
+  const audioGroupId = Number($('play-audiogroup').value);
+  if (Number.isNaN(audioGroupId)) return;
+  await _fetchOrAlert('/api/audio/stop', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({audioGroupId})
+  });
+});
 
 $('storage-upload-btn')?.addEventListener('click', () => $('storage-upload-input').click());
 $('storage-upload-input')?.addEventListener('change', e => {
