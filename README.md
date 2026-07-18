@@ -166,7 +166,7 @@ Devices can check for and install new firmware directly from GitHub releases wit
    - **Repository permissions:**
      - `Contents` — **Read-only** (required to download release assets)
      - `Metadata` — **Read-only** (automatically included, required to access repository metadata)
-     - `Pull requests` — **Read-only** (only needed if you enable **Allow installing PR builds**; without it, **Load open PRs** fails with a 403)
+     - `Pull requests` — **Read-only** (needed for **Allow installing PR builds**)
 
    Classic tokens work too with the `repo` scope, but a fine-grained token with read-only access is safer.
 
