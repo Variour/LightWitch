@@ -375,6 +375,22 @@ struct DeviceConfig {
     // only meaningful (and only ever offered by the web UI) on boards where
     // that pin is ADC-capable, see BatteryMonitor::kHwSupported.
     bool batteryMonitoringEnabled = false;
+    // Optional: lets the device install/track an open PR's firmware build
+    // via OTA (see Updater.h) instead of only tagged releases. Off by
+    // default and never enabled implicitly — installing a PR build means
+    // running unreviewed, untested firmware.
+    bool prOtaEnabled = false;
+    // "" = tracking tagged releases as usual; "pr-<n>" = the normal update
+    // check/apply flow follows that PR's release instead of the latest
+    // tagged release. Set only by Updater::applyPrAsync(), never accepted
+    // from the API — this is device-local state, not a pushable setting.
+    char prTrack[24] = "";
+    // GitHub release asset id of the firmware currently installed from
+    // prTrack, so Updater can tell "newer build of the same PR" apart from
+    // "already on the latest build" — a pr-<n> tag stays the same across
+    // pushes, so the tag alone can't signal that. Meaningless when prTrack
+    // is empty. Also internal-only, like prTrack.
+    uint32_t prTrackAssetId = 0;
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];

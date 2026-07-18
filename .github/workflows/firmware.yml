@@ -155,3 +155,33 @@ jobs:
             partitions.bin
             littlefs.bin
           generate_release_notes: true
+
+  # Publishes every PR's esp32dev build as a prerelease so it can be installed
+  # via OTA from the device's "install from PR" picker (see src/update/Updater.h).
+  # Re-running this on a later push to the same PR updates the existing
+  # pr-<number> release/assets in place.
+  publish-pr-build:
+    if: github.event_name == 'pull_request'
+    needs: [setup, build, build-fs]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Collect PR release files
+        run: |
+          cp artifacts/firmware-esp32dev/firmware.bin firmware-esp32dev.bin
+          cp artifacts/littlefs/littlefs.bin littlefs.bin
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: pr-${{ github.event.pull_request.number }}
+          name: "PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }} (dev build, unreleased)"
+          target_commitish: ${{ github.event.pull_request.head.sha }}
+          prerelease: true
+          files: |
+            firmware-esp32dev.bin
+            littlefs.bin

@@ -32,6 +32,9 @@ const MOCK_CONFIG = {
   wifiSingleClientMode: false,
   batteryHwSupported: true,
   batteryMonitoringEnabled: true,
+  prOtaBoardSupported: true,
+  prOtaEnabled: true,
+  prTrack: '',
   mqttHost: 'mqtt.local',
   mqttPort: 1883,
   mqttUser: 'lights',
@@ -206,10 +209,13 @@ app.use('/api', (req, res, next) => {
 app.get('/api/config', (_req, res) => res.json(MOCK_CONFIG));
 app.post('/api/config', (req, res) => {
   // Mirrors WebServer.h::_postConfig, which never re-exposes write-only
-  // secrets (mqttPassword, githubToken) via GET /api/config.
+  // secrets (mqttPassword, githubToken) via GET /api/config, and never
+  // accepts prTrack from the client — it's device-local state, only ever
+  // set by a successful PR install (see /api/update/apply-pr).
   const rest = { ...req.body };
   delete rest.mqttPassword;
   delete rest.githubToken;
+  delete rest.prTrack;
   Object.assign(MOCK_CONFIG, rest);
   res.json({ ok: true });
 });
@@ -565,15 +571,14 @@ app.post('/api/update/check', (_req, res) => {
   }, 2000);
 });
 
-app.post('/api/update/apply', (_req, res) => {
-  if (!mockUpdate.hasUpdate) {
-    return res.status(400).json({ error: 'no update available' });
-  }
+// Drives mockUpdate through downloading -> done -> simulateReboot, shared by
+// /api/update/apply, /api/update/trigger, and /api/update/apply-pr. onDone (if
+// given) runs right as flashing completes, before the reboot simulation starts.
+function _simulateFlash(newVersion, onDone) {
   mockUpdate.state    = 'downloading';
   mockUpdate.progress = 0;
   MOCK_SELF.fwState   = 'downloading';
   broadcastPeers();
-  res.json({ ok: true });
   let p = 0;
   const iv = setInterval(() => {
     p += 10;
@@ -581,29 +586,24 @@ app.post('/api/update/apply', (_req, res) => {
     if (p >= 100) {
       clearInterval(iv);
       mockUpdate.state = 'done';
-      simulateReboot(mockUpdate.latestVersion);
+      if (onDone) onDone();
+      simulateReboot(newVersion);
     }
   }, 500);
+}
+
+app.post('/api/update/apply', (_req, res) => {
+  if (!mockUpdate.hasUpdate) {
+    return res.status(400).json({ error: 'no update available' });
+  }
+  res.json({ ok: true });
+  _simulateFlash(mockUpdate.latestVersion);
 });
 
 app.post('/api/update/trigger', (_req, res) => {
   res.json({ ok: true });
   if (mockUpdate.hasUpdate) {
-    // Simulate the apply flow
-    mockUpdate.state    = 'downloading';
-    mockUpdate.progress = 0;
-    MOCK_SELF.fwState   = 'downloading';
-    broadcastPeers();
-    let p = 0;
-    const iv = setInterval(() => {
-      p += 10;
-      mockUpdate.progress = p;
-      if (p >= 100) {
-        clearInterval(iv);
-        mockUpdate.state = 'done';
-        simulateReboot(mockUpdate.latestVersion);
-      }
-    }, 500);
+    _simulateFlash(mockUpdate.latestVersion);
   } else {
     // Simulate check then apply
     mockUpdate.state  = 'checking';
@@ -617,6 +617,39 @@ app.post('/api/update/trigger', (_req, res) => {
       broadcastPeers();
     }, 2000);
   }
+});
+
+// Mirrors Updater::listPrBuildsAsync()/applyPrAsync() — every endpoint below
+// requires prOtaEnabled, mirroring WebServer.h's 403 gating.
+const MOCK_OPEN_PRS = [
+  { number: 391, title: 'web: add scene editor', tag: 'pr-391' },
+  { number: 388, title: 'mqtt: handle reconnect on timeout', tag: 'pr-388' },
+];
+const mockPrList = { state: 'idle', prs: [], error: null };
+
+app.post('/api/update/prs/refresh', (_req, res) => {
+  if (!MOCK_CONFIG.prOtaEnabled) return res.status(403).json({ error: 'PR installs are disabled' });
+  mockPrList.state = 'loading';
+  mockPrList.error = null;
+  res.json({ ok: true });
+  setTimeout(() => {
+    mockPrList.state = 'done';
+    mockPrList.prs   = MOCK_OPEN_PRS;
+  }, 800);
+});
+
+app.get('/api/update/prs', (_req, res) => {
+  const out = { state: mockPrList.state, prs: mockPrList.prs };
+  if (mockPrList.error) out.error = mockPrList.error;
+  res.json(out);
+});
+
+app.post('/api/update/apply-pr', (req, res) => {
+  if (!MOCK_CONFIG.prOtaEnabled) return res.status(403).json({ error: 'PR installs are disabled' });
+  const tag = (req.body || {}).tag || '';
+  res.json({ ok: true });
+  const newVersion = tag ? `${tag}-dev` : '9999.0.0.0';
+  _simulateFlash(newVersion, () => { MOCK_CONFIG.prTrack = tag; });
 });
 
 app.get('/*path', (_req, res) => res.sendFile(join(DATA_DIR, 'index.html')));

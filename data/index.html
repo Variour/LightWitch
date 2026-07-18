@@ -931,6 +931,11 @@ input[type=checkbox]:active { background-color: #1a5; }
       <input type="checkbox" id="checkUpdateOnStartup">
       Check for updates on startup
     </label>
+    <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;margin-top:.5rem">
+      <input type="checkbox" id="prOtaEnabled">
+      Allow installing PR builds (experimental)
+    </label>
+    <div style="font-size:.78rem;color:#888;margin-top:.15rem">Installs unreviewed, untested development builds — for testing only.</div>
   </div>
 
   <div class="card settings-save-bar">
@@ -963,6 +968,17 @@ input[type=checkbox]:active { background-color: #1a5; }
       </div>
     </div>
     <button class="btn-primary" style="width:100%;display:none" id="upd-apply-btn">Install update</button>
+    <div id="pr-track-badge" style="display:none;font-size:.78rem;color:#4af;margin-top:.5rem"></div>
+
+    <div id="pr-ota-section" style="display:none;margin-top:.75rem;padding-top:.75rem;border-top:1px solid #333">
+      <div style="font-size:.85rem;color:#ccc;margin-bottom:.4rem">Install a PR build (experimental)</div>
+      <div class="flex-between" style="gap:.5rem;margin-bottom:.4rem">
+        <select id="pr-select" style="flex:1;min-width:0"><option value="">— Load open PRs first —</option></select>
+        <button class="btn-ghost btn-sm" id="pr-load-btn">Load open PRs</button>
+      </div>
+      <div id="pr-status" style="font-size:.8rem;color:#555;margin-bottom:.4rem"></div>
+      <button class="btn-danger" style="width:100%" id="pr-install-btn">Install selected build</button>
+    </div>
   </div>
 
   <!-- DANGER -->
@@ -2302,6 +2318,7 @@ async function saveSettings() {
   if (mqttPw) body.mqttPassword  = mqttPw;
   body.githubRepo = $('githubRepo').value;
   body.checkUpdateOnStartup = $('checkUpdateOnStartup').checked;
+  body.prOtaEnabled = $('prOtaEnabled').checked;
   if ($('battery-section').style.display !== 'none')
     body.batteryMonitoringEnabled = $('batteryMonitoringEnabled').checked;
   if (ghTok)  body.githubToken   = ghTok;
@@ -2427,6 +2444,8 @@ function _updApplyStatus(data) {
   const bar        = $('upd-progress-bar');
 
   checkBtn.disabled = (data.state === 'checking' || data.state === 'downloading');
+  const prInstallBtn = $('pr-install-btn');
+  if (prInstallBtn) prInstallBtn.disabled = (data.state === 'checking' || data.state === 'downloading');
 
   if (data.state === 'checking') {
     _updSetStatus('Checking for updates…', '#aaa');
@@ -2456,6 +2475,66 @@ function _updApplyStatus(data) {
     }
     progressWrap.style.display = 'none';
   }
+}
+
+// ── PR firmware installs (experimental) ────────────────────────────────────────
+function _prSetStatus(text, color) {
+  const el = $('pr-status');
+  el.textContent = text;
+  el.style.color = color || '#555';
+}
+
+async function loadPrBuilds() {
+  $('pr-load-btn').disabled = true;
+  _prSetStatus('Loading open PRs…', '#aaa');
+  await fetch('/api/update/prs/refresh', {method:'POST'});
+  _prPollList();
+}
+
+function _prPollList() {
+  setTimeout(async () => {
+    try {
+      const res  = await fetch('/api/update/prs');
+      const data = await res.json();
+      if (data.state === 'loading') {
+        _prPollList();
+        return;
+      }
+      $('pr-load-btn').disabled = false;
+      if (data.state === 'error') {
+        _prSetStatus('Error: ' + (data.error || 'unknown'), '#f66');
+        return;
+      }
+      const sel = $('pr-select');
+      sel.innerHTML = '';
+      const backOpt = document.createElement('option');
+      backOpt.value = '';
+      backOpt.textContent = '— Latest release (leave PR track) —';
+      sel.appendChild(backOpt);
+      const prs = data.prs || [];
+      prs.forEach(pr => {
+        const opt = document.createElement('option');
+        opt.value = pr.tag;
+        opt.textContent = `PR #${pr.number}: ${pr.title}`;
+        sel.appendChild(opt);
+      });
+      _prSetStatus(prs.length ? `${prs.length} open PR build(s)` : 'No open PR builds found', '#888');
+    } catch {
+      $('pr-load-btn').disabled = false;
+      _prSetStatus('Failed to load PR list', '#f66');
+    }
+  }, 1000);
+}
+
+async function applyPrBuild() {
+  const sel   = $('pr-select');
+  const tag   = sel.value;
+  const label = tag ? sel.options[sel.selectedIndex].textContent : 'the latest release (leaving PR track)';
+  if (!confirm(`Install ${label}? This may install an untested development build. The device will reboot after flashing.`)) return;
+  $('pr-install-btn').disabled = true;
+  $('upd-progress-wrap').style.display = 'block';
+  await fetch('/api/update/apply-pr', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tag})});
+  _updPollStatus();
 }
 
 // ── WiFi network management ───────────────────────────────────────────────────
@@ -2568,6 +2647,15 @@ async function loadConfig() {
     $('battery-divider').style.display = '';
     $('battery-section').style.display = '';
     $('batteryMonitoringEnabled').checked = d.batteryMonitoringEnabled === true;
+  }
+  $('prOtaEnabled').checked = d.prOtaEnabled === true;
+  $('pr-ota-section').style.display = (d.prOtaEnabled === true && d.prOtaBoardSupported === true) ? '' : 'none';
+  const prTrackBadge = $('pr-track-badge');
+  if (d.prOtaEnabled === true && d.prTrack) {
+    prTrackBadge.textContent = `Tracking: ${d.prTrack.replace(/^pr-/, 'PR #')} dev builds`;
+    prTrackBadge.style.display = '';
+  } else {
+    prTrackBadge.style.display = 'none';
   }
   if (d.version) {
     $('fw-version').textContent = 'v' + d.version;
@@ -5303,6 +5391,8 @@ $('clear-mqtt-btn').addEventListener('click', clearMqtt);
 $('save-reboot-btn').addEventListener('click', saveSettings);
 $('upd-check-btn').addEventListener('click', checkUpdate);
 $('upd-apply-btn').addEventListener('click', applyUpdate);
+$('pr-load-btn').addEventListener('click', loadPrBuilds);
+$('pr-install-btn').addEventListener('click', applyPrBuild);
 $('factory-reset-btn').addEventListener('click', factoryReset);
 
 $('push-overlay').addEventListener('click', e => { if (e.target === $('push-overlay')) closePushModal(); });
