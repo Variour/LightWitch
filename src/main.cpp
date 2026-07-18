@@ -835,6 +835,21 @@ void setup() {
     });
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
+    webServer.setPlaylistSync(&playlistSync);
+    webServer.setOnSoundVolumeChange([](uint8_t idx, uint8_t volume) {
+        if (idx < MAX_SOUNDS && Config::get().sounds[idx].exists) _sound.setVolume(volume);
+    });
+    webServer.setOnAudioGroupSync([](const AudioGroupConfig& g) { mesh.broadcastAudioGroupSync(g); });
+    webServer.setOnPlayFile([](uint8_t audioGroupId, const char* filename, bool loop) {
+        triggerPlaySingleFile(audioGroupId, filename, loop);
+    });
+    webServer.setOnPlayPlaylist([](uint8_t audioGroupId, const char* playlistId) {
+        triggerPlayPlaylist(audioGroupId, playlistId);
+    });
+    webServer.setOnStopAudio([](uint8_t audioGroupId) { triggerStopAudio(audioGroupId); });
+    // webServer.setOnPlaylistListChanged(...) wired in the MQTT setup block below,
+    // mirroring setOnSceneListChanged → mqtt.resyncGroupDiscovery().
+
     Logger::i("[sys] ready");
     if (Config::get().checkUpdateOnStartup) {
         if (Config::get().wifiSingleClientMode) {
