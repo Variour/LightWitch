@@ -21,6 +21,8 @@
 #include "patterns/PatternRunner.h"
 #include "scenes/SceneSyncManager.h"
 #include "sound/Es8311Driver.h"
+#include "sound/PlaylistManager.h"
+#include "sound/PlaylistSyncManager.h"
 #include "storage/SdCardManager.h"
 #include "timesync/TimeSync.h"
 #include "version.h"
@@ -38,6 +40,7 @@ static WifiElection wifiElection;
 static BatteryWebServer webServer;
 static MqttManager mqtt;
 static SceneSyncManager sceneSync;
+static PlaylistSyncManager playlistSync;
 static ActionExecutor actionExecutor;
 static ButtonManager buttonManager;
 static BatteryMonitor battery;
@@ -451,6 +454,16 @@ void setup() {
         [](const char* id, uint32_t prevHash) { mesh.broadcastSceneEditPush(id, prevHash); });
     sceneSync.setRequestManifestFn([]() { mesh.broadcastRequestManifest(); });
 
+    // Wire PlaylistSyncManager → MeshManager (mirrors SceneSyncManager above)
+    playlistSync.setBroadcastFns(
+        [](const char* id, uint32_t hash) { mesh.broadcastPlaylistForceSet(id, hash); },
+        [](const char* id) { mesh.broadcastPlaylistRequest(id); },
+        [](const PlaylistChunkMsg& msg) { mesh.broadcastPlaylistChunk(msg); },
+        [](const PlaylistManifestMsg& msg) { mesh.broadcastPlaylistManifest(msg); });
+    playlistSync.setEditPushFn(
+        [](const char* id, uint32_t prevHash) { mesh.broadcastPlaylistEditPush(id, prevHash); });
+    playlistSync.setRequestManifestFn([]() { mesh.broadcastRequestPlaylistManifest(); });
+
     // ── Mesh callbacks ────────────────────────────────────────────────────────
 
     mesh.setOnLightConfig([](uint8_t groupId, const LightConfig& cfg) {
@@ -461,7 +474,10 @@ void setup() {
 
     mesh.setOnPresence([](const uint8_t* mac, const char*, bool isNew) {
         publishTelemetry();
-        if (isNew) sceneSync.onNewPeer(mac);
+        if (isNew) {
+            sceneSync.onNewPeer(mac);
+            playlistSync.onNewPeer(mac);
+        }
     });
 
     mesh.setOnSceneManifest(
@@ -475,6 +491,35 @@ void setup() {
     });
     mesh.setOnRequestManifest([]() { sceneSync.onRequestManifest(); });
     mesh.setOnSetSceneSync([](bool enabled) { sceneSync.onSetSceneSync(enabled); });
+
+    mesh.setOnPlaylistManifest([](const uint8_t* mac, const PlaylistManifestMsg* msg) {
+        playlistSync.onManifest(mac, msg);
+    });
+    mesh.setOnPlaylistRequest(
+        [](const uint8_t* mac, const char* id) { playlistSync.onRequest(mac, id); });
+    mesh.setOnPlaylistChunk([](const PlaylistChunkMsg* msg) { playlistSync.onChunk(msg); });
+    mesh.setOnPlaylistForceSet(
+        [](const char* id, uint32_t hash) { playlistSync.onForceSet(id, hash); });
+    mesh.setOnPlaylistEditPush([](const uint8_t* mac, const char* id, uint32_t prevHash) {
+        playlistSync.onPlaylistEditPush(mac, id, prevHash);
+    });
+    mesh.setOnRequestPlaylistManifest([]() { playlistSync.onRequestManifest(); });
+    mesh.setOnSetPlaylistSync([](bool enabled) { playlistSync.onSetPlaylistSync(enabled); });
+
+    mesh.setOnAudioGroupSync([](const AudioGroupConfig& g) {
+        bool didApply = Config::applyAudioGroupSync(g);
+        AudioGroupConfig* applied = Config::audioGroup(g.id);
+        Config::save();
+        if (!applied) {
+            // Group deleted — move this device's sound output (if it was a member)
+            // back to Default, mirroring how light-group deletion moves lights.
+            Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
+                if (s.audioGroupId == g.id) s.audioGroupId = 0;
+            });
+            Config::save();
+        }
+        if (didApply || !applied) webServer.pushAudioGroups();
+    });
 
     mesh.setOnTriggerUpdate(
         []() { wifiElection.requestTemporary([]() { Updater::triggerAsync(); }); });
@@ -785,6 +830,7 @@ void loop() {
     if (!_otaActive && backgroundTick) {
         buttonManager.tick();
         sceneSync.tick();
+        playlistSync.tick();
     }
 
     if (!_otaActive && now - _lastPatternTickMs >= PATTERN_TICK_INTERVAL_MS) {
