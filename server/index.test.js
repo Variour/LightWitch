@@ -175,3 +175,86 @@ describe('POST /api/sounds/update', () => {
     assert.equal((await res.json()).error, 'pin already in use');
   });
 });
+
+describe('GET /api/storage', () => {
+  test('returns hardware support, card presence, and the .wav file list', async () => {
+    const res = await fetch(`${baseUrl}/api/storage`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.hwSupported, true);
+    assert.equal(body.present, true);
+    assert.ok(Array.isArray(body.files));
+    assert.ok(body.files.some(f => f.name === 'doorbell.wav'));
+  });
+
+  // The card's root can carry pre-existing, non-.wav files (a prior
+  // recording, OS metadata from formatting on a computer, ...) — those must
+  // never be listed, since upload/delete would 400 "invalid filename" on
+  // them (this is the bug this test guards against — see WebServer.h::_getStorage).
+  test('excludes non-.wav files from the list but still counts them in usedBytes', async () => {
+    const res = await fetch(`${baseUrl}/api/storage`);
+    const body = await res.json();
+    assert.ok(!body.files.some(f => f.name === 'IMG_0001.JPG'));
+    assert.ok(body.usedBytes > body.files.reduce((s, f) => s + f.size, 0));
+  });
+});
+
+describe('POST /api/storage/upload', () => {
+  test('rejects a non-.wav filename', async () => {
+    const res = await fetch(`${baseUrl}/api/storage/upload?name=song.mp3`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: Buffer.from('data'),
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'invalid filename');
+  });
+
+  test('rejects a filename with a path separator', async () => {
+    const res = await fetch(`${baseUrl}/api/storage/upload?name=${encodeURIComponent('../evil.wav')}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: Buffer.from('data'),
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'invalid filename');
+  });
+
+  test('accepts a valid .wav upload and it shows up in the file list', async () => {
+    const payload = Buffer.from('RIFF....WAVEfmt ');
+    const res = await fetch(`${baseUrl}/api/storage/upload?name=greeting.wav`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: payload,
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true });
+
+    const { files } = await (await fetch(`${baseUrl}/api/storage`)).json();
+    const uploaded = files.find(f => f.name === 'greeting.wav');
+    assert.ok(uploaded);
+    assert.equal(uploaded.size, payload.length);
+  });
+});
+
+describe('POST /api/storage/delete', () => {
+  test('returns 404 for an unknown file', async () => {
+    const res = await fetch(`${baseUrl}/api/storage/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'nope.wav' }),
+    });
+    assert.equal(res.status, 404);
+  });
+
+  test('deletes an existing file', async () => {
+    const res = await fetch(`${baseUrl}/api/storage/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'alarm.wav' }),
+    });
+    assert.equal(res.status, 200);
+    const { files } = await (await fetch(`${baseUrl}/api/storage`)).json();
+    assert.ok(!files.some(f => f.name === 'alarm.wav'));
+  });
+});

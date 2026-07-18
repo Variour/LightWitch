@@ -20,6 +20,7 @@
 #include "patterns/PatternRunner.h"
 #include "scenes/SceneSyncManager.h"
 #include "sound/Es8311Driver.h"
+#include "storage/SdCardManager.h"
 #include "timesync/TimeSync.h"
 #include "version.h"
 #include "web/WebServer.h"
@@ -29,6 +30,7 @@ static Ws2801Driver _ws2801Pool[MAX_LIGHTS];
 static LedDriver* _leds[MAX_LIGHTS] = {};
 static PatternRunner _runners[MAX_LIGHTS];
 static Es8311Driver _sound;
+static SdCardManager _sdCard;
 static MeshManager mesh;
 static ChannelManager channelMgr;
 static WifiElection wifiElection;
@@ -341,6 +343,10 @@ void setup() {
     Logger::setLevel((LogLevel)Config::get().logLevel);
     Logger::i("[sys] firmware %s  device: %s", FW_VERSION, Config::get().deviceName);
 
+    // Auto-probe the onboard SD card reader, if this build targets a board
+    // that has one (see SdCardManager) — no-op/harmless on boards without it.
+    _sdCard.begin();
+
     battery.begin(Config::get().batteryMonitoringEnabled);
 
     setupWifi();
@@ -615,7 +621,7 @@ void setup() {
             mesh.broadcastWifiRetry();
         },
 
-        &channelMgr);
+        &channelMgr, &_sdCard);
 
     auto notifySceneUpdated = [](const char* id) {
         for (uint8_t i = 0; i < MAX_LIGHTS; i++)

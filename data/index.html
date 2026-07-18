@@ -904,6 +904,21 @@ input[type=checkbox]:active { background-color: #1a5; }
     <div id="sounds-hw-list" style="margin-bottom:.75rem"></div>
     <button class="btn-ghost" style="width:100%" id="add-sound-btn">Add sound</button>
 
+    <hr class="section-divider" id="storage-divider" style="display:none">
+    <div id="storage-section" style="display:none">
+      <h3>Storage <small>(SD card)</small></h3>
+      <div id="storage-status" style="font-size:.82rem;color:#666;margin-bottom:.5rem"></div>
+      <div id="storage-file-list" style="margin-bottom:.5rem"></div>
+      <input type="file" id="storage-upload-input" accept=".wav" style="display:none">
+      <button class="btn-ghost" style="width:100%" id="storage-upload-btn">Upload .wav file</button>
+      <div id="storage-upload-progress-wrap" style="display:none;margin-top:.5rem">
+        <div style="background:#222;border-radius:4px;height:6px;overflow:hidden">
+          <div id="storage-upload-progress-bar" style="background:#4af;height:100%;width:0%;transition:width .1s"></div>
+        </div>
+        <div id="storage-upload-status" style="font-size:.78rem;color:#888;margin-top:.25rem"></div>
+      </div>
+    </div>
+
     <hr class="section-divider">
     <h3>Buttons</h3>
     <div id="buttons-hw-list" style="margin-bottom:.75rem"></div>
@@ -2637,6 +2652,7 @@ async function loadConfig() {
   if (d.lights) renderLightsHw(d.lights);
   loadButtons().catch(() => {});
   loadSounds().catch(() => {});
+  loadStorage().catch(() => {});
   if (d.mqttHost   !== undefined) $('mqttHost').value   = d.mqttHost;
   if (d.mqttPort   !== undefined) $('mqttPort').value   = d.mqttPort;
   if (d.mqttUser   !== undefined) $('mqttUser').value   = d.mqttUser;
@@ -5056,6 +5072,110 @@ async function deleteSound(index) {
     await _waitForDeviceOnline();
     loadConfig().catch(() => {});
   });
+}
+
+// ── Storage (SD card) ───────────────────────────────────────────────────────────
+// Auto-detected hardware (see SdCardManager) — no add/edit modal, just status +
+// a flat file list. Storage only for now; playback isn't wired up yet, see
+// src/storage/README.md.
+async function loadStorage() {
+  const res = await fetch('/api/storage');
+  const d = await res.json();
+  if (d.hwSupported !== true) return;
+  $('storage-divider').style.display = '';
+  $('storage-section').style.display = '';
+  renderStorage(d);
+}
+
+function fmtBytes(n) {
+  return n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${(n / 1024).toFixed(0)} KB`;
+}
+
+function renderStorage(d) {
+  const statusEl = $('storage-status');
+  const listEl = $('storage-file-list');
+  if (!d.present) {
+    statusEl.textContent = 'No SD card detected.';
+    listEl.innerHTML = '';
+    return;
+  }
+  statusEl.textContent = `${fmtBytes(d.usedBytes)} used of ${fmtBytes(d.totalBytes)}`;
+  const files = d.files || [];
+  listEl.innerHTML = files.length
+    ? files.map(f => `<div class="light-hw-row">
+        <span>${esc(f.name)}</span>
+        <div class="light-hw-actions">
+          <span style="color:#888;font-size:.8rem">${fmtBytes(f.size)}</span>
+          <button class="btn-ghost btn-sm" style="color:#c44" data-action="deleteStorageFile" data-name="${esc(f.name)}">Delete</button>
+        </div>
+      </div>`).join('')
+    : '<p style="color:#555;font-size:.85rem">No files.</p>';
+}
+
+_delegate('storage-file-list', 'click', {
+  deleteStorageFile: el => deleteStorageFile(el.dataset.name),
+});
+
+async function deleteStorageFile(name) {
+  await _confirmAction(`Delete ${name}?`, async () => {
+    const res = await _fetchOrAlert('/api/storage/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})});
+    if (!res) return;
+    loadStorage().catch(() => {});
+  });
+}
+
+$('storage-upload-btn')?.addEventListener('click', () => $('storage-upload-input').click());
+$('storage-upload-input')?.addEventListener('change', e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!/\.wav$/i.test(file.name)) { alert('Only .wav files are supported.'); return; }
+  uploadStorageFile(file);
+});
+
+// Uses XMLHttpRequest rather than fetch() — fetch has no upload-progress event,
+// and a multi-MB .wav file over the device's own WiFi is slow enough that
+// silent, unbounded waiting is a real UX gap.
+function uploadStorageFile(file) {
+  const btn    = $('storage-upload-btn');
+  const wrap   = $('storage-upload-progress-wrap');
+  const bar    = $('storage-upload-progress-bar');
+  const status = $('storage-upload-status');
+
+  btn.disabled = true;
+  btn.textContent = 'Uploading…';
+  wrap.style.display = '';
+  bar.style.width = '0%';
+  status.textContent = `0% of ${fmtBytes(file.size)}`;
+
+  const finish = () => {
+    btn.disabled = false;
+    btn.textContent = 'Upload .wav file';
+    wrap.style.display = 'none';
+  };
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `/api/storage/upload?name=${encodeURIComponent(file.name)}`);
+  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+  xhr.upload.addEventListener('progress', ev => {
+    if (!ev.lengthComputable) return;
+    const pct = Math.round((ev.loaded / ev.total) * 100);
+    bar.style.width = pct + '%';
+    status.textContent = `${pct}% of ${fmtBytes(file.size)}`;
+  });
+  xhr.addEventListener('load', () => {
+    finish();
+    if (xhr.status < 200 || xhr.status >= 300) {
+      const d = (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })();
+      alert('Error: ' + (d.error || xhr.status));
+    }
+    loadStorage().catch(() => {});
+  });
+  xhr.addEventListener('error', () => {
+    finish();
+    alert('Error: upload failed');
+  });
+  xhr.send(file);
 }
 
 // ── Buttons ───────────────────────────────────────────────────────────────────

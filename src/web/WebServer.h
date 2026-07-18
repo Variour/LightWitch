@@ -12,6 +12,7 @@
 #include "../mesh/PeerRegistry.h"
 #include "../scenes/SceneManager.h"
 #include "../scenes/SceneSyncManager.h"
+#include "../storage/SdCardManager.h"
 #include "../update/Updater.h"
 #include "../version.h"
 
@@ -98,6 +99,12 @@ class BatteryWebServer {
         const char* error = nullptr;
     };
 
+    struct StorageUploadState {
+        File file;
+        bool failed = false;
+        const char* error = nullptr;
+    };
+
    public:
     void begin(GroupChangeCb onGroupChange, GroupLightCb onGroupLight, GroupSyncCb onGroupSync,
                SetRemoteGroupCb onSetRemote, PeerRegistry* peers,
@@ -107,7 +114,7 @@ class BatteryWebServer {
                MeshSearchCb onMeshSearch = nullptr, CheckPeerUpdateCb onCheckPeerUpdate = nullptr,
                RequestWifiCb onRequestWifi = nullptr, MeshPolicyCb onMeshPolicyChange = nullptr,
                WifiAttemptingCb onWifiAttempting = nullptr, WifiRetryCb onWifiRetry = nullptr,
-               ChannelManager* channelMgr = nullptr) {
+               ChannelManager* channelMgr = nullptr, SdCardManager* sdCard = nullptr) {
         _onGroupChange = onGroupChange;
         _onGroupLight = onGroupLight;
         _onGroupSync = onGroupSync;
@@ -125,6 +132,7 @@ class BatteryWebServer {
         _onWifiAttempting = onWifiAttempting;
         _onWifiRetry = onWifiRetry;
         _channelMgr = channelMgr;
+        _sdCard = sdCard;
 
         Logger::i("[web] starting on port 80");
         _server.addHandler(&_reqLogger);
@@ -240,6 +248,19 @@ class BatteryWebServer {
             "/api/sounds/test", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
                 _testSound(r, d, l);
+            });
+
+        _server.on("/api/storage", HTTP_GET, [this](AsyncWebServerRequest* r) { _getStorage(r); });
+        _server.on(
+            "/api/storage/upload", HTTP_POST,
+            [this](AsyncWebServerRequest* r) { _finishStorageUpload(r); }, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t index, size_t total) {
+                _storageUploadChunk(r, d, l, index, total);
+            });
+        _server.on(
+            "/api/storage/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _deleteStorageFile(r, d, l);
             });
 
         _server.on("/api/buttons", HTTP_GET, [this](AsyncWebServerRequest* r) { _getButtons(r); });
@@ -599,6 +620,7 @@ class BatteryWebServer {
     RequestLogger _reqLogger;
     PeerRegistry* _peers = nullptr;
     ChannelManager* _channelMgr = nullptr;
+    SdCardManager* _sdCard = nullptr;
 
     GroupChangeCb _onGroupChange;
     GroupLightCb _onGroupLight;
@@ -1939,6 +1961,131 @@ class BatteryWebServer {
             return;
         }
         if (_onTestSound) _onTestSound(idx);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    // ── Storage (SD card) ────────────────────────────────────────────────────
+    // Auto-detected hardware (see SdCardManager) — unlike sounds/lights/buttons
+    // there's no per-device config to add/edit, just status + file management.
+
+    // Bare filename only (no path separators), non-empty, ending in ".wav" —
+    // see src/storage/README.md for why uploads are restricted to that format.
+    static bool _isValidWavName(const String& name) {
+        if (name.length() < 5 || name.indexOf('/') != -1 || name.indexOf('\\') != -1) return false;
+        String lower = name;
+        lower.toLowerCase();
+        return lower.endsWith(".wav");
+    }
+
+    // ── GET /api/storage ─────────────────────────────────────────────────────
+    void _getStorage(AsyncWebServerRequest* r) {
+        JsonDocument doc;
+        doc["hwSupported"] = SdCardManager::kHwSupported;
+        bool present = _sdCard && _sdCard->present();
+        doc["present"] = present;
+        doc["totalBytes"] = present ? _sdCard->totalBytes() : 0;
+        doc["usedBytes"] = present ? _sdCard->usedBytes() : 0;
+        // Only list files this API can actually manage (see _isValidWavName) —
+        // the card's root can otherwise hold arbitrary pre-existing files (a
+        // prior recording, OS-created metadata from formatting the card on a
+        // computer, ...) that would show up here but always 400 on delete.
+        JsonArray files = doc["files"].to<JsonArray>();
+        if (present) {
+            _sdCard->forEachFile([&](const String& name, size_t size) {
+                if (!_isValidWavName(name)) return;
+                JsonObject o = files.add<JsonObject>();
+                o["name"] = name;
+                o["size"] = size;
+            });
+        }
+        _sendJson(r, 200, doc);
+    }
+
+    // ── POST /api/storage/upload?name=<file.wav> ────────────────────────────
+    // Body: raw file bytes (streamed straight to the SD card, not buffered —
+    // audio files are too large for that, unlike the scene-save JSON above).
+    void _storageUploadChunk(AsyncWebServerRequest* r, uint8_t* data, size_t len, size_t index,
+                             size_t) {
+        auto* st = static_cast<StorageUploadState*>(r->_tempObject);
+        if (!st) {
+            st = new StorageUploadState();
+            r->_tempObject = st;
+
+            String name;
+            if (r->hasParam("name")) name = r->getParam("name")->value();
+            if (!_isValidWavName(name)) {
+                Logger::w("[storage] upload: rejected filename %s", name.c_str());
+                st->failed = true;
+                st->error = "invalid filename";
+                return;
+            }
+            if (!_sdCard || !_sdCard->present()) {
+                st->failed = true;
+                st->error = "no SD card";
+                return;
+            }
+            st->file = _sdCard->openForWrite(name);
+            if (!st->file) {
+                Logger::e("[storage] upload: open failed for %s", name.c_str());
+                st->failed = true;
+                st->error = "open failed";
+                return;
+            }
+            Logger::i("[storage] upload: %s", name.c_str());
+        }
+
+        if (st->failed || !len) return;
+
+        size_t written = st->file.write(data, len);
+        if (written != len) {
+            Logger::e("[storage] upload: chunk write incomplete (%u/%u) at index=%u",
+                      (unsigned)written, (unsigned)len, (unsigned)index);
+            st->failed = true;
+            st->error = "write failed";
+            st->file.close();
+            st->file = File();
+        }
+    }
+
+    void _finishStorageUpload(AsyncWebServerRequest* r) {
+        auto* st = static_cast<StorageUploadState*>(r->_tempObject);
+        if (!st) {
+            auto e = _makeErr("no body");
+            _sendJson(r, 400, e);
+            return;
+        }
+        if (st->file) st->file.close();
+
+        JsonDocument resp;
+        int code = 200;
+        if (st->failed) {
+            resp["error"] = st->error ? st->error : "upload failed";
+            code = 400;
+        } else {
+            resp["ok"] = true;
+        }
+        delete st;
+        r->_tempObject = nullptr;
+        _sendJson(r, code, resp);
+    }
+
+    // ── POST /api/storage/delete ─────────────────────────────────────────────
+    // Body: {name}
+    void _deleteStorageFile(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        String name = doc["name"] | "";
+        if (!_isValidWavName(name)) {
+            auto e = _makeErr("invalid filename");
+            _sendJson(r, 400, e);
+            return;
+        }
+        if (!_sdCard || !_sdCard->deleteFile(name)) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
     }

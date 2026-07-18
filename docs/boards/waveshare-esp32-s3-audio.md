@@ -45,3 +45,16 @@ data line.
 | Colour order | GRB *(WS2812B default)* |
 | Length | 7 |
 | Rows | 1 |
+
+## Storage (SD card)
+
+Unlike Sound and Lights above, there's nothing to fill in here — the onboard
+TF card slot is a fixed peripheral, not something wired up differently per
+device, so the firmware auto-probes it at boot (see `src/storage/`) and it
+just shows up under Settings → Storage when a card is inserted.
+
+For reference, it's wired in SDMMC 1-bit mode: CLK on GPIO40, CMD on GPIO42,
+DATA/D0 on GPIO41 — confirmed from the board's own schematic
+(`ESP32-S3-AUDIO-Board_1.1.pdf`, TF Card block). The schematic also shows a
+card-detect line (`SD_CD_PIN`) on the TCA9555's EXIO3, which the firmware
+doesn't use (see `src/storage/README.md` for why).
