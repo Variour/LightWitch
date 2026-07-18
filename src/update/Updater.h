@@ -481,30 +481,24 @@ class Updater {
         vTaskDelete(nullptr);
     }
 
-    static void _listPrBuildsTask(void*) {
+    // Fetches the numbers of currently open pull requests. Returns false
+    // (and sets _prListStatus.error) only if the request itself failed —
+    // zero open PRs is not an error.
+    static bool _fetchOpenPrNumbers(std::vector<int>& outNumbers) {
         auto& c = Config::get();
-        if (strlen(c.githubToken) == 0) {
-            _prListStatus.error = "no GitHub token configured";
-            _prListStatus.state = PrListState::Error;
-            vTaskDelete(nullptr);
-            return;
-        }
-
         String url = "https://api.github.com/repos/";
         url += c.githubRepo;
-        url += "/releases?per_page=30";
+        url += "/pulls?state=open&per_page=100";
 
         WiFiClientSecure tls;
         HTTPClient http;
         int code = _httpGet(tls, http, url, "application/vnd.github+json");
         if (code != 200) {
-            Logger::e("[upd] releases list API returned %d", code);
+            Logger::e("[upd] pulls list API returned %d", code);
             snprintf(_prListErrorBuf, sizeof(_prListErrorBuf), "GitHub API error (HTTP %d)", code);
             _prListStatus.error = _prListErrorBuf;
-            _prListStatus.state = PrListState::Error;
             http.end();
-            vTaskDelete(nullptr);
-            return;
+            return false;
         }
 
         String body = http.getString();
@@ -515,22 +509,81 @@ class Updater {
         if (err) {
             Logger::e("[upd] JSON parse error: %s", err.c_str());
             _prListStatus.error = "JSON parse error";
+            return false;
+        }
+
+        for (JsonVariant pr : doc.as<JsonArray>()) {
+            int number = pr["number"] | 0;
+            if (number > 0) outNumbers.push_back(number);
+        }
+        return true;
+    }
+
+    // Looks up the release for one PR's tag (pr-<n>). A 404 just means that
+    // PR has no published build yet (e.g. CI hasn't touched firmware-relevant
+    // paths) and is not treated as an error; other failures are logged but
+    // likewise just skip this PR rather than aborting the whole list.
+    static bool _fetchPrRelease(const String& tag, int number, PrBuild& out) {
+        auto& c = Config::get();
+        String url = "https://api.github.com/repos/";
+        url += c.githubRepo;
+        url += "/releases/tags/";
+        url += tag;
+
+        WiFiClientSecure tls;
+        HTTPClient http;
+        int code = _httpGet(tls, http, url, "application/vnd.github+json");
+        if (code == 404) {
+            http.end();
+            return false;
+        }
+        if (code != 200) {
+            Logger::w("[upd] release lookup for %s returned %d", tag.c_str(), code);
+            http.end();
+            return false;
+        }
+
+        String body = http.getString();
+        http.end();
+
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, body);
+        if (err) {
+            Logger::w("[upd] JSON parse error for %s: %s", tag.c_str(), err.c_str());
+            return false;
+        }
+
+        out.number = number;
+        out.tag = tag;
+        out.title = doc["name"] | tag.c_str();
+        return true;
+    }
+
+    // Lists open PRs that currently have a published firmware prerelease.
+    // Queries open PR numbers first, then looks up each one's release by its
+    // exact tag — small, targeted requests instead of paging through every
+    // release this repo has ever published (whose bodies/assets can add up
+    // to more JSON than the device can reliably buffer and parse).
+    static void _listPrBuildsTask(void*) {
+        auto& c = Config::get();
+        if (strlen(c.githubToken) == 0) {
+            _prListStatus.error = "no GitHub token configured";
+            _prListStatus.state = PrListState::Error;
+            vTaskDelete(nullptr);
+            return;
+        }
+
+        std::vector<int> prNumbers;
+        if (!_fetchOpenPrNumbers(prNumbers)) {
             _prListStatus.state = PrListState::Error;
             vTaskDelete(nullptr);
             return;
         }
 
         std::vector<PrBuild> builds;
-        for (JsonVariant rel : doc.as<JsonArray>()) {
-            bool prerelease = rel["prerelease"] | false;
-            const char* tag = rel["tag_name"] | "";
-            if (!prerelease || strncmp(tag, "pr-", 3) != 0) continue;
+        for (int number : prNumbers) {
             PrBuild b;
-            b.tag = tag;
-            b.number = atoi(tag + 3);
-            const char* name = rel["name"] | tag;
-            b.title = name;
-            builds.push_back(std::move(b));
+            if (_fetchPrRelease("pr-" + String(number), number, b)) builds.push_back(std::move(b));
         }
 
         _prListStatus.builds = std::move(builds);
