@@ -139,6 +139,14 @@ One sound output per device. For known board-specific pin values, see [docs/boar
 
 ---
 
+## Storage (SD card)
+
+On boards with an onboard SD card reader (currently just the [Waveshare ESP32-S3-AUDIO-Board](docs/boards/waveshare-esp32-s3-audio.md)), the firmware detects it automatically at boot — there's nothing to configure. When a card is present, **Settings → Storage** shows its capacity and lets you upload, list, and delete `.wav` audio files.
+
+This is storage only for now — the device doesn't yet play uploaded files back through the speaker; that's a separate future step.
+
+---
+
 ## Firmware updates from GitHub releases (device web UI)
 
 Devices can check for and install new firmware directly from GitHub releases without a computer attached.

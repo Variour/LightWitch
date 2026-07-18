@@ -504,6 +504,59 @@ app.post('/api/buttons/delete', (req, res) => {
   res.json({ ok: true });
 });
 
+// Mirrors SdCardManager: auto-detected hardware, no add/edit config, just
+// status + a flat file list. hwSupported mirrors SdCardManager::kHwSupported
+// (true only on an esp32s3 build with SD_CARD_*_PIN defined); present mirrors
+// whether a card actually responded at boot.
+const mockStorage = {
+  hwSupported: true,
+  present: true,
+  totalBytes: 15931539456, // ~14.8 GB, a typical microSD reporting
+  files: [
+    { name: 'doorbell.wav', size: 245760 },
+    { name: 'alarm.wav', size: 1048576 },
+  ],
+};
+
+function storageUsedBytes() {
+  return mockStorage.files.reduce((sum, f) => sum + f.size, 0);
+}
+
+// Mirrors WebServer.h::_isValidWavName: bare filename (no path separators),
+// non-empty, ending in ".wav" (case-insensitive).
+function isValidWavName(name) {
+  return typeof name === 'string' && name.length > 4 &&
+    !name.includes('/') && !name.includes('\\') && /\.wav$/i.test(name);
+}
+
+app.get('/api/storage', (_req, res) => res.json({
+  hwSupported: mockStorage.hwSupported,
+  present: mockStorage.present,
+  totalBytes: mockStorage.present ? mockStorage.totalBytes : 0,
+  usedBytes: mockStorage.present ? storageUsedBytes() : 0,
+  files: mockStorage.present ? mockStorage.files : [],
+}));
+
+app.post('/api/storage/upload', express.raw({ type: 'application/octet-stream', limit: '64mb' }), (req, res) => {
+  const name = req.query.name;
+  if (!isValidWavName(name)) return res.status(400).json({ error: 'invalid filename' });
+  if (!mockStorage.present) return res.status(400).json({ error: 'no SD card' });
+  const size = Buffer.isBuffer(req.body) ? req.body.length : 0;
+  const existing = mockStorage.files.find(f => f.name === name);
+  if (existing) existing.size = size;
+  else mockStorage.files.push({ name, size });
+  res.json({ ok: true });
+});
+
+app.post('/api/storage/delete', (req, res) => {
+  const { name } = req.body || {};
+  if (!isValidWavName(name)) return res.status(400).json({ error: 'invalid filename' });
+  const idx = mockStorage.files.findIndex(f => f.name === name);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  mockStorage.files.splice(idx, 1);
+  res.json({ ok: true });
+});
+
 const MAX_GROUPS = 8; // mirrors Config::MAX_GROUPS; id 0 is reserved for Default
 
 app.post('/api/groups/create',  (req, res) => {
