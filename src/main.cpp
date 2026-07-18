@@ -496,6 +496,13 @@ void setup() {
     mqtt.setOnLightOverride([](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
     mqtt.setOnSceneSyncEnabled([]() { sceneSync.onSyncEnabled(); });
     mqtt.setBatteryStatusProvider([]() { return battery.status(); });
+    mqtt.setOnPlayFile([](uint8_t audioGroupId, const char* filename, bool loop) {
+        triggerPlaySingleFile(audioGroupId, filename, loop);
+    });
+    mqtt.setOnPlayPlaylist([](uint8_t audioGroupId, const char* playlistId) {
+        triggerPlayPlaylist(audioGroupId, playlistId);
+    });
+    mqtt.setOnStopAudio([](uint8_t audioGroupId) { triggerStopAudio(audioGroupId); });
     mqtt.begin(Config::get());
 
     // Wire the action layer: buttons (and, perspectively, other future trigger
@@ -847,8 +854,10 @@ void setup() {
         triggerPlayPlaylist(audioGroupId, playlistId);
     });
     webServer.setOnStopAudio([](uint8_t audioGroupId) { triggerStopAudio(audioGroupId); });
-    // webServer.setOnPlaylistListChanged(...) wired in the MQTT setup block below,
-    // mirroring setOnSceneListChanged → mqtt.resyncGroupDiscovery().
+    // No setOnPlaylistListChanged wiring: unlike scenes, playlists have no MQTT
+    // HA-discovery entities to resync (see MqttManager.h — audio groups are
+    // command-topic only, no state/discovery) and no PatternRunner-equivalent
+    // consumer, so there's nothing for this callback to do yet.
 
     Logger::i("[sys] ready");
     if (Config::get().checkUpdateOnStartup) {

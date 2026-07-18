@@ -28,6 +28,9 @@ class MqttManager {
     using LightOverrideFn = std::function<void(uint8_t lightIndex)>;
     using SceneSyncToggleFn = std::function<void()>;
     using BatteryStatusFn = std::function<BatteryMonitor::Status()>;
+    using PlayFileFn = std::function<void(uint8_t audioGroupId, const char* filename, bool loop)>;
+    using PlayPlaylistFn = std::function<void(uint8_t audioGroupId, const char* playlistId)>;
+    using StopAudioFn = std::function<void(uint8_t audioGroupId)>;
 
     // Applies + propagates a group's LightConfig change (e.g. main.cpp's
     // applyAndPropagateLightConfig).
@@ -41,6 +44,13 @@ class MqttManager {
     void setOnSceneSyncEnabled(SceneSyncToggleFn fn) { _onSceneSyncEnabled = fn; }
     // Polled for this device's own current battery status (see BatteryMonitor.h).
     void setBatteryStatusProvider(BatteryStatusFn fn) { _batteryStatusProvider = fn; }
+    // Play/stop commands for an audio group — see _handleAudioGroupSet. There is
+    // deliberately no corresponding state topic or HA discovery entity: playback
+    // triggers are fire-and-forget one-shot events (see the "no cross-device
+    // playback state" design decision), so there's nothing to report back.
+    void setOnPlayFile(PlayFileFn fn) { _onPlayFile = fn; }
+    void setOnPlayPlaylist(PlayPlaylistFn fn) { _onPlayPlaylist = fn; }
+    void setOnStopAudio(StopAudioFn fn) { _onStopAudio = fn; }
 
     void begin(const DeviceConfig& cfg) { _apply(cfg); }
 
@@ -80,6 +90,9 @@ class MqttManager {
         snprintf(_batteryStateTopic, sizeof(_batteryStateTopic), "%s/battery/state", base);
         snprintf(_groupSubWildcard, sizeof(_groupSubWildcard), "%s+/set", _groupPrefix);
         snprintf(_lightSubWildcard, sizeof(_lightSubWildcard), "%s+/set", _lightPrefix);
+        snprintf(_audioGroupPrefix, sizeof(_audioGroupPrefix), "%s/audiogroup/", base);
+        snprintf(_audioGroupSubWildcard, sizeof(_audioGroupSubWildcard), "%s+/set",
+                 _audioGroupPrefix);
 
         _client.setClient(_wifi);
         _client.setServer(_host, _port);
@@ -261,6 +274,9 @@ class MqttManager {
     LightOverrideFn _onLightOverride;
     SceneSyncToggleFn _onSceneSyncEnabled;
     BatteryStatusFn _batteryStatusProvider;
+    PlayFileFn _onPlayFile;
+    PlayPlaylistFn _onPlayPlaylist;
+    StopAudioFn _onStopAudio;
 
     bool _enabled = false;
     uint32_t _lastAttempt = 0;
@@ -288,6 +304,8 @@ class MqttManager {
     char _lightPrefix[80] = {};       // "batterylight/<dev>/light/"
     char _groupSubWildcard[96] = {};  // "batterylight/<dev>/group/+/set"
     char _lightSubWildcard[96] = {};  // "batterylight/<dev>/light/+/set"
+    char _audioGroupPrefix[80] = {};       // "batterylight/<dev>/audiogroup/"
+    char _audioGroupSubWildcard[96] = {};  // "batterylight/<dev>/audiogroup/+/set"
     char _updateSetTopic[112] = {};
     char _updateStateTopic[112] = {};
     char _sceneSyncSetTopic[112] = {};
@@ -338,6 +356,7 @@ class MqttManager {
         _client.subscribe(_lightSubWildcard);
         _client.subscribe(_updateSetTopic);
         _client.subscribe(_sceneSyncSetTopic);
+        _client.subscribe(_audioGroupSubWildcard);
         _publishAllDiscovery();
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
             if (Config::group(i)) _doPublishGroup(i);
@@ -780,6 +799,10 @@ class MqttManager {
             _handleSceneSyncSet(payload, len);
             return;
         }
+        if (_parseSuffixId(topic, _audioGroupPrefix, MAX_AUDIO_GROUPS, id)) {
+            _handleAudioGroupSet(id, payload, len);
+            return;
+        }
     }
 
     // Maps an effect_list display string back to mode/pattern/sceneId.
@@ -936,5 +959,40 @@ class MqttManager {
         Config::save();
         if (enabled && !prev && _onSceneSyncEnabled) _onSceneSyncEnabled();
         publishSceneSyncState();
+    }
+
+    // Body: {"action":"stop"} or {"action":"play","filename":"...","loop":false}
+    // or {"action":"play","playlistId":"..."} (playlistId wins if both are
+    // present — mirrors the mesh trigger's isPlaylist split, see PlayAudioMsg).
+    void _handleAudioGroupSet(uint8_t id, uint8_t* payload, unsigned int len) {
+        if (!Config::audioGroup(id)) {
+            Logger::w("[mqtt] audiogroup %u set — not found", id);
+            return;
+        }
+        JsonDocument doc;
+        if (deserializeJson(doc, payload, len)) {
+            Logger::w("[mqtt] audiogroup %u: bad JSON", id);
+            return;
+        }
+        const char* action = doc["action"] | "";
+        if (strcmp(action, "stop") == 0) {
+            if (_onStopAudio) _onStopAudio(id);
+            return;
+        }
+        if (strcmp(action, "play") == 0) {
+            const char* playlistId = doc["playlistId"] | "";
+            if (playlistId[0]) {
+                if (_onPlayPlaylist) _onPlayPlaylist(id, playlistId);
+                return;
+            }
+            const char* filename = doc["filename"] | "";
+            if (filename[0]) {
+                if (_onPlayFile) _onPlayFile(id, filename, doc["loop"] | false);
+                return;
+            }
+            Logger::w("[mqtt] audiogroup %u: play missing filename/playlistId", id);
+            return;
+        }
+        Logger::w("[mqtt] audiogroup %u: unknown action \"%s\"", id, action);
     }
 };
