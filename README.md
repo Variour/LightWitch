@@ -73,7 +73,7 @@ Each device starts as a WiFi access point named after its MAC address (e.g. `lig
 
 1. Connect to the device's WiFi network.
 2. Open **http://192.168.4.1** in a browser.
-3. Under **Network**, set a memorable device name, enter your WiFi credentials, and click **Save & Reboot**.
+3. Under **Settings -> Network**, set a memorable device name, enter your WiFi credentials, and click **Save & Reboot**.
 
 After reboot the device joins your WiFi and is reachable at **http://\<devicename\>.local** (e.g. http://batterylight1.local). The AP turns off automatically once connected.
 
