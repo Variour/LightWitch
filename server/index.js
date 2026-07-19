@@ -349,6 +349,28 @@ app.post('/api/scenes/delete', (req, res) => {
 app.get('/api/scenes/sync/conflicts', (_req, res) => res.json({ conflicts: [], peerScenes: [] }));
 app.post('/api/scenes/sync/resolve',  (_req, res) => res.json({ ok: true }));
 
+// dataPin is always active; clockPin only counts for WS2801 (ledType 1) —
+// WS2812B is single-wire, so a default/leftover clockPin value there is
+// never actually driven (see Config::isPinInUse in Config.cpp).
+function lightPins(l) {
+  const pins = [l.dataPin];
+  if (l.ledType === 1) pins.push(l.clockPin);
+  return pins;
+}
+
+// Mirrors WebServer.h::_lightPinConflict: every active pin on `l` must be
+// mutually distinct and not already claimed by a light, button, or sound
+// output. Pass l.index as excludeIndex when validating an update.
+function lightPinConflict(l, excludeIndex) {
+  const pins = lightPins(l);
+  if (new Set(pins).size !== pins.length) return 'duplicate pin within light config';
+  if (mockLights.some(other => other.index !== excludeIndex && lightPins(other).some(p => pins.includes(p))))
+    return 'pin already in use';
+  if (mockButtons.some(b => pins.includes(b.pin))) return 'pin already in use';
+  if (mockSounds.some(s => soundPins(s).some(p => pins.includes(p)))) return 'pin already in use';
+  return null;
+}
+
 app.get('/api/lights', (_req, res) => res.json({ lights: mockLights, maxLights: 4 }));
 app.post('/api/lights/add', (req, res) => {
   const free = [0,1,2,3].find(i => !mockLights.find(l => l.index === i));
@@ -356,13 +378,22 @@ app.post('/api/lights/add', (req, res) => {
   const { name = '', ledType = 0, colorOrder, dataPin = 13, clockPin = 14, width = 1, height = 1, matrixStart = 0, matrixDir = 0, matrixSerpentine = false, wrapWidth = false, wrapHeight = false, groupId = 0 } = req.body || {};
   // Mirrors Config.h::defaultColorOrder: WS2812B (0) is conventionally wired GRB (2), WS2801 (1) RGB (0).
   const resolvedColorOrder = colorOrder !== undefined ? colorOrder : (ledType === 0 ? 2 : 0);
-  mockLights.push({ index: free, name, ledType, colorOrder: resolvedColorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir, matrixSerpentine, wrapWidth, wrapHeight, groupId });
+  const light = { index: free, name, ledType, colorOrder: resolvedColorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir, matrixSerpentine, wrapWidth, wrapHeight, groupId };
+  const conflict = lightPinConflict(light, free);
+  if (conflict) return res.status(400).json({ error: conflict });
+  mockLights.push(light);
   res.json({ ok: true, index: free });
 });
 app.post('/api/lights/update', (req, res) => {
   const { index, ...fields } = req.body || {};
   const light = mockLights.find(l => l.index === index);
   if (!light) return res.status(404).json({ error: 'not found' });
+  const pinsChanged = ['ledType', 'dataPin', 'clockPin'].some(k => k in fields);
+  if (pinsChanged) {
+    const candidate = { ...light, ...fields };
+    const conflict = lightPinConflict(candidate, index);
+    if (conflict) return res.status(400).json({ error: conflict });
+  }
   Object.assign(light, fields);
   res.json({ ok: true });
   // Mirrors WebServer.h::_updateLight: a brightness override change is a live

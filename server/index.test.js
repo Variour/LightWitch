@@ -89,6 +89,53 @@ describe('GET /api/lights', () => {
   });
 });
 
+describe('POST /api/lights/add', () => {
+  test('rejects a dataPin that collides with another light', async () => {
+    const res = await fetch(`${baseUrl}/api/lights/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Dup', ledType: 0, dataPin: 13, clockPin: 40 }),  // 13 = Living room's dataPin
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'pin already in use');
+  });
+
+  test('two WS2812B lights left at the same default clock pin do not collide (clockPin is unused for WS2812B)', async () => {
+    const res = await fetch(`${baseUrl}/api/lights/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Hallway', ledType: 0, dataPin: 41, clockPin: 14 }),  // 14 = Living room's (unused) clockPin
+    });
+    assert.equal(res.status, 200);
+    const { index } = await res.json();
+    await fetch(`${baseUrl}/api/lights/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index }),
+    });
+  });
+
+  test('rejects a WS2801 clockPin that collides with another WS2801 light', async () => {
+    const res = await fetch(`${baseUrl}/api/lights/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Dup', ledType: 1, dataPin: 42, clockPin: 26 }),  // 26 = Bedroom's clockPin
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'pin already in use');
+  });
+
+  test('rejects a WS2801 light whose dataPin and clockPin are the same', async () => {
+    const res = await fetch(`${baseUrl}/api/lights/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Bad', ledType: 1, dataPin: 43, clockPin: 43 }),
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'duplicate pin within light config');
+  });
+});
+
 describe('POST /api/lights/update', () => {
   test('returns 404 for an unknown light index', async () => {
     const res = await fetch(`${baseUrl}/api/lights/update`, {
@@ -97,6 +144,18 @@ describe('POST /api/lights/update', () => {
       body: JSON.stringify({ index: 99, name: 'Nope' }),
     });
     assert.equal(res.status, 404);
+  });
+
+  test('rejects a dataPin update that collides with another light, leaving it unchanged', async () => {
+    const res = await fetch(`${baseUrl}/api/lights/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: 2, dataPin: 13 }),  // 13 = Living room's dataPin; 2 = Patio
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'pin already in use');
+    const { lights } = await (await fetch(`${baseUrl}/api/lights`)).json();
+    assert.equal(lights.find(l => l.index === 2).dataPin, 27);
   });
 });
 

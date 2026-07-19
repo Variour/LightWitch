@@ -1557,6 +1557,22 @@ class BatteryWebServer {
         _sendJson(r, 200, doc);
     }
 
+    // Returns an error string if the light's active pins collide with each
+    // other or with a light/button/sound pin, else nullptr. clockPin only
+    // counts as active for WS2801 — WS2812B is single-wire and leaves
+    // clockPin unused, so comparing it would produce false conflicts between
+    // two WS2812B lights left at the same default clock pin (see
+    // Config::isPinInUse). Pass the light's own index as excludeLightIndex
+    // when validating an update.
+    static const char* _lightPinConflict(const LightHardwareConfig& l, int8_t excludeLightIndex) {
+        bool usesClock = l.ledType == LedType::WS2801;
+        if (usesClock && l.dataPin == l.clockPin) return "duplicate pin within light config";
+        if (Config::isPinInUse(l.dataPin, -1, -1, excludeLightIndex)) return "pin already in use";
+        if (usesClock && Config::isPinInUse(l.clockPin, -1, -1, excludeLightIndex))
+            return "pin already in use";
+        return nullptr;
+    }
+
     // ── POST /api/lights/add ──────────────────────────────────────────────────
     // Body: {ledType, colorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir,
     // matrixSerpentine, wrapWidth, wrapHeight, groupId}
@@ -1576,8 +1592,7 @@ class BatteryWebServer {
             _sendJson(r, 400, e);
             return;
         }
-        auto& l = Config::get().lights[idx];
-        l.exists = true;
+        LightHardwareConfig l;
         strlcpy(l.name, doc["name"] | "", sizeof(l.name));
         l.ledType = (LedType)(uint8_t)(doc["ledType"] | 0);
         l.colorOrder =
@@ -1594,6 +1609,13 @@ class BatteryWebServer {
         l.groupId = doc["groupId"] | (uint8_t)0;
         if (l.width == 0) l.width = 1;
         if (l.height == 0) l.height = 1;
+        if (const char* conflict = _lightPinConflict(l, /*excludeLightIndex=*/idx)) {
+            auto e = _makeErr(conflict);
+            _sendJson(r, 400, e);
+            return;
+        }
+        l.exists = true;
+        Config::get().lights[idx] = l;
         Config::save();
         JsonDocument resp;
         resp["ok"] = true;
@@ -1619,22 +1641,42 @@ class BatteryWebServer {
         auto& l = Config::get().lights[idx];
         bool hwChanged = false;
         if (!doc["name"].isNull()) strlcpy(l.name, doc["name"] | "", sizeof(l.name));
+
+        // ledType/dataPin/clockPin together determine which pins this light
+        // actually drives — validate them as a group on a scratch copy first,
+        // so a rejected conflict leaves the saved config untouched.
+        bool pinsChanged = false;
+        LightHardwareConfig pinCandidate = l;
         if (!doc["ledType"].isNull()) {
-            l.ledType = (LedType)(uint8_t)doc["ledType"];
+            pinCandidate.ledType = (LedType)(uint8_t)doc["ledType"];
             hwChanged = true;
+            pinsChanged = true;
         }
+        if (!doc["dataPin"].isNull()) {
+            pinCandidate.dataPin = doc["dataPin"];
+            hwChanged = true;
+            pinsChanged = true;
+        }
+        if (!doc["clockPin"].isNull()) {
+            pinCandidate.clockPin = doc["clockPin"];
+            hwChanged = true;
+            pinsChanged = true;
+        }
+        if (pinsChanged) {
+            if (const char* conflict = _lightPinConflict(pinCandidate, (int8_t)idx)) {
+                auto e = _makeErr(conflict);
+                _sendJson(r, 400, e);
+                return;
+            }
+            l.ledType = pinCandidate.ledType;
+            l.dataPin = pinCandidate.dataPin;
+            l.clockPin = pinCandidate.clockPin;
+        }
+
         bool colorOrderChanged = false;
         if (!doc["colorOrder"].isNull()) {
             l.colorOrder = (ColorOrder)(uint8_t)doc["colorOrder"];
             colorOrderChanged = true;
-        }
-        if (!doc["dataPin"].isNull()) {
-            l.dataPin = doc["dataPin"];
-            hwChanged = true;
-        }
-        if (!doc["clockPin"].isNull()) {
-            l.clockPin = doc["clockPin"];
-            hwChanged = true;
         }
         if (!doc["width"].isNull()) {
             l.width = max((uint16_t)1, (uint16_t)doc["width"]);
