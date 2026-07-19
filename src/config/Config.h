@@ -486,15 +486,18 @@ class Config {
 
     static void applyConfigSync(const char* json, size_t len);
 
-    // True if `pin` is already used by a configured light (data/clock pin), a
+    // True if `pin` is already used by a configured light (dataPin always;
+    // clockPin only when that light is WS2801 — WS2812B is single-wire, so a
+    // default/leftover clockPin value there is never actually driven), a
     // configured sound output (I2C/I2S pins, plus its PA-enable pin only when
     // that's a native GPIO — an expander-backed PA pin lives in a separate
     // address space, see IoExpanderChip), or by another configured button.
-    // Pass the button's own index as excludeButtonIndex, or a sound's own
-    // index as excludeSoundIndex, when validating an update to an existing
-    // button/sound. SOUND_PIN_UNUSED never counts as "in use".
+    // Pass the button's own index as excludeButtonIndex, a sound's own index
+    // as excludeSoundIndex, or a light's own index as excludeLightIndex, when
+    // validating an update to an existing button/sound/light. SOUND_PIN_UNUSED
+    // never counts as "in use".
     static bool isPinInUse(uint8_t pin, int8_t excludeButtonIndex = -1,
-                           int8_t excludeSoundIndex = -1);
+                           int8_t excludeSoundIndex = -1, int8_t excludeLightIndex = -1);
 
    private:
     static DeviceConfig _cfg;

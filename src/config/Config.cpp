@@ -657,10 +657,14 @@ bool Config::moveWifiNetwork(const char* ssid, int8_t direction) {
     return saveWifi();
 }
 
-bool Config::isPinInUse(uint8_t pin, int8_t excludeButtonIndex, int8_t excludeSoundIndex) {
+bool Config::isPinInUse(uint8_t pin, int8_t excludeButtonIndex, int8_t excludeSoundIndex,
+                        int8_t excludeLightIndex) {
     for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+        if ((int8_t)i == excludeLightIndex) continue;
         auto& l = _cfg.lights[i];
-        if (l.exists && (l.dataPin == pin || l.clockPin == pin)) return true;
+        if (!l.exists) continue;
+        if (l.dataPin == pin) return true;
+        if (l.ledType == LedType::WS2801 && l.clockPin == pin) return true;
     }
     for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
         if ((int8_t)i == excludeButtonIndex) continue;
