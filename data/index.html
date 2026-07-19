@@ -19,6 +19,13 @@ small { font-size: .75rem; color: #555; }
 input[type=text], input[type=password], input[type=number], select {
   width: 100%; padding: .45rem .65rem; border-radius: 6px; border: 1px solid #2a2a2a;
   background: #111; color: #eee; font-size: .9rem; margin-bottom: .55rem; box-sizing: border-box; }
+.pw-wrap { position: relative; margin-bottom: .55rem; }
+.pw-wrap input[type=password], .pw-wrap input[type=text] { margin-bottom: 0; padding-right: 3.3rem; }
+.pw-toggle { position: absolute; right: .3rem; top: 50%; transform: translateY(-50%);
+  background: none; border: none; padding: .2rem .4rem; margin: 0; color: #888;
+  font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+  cursor: pointer; }
+.pw-toggle:hover { color: #eee; }
 input[type=range]  { width: 100%; accent-color: #2a6; margin-bottom: .5rem; }
 input[type=color]  { width: 2.2rem; height: 2.2rem; border: none; border-radius: 5px;
                      background: none; cursor: pointer; flex-shrink: 0; }
@@ -1104,6 +1111,29 @@ function _delegate(rootId, type, handlers) {
 function _toggleWrap(id, show) {
   const el = $(id);
   if (el) el.style.display = show ? '' : 'none';
+}
+
+// Wrap every password field with a Show/Hide toggle so secrets can be checked in plaintext.
+function _initPasswordToggles() {
+  document.querySelectorAll('input[type=password]').forEach(input => {
+    const wrap = document.createElement('div');
+    wrap.className = 'pw-wrap';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pw-toggle';
+    btn.textContent = 'Show';
+    btn.setAttribute('aria-label', 'Show password');
+    btn.addEventListener('click', () => {
+      const reveal = input.type === 'password';
+      input.type = reveal ? 'text' : 'password';
+      btn.textContent = reveal ? 'Hide' : 'Show';
+      btn.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+    });
+    wrap.appendChild(btn);
+  });
 }
 
 // ── Dashboard state ───────────────────────────────────────────────────────────
@@ -5529,6 +5559,7 @@ $('push-cancel-btn').addEventListener('click', closePushModal);
 $('push-submit-btn').addEventListener('click', submitPushConfig);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+_initPasswordToggles();
 loadConfig();
 const isLocalDev = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
 if (!isLocalDev) connectWs();
