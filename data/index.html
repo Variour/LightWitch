@@ -1001,7 +1001,10 @@ input[type=radio]:active { background-color: #1a5; }
       </div>
     </div>
     <button class="btn-primary" style="width:100%;display:none" id="upd-apply-btn">Install update</button>
-    <div id="pr-track-badge" style="display:none;font-size:.78rem;color:#4af;margin-top:.5rem"></div>
+    <div id="pr-track-row" style="display:none;margin-top:.5rem" class="flex-between">
+      <div id="pr-track-badge" style="font-size:.78rem;color:#4af"></div>
+      <button class="btn-ghost btn-sm" id="pr-back-to-stable-btn">Back to stable</button>
+    </div>
 
     <div id="pr-ota-section" style="display:none;margin-top:.75rem;padding-top:.75rem;border-top:1px solid #333">
       <div style="font-size:.85rem;color:#ccc;margin-bottom:.4rem">Install a PR build (experimental)</div>
@@ -2492,6 +2495,8 @@ function _updApplyStatus(data) {
   checkBtn.disabled = (data.state === 'checking' || data.state === 'downloading');
   const prInstallBtn = $('pr-install-btn');
   if (prInstallBtn) prInstallBtn.disabled = (data.state === 'checking' || data.state === 'downloading');
+  const backToStableBtn = $('pr-back-to-stable-btn');
+  if (backToStableBtn) backToStableBtn.disabled = (data.state === 'checking' || data.state === 'downloading');
 
   if (data.state === 'checking') {
     _updSetStatus('Checking for updates…', '#aaa');
@@ -2553,11 +2558,13 @@ function _prPollList() {
       }
       const sel = $('pr-select');
       sel.innerHTML = '';
-      const backOpt = document.createElement('option');
-      backOpt.value = '';
-      backOpt.textContent = '— Latest release (leave PR track) —';
-      sel.appendChild(backOpt);
       const prs = data.prs || [];
+      if (!prs.length) {
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.textContent = 'No open PR builds found';
+        sel.appendChild(emptyOpt);
+      }
       prs.forEach(pr => {
         const opt = document.createElement('option');
         opt.value = pr.tag;
@@ -2573,13 +2580,24 @@ function _prPollList() {
 }
 
 async function applyPrBuild() {
-  const sel   = $('pr-select');
-  const tag   = sel.value;
-  const label = tag ? sel.options[sel.selectedIndex].textContent : 'the latest release (leaving PR track)';
+  const sel = $('pr-select');
+  const tag = sel.value;
+  if (!tag) return;
+  const label = sel.options[sel.selectedIndex].textContent;
   if (!confirm(`Install ${label}? This may install an untested development build. The device will reboot after flashing.`)) return;
   $('pr-install-btn').disabled = true;
   $('upd-progress-wrap').style.display = 'block';
   await fetch('/api/update/apply-pr', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tag})});
+  _updPollStatus();
+}
+
+// Reverts a device tracking a PR build back to the latest official release,
+// without going through the "Load open PRs" list.
+async function backToStable() {
+  if (!confirm('Install the latest stable release and stop tracking this PR? The device will reboot after flashing.')) return;
+  $('pr-back-to-stable-btn').disabled = true;
+  $('upd-progress-wrap').style.display = 'block';
+  await fetch('/api/update/apply-pr', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tag: ''})});
   _updPollStatus();
 }
 
@@ -2698,11 +2716,12 @@ async function loadConfig() {
   $('prOtaEnabled').checked = d.prOtaEnabled === true;
   $('pr-ota-section').style.display = (d.prOtaEnabled === true && d.prOtaBoardSupported === true) ? '' : 'none';
   const prTrackBadge = $('pr-track-badge');
+  const prTrackRow = $('pr-track-row');
   if (d.prOtaEnabled === true && d.prTrack) {
     prTrackBadge.textContent = `Tracking: ${d.prTrack.replace(/^pr-/, 'PR #')} dev builds`;
-    prTrackBadge.style.display = '';
+    prTrackRow.style.display = '';
   } else {
-    prTrackBadge.style.display = 'none';
+    prTrackRow.style.display = 'none';
   }
   if (d.version) {
     $('fw-version').textContent = 'v' + d.version;
@@ -5544,6 +5563,7 @@ $('upd-check-btn').addEventListener('click', checkUpdate);
 $('upd-apply-btn').addEventListener('click', applyUpdate);
 $('pr-load-btn').addEventListener('click', loadPrBuilds);
 $('pr-install-btn').addEventListener('click', applyPrBuild);
+$('pr-back-to-stable-btn').addEventListener('click', backToStable);
 $('factory-reset-btn').addEventListener('click', factoryReset);
 
 $('push-overlay').addEventListener('click', e => { if (e.target === $('push-overlay')) closePushModal(); });
