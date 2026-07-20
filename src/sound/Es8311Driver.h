@@ -33,6 +33,7 @@ class Es8311Driver : public SoundDriver {
     void _configureFormatAndPower();
     void _setPaEnabled(bool enabled);
     void _writeToneBlock(float freqHz, uint32_t durationMs, float gain);
+    void _writeSilenceFrames(uint32_t frames);
 
     SoundHardwareConfig _cfg;
     Tca9555Expander _paExpander;

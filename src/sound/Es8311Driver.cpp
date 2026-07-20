@@ -41,6 +41,28 @@ static constexpr uint8_t REG_GPIO_45 = 0x45;
 static constexpr int I2S_SAMPLE_RATE_HZ = 16000;
 static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 
+// i2s_write() only blocks until data is copied into the DMA ring buffer, not
+// until it's actually clocked out over the wire — up to this many frames can
+// still be queued when a write call returns. playTestMelody() flushes this
+// many frames of real silence after its last note (see _writeSilenceFrames)
+// rather than disabling the PA or muting immediately: because i2s_write()
+// is self-pacing, it only returns once genuine silence — not the note's
+// tail — is what's left queued, so nothing gets cut off mid-waveform and
+// nothing stale is left for the driver to loop.
+static constexpr int I2S_DMA_BUF_COUNT = 4;
+static constexpr int I2S_DMA_BUF_LEN_FRAMES = 256;
+static constexpr uint32_t I2S_DMA_RING_FRAMES =
+    (uint32_t)I2S_DMA_BUF_COUNT * I2S_DMA_BUF_LEN_FRAMES;
+
+// Settle time between muting and disabling the PA, so the amp's own analog
+// stage has fully quieted down before its enable pin is toggled.
+static constexpr uint32_t PA_DISABLE_SETTLE_MS = 500;
+
+// Step size/delay for ramping REG_DAC_VOLUME down to 0 instead of writing
+// 0x00 directly — an instant full-scale gain step is audible as a click.
+static constexpr int16_t DAC_VOLUME_RAMP_STEP = 8;
+static constexpr uint32_t DAC_VOLUME_RAMP_STEP_MS = 4;
+
 // Conservative default output level for the test melody — loud enough to be
 // audible without assuming anything about the attached speaker's sensitivity.
 static constexpr uint8_t DAC_VOLUME_TEST = 0xB0;
@@ -162,8 +184,8 @@ void Es8311Driver::begin() {
     i2sConfig.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
     i2sConfig.communication_format = I2S_COMM_FORMAT_STAND_I2S;
     i2sConfig.intr_alloc_flags = 0;
-    i2sConfig.dma_buf_count = 4;
-    i2sConfig.dma_buf_len = 256;
+    i2sConfig.dma_buf_count = I2S_DMA_BUF_COUNT;
+    i2sConfig.dma_buf_len = I2S_DMA_BUF_LEN_FRAMES;
     i2sConfig.use_apll = false;
 
     if (i2s_driver_install(I2S_PORT, &i2sConfig, 0, nullptr) != ESP_OK) {
@@ -210,6 +232,23 @@ void Es8311Driver::_writeToneBlock(float freqHz, uint32_t durationMs, float gain
     }
 }
 
+// Writes `frames` of real silence to both I2S slots. Unlike a fixed delay or
+// i2s_zero_dma_buffer(), this is self-pacing: i2s_write() blocks until room
+// actually frees up as the driver clocks out what's ahead of it, so this
+// naturally lets any preceding audio finish playing before being overwritten
+// with silence, and leaves genuine zero samples queued afterward.
+void Es8311Driver::_writeSilenceFrames(uint32_t frames) {
+    constexpr uint32_t CHUNK_FRAMES = 128;
+    static const int16_t silence[CHUNK_FRAMES * 2] = {0};
+    while (frames > 0) {
+        uint32_t framesThisChunk = min(CHUNK_FRAMES, frames);
+        size_t written = 0;
+        i2s_write(I2S_PORT, silence, framesThisChunk * 2 * sizeof(int16_t), &written,
+                  portMAX_DELAY);
+        frames -= framesThisChunk;
+    }
+}
+
 // Short built-in jingle (ascending major arpeggio + resolving note) purely to
 // let the user confirm the wiring/pins are correct from the web UI — no
 // content/pattern system involved, see SoundDriver.h.
@@ -236,7 +275,20 @@ void Es8311Driver::playTestMelody() {
     };
     for (const auto& note : MELODY) _writeToneBlock(note.freqHz, note.durationMs, 0.6f);
 
-    _setPaEnabled(false);
+    // Flush the DMA ring with real silence: paces out the last note's actual
+    // tail before going quiet, and leaves genuine silence queued behind it so
+    // there's nothing stale left for the driver to loop once writes stop.
+    _writeSilenceFrames(I2S_DMA_RING_FRAMES);
+
+    // Ramp the volume down instead of dropping it to 0 in a single register
+    // write, which is audible as a click.
+    for (int16_t v = DAC_VOLUME_TEST; v >= 0; v -= DAC_VOLUME_RAMP_STEP) {
+        _writeReg(REG_DAC_VOLUME, (uint8_t)v);
+        delay(DAC_VOLUME_RAMP_STEP_MS);
+    }
     _writeReg(REG_DAC_VOLUME, 0x00);
+
+    delay(PA_DISABLE_SETTLE_MS);
+    _setPaEnabled(false);
     Logger::i("[sound] playTestMelody: done");
 }
