@@ -2343,16 +2343,16 @@ async function submitPushConfig() {
 // ── Settings save ─────────────────────────────────────────────────────────────
 // Fields covered by saveSettings()'s payload. The Save button mirrors the
 // scene editor's Save button: disabled/grey until one of these differs from
-// the last-loaded/last-saved value, then enabled/green. No auto-save. Only
-// deviceName/otaPort/otaEnabled actually trigger a device reboot (see
-// _postConfig in WebServer.h) — the button doesn't know that in advance, so
-// it just always says "Save"; saveSettings() shows the reboot-wait UI only
-// when the server's response says one is actually happening.
+// the last-loaded/last-saved value, then enabled/green. No auto-save.
 const SETTINGS_FIELD_IDS = [
   'deviceName', 'logLevel', 'timezone', 'apPassword', 'otaPort', 'otaEnabled',
   'mqttHost', 'mqttPort', 'mqttUser', 'mqttPassword',
   'githubRepo', 'githubToken', 'checkUpdateOnStartup', 'prOtaEnabled', 'batteryMonitoringEnabled',
 ];
+// Subset of SETTINGS_FIELD_IDS that actually triggers a device reboot (see
+// _postConfig in WebServer.h) — the button label reflects whether any of
+// these are among the currently-pending (dirty) changes.
+const REBOOT_FIELD_IDS = ['deviceName', 'otaPort', 'otaEnabled'];
 
 let _settingsBaseline = {};
 
@@ -2369,11 +2369,15 @@ function _captureSettingsBaseline() {
   _updateSettingsSaveBtnState();
 }
 
-function _isSettingsDirty() {
-  return SETTINGS_FIELD_IDS.some(id => {
+function _settingsChangedFieldIds() {
+  return SETTINGS_FIELD_IDS.filter(id => {
     const el = $(id);
     return el && _settingsFieldValue(el) !== _settingsBaseline[id];
   });
+}
+
+function _isSettingsDirty() {
+  return _settingsChangedFieldIds().length > 0;
 }
 
 function _setSettingsSaveBtnState(dirty) {
@@ -2381,6 +2385,8 @@ function _setSettingsSaveBtnState(dirty) {
   if (!btn) return;
   btn.disabled  = !dirty;
   btn.className = dirty ? 'btn-primary' : 'btn-ghost';
+  const needsReboot = dirty && _settingsChangedFieldIds().some(id => REBOOT_FIELD_IDS.includes(id));
+  btn.textContent = needsReboot ? 'Save & Reboot' : 'Save';
 }
 
 function _updateSettingsSaveBtnState() {
@@ -2425,7 +2431,6 @@ async function saveSettings() {
     const d = await res.json();
     rebooting = d.rebooting === true;
   } catch(e) {
-    btn.textContent = 'Save';
     status.style.color = '#f66';
     status.textContent = 'Save failed: ' + e.message;
     _updateSettingsSaveBtnState();
@@ -2433,10 +2438,10 @@ async function saveSettings() {
   }
 
   // Save succeeded — the currently-entered values are now the saved state.
+  // (Also resets the button's label back to "Save"/disabled.)
   _captureSettingsBaseline();
 
   if (!rebooting) {
-    btn.textContent = 'Save';
     status.style.color = '#4f4';
     status.textContent = 'Saved!';
     await new Promise(r => setTimeout(r, 1200));
