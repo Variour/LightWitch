@@ -96,18 +96,6 @@ class ActionExecutor {
             case ActionId::GradientPaletteSet:
                 strlcpy(cfg.sceneId, p.stringValue, sizeof(cfg.sceneId));
                 break;
-            case ActionId::FrameDurationStep:
-                cfg.frameDuration = max(0.0f, cfg.frameDuration + p.numberValue);
-                break;
-            case ActionId::TransitionToggle:
-                cfg.transitionEnabled = !cfg.transitionEnabled;
-                break;
-            case ActionId::TransitionTimeSet:
-                cfg.transitionTime = max(0.0f, p.numberValue);
-                break;
-            case ActionId::SceneStringModeCycle:
-                cfg.sceneStringMode = (SceneStringMode)(((uint8_t)cfg.sceneStringMode + 1) % 3);
-                break;
             case ActionId::ProximityScaleStep:
                 cfg.proximityScale = max(0.0f, cfg.proximityScale + p.numberValue);
                 break;

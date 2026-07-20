@@ -29,10 +29,6 @@ void serializeLightConfig(JsonObject o, const LightConfig& l) {
     o["brightness"] = l.brightness;
     o["speed"] = l.speed;
     o["seq"] = l.seq;
-    o["transitionEnabled"] = l.transitionEnabled;
-    o["sceneStringMode"] = (uint8_t)l.sceneStringMode;
-    o["transitionTime"] = l.transitionTime;
-    o["frameDuration"] = l.frameDuration;
     o["proximityScale"] = l.proximityScale;
     o["morphEnabled"] = l.morphEnabled;
     o["gradientStopCount"] = l.gradientStopCount;
@@ -52,11 +48,6 @@ LightConfig deserializeLightConfig(JsonVariant j, const LightConfig& def) {
     l.brightness = j["brightness"] | def.brightness;
     l.speed = j["speed"] | def.speed;
     l.seq = j["seq"] | def.seq;
-    l.transitionEnabled = j["transitionEnabled"] | def.transitionEnabled;
-    l.sceneStringMode =
-        (SceneStringMode)(uint8_t)(j["sceneStringMode"] | (uint8_t)def.sceneStringMode);
-    l.transitionTime = j["transitionTime"] | def.transitionTime;
-    l.frameDuration = j["frameDuration"] | def.frameDuration;
     l.proximityScale = j["proximityScale"] | def.proximityScale;
     l.morphEnabled = j["morphEnabled"] | def.morphEnabled;
     l.gradientStopCount = j["gradientStopCount"] | def.gradientStopCount;

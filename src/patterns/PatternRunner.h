@@ -191,10 +191,8 @@ class PatternRunner {
         if (cfg.mode == GroupMode::Scene) {
             if (_height > 1) {
                 if (_sceneMode != SceneMode::Matrix) {
-                    Logger::i(
-                        "[pattern] → SceneMatrix  scene=%s br=%u frameDur=%.1fs blend=%s t=%.1fs",
-                        cfg.sceneId, cfg.brightness, cfg.frameDuration,
-                        cfg.transitionEnabled ? "on" : "off", cfg.transitionTime);
+                    Logger::i("[pattern] → SceneMatrix  scene=%s br=%u", cfg.sceneId,
+                              cfg.brightness);
                     _sceneMatrix.setDimensions(_width, _height);
                     _sceneMatrix.setMatrixLayout(_matrixStart, _matrixDir, _matrixSerpentine);
                     _sceneMatrix.begin(*_led, cfg);
@@ -206,9 +204,8 @@ class PatternRunner {
                 }
             } else {
                 if (_sceneMode != SceneMode::String) {
-                    Logger::i("[pattern] → SceneString  scene=%s br=%u transition=%s t=%.1fs",
-                              cfg.sceneId, cfg.brightness, cfg.transitionEnabled ? "on" : "off",
-                              cfg.transitionTime);
+                    Logger::i("[pattern] → SceneString  scene=%s br=%u", cfg.sceneId,
+                              cfg.brightness);
                     _sceneString.setNumLeds(_width);
                     _sceneString.begin(*_led, cfg);
                     _current = &_sceneString;

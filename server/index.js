@@ -48,9 +48,9 @@ const MOCK_CONFIG = {
   timezone: 'CET-1CEST,M3.5.0,M10.5.0/3', // Europe/Berlin
   lights: mockLights,
   groups: [
-    { id: 0, name: 'Default',     exists: true, mode: 0, sceneId: '',          pattern: 0, r: 255, g: 200, b: 80,  brightness: 200, speed: 1, seq: 0, syncEnabled: true,  transitionEnabled: false, sceneStringMode: 0, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0, morphEnabled: false, gradientStopCount: 0, text: '', textAnimation: 0, time24h: true },
-    { id: 1, name: 'Scene Group', exists: true, mode: 1, sceneId: '0002ee38f7ce6ab7acd6a859', pattern: 0, r: 255, g: 100, b: 50, brightness: 180, speed: 1, seq: 0, syncEnabled: false, transitionEnabled: false, sceneStringMode: 0, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0, morphEnabled: false, gradientStopCount: 0, text: '', textAnimation: 0, time24h: true },
-    { id: 2, name: 'Gradient Group', exists: true, mode: 3, sceneId: '0002ee38f7ce6ab7acd6a859', pattern: 0, r: 255, g: 255, b: 255, brightness: 220, speed: 1, seq: 0, syncEnabled: true, transitionEnabled: false, sceneStringMode: 0, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0, morphEnabled: true, gradientStopCount: 5, text: '', textAnimation: 0, time24h: true },
+    { id: 0, name: 'Default',     exists: true, mode: 0, sceneId: '',          pattern: 0, r: 255, g: 200, b: 80,  brightness: 200, speed: 1, seq: 0, syncEnabled: true,  proximityScale: 1.0, morphEnabled: false, gradientStopCount: 0, text: '', textAnimation: 0, time24h: true },
+    { id: 1, name: 'Scene Group', exists: true, mode: 1, sceneId: '0002ee38f7ce6ab7acd6a859', pattern: 0, r: 255, g: 100, b: 50, brightness: 180, speed: 1, seq: 0, syncEnabled: false, proximityScale: 1.0, morphEnabled: false, gradientStopCount: 0, text: '', textAnimation: 0, time24h: true },
+    { id: 2, name: 'Gradient Group', exists: true, mode: 3, sceneId: '0002ee38f7ce6ab7acd6a859', pattern: 0, r: 255, g: 255, b: 255, brightness: 220, speed: 1, seq: 0, syncEnabled: true, proximityScale: 1.0, morphEnabled: true, gradientStopCount: 5, text: '', textAnimation: 0, time24h: true },
   ],
 };
 
@@ -84,7 +84,7 @@ const mockButtons = [
   { index: 1, name: 'Nightstand', pin: 5, activeLow: true, viaExpander: false, exists: true,
     onShortPress:  { action: 12, groupId: 1, lightIndex: 0, numberValue: 0, stringValue: '0002ee38f7ce6ab7acd6a859', r: 255, g: 255, b: 255 }, // SceneSet
     onLongPress:   { action: 5,  groupId: 1, lightIndex: 0, numberValue: 1, stringValue: '', r: 255, g: 255, b: 255 }, // ModeSet → Scene
-    onDoubleClick: { action: 29, groupId: 0, lightIndex: 1, numberValue: 20, stringValue: '', r: 255, g: 255, b: 255 }, // LightBrightnessOverrideStep on Bedroom
+    onDoubleClick: { action: 25, groupId: 0, lightIndex: 1, numberValue: 20, stringValue: '', r: 255, g: 255, b: 255 }, // LightBrightnessOverrideStep on Bedroom
   },
   { index: 2, name: 'KEY1 (expander)', pin: 9, activeLow: true, viaExpander: true, exists: true,
     onShortPress:  { action: 9, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 }, // SceneNext
@@ -766,8 +766,7 @@ app.post('/api/groups/create',  (req, res) => {
   const { name = 'New Group' } = req.body || {};
   MOCK_CONFIG.groups.push({
     id: free, name, exists: true, mode: 0, sceneId: '', pattern: 0, r: 255, g: 255, b: 255,
-    brightness: 255, speed: 1, seq: 0, syncEnabled: true, transitionEnabled: false,
-    sceneStringMode: 0, transitionTime: 2.0, frameDuration: 1.0, proximityScale: 1.0,
+    brightness: 255, speed: 1, seq: 0, syncEnabled: true, proximityScale: 1.0,
     morphEnabled: false, gradientStopCount: 0, text: '', textAnimation: 0, time24h: true,
   });
   res.json({ ok: true, id: free });

@@ -194,6 +194,38 @@ class SceneManager {
 
     static String path(const char* id) { return _path(id); }
 
+    // Frame-blend/playback settings, read from a scene's own JSON file. These
+    // live on the scene (not the group/LightConfig) so they travel with the
+    // scene across groups and survive navigating away and back.
+    struct ScenePlayback {
+        bool transitionEnabled = false;
+        SceneStringMode sceneStringMode = SceneStringMode::PerLed;  // string lights only
+        float transitionTime = 2.0f;
+        float frameDuration = 1.0f;
+    };
+
+    static ScenePlayback loadPlayback(const char* sceneId) {
+        ScenePlayback pb;
+        if (!sceneId || !sceneId[0]) return pb;
+        File f = LittleFS.open(_path(sceneId).c_str(), "r");
+        if (!f) return pb;
+        JsonDocument filter;
+        filter["transitionEnabled"] = true;
+        filter["sceneStringMode"] = true;
+        filter["transitionTime"] = true;
+        filter["frameDuration"] = true;
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
+        f.close();
+        if (err) return pb;
+        pb.transitionEnabled = doc["transitionEnabled"] | pb.transitionEnabled;
+        pb.sceneStringMode =
+            (SceneStringMode)(uint8_t)(doc["sceneStringMode"] | (uint8_t)pb.sceneStringMode);
+        pb.transitionTime = doc["transitionTime"] | pb.transitionTime;
+        pb.frameDuration = doc["frameDuration"] | pb.frameDuration;
+        return pb;
+    }
+
     // ── CRC32 ────────────────────────────────────────────────────────────────
 
     // Compute CRC32 of a scene file. Returns 0 if file not found.

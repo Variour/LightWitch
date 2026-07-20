@@ -100,22 +100,24 @@ class SceneMatrix : public Pattern {
     uint8_t _frameIdx = 0, _prevFrameIdx = 0;
     bool _blending = false;
     uint32_t _frameStartMs = 0, _blendStartMs = 0;
+    SceneManager::ScenePlayback _playback;
 
     uint32_t _holdMs() const {
-        float d = _cfg.frameDuration;
+        float d = _playback.frameDuration;
         if (!isfinite(d) || d < 0.0f) d = 1.0f;
         return (uint32_t)(d * 1000.0f);
     }
 
     uint32_t _blendMs() const {
-        if (!_cfg.transitionEnabled) return 0;
-        float t = _cfg.transitionTime;
+        if (!_playback.transitionEnabled) return 0;
+        float t = _playback.transitionTime;
         if (!isfinite(t) || t < 0.0f) t = 0.5f;
         return (uint32_t)(t * 1000.0f);
     }
 
     void _load(const char* sceneId) {
         SceneManager::loadFrames(sceneId, _frames, _sceneW, _sceneH);
+        _playback = SceneManager::loadPlayback(sceneId);
     }
 
     // Render the frame(s) that should currently be on screen, given the

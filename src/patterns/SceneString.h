@@ -6,7 +6,8 @@
 #include "MatrixLayout.h"
 #include "Pattern.h"
 
-// Renders a scene onto a string light, per LightConfig::sceneStringMode:
+// Renders a scene onto a string light, per the scene's own sceneStringMode
+// (see SceneManager::ScenePlayback):
 // - PerLed: each LED independently picks its own random color from the
 //   scene's (undeduplicated, all-frames) palette.
 // - WholeString: the whole string shares one random palette color.
@@ -34,20 +35,16 @@ class SceneString : public Pattern {
 
     void applyConfig(const LightConfig& cfg) override {
         bool sceneChanged = strncmp(cfg.sceneId, _cfg.sceneId, sizeof(cfg.sceneId)) != 0;
-        bool modeChanged = cfg.sceneStringMode != _cfg.sceneStringMode;
-        bool transChanged = cfg.transitionEnabled != _cfg.transitionEnabled;
         _cfg = cfg;
-        if (sceneChanged || modeChanged) {
+        if (sceneChanged) {
             _load(cfg.sceneId);
             _resetFrameState();
             _initLeds(millis());
             _renderCurrent(millis());
-        } else if (_cfg.sceneStringMode == SceneStringMode::OneToOne) {
+        } else if (_playback.sceneStringMode == SceneStringMode::OneToOne) {
             // Re-render the current frame so config-only changes (e.g. brightness)
             // take effect immediately instead of waiting for the next frame advance.
             _renderOneToOneBlendState(millis());
-        } else if (transChanged) {
-            _initLeds(millis());
         }
     }
 
@@ -62,13 +59,13 @@ class SceneString : public Pattern {
 
     void tick(uint32_t now) override {
         if (!_led) return;
-        if (_cfg.sceneStringMode == SceneStringMode::OneToOne) {
+        if (_playback.sceneStringMode == SceneStringMode::OneToOne) {
             _tickOneToOne(now);
             return;
         }
-        if (_cfg.transitionEnabled && !_states.empty()) {
+        if (_playback.transitionEnabled && !_states.empty()) {
             uint32_t cycleMs = _cycleMs();
-            if (_cfg.sceneStringMode == SceneStringMode::WholeString) {
+            if (_playback.sceneStringMode == SceneStringMode::WholeString) {
                 auto& s = _states[0];
                 uint32_t elapsed = now - s.startMs;
                 if (elapsed >= cycleMs * 2) {
@@ -100,6 +97,7 @@ class SceneString : public Pattern {
     uint16_t _numLeds = 1;
     std::vector<Color> _palette;
     std::vector<LedState> _states;
+    SceneManager::ScenePlayback _playback;
 
     // OneToOne mode: spatial scene frames, mirroring SceneMatrix.
     std::vector<std::vector<Color>> _frames;
@@ -109,29 +107,31 @@ class SceneString : public Pattern {
     uint32_t _frameStartMs = 0, _blendStartMs = 0;
 
     uint32_t _cycleMs() const {
-        float t = _cfg.transitionTime;
+        float t = _playback.transitionTime;
         if (!isfinite(t) || t < 0.1f) t = 2.0f;
         return (uint32_t)(t * 1000.0f);
     }
 
     uint32_t _holdMs() const {
-        float d = _cfg.frameDuration;
+        float d = _playback.frameDuration;
         if (!isfinite(d) || d < 0.0f) d = 1.0f;
         return (uint32_t)(d * 1000.0f);
     }
 
     uint32_t _blendMs() const {
-        if (!_cfg.transitionEnabled) return 0;
-        float t = _cfg.transitionTime;
+        if (!_playback.transitionEnabled) return 0;
+        float t = _playback.transitionTime;
         if (!isfinite(t) || t < 0.0f) t = 0.5f;
         return (uint32_t)(t * 1000.0f);
     }
 
     // Loads whatever scene data the active mode needs: OneToOne needs the
     // scene's spatial frame data (like SceneMatrix), PerLed/WholeString only
-    // need the flattened, undeduplicated color palette.
+    // need the flattened, undeduplicated color palette. Also refreshes the
+    // scene's own playback settings (see SceneManager::ScenePlayback).
     void _load(const char* sceneId) {
-        if (_cfg.sceneStringMode == SceneStringMode::OneToOne) {
+        _playback = SceneManager::loadPlayback(sceneId);
+        if (_playback.sceneStringMode == SceneStringMode::OneToOne) {
             _palette.clear();
             SceneManager::loadFrames(sceneId, _frames, _sceneW, _sceneH);
         } else {
@@ -155,7 +155,7 @@ class SceneString : public Pattern {
     }
 
     void _renderCurrent(uint32_t now) {
-        if (_cfg.sceneStringMode == SceneStringMode::OneToOne) {
+        if (_playback.sceneStringMode == SceneStringMode::OneToOne) {
             _renderOneToOne(_frameIdx, _frameIdx, 0.0f);
         } else {
             _renderAll(now);
@@ -164,17 +164,17 @@ class SceneString : public Pattern {
 
     void _initLeds(uint32_t now) {
         _states.clear();
-        if (_cfg.sceneStringMode == SceneStringMode::OneToOne) return;
+        if (_playback.sceneStringMode == SceneStringMode::OneToOne) return;
         if (_palette.empty()) return;
         uint32_t cycleMs = _cycleMs();
         randomSeed(micros() ^ (uint32_t)millis() ^ esp_random());
         _states.reserve(_numLeds);
 
-        if (_cfg.sceneStringMode == SceneStringMode::WholeString) {
+        if (_playback.sceneStringMode == SceneStringMode::WholeString) {
             LedState s;
             s.from = _pick();
             s.to = _pick();
-            s.startMs = _cfg.transitionEnabled ? now - (uint32_t)random(0, cycleMs * 2) : now;
+            s.startMs = _playback.transitionEnabled ? now - (uint32_t)random(0, cycleMs * 2) : now;
             _states.assign(_numLeds, s);
             return;
         }
@@ -207,7 +207,7 @@ class SceneString : public Pattern {
         for (uint16_t i = 0; i < _numLeds && i < (uint16_t)_states.size(); i++) {
             const auto& s = _states[i];
             uint8_t r, g, b;
-            if (!_cfg.transitionEnabled) {
+            if (!_playback.transitionEnabled) {
                 // Static: show the initial random color
                 r = applyBrightness(s.from.r);
                 g = applyBrightness(s.from.g);
