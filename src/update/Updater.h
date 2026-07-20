@@ -504,8 +504,15 @@ class Updater {
         String body = http.getString();
         http.end();
 
+        // Each PR object also carries its body, labels, user, head/base repo
+        // info, etc. — far more JSON than the device can buffer for up to
+        // 100 open PRs. Filter down to the one field we need.
+        JsonDocument filter;
+        filter[0]["number"] = true;
+
         JsonDocument doc;
-        DeserializationError err = deserializeJson(doc, body);
+        DeserializationError err =
+            deserializeJson(doc, body, DeserializationOption::Filter(filter));
         if (err) {
             Logger::e("[upd] JSON parse error: %s", err.c_str());
             _prListStatus.error = "JSON parse error";
