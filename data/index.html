@@ -1272,7 +1272,8 @@ function switchTab(tab, pushHistory = true) {
 
 // Frame duration slider: log scale from the render loop's 60Hz ceiling
 // (PATTERN_TICK_INTERVAL_MS in src/main.cpp) up to a slow multi-second hold.
-// Label switches from fps to seconds at the 1s crossover.
+// Left = longest duration, right = shortest. Label switches from fps to
+// seconds at the 1s crossover.
 const FRAME_DURATION_MIN = 1 / 60;
 const FRAME_DURATION_MAX = 60;
 const FRAME_DURATION_SLIDER_STEPS = 1000;
@@ -1282,13 +1283,13 @@ function clampFrameDuration(d) {
 }
 
 function frameDurationToSlider(d) {
-  const t = Math.log(clampFrameDuration(d) / FRAME_DURATION_MIN) / Math.log(FRAME_DURATION_MAX / FRAME_DURATION_MIN);
+  const t = Math.log(clampFrameDuration(d) / FRAME_DURATION_MAX) / Math.log(FRAME_DURATION_MIN / FRAME_DURATION_MAX);
   return Math.round(t * FRAME_DURATION_SLIDER_STEPS);
 }
 
 function sliderToFrameDuration(pos) {
   const t = pos / FRAME_DURATION_SLIDER_STEPS;
-  return clampFrameDuration(FRAME_DURATION_MIN * Math.pow(FRAME_DURATION_MAX / FRAME_DURATION_MIN, t));
+  return clampFrameDuration(FRAME_DURATION_MAX * Math.pow(FRAME_DURATION_MIN / FRAME_DURATION_MAX, t));
 }
 
 function formatFrameDuration(d) {
@@ -1416,7 +1417,8 @@ function renderGroups(groups) {
                      data-action="onFrameDurationSlider" data-id="${g.id}">
               <input type="number" id="gfd-num-${g.id}" min="${FRAME_DURATION_MIN.toFixed(2)}" max="${FRAME_DURATION_MAX}" step="0.01"
                      value="${(animEnabled?frameDuration:1).toFixed(2)}" style="flex:0 0 5.5rem;margin-bottom:0"
-                     data-action="onFrameDurationNumber" data-id="${g.id}">
+                     aria-label="Frame duration in seconds" data-action="onFrameDurationNumber" data-id="${g.id}">
+              <span style="flex:0 0 auto;color:#666;font-size:.85rem">s</span>
             </div>
           </div>
           <div id="gtrans-wrap-${g.id}">
