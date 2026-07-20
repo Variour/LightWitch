@@ -35,12 +35,22 @@ class BatteryMonitor {
         false;
 #endif
 
-    void begin(bool enabled) {
+    void begin(bool enabled) { setEnabled(enabled); }
+
+    // Enables/disables monitoring live (e.g. after a web UI settings save,
+    // without a reboot). Disabling resets status to "not present" immediately
+    // rather than leaving stale readings around; re-enabling starts sampling
+    // fresh on the next tick().
+    void setEnabled(bool enabled) {
         _enabled = enabled && kHwSupported;
-#ifdef BATTERY_ADC_PIN
-        if (_enabled) {
-            analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
+        if (!_enabled) {
+            _status = Status{};
+            _smoothedMv = 0;
+            _lastSampleMs = 0;
+            return;
         }
+#ifdef BATTERY_ADC_PIN
+        analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
 #endif
     }
 

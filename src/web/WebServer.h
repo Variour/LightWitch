@@ -77,6 +77,18 @@ using WifiAttemptingCb = std::function<bool()>;
 using WifiRetryCb = std::function<void()>;
 // Polled for this device's own current battery status (see BatteryMonitor.h).
 using BatteryStatusCb = std::function<BatteryMonitor::Status()>;
+// Called after the MQTT broker host/port/user/password change via /api/config,
+// so the client can reconnect with the new settings without a reboot.
+using MqttReconfigureCb = std::function<void()>;
+// Called after batteryMonitoringEnabled changes via /api/config (new value),
+// so the monitor can be enabled/disabled live instead of waiting for reboot.
+using BatteryMonitoringChangedCb = std::function<void(bool)>;
+// Called after apPassword changes via /api/config, so the AP can be
+// restarted with the new password live if it's currently the active interface.
+using ApPasswordChangedCb = std::function<void()>;
+// Called after timezone changes via /api/config (new POSIX TZ string), so
+// TimeSync can re-apply it live instead of waiting for reboot.
+using TimezoneChangedCb = std::function<void(const char*)>;
 
 class BatteryWebServer {
    private:
@@ -613,6 +625,12 @@ class BatteryWebServer {
     void setOnClearMqtt(ClearMqttCb cb) { _onClearMqtt = cb; }
     void setOnSceneSyncChanged(SceneSyncChangedCb cb) { _onSceneSyncChanged = cb; }
     void setBatteryStatusProvider(BatteryStatusCb cb) { _batteryStatusProvider = cb; }
+    void setOnMqttReconfigure(MqttReconfigureCb cb) { _onMqttReconfigure = cb; }
+    void setOnBatteryMonitoringChanged(BatteryMonitoringChangedCb cb) {
+        _onBatteryMonitoringChanged = cb;
+    }
+    void setOnApPasswordChanged(ApPasswordChangedCb cb) { _onApPasswordChanged = cb; }
+    void setOnTimezoneChanged(TimezoneChangedCb cb) { _onTimezoneChanged = cb; }
 
    private:
     AsyncWebServer _server{80};
@@ -650,6 +668,10 @@ class BatteryWebServer {
     SceneListChangedCb _onSceneListChanged;
     ClearMqttCb _onClearMqtt;
     SceneSyncChangedCb _onSceneSyncChanged;
+    MqttReconfigureCb _onMqttReconfigure;
+    BatteryMonitoringChangedCb _onBatteryMonitoringChanged;
+    ApPasswordChangedCb _onApPasswordChanged;
+    TimezoneChangedCb _onTimezoneChanged;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -759,16 +781,38 @@ class BatteryWebServer {
     }
 
     // ── POST /api/config ─────────────────────────────────────────────────────
+    // Only deviceName/otaPort/otaEnabled genuinely require a reboot: mDNS,
+    // ArduinoOTA, the AP SSID, and MQTT's topic prefix all derive from
+    // deviceName and are only initialized once at boot, and ArduinoOTA itself
+    // is only begin()'d once (conditionally on otaEnabled). Every other field
+    // is applied live via the callbacks below, and the response reports
+    // whether a reboot is actually happening so the web UI only shows/waits
+    // for one when it's really going to happen.
     void _postConfig(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
         auto& c = Config::get();
-        if (!doc["deviceName"].isNull())
+
+        bool rebootNeeded = false;
+        if (!doc["deviceName"].isNull() && strcmp(c.deviceName, doc["deviceName"] | "") != 0) {
             strlcpy(c.deviceName, doc["deviceName"], sizeof(c.deviceName));
-        if (!doc["apPassword"].isNull())
+            rebootNeeded = true;
+        }
+        if (!doc["otaPort"].isNull() && (uint16_t)doc["otaPort"] != c.otaPort) {
+            c.otaPort = doc["otaPort"];
+            rebootNeeded = true;
+        }
+        if (!doc["otaEnabled"].isNull() && (bool)doc["otaEnabled"] != c.otaEnabled) {
+            c.otaEnabled = (bool)doc["otaEnabled"];
+            rebootNeeded = true;
+        }
+
+        bool apPasswordChanged = false;
+        if (!doc["apPassword"].isNull()) {
             strlcpy(c.apPassword, doc["apPassword"], sizeof(c.apPassword));
-        if (!doc["otaPort"].isNull()) c.otaPort = doc["otaPort"];
-        if (!doc["otaEnabled"].isNull()) c.otaEnabled = (bool)doc["otaEnabled"];
+            apPasswordChanged = true;
+        }
+
         if (!doc["logLevel"].isNull()) {
             c.logLevel = (uint8_t)doc["logLevel"];
             Logger::setLevel((LogLevel)c.logLevel);
@@ -781,29 +825,63 @@ class BatteryWebServer {
         }
         if (!doc["checkUpdateOnStartup"].isNull())
             c.checkUpdateOnStartup = (bool)doc["checkUpdateOnStartup"];
-        if (!doc["batteryMonitoringEnabled"].isNull())
-            c.batteryMonitoringEnabled = (bool)doc["batteryMonitoringEnabled"];
+
+        bool batteryChanged = false;
+        if (!doc["batteryMonitoringEnabled"].isNull()) {
+            bool newVal = (bool)doc["batteryMonitoringEnabled"];
+            batteryChanged = newVal != c.batteryMonitoringEnabled;
+            c.batteryMonitoringEnabled = newVal;
+        }
         if (!doc["prOtaEnabled"].isNull()) c.prOtaEnabled = (bool)doc["prOtaEnabled"];
         // wifiSingleClientMode is intentionally not handled here — it's a
         // runtime-safe, mesh-wide toggle exposed from the device list instead
         // (POST /api/mesh/wifipolicy), so flipping it doesn't force the
-        // "save settings" reboot that every other field here triggers.
-        if (!doc["mqttHost"].isNull()) strlcpy(c.mqttHost, doc["mqttHost"], sizeof(c.mqttHost));
-        if (!doc["mqttPort"].isNull()) c.mqttPort = (uint16_t)doc["mqttPort"];
-        if (!doc["mqttUser"].isNull()) strlcpy(c.mqttUser, doc["mqttUser"], sizeof(c.mqttUser));
-        if (!doc["mqttPassword"].isNull() && strlen(doc["mqttPassword"]) > 0)
+        // "save settings" reboot that every other field here used to trigger.
+
+        bool mqttChanged = false;
+        if (!doc["mqttHost"].isNull() && strcmp(c.mqttHost, doc["mqttHost"] | "") != 0) {
+            strlcpy(c.mqttHost, doc["mqttHost"], sizeof(c.mqttHost));
+            mqttChanged = true;
+        }
+        if (!doc["mqttPort"].isNull() && (uint16_t)doc["mqttPort"] != c.mqttPort) {
+            c.mqttPort = (uint16_t)doc["mqttPort"];
+            mqttChanged = true;
+        }
+        if (!doc["mqttUser"].isNull() && strcmp(c.mqttUser, doc["mqttUser"] | "") != 0) {
+            strlcpy(c.mqttUser, doc["mqttUser"], sizeof(c.mqttUser));
+            mqttChanged = true;
+        }
+        if (!doc["mqttPassword"].isNull() && strlen(doc["mqttPassword"]) > 0) {
             strlcpy(c.mqttPassword, doc["mqttPassword"], sizeof(c.mqttPassword));
+            mqttChanged = true;
+        }
+
         if (!doc["githubRepo"].isNull())
             strlcpy(c.githubRepo, doc["githubRepo"], sizeof(c.githubRepo));
         if (!doc["githubToken"].isNull() && strlen(doc["githubToken"]) > 0)
             strlcpy(c.githubToken, doc["githubToken"], sizeof(c.githubToken));
-        if (!doc["timezone"].isNull()) strlcpy(c.timezone, doc["timezone"], sizeof(c.timezone));
+
+        bool timezoneChanged = false;
+        if (!doc["timezone"].isNull() && strcmp(c.timezone, doc["timezone"] | "") != 0) {
+            strlcpy(c.timezone, doc["timezone"], sizeof(c.timezone));
+            timezoneChanged = true;
+        }
 
         Config::save();
+
+        if (mqttChanged && _onMqttReconfigure) _onMqttReconfigure();
+        if (batteryChanged && _onBatteryMonitoringChanged)
+            _onBatteryMonitoringChanged(c.batteryMonitoringEnabled);
+        if (apPasswordChanged && _onApPasswordChanged) _onApPasswordChanged();
+        if (timezoneChanged && _onTimezoneChanged) _onTimezoneChanged(c.timezone);
+
         auto ok = _makeOk();
+        ok["rebooting"] = rebootNeeded;
         _sendJson(r, 200, ok);
-        delay(200);
-        ESP.restart();
+        if (rebootNeeded) {
+            delay(200);
+            ESP.restart();
+        }
     }
 
     // ── POST /api/mqtt/clear ─────────────────────────────────────────────────

@@ -42,7 +42,20 @@ class MqttManager {
     // Polled for this device's own current battery status (see BatteryMonitor.h).
     void setBatteryStatusProvider(BatteryStatusFn fn) { _batteryStatusProvider = fn; }
 
-    void begin(const DeviceConfig& cfg) {
+    void begin(const DeviceConfig& cfg) { _apply(cfg); }
+
+    // Re-applies broker host/port/credentials (and deviceName, in case it
+    // ever changes here too) without a reboot — e.g. after the web UI saves
+    // new MQTT settings. Disconnects any existing session first so a changed
+    // host actually takes effect instead of leaving the old socket open.
+    void reconfigure(const DeviceConfig& cfg) {
+        if (_client.connected()) _client.disconnect();
+        _enabled = false;
+        _apply(cfg);
+    }
+
+   private:
+    void _apply(const DeviceConfig& cfg) {
         if (strlen(cfg.mqttHost) == 0) return;
 
         strlcpy(_deviceName, cfg.deviceName, sizeof(_deviceName));
@@ -82,6 +95,7 @@ class MqttManager {
         _connect();
     }
 
+   public:
     void loop() {
         if (!_enabled) return;
         if (!_client.connected()) {

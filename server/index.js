@@ -216,8 +216,16 @@ app.post('/api/config', (req, res) => {
   delete rest.mqttPassword;
   delete rest.githubToken;
   delete rest.prTrack;
+
+  // Mirrors _postConfig's rebootNeeded logic: only these three are one-shot
+  // on the real device (mDNS/ArduinoOTA/AP SSID init at boot only) — every
+  // other field applies live, no reboot.
+  const rebooting = ['deviceName', 'otaPort', 'otaEnabled'].some(
+    k => k in rest && rest[k] !== MOCK_CONFIG[k]
+  );
+
   Object.assign(MOCK_CONFIG, rest);
-  res.json({ ok: true });
+  res.json({ ok: true, rebooting });
 });
 
 // Mirrors WebServer.h::_clearMqtt — removes the broker config. The real
