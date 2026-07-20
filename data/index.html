@@ -2558,11 +2558,13 @@ function _prPollList() {
       }
       const sel = $('pr-select');
       sel.innerHTML = '';
-      const backOpt = document.createElement('option');
-      backOpt.value = '';
-      backOpt.textContent = '— Latest release (leave PR track) —';
-      sel.appendChild(backOpt);
       const prs = data.prs || [];
+      if (!prs.length) {
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.textContent = 'No open PR builds found';
+        sel.appendChild(emptyOpt);
+      }
       prs.forEach(pr => {
         const opt = document.createElement('option');
         opt.value = pr.tag;
@@ -2578,9 +2580,10 @@ function _prPollList() {
 }
 
 async function applyPrBuild() {
-  const sel   = $('pr-select');
-  const tag   = sel.value;
-  const label = tag ? sel.options[sel.selectedIndex].textContent : 'the latest release (leaving PR track)';
+  const sel = $('pr-select');
+  const tag = sel.value;
+  if (!tag) return;
+  const label = sel.options[sel.selectedIndex].textContent;
   if (!confirm(`Install ${label}? This may install an untested development build. The device will reboot after flashing.`)) return;
   $('pr-install-btn').disabled = true;
   $('upd-progress-wrap').style.display = 'block';
