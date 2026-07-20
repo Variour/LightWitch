@@ -756,6 +756,7 @@ class BatteryWebServer {
             auto& l = c.lights[i];
             JsonObject lo = lightsArr.add<JsonObject>();
             lo["index"] = i;
+            lo["name"] = l.name;
             lo["ledType"] = (uint8_t)l.ledType;
             lo["colorOrder"] = (uint8_t)l.colorOrder;
             lo["dataPin"] = l.dataPin;
@@ -940,6 +941,7 @@ class BatteryWebServer {
                 if (!c.lights[i].exists) continue;
                 JsonObject lo = la.add<JsonObject>();
                 lo["index"] = i;
+                lo["name"] = c.lights[i].name;
                 lo["groupId"] = c.lights[i].groupId;
                 lo["ledType"] = (uint8_t)c.lights[i].ledType;
                 lo["width"] = c.lights[i].width;
