@@ -1413,7 +1413,7 @@ function renderGroups(groups) {
             <label style="margin-top:.4rem">Frame duration <span id="gfd-label-${g.id}">${formatFrameDuration(animEnabled?frameDuration:1)}</span></label>
             <div class="row">
               <input type="range" id="gfd-${g.id}" min="0" max="${FRAME_DURATION_SLIDER_STEPS}" step="1"
-                     value="${frameDurationToSlider(animEnabled?frameDuration:1)}"
+                     value="${frameDurationToSlider(animEnabled?frameDuration:1)}" style="margin-bottom:0"
                      data-action="onFrameDurationSlider" data-id="${g.id}">
               <input type="number" id="gfd-num-${g.id}" min="${FRAME_DURATION_MIN.toFixed(2)}" max="${FRAME_DURATION_MAX}" step="0.01"
                      value="${(animEnabled?frameDuration:1).toFixed(2)}" style="flex:0 0 5.5rem;margin-bottom:0"
