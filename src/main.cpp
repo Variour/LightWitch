@@ -657,6 +657,25 @@ void setup() {
     });
     webServer.setOnButtonsChanged([]() { buttonManager.reconfigure(); });
     webServer.setBatteryStatusProvider([]() { return battery.status(); });
+    webServer.setOnMqttReconfigure([]() { mqtt.reconfigure(Config::get()); });
+    webServer.setOnBatteryMonitoringChanged([](bool enabled) {
+        battery.setEnabled(enabled);
+        mqtt.resyncGroupDiscovery();
+        mqtt.publishBatteryState();
+    });
+    // AP-mode SSID/password only take effect while this device is actually
+    // running its own AP (no WiFi networks configured, or all failed) — the
+    // many other WiFi.softAP() call sites already gate the same way (see
+    // setupWifi()/WifiElection.h). If it's currently connected as a station,
+    // the new password takes effect the next time it falls back to AP.
+    webServer.setOnApPasswordChanged([]() {
+        if (!WiFi.isConnected()) {
+            auto& c = Config::get();
+            WiFi.softAP(c.deviceName, c.apPassword, 1);
+            Logger::i("[wifi] AP password updated live");
+        }
+    });
+    webServer.setOnTimezoneChanged([](const char* tz) { TimeSync::begin(tz); });
     webServer.setOnTestSound([](uint8_t idx) {
         if (idx < MAX_SOUNDS && Config::get().sounds[idx].exists) _sound.playTestMelody();
     });

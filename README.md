@@ -73,7 +73,7 @@ Each device starts as a WiFi access point named after its MAC address (e.g. `lig
 
 1. Connect to the device's WiFi network.
 2. Open **http://192.168.4.1** in a browser.
-3. Under **Settings -> Network**, set a memorable device name, enter your WiFi credentials, and click **Save & Reboot**.
+3. Under **Settings -> Network**, set a memorable device name, enter your WiFi credentials, and click **Save**. Changing the device name reboots the device to apply it.
 
 After reboot the device joins your WiFi and is reachable at **http://\<devicename\>.local** (e.g. http://batterylight1.local). The AP turns off automatically once connected.
 
@@ -170,7 +170,7 @@ Devices can check for and install new firmware directly from GitHub releases wit
 
    Classic tokens work too with the `repo` scope, but a fine-grained token with read-only access is safer.
 
-4. Paste the token into **Personal access token** and click **Save & Reboot**.
+4. Paste the token into **Personal access token** and click **Save** — this takes effect immediately, no reboot needed.
 
 ### Usage
 

@@ -32,19 +32,44 @@ describe('GET /api/config', () => {
 });
 
 describe('POST /api/config', () => {
-  test('strips write-only secrets before merging', async () => {
+  test('strips write-only secrets before merging, reports rebooting for deviceName', async () => {
     const res = await fetch(`${baseUrl}/api/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deviceName: 'Renamed', mqttPassword: 'secret', githubToken: 'ghp_x' }),
     });
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { ok: true });
+    assert.deepEqual(await res.json(), { ok: true, rebooting: true });
 
     const config = await (await fetch(`${baseUrl}/api/config`)).json();
     assert.equal(config.deviceName, 'Renamed');
     assert.equal(config.mqttPassword, undefined);
     assert.equal(config.githubToken, undefined);
+  });
+
+  test('does not report rebooting when only reboot-free fields change', async () => {
+    const res = await fetch(`${baseUrl}/api/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ checkUpdateOnStartup: true, mqttHost: 'broker.local' }),
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true, rebooting: false });
+
+    const config = await (await fetch(`${baseUrl}/api/config`)).json();
+    assert.equal(config.checkUpdateOnStartup, true);
+    assert.equal(config.mqttHost, 'broker.local');
+  });
+
+  test('reports rebooting: false when a request repeats the current deviceName unchanged', async () => {
+    const current = await (await fetch(`${baseUrl}/api/config`)).json();
+    const res = await fetch(`${baseUrl}/api/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceName: current.deviceName, logLevel: current.logLevel }),
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true, rebooting: false });
   });
 });
 

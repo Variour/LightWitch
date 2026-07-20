@@ -972,7 +972,7 @@ input[type=radio]:active { background-color: #1a5; }
   </div>
 
   <div class="card settings-save-bar">
-    <button id="save-reboot-btn" class="btn-ghost" style="width:100%" disabled>Save &amp; Reboot</button>
+    <button id="save-reboot-btn" class="btn-ghost" style="width:100%" disabled>Save</button>
     <div id="save-reboot-status" style="margin-top:.5rem;font-size:.85rem;text-align:center;color:#888"></div>
   </div>
 
@@ -2341,9 +2341,13 @@ async function submitPushConfig() {
 }
 
 // ── Settings save ─────────────────────────────────────────────────────────────
-// Fields covered by saveSettings()'s payload. The Save & Reboot button mirrors
-// the scene editor's Save button: disabled/grey until one of these differs
-// from the last-loaded/last-saved value, then enabled/green. No auto-save.
+// Fields covered by saveSettings()'s payload. The Save button mirrors the
+// scene editor's Save button: disabled/grey until one of these differs from
+// the last-loaded/last-saved value, then enabled/green. No auto-save. Only
+// deviceName/otaPort/otaEnabled actually trigger a device reboot (see
+// _postConfig in WebServer.h) — the button doesn't know that in advance, so
+// it just always says "Save"; saveSettings() shows the reboot-wait UI only
+// when the server's response says one is actually happening.
 const SETTINGS_FIELD_IDS = [
   'deviceName', 'logLevel', 'timezone', 'apPassword', 'otaPort', 'otaEnabled',
   'mqttHost', 'mqttPort', 'mqttUser', 'mqttPassword',
@@ -2414,11 +2418,14 @@ async function saveSettings() {
     body.batteryMonitoringEnabled = $('batteryMonitoringEnabled').checked;
   if (ghTok)  body.githubToken   = ghTok;
 
+  let rebooting;
   try {
     const res = await fetch('/api/config', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    rebooting = d.rebooting === true;
   } catch(e) {
-    btn.textContent = 'Save & Reboot';
+    btn.textContent = 'Save';
     status.style.color = '#f66';
     status.textContent = 'Save failed: ' + e.message;
     _updateSettingsSaveBtnState();
@@ -2427,6 +2434,15 @@ async function saveSettings() {
 
   // Save succeeded — the currently-entered values are now the saved state.
   _captureSettingsBaseline();
+
+  if (!rebooting) {
+    btn.textContent = 'Save';
+    status.style.color = '#4f4';
+    status.textContent = 'Saved!';
+    await new Promise(r => setTimeout(r, 1200));
+    status.textContent = '';
+    return;
+  }
 
   btn.textContent = 'Saved — rebooting…';
   status.style.color = '#888';
@@ -2438,14 +2454,14 @@ async function saveSettings() {
     status.textContent = 'Device is back online!';
     await new Promise(r => setTimeout(r, 800));
     switchTab('dashboard');
-    btn.textContent = 'Save & Reboot';
+    btn.textContent = 'Save';
     status.textContent = '';
     return;
   }
 
   status.style.color = '#f66';
   status.textContent = 'Device not responding — check your connection.';
-  btn.textContent = 'Save & Reboot';
+  btn.textContent = 'Save';
 }
 
 // Poll /api/config until the device responds again after a reboot-triggering change.
