@@ -115,35 +115,7 @@ class SceneMatrix : public Pattern {
     }
 
     void _load(const char* sceneId) {
-        _frames.clear();
-        _sceneW = _sceneH = 0;
-        if (!sceneId || !sceneId[0]) return;
-        File f = LittleFS.open(SceneManager::path(sceneId).c_str(), "r");
-        if (!f) return;
-        JsonDocument doc;
-        if (deserializeJson(doc, f)) {
-            f.close();
-            return;
-        }
-        f.close();
-        _sceneW = doc["w"] | (uint16_t)0;
-        _sceneH = doc["h"] | (uint16_t)0;
-        JsonArray frames = doc["frames"].as<JsonArray>();
-        if (!frames || !frames.size()) return;
-        for (JsonArray fr : frames) {
-            std::vector<Color> pixels;
-            pixels.reserve(fr.size());
-            for (JsonVariant v : fr) {
-                const char* hex = v | "";
-                if (strlen(hex) < 6) {
-                    pixels.push_back({});
-                    continue;
-                }
-                unsigned long rgb = strtoul(hex, nullptr, 16);
-                pixels.push_back({(uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb});
-            }
-            _frames.push_back(std::move(pixels));
-        }
+        SceneManager::loadFrames(sceneId, _frames, _sceneW, _sceneH);
     }
 
     // Render the frame(s) that should currently be on screen, given the

@@ -107,6 +107,14 @@ enum class TextAnimation : uint8_t {
     Bounce = 1,
 };
 
+// Scene mode, string lights only: how the scene maps onto the string.
+enum class SceneStringMode : uint8_t {
+    PerLed = 0,       // each LED independently gets its own random palette color
+    WholeString = 1,  // whole string shares one random palette color
+    OneToOne = 2,     // scene image flattened row-major and stretched onto the string,
+                      // the same way Matrix lights render it pixel-by-pixel
+};
+
 // Actions a button (or, perspectively, any other trigger source — MQTT/API/mesh)
 // can invoke against a group's LightConfig. Every action targets a group id;
 // GroupSyncToggle is the one exception that mutates GroupConfig.syncEnabled
@@ -130,7 +138,7 @@ enum class ActionId : uint8_t {
     FrameDurationStep,
     TransitionToggle,
     TransitionTimeSet,
-    SceneUniformColorToggle,
+    SceneStringModeCycle,
     ProximityScaleStep,
     ProximityScaleSet,
     GradientPaletteNext,
@@ -176,7 +184,7 @@ struct LightConfig {
     // suppression (see MeshManager), and to order same-device local edits.
     uint32_t seq = 0;
     bool transitionEnabled = false;
-    bool sceneUniformColor = false;  // string lights: whole string shares one random scene color
+    SceneStringMode sceneStringMode = SceneStringMode::PerLed;
     float transitionTime = 2.0f;
     float frameDuration = 1.0f;
     float proximityScale = 1.0f;

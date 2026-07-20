@@ -6,6 +6,7 @@
 #include <esp_random.h>
 
 #include <set>
+#include <vector>
 
 #include "../config/Config.h"
 #include "../logging/Logger.h"
@@ -14,6 +15,46 @@ class SceneManager {
    public:
     static bool extractId(const char* json, size_t len, String& out) {
         return _extractId(json, len, out);
+    }
+
+    // Reads a scene's frames as spatial pixel grids (row-major, w*h colors
+    // each) plus its w/h dimensions, for renderers that map a scene onto a
+    // light's physical layout (as opposed to GradientCommon::loadPalette's
+    // flattened, non-spatial color list). Returns false, leaving frames
+    // empty and w/h at 0, if the scene id is blank or the file is missing
+    // or unparseable.
+    static bool loadFrames(const char* sceneId, std::vector<std::vector<Color>>& frames,
+                           uint16_t& w, uint16_t& h) {
+        frames.clear();
+        w = h = 0;
+        if (!sceneId || !sceneId[0]) return false;
+        File f = LittleFS.open(_path(sceneId), "r");
+        if (!f) return false;
+        JsonDocument doc;
+        if (deserializeJson(doc, f)) {
+            f.close();
+            return false;
+        }
+        f.close();
+        w = doc["w"] | (uint16_t)0;
+        h = doc["h"] | (uint16_t)0;
+        JsonArray fs = doc["frames"].as<JsonArray>();
+        if (!fs || !fs.size()) return false;
+        for (JsonArray fr : fs) {
+            std::vector<Color> pixels;
+            pixels.reserve(fr.size());
+            for (JsonVariant v : fr) {
+                const char* hex = v | "";
+                if (strlen(hex) < 6) {
+                    pixels.push_back({});
+                    continue;
+                }
+                unsigned long rgb = strtoul(hex, nullptr, 16);
+                pixels.push_back({(uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb});
+            }
+            frames.push_back(std::move(pixels));
+        }
+        return true;
     }
 
     static void init() {

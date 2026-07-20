@@ -105,8 +105,8 @@ class ActionExecutor {
             case ActionId::TransitionTimeSet:
                 cfg.transitionTime = max(0.0f, p.numberValue);
                 break;
-            case ActionId::SceneUniformColorToggle:
-                cfg.sceneUniformColor = !cfg.sceneUniformColor;
+            case ActionId::SceneStringModeCycle:
+                cfg.sceneStringMode = (SceneStringMode)(((uint8_t)cfg.sceneStringMode + 1) % 3);
                 break;
             case ActionId::ProximityScaleStep:
                 cfg.proximityScale = max(0.0f, cfg.proximityScale + p.numberValue);
