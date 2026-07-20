@@ -13,10 +13,46 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
+      # firmware.yml's publish-pr-build job can still be running when the PR
+      # closes (its build matrix takes a couple of minutes), which would
+      # otherwise let it publish a pr-<number> prerelease after this job has
+      # already run and found nothing to delete. Cancel any in-flight run for
+      # this PR's head SHA and wait for it to actually stop before deleting,
+      # so the release never gets published in the first place.
+      - name: Cancel in-flight firmware build for this PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA="${{ github.event.pull_request.head.sha }}"
+          RUN_IDS=$(gh api "repos/${{ github.repository }}/actions/workflows/firmware.yml/runs" \
+            -f head_sha="$SHA" \
+            --jq '.workflow_runs[] | select(.status == "in_progress" or .status == "queued") | .id')
+
+          for id in $RUN_IDS; do
+            echo "Cancelling in-flight firmware.yml run $id for $SHA"
+            gh api -X POST "repos/${{ github.repository }}/actions/runs/$id/cancel"
+          done
+
+          for id in $RUN_IDS; do
+            for _ in $(seq 1 24); do
+              STATUS=$(gh api "repos/${{ github.repository }}/actions/runs/$id" --jq .status)
+              [ "$STATUS" = "completed" ] && break
+              sleep 5
+            done
+          done
+
       - name: Delete pr-${{ github.event.pull_request.number }} release and tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "pr-${{ github.event.pull_request.number }}" \
-            --repo "${{ github.repository }}" --yes --cleanup-tag || true
+          TAG="pr-${{ github.event.pull_request.number }}"
+          if OUTPUT=$(gh release delete "$TAG" --repo "${{ github.repository }}" --yes --cleanup-tag 2>&1); then
+            echo "$OUTPUT"
+          elif echo "$OUTPUT" | grep -qi "release not found"; then
+            echo "No $TAG release exists, nothing to clean up."
+          else
+            echo "$OUTPUT" >&2
+            exit 1
+          fi
