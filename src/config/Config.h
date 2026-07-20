@@ -135,10 +135,6 @@ enum class ActionId : uint8_t {
     ScenePrev,
     SceneRandom,
     SceneSet,
-    FrameDurationStep,
-    TransitionToggle,
-    TransitionTimeSet,
-    SceneStringModeCycle,
     ProximityScaleStep,
     ProximityScaleSet,
     GradientPaletteNext,
@@ -183,10 +179,6 @@ struct LightConfig {
     // LightConfigMsg mesh channel's staleness check and mesh self-echo
     // suppression (see MeshManager), and to order same-device local edits.
     uint32_t seq = 0;
-    bool transitionEnabled = false;
-    SceneStringMode sceneStringMode = SceneStringMode::PerLed;
-    float transitionTime = 2.0f;
-    float frameDuration = 1.0f;
     float proximityScale = 1.0f;
     bool morphEnabled =
         false;  // gradient mode: stops continuously wander to new random palette colors
@@ -208,7 +200,11 @@ static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
 // just saying whether a pin is on it) — a saved v2 config's sound entry
 // would silently lose its I2C pins, so this bumps to force the usual "older
 // schema -> reset to defaults" path instead of loading a half-working config.
-static constexpr uint8_t CONFIG_SCHEMA_VERSION = 3;
+// v4: moved transitionEnabled/sceneStringMode/transitionTime/frameDuration
+// off LightConfig onto the scene's own JSON file (see
+// SceneManager::ScenePlayback) — a saved v3 config's groups would carry
+// stale copies of fields that no longer exist here.
+static constexpr uint8_t CONFIG_SCHEMA_VERSION = 4;
 
 // Parameters for a ButtonAction. Which member is meaningful depends on the
 // ActionId — numberValue covers steps/fixed values/enum ordinals,

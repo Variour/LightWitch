@@ -780,6 +780,50 @@ input[type=radio]:active { background-color: #1a5; }
           Automatically saves 3 seconds after the last edit.
         </small>
       </div>
+
+      <!-- Playback card -->
+      <div class="card" style="flex:1;min-width:160px">
+        <h2>Playback</h2>
+        <label>String color mode</label>
+        <input type="hidden" id="se-scenestringmode" value="0">
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+          <button type="button" id="se-scenestringmode-0" class="btn-sm btn-primary">Per LED</button>
+          <button type="button" id="se-scenestringmode-1" class="btn-sm btn-ghost">Whole string</button>
+          <button type="button" id="se-scenestringmode-2" class="btn-sm btn-ghost">1:1 mapping</button>
+        </div>
+        <p class="pattern-desc" id="se-scenestringmode-desc" style="margin-top:.2rem"></p>
+        <small style="display:block;margin-top:.3rem;color:#666">
+          Only affects string lights. Matrix lights always render the full scene image.
+        </small>
+
+        <div class="sync-row" style="margin-top:.7rem">
+          <input type="checkbox" id="se-anim" data-wrap="se-animdur-wrap">
+          <label for="se-anim" style="margin:0;color:inherit;font-size:inherit">Animate frames</label>
+        </div>
+        <div id="se-animdur-wrap" style="display:none">
+          <label style="margin-top:.4rem">Frame duration <span id="se-fd-label"></span></label>
+          <div class="row">
+            <input type="range" id="se-fd" min="0" max="1000" step="1" style="margin-bottom:0">
+            <input type="number" id="se-fd-num" min="0.02" max="60" step="0.01" style="flex:0 0 5.5rem;margin-bottom:0"
+                   aria-label="Frame duration in seconds">
+            <span style="flex:0 0 auto;color:#666;font-size:.85rem">s</span>
+          </div>
+        </div>
+
+        <div style="margin-top:.7rem">
+          <div class="sync-row">
+            <input type="checkbox" id="se-trans" data-wrap="se-transtime-wrap">
+            <label for="se-trans" style="margin:0;color:inherit;font-size:inherit">Blend / cycle colors</label>
+          </div>
+          <small style="display:block;margin-top:.3rem;color:#666">
+            Matrix: blends between frames. String: cycles scene colors, either per LED or for the whole string depending on the option above.
+          </small>
+          <div id="se-transtime-wrap" style="display:none">
+            <label style="margin-top:.4rem">Transition time <span id="se-tt-label"></span></label>
+            <input type="range" id="se-tt" min="0.1" max="30" step="0.1" data-label="se-tt-label" data-suffix="s">
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="se-layout">
@@ -1359,11 +1403,6 @@ function renderGroups(groups) {
     const colorHidden = PATTERNS[pat]?.hasColor === false;
     const noSync      = PATTERNS[pat]?.syncable === false;
     const sceneId = String(g.sceneId || '');
-    const transitionEnabled = Boolean(g.transitionEnabled);
-    const sceneStringMode = Number(g.sceneStringMode) || 0;
-    const transitionTime = Number.isFinite(g.transitionTime) && g.transitionTime >= 0.1 ? g.transitionTime : 2;
-    const frameDuration = Number.isFinite(g.frameDuration) && g.frameDuration >= 0 ? g.frameDuration : 0;
-    const animEnabled = frameDuration > 0;
     const proximityScale = Number.isFinite(g.proximityScale) ? g.proximityScale : 1.0;
     const morphEnabled = Boolean(g.morphEnabled);
     const gradientStopCount = Number(g.gradientStopCount) || 0;
@@ -1427,53 +1466,12 @@ function renderGroups(groups) {
               <option value=""${!sceneId?' selected':''}>Choose a scene…</option>
               ${_sceneOptions.map(s=>`<option value="${esc(s.id)}"${sceneId===String(s.id)?' selected':''}>${esc(s.name)} (${s.w}×${s.h})</option>`).join('')}
             </select>
-            <p class="pattern-desc">Matrix lights display the scene image pixel-by-pixel. String lights can give each LED its own random scene color, keep the whole string on one random scene color, or map the scene image 1:1 onto the string like a matrix would.</p>
+            <p class="pattern-desc">Matrix lights display the scene image pixel-by-pixel. String lights can give each LED its own random scene color, keep the whole string on one random scene color, or map the scene image 1:1 onto the string like a matrix would. Frame timing, blending, and string color mode are configured per-scene in the Scene Editor.</p>
           </div>
           <div>
             <label>Brightness</label>
             <input type="range" id="gbrs-${g.id}" min="0" max="255" value="${g.brightness||255}"
                    data-action="onGroupControl" data-id="${g.id}">
-          </div>
-          <div style="margin-top:.3rem">
-            <label>String color mode</label>
-            <input type="hidden" id="gscenestringmode-${g.id}" value="${sceneStringMode}">
-            <div style="display:flex;gap:.4rem;flex-wrap:wrap">
-              <button type="button" id="gscenestringmode-0-${g.id}" class="btn-sm ${sceneStringMode===0 ? 'btn-primary' : 'btn-ghost'}" data-action="setGroupSceneStringMode" data-id="${g.id}" data-mode="0">Per LED</button>
-              <button type="button" id="gscenestringmode-1-${g.id}" class="btn-sm ${sceneStringMode===1 ? 'btn-primary' : 'btn-ghost'}" data-action="setGroupSceneStringMode" data-id="${g.id}" data-mode="1">Whole string</button>
-              <button type="button" id="gscenestringmode-2-${g.id}" class="btn-sm ${sceneStringMode===2 ? 'btn-primary' : 'btn-ghost'}" data-action="setGroupSceneStringMode" data-id="${g.id}" data-mode="2">1:1 mapping</button>
-            </div>
-            <p class="pattern-desc" id="gscenestringmode-desc-${g.id}" style="margin-top:.2rem">${SCENE_STRING_MODE_DESC[sceneStringMode] || ''}</p>
-          </div>
-          <p class="pattern-desc" style="margin-top:.2rem">Only affects string lights. Matrix lights still render the full scene image.</p>
-          <div class="sync-row" style="margin-top:.3rem">
-            <input type="checkbox" id="ganim-${g.id}" ${animEnabled?'checked':''}
-                   data-action="onGroupToggleWrap" data-id="${g.id}" data-wrap="ganimdur-wrap-${g.id}">
-            <label for="ganim-${g.id}" style="margin:0;color:inherit;font-size:inherit">Animate frames</label>
-          </div>
-          <div id="ganimdur-wrap-${g.id}" style="${animEnabled?'':'display:none'}">
-            <label style="margin-top:.4rem">Frame duration <span id="gfd-label-${g.id}">${formatFrameDuration(animEnabled?frameDuration:1)}</span></label>
-            <div class="row">
-              <input type="range" id="gfd-${g.id}" min="0" max="${FRAME_DURATION_SLIDER_STEPS}" step="1"
-                     value="${frameDurationToSlider(animEnabled?frameDuration:1)}" style="margin-bottom:0"
-                     data-action="onFrameDurationSlider" data-id="${g.id}">
-              <input type="number" id="gfd-num-${g.id}" min="${FRAME_DURATION_MIN.toFixed(2)}" max="${FRAME_DURATION_MAX}" step="0.01"
-                     value="${(animEnabled?frameDuration:1).toFixed(2)}" style="flex:0 0 5.5rem;margin-bottom:0"
-                     aria-label="Frame duration in seconds" data-action="onFrameDurationNumber" data-id="${g.id}">
-              <span style="flex:0 0 auto;color:#666;font-size:.85rem">s</span>
-            </div>
-          </div>
-          <div id="gtrans-wrap-${g.id}">
-            <div class="sync-row" style="margin-top:.3rem">
-              <input type="checkbox" id="gtrans-${g.id}" ${transitionEnabled?'checked':''}
-                     data-action="onGroupToggleWrap" data-id="${g.id}" data-wrap="gtranstime-wrap-${g.id}">
-              <label for="gtrans-${g.id}" style="margin:0;color:inherit;font-size:inherit">Blend / cycle colors</label>
-            </div>
-            <p class="pattern-desc" style="margin-top:.2rem">Matrix: blends between frames. String: cycles scene colors, either per LED or for the whole string depending on the option above.</p>
-            <div id="gtranstime-wrap-${g.id}" style="${transitionEnabled?'':'display:none'}">
-              <label style="margin-top:.4rem">Transition time <span id="gtt-label-${g.id}">${transitionTime}s</span></label>
-              <input type="range" id="gtt-${g.id}" min="0.1" max="30" step="0.1" value="${transitionTime}"
-                     data-action="onGroupRangeLabel" data-id="${g.id}" data-label="gtt-label-${g.id}" data-suffix="s">
-            </div>
           </div>
         </div>
 
@@ -1628,52 +1626,21 @@ function onGroupRangeLabel(el) {
   onGroupControl(Number(el.dataset.id));
 }
 
-function onFrameDurationSlider(el) {
-  const id = Number(el.dataset.id);
-  const duration = sliderToFrameDuration(Number(el.value));
-  const num = $(`gfd-num-${id}`);
-  if (num) num.value = duration.toFixed(2);
-  const label = $(`gfd-label-${id}`);
-  if (label) label.textContent = formatFrameDuration(duration);
-  onGroupControl(id);
-}
-
-function onFrameDurationNumberInput(el) {
-  const id = Number(el.dataset.id);
-  const raw = parseFloat(el.value);
-  const duration = clampFrameDuration(Number.isFinite(raw) ? raw : FRAME_DURATION_MIN);
-  const slider = $(`gfd-${id}`);
-  if (slider) slider.value = frameDurationToSlider(duration);
-  const label = $(`gfd-label-${id}`);
-  if (label) label.textContent = formatFrameDuration(duration);
-  onGroupControl(id);
-}
-
-function onFrameDurationNumberChange(el) {
-  const raw = parseFloat(el.value);
-  el.value = clampFrameDuration(Number.isFinite(raw) ? raw : FRAME_DURATION_MIN).toFixed(2);
-  onFrameDurationNumberInput(el);
-}
-
 _delegate('groups-list', 'change', {
   renameGroup:              el => renameGroup(Number(el.dataset.id), el.value),
   onGroupControl:            el => onGroupControl(Number(el.dataset.id)),
   setSyncEnabled:            el => setSyncEnabled(Number(el.dataset.id), el.checked),
   onGroupSceneSelectChange,
   onGroupToggleWrap,
-  onFrameDurationNumber:    onFrameDurationNumberChange,
 });
 _delegate('groups-list', 'input', {
   onGroupControl:            el => onGroupControl(Number(el.dataset.id)),
   onGroupSpeedInput,
   onGroupProxInput,
   onGroupRangeLabel,
-  onFrameDurationSlider,
-  onFrameDurationNumber:    onFrameDurationNumberInput,
 });
 _delegate('groups-list', 'click', {
   deleteGroup:               el => deleteGroup(Number(el.dataset.id)),
-  setGroupSceneStringMode:   el => setGroupSceneStringMode(Number(el.dataset.id), Number(el.dataset.mode)),
   setGroupTextAnimation:     el => setGroupTextAnimation(Number(el.dataset.id), Number(el.dataset.anim)),
   setGroupTimeFormat:        el => setGroupTimeFormat(Number(el.dataset.id), el.dataset.format),
 });
@@ -1706,18 +1673,6 @@ function _setActiveButtonGroup(ids, activeIndex) {
     button.classList.toggle('btn-primary', active);
     button.classList.toggle('btn-ghost', !active);
   });
-}
-
-function setGroupSceneStringMode(id, mode) {
-  const input = $(`gscenestringmode-${id}`);
-  if (input) input.value = mode;
-  _setActiveButtonGroup(
-    [0, 1, 2].map(m => `gscenestringmode-${m}-${id}`),
-    mode
-  );
-  const desc = $(`gscenestringmode-desc-${id}`);
-  if (desc) desc.textContent = SCENE_STRING_MODE_DESC[mode] || '';
-  onGroupControl(id);
 }
 
 function setGroupTextAnimation(id, anim) {
@@ -1784,10 +1739,6 @@ function onGroupControl(id) {
   const grp = _groups.find(g => g.id === id);
   if (grp) { grp.mode = mode; _updateSignalColumn(); }
 
-  const transTimeWrap = $(`gtranstime-wrap-${id}`);
-  const transEnabled  = $(`gtrans-${id}`)?.checked;
-  if (transTimeWrap) transTimeWrap.style.display = transEnabled ? '' : 'none';
-
   clearTimeout(_debounce[id]);
   _debounce[id] = setTimeout(() => applyGroupControl(id), 300);
 }
@@ -1820,12 +1771,6 @@ async function applyGroupControl(id) {
       r, g, b,
       brightness:        parseInt(brEl?.value || 255),
       speed:             parseFloat(speedEl?.value || 1),
-      transitionEnabled: $(`gtrans-${id}`)?.checked || false,
-      sceneStringMode:   parseInt($(`gscenestringmode-${id}`)?.value || 0),
-      transitionTime:    parseFloat($(`gtt-${id}`)?.value || 2),
-      frameDuration:     $(`ganim-${id}`)?.checked
-                           ? clampFrameDuration(parseFloat($(`gfd-num-${id}`)?.value) || 1)
-                           : 0,
       proximityScale:    parseFloat($(`gprox-${id}`)?.value || 1),
       morphEnabled:      $(`ggmorph-${id}`)?.checked || false,
       gradientStopCount: $(`ggstopscustom-${id}`)?.checked
@@ -3765,7 +3710,11 @@ async function _openEditor(id, pushHistory = true) {
     h,
     frames: Array.isArray(d.frames)
       ? d.frames.map(f => _hexToFrame(f, size))
-      : []
+      : [],
+    transitionEnabled: Boolean(d.transitionEnabled),
+    sceneStringMode:   Number(d.sceneStringMode) || 0,
+    transitionTime:    Number.isFinite(d.transitionTime) && d.transitionTime >= 0.1 ? d.transitionTime : 2,
+    frameDuration:     Number.isFinite(d.frameDuration) && d.frameDuration >= 0 ? d.frameDuration : 1,
   };
 
   // Keep the editor usable even if the stored scene metadata is malformed.
@@ -3825,12 +3774,80 @@ function _renderEditor() {
   _hsvSync();
   _renderGradUI();
   $('se-sync-frames').checked = _syncFrames;
+  _renderScenePlayback();
   _mode = 'paint';
   _prevMode = 'paint';
   _updateModeUI();
   _renderFrameList();
   _renderGrid();
   _renderScenePreview();
+}
+
+// ── Playback (frame-blend/playback settings, owned by the scene) ───────────────
+function _renderScenePlayback() {
+  const animEnabled = _editScene.frameDuration > 0;
+  $('se-anim').checked = animEnabled;
+  $('se-animdur-wrap').style.display = animEnabled ? '' : 'none';
+  const fd = animEnabled ? _editScene.frameDuration : 1;
+  $('se-fd').value = frameDurationToSlider(fd);
+  $('se-fd-num').value = fd.toFixed(2);
+  $('se-fd-label').textContent = formatFrameDuration(fd);
+
+  $('se-trans').checked = _editScene.transitionEnabled;
+  $('se-transtime-wrap').style.display = _editScene.transitionEnabled ? '' : 'none';
+  $('se-tt').value = _editScene.transitionTime;
+  $('se-tt-label').textContent = _editScene.transitionTime + 's';
+
+  $('se-scenestringmode').value = _editScene.sceneStringMode;
+  _setActiveButtonGroup(
+    [0, 1, 2].map(m => `se-scenestringmode-${m}`),
+    _editScene.sceneStringMode
+  );
+  $('se-scenestringmode-desc').textContent = SCENE_STRING_MODE_DESC[_editScene.sceneStringMode] || '';
+}
+
+function onSceneToggleWrap(el) {
+  _toggleWrap(el.dataset.wrap, el.checked);
+  if (el.id === 'se-anim') _editScene.frameDuration = el.checked ? (parseFloat($('se-fd-num').value) || 1) : 0;
+  if (el.id === 'se-trans') _editScene.transitionEnabled = el.checked;
+  _markModified();
+}
+
+function onSceneFrameDurationSlider(el) {
+  const duration = sliderToFrameDuration(Number(el.value));
+  $('se-fd-num').value = duration.toFixed(2);
+  $('se-fd-label').textContent = formatFrameDuration(duration);
+  _editScene.frameDuration = duration;
+  _markModified();
+}
+
+function onSceneFrameDurationNumberInput(el) {
+  const raw = parseFloat(el.value);
+  const duration = clampFrameDuration(Number.isFinite(raw) ? raw : FRAME_DURATION_MIN);
+  $('se-fd').value = frameDurationToSlider(duration);
+  $('se-fd-label').textContent = formatFrameDuration(duration);
+  _editScene.frameDuration = duration;
+  _markModified();
+}
+
+function onSceneFrameDurationNumberChange(el) {
+  const raw = parseFloat(el.value);
+  el.value = clampFrameDuration(Number.isFinite(raw) ? raw : FRAME_DURATION_MIN).toFixed(2);
+  onSceneFrameDurationNumberInput(el);
+}
+
+function onSceneRangeLabel(el) {
+  $(el.dataset.label).textContent = parseFloat(el.value).toFixed(1) + el.dataset.suffix;
+  _editScene.transitionTime = parseFloat(el.value);
+  _markModified();
+}
+
+function setSceneStringMode(mode) {
+  $('se-scenestringmode').value = mode;
+  _setActiveButtonGroup([0, 1, 2].map(m => `se-scenestringmode-${m}`), mode);
+  $('se-scenestringmode-desc').textContent = SCENE_STRING_MODE_DESC[mode] || '';
+  _editScene.sceneStringMode = mode;
+  _markModified();
 }
 
 function _applyZoom() {
@@ -4575,7 +4592,11 @@ function uploadSceneJsonFromList(event) {
                 w: imported.w,
                 h: imported.h,
                 fc: imported.frames.length,
-                frames: imported.frames.map(_frameToHex)
+                frames: imported.frames.map(_frameToHex),
+                transitionEnabled: imported.transitionEnabled,
+                sceneStringMode: imported.sceneStringMode,
+                transitionTime: imported.transitionTime,
+                frameDuration: imported.frameDuration
               })
             });
           }
@@ -4626,7 +4647,11 @@ function _normalizeImportedScene(data) {
     name: (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : 'Imported scene',
     w,
     h,
-    frames
+    frames,
+    transitionEnabled: Boolean(data.transitionEnabled),
+    sceneStringMode:   Number(data.sceneStringMode) || 0,
+    transitionTime:    Number.isFinite(data.transitionTime) && data.transitionTime >= 0.1 ? data.transitionTime : 2,
+    frameDuration:     Number.isFinite(data.frameDuration) && data.frameDuration >= 0 ? data.frameDuration : 1,
   };
 }
 
@@ -4682,7 +4707,11 @@ async function saveScene() {
     w:      _editScene.w,
     h:      _editScene.h,
     fc:     _editScene.frames.length,
-    frames: _editScene.frames.map(_frameToHex)
+    frames: _editScene.frames.map(_frameToHex),
+    transitionEnabled: _editScene.transitionEnabled,
+    sceneStringMode:   _editScene.sceneStringMode,
+    transitionTime:    _editScene.transitionTime,
+    frameDuration:     _editScene.frameDuration,
   };
   const res = await fetch('/api/scenes/save', {
     method: 'POST', headers: {'Content-Type':'application/json'},
@@ -5527,7 +5556,7 @@ const ACTION_CATALOG = [
   {id:4,  label:'Speed step',                 cat:'Generic',   param:'number', hint:'± step'},
   {id:5,  label:'Mode set',                   cat:'Generic',   param:'enum', hint:'Mode',
     options:[[0,'Pattern'],[1,'Scene'],[2,'Proximity'],[3,'Gradient'],[4,'Text'],[5,'Time']]},
-  {id:28, label:'Group sync toggle',          cat:'Generic',   param:'none'},
+  {id:24, label:'Group sync toggle',          cat:'Generic',   param:'none'},
   {id:6,  label:'Pattern next',               cat:'Pattern',   param:'none'},
   {id:7,  label:'Pattern previous',           cat:'Pattern',   param:'none'},
   {id:8,  label:'Pattern set',                cat:'Pattern',   param:'enum', hint:'Pattern',
@@ -5536,25 +5565,21 @@ const ACTION_CATALOG = [
   {id:10, label:'Scene previous',             cat:'Scene',     param:'none'},
   {id:11, label:'Scene random',               cat:'Scene',     param:'none'},
   {id:12, label:'Scene set',                  cat:'Scene',     param:'scene'},
-  {id:13, label:'Frame duration step',        cat:'Scene',     param:'number', hint:'± seconds'},
-  {id:14, label:'Transition toggle',          cat:'Scene',     param:'none'},
-  {id:15, label:'Transition time set',        cat:'Scene',     param:'number', hint:'seconds'},
-  {id:16, label:'String color mode cycle',    cat:'Scene',     param:'none', hint:'string lights only — cycles Per LED → Whole string → 1:1 mapping'},
-  {id:17, label:'Proximity scale step',       cat:'Proximity', param:'number', hint:'± step'},
-  {id:18, label:'Proximity scale set',        cat:'Proximity', param:'number'},
-  {id:19, label:'Gradient palette next',      cat:'Gradient',  param:'none'},
-  {id:20, label:'Gradient palette previous',  cat:'Gradient',  param:'none'},
-  {id:21, label:'Gradient palette random',    cat:'Gradient',  param:'none'},
-  {id:22, label:'Gradient palette set',       cat:'Gradient',  param:'scene'},
-  {id:23, label:'Morph toggle',               cat:'Gradient',  param:'none'},
-  {id:24, label:'Gradient stop count set',    cat:'Gradient',  param:'number', hint:'0 = auto'},
-  {id:25, label:'Text set',                   cat:'Text',      param:'string', hint:'message to display'},
-  {id:26, label:'Text animation set',         cat:'Text',      param:'enum', hint:'Animation',
+  {id:13, label:'Proximity scale step',       cat:'Proximity', param:'number', hint:'± step'},
+  {id:14, label:'Proximity scale set',        cat:'Proximity', param:'number'},
+  {id:15, label:'Gradient palette next',      cat:'Gradient',  param:'none'},
+  {id:16, label:'Gradient palette previous',  cat:'Gradient',  param:'none'},
+  {id:17, label:'Gradient palette random',    cat:'Gradient',  param:'none'},
+  {id:18, label:'Gradient palette set',       cat:'Gradient',  param:'scene'},
+  {id:19, label:'Morph toggle',               cat:'Gradient',  param:'none'},
+  {id:20, label:'Gradient stop count set',    cat:'Gradient',  param:'number', hint:'0 = auto'},
+  {id:21, label:'Text set',                   cat:'Text',      param:'string', hint:'message to display'},
+  {id:22, label:'Text animation set',         cat:'Text',      param:'enum', hint:'Animation',
     options:[[0,'Scroll'],[1,'Bounce']]},
-  {id:27, label:'24h/12h toggle',             cat:'Time',      param:'none'},
-  {id:29, label:'Light brightness override step',  cat:'Light', param:'number', hint:'± step, e.g. 20 or -20', target:'light'},
-  {id:30, label:'Light brightness override set',   cat:'Light', param:'number', hint:'0–255',                  target:'light'},
-  {id:31, label:'Light brightness override clear', cat:'Light', param:'none',                                  target:'light'},
+  {id:23, label:'24h/12h toggle',             cat:'Time',      param:'none'},
+  {id:25, label:'Light brightness override step',  cat:'Light', param:'number', hint:'± step, e.g. 20 or -20', target:'light'},
+  {id:26, label:'Light brightness override set',   cat:'Light', param:'number', hint:'0–255',                  target:'light'},
+  {id:27, label:'Light brightness override clear', cat:'Light', param:'none',                                  target:'light'},
 ];
 
 function _actionMeta(id) { return ACTION_CATALOG.find(a => a.id === id); }
@@ -5845,6 +5870,16 @@ $('wrap-apply-rows-btn').addEventListener('click', () => applyWrapBlend('rows'))
 
 $('se-sync-frames').addEventListener('change', e => _syncToggle(e.target.checked));
 $('se-auto-save').addEventListener('change', e => { if (!e.target.checked) clearTimeout(_autoSaveTimer); });
+
+$('se-scenestringmode-0').addEventListener('click', () => setSceneStringMode(0));
+$('se-scenestringmode-1').addEventListener('click', () => setSceneStringMode(1));
+$('se-scenestringmode-2').addEventListener('click', () => setSceneStringMode(2));
+$('se-anim').addEventListener('change', e => onSceneToggleWrap(e.target));
+$('se-fd').addEventListener('input', e => onSceneFrameDurationSlider(e.target));
+$('se-fd-num').addEventListener('input', e => onSceneFrameDurationNumberInput(e.target));
+$('se-fd-num').addEventListener('change', e => onSceneFrameDurationNumberChange(e.target));
+$('se-trans').addEventListener('change', e => onSceneToggleWrap(e.target));
+$('se-tt').addEventListener('input', e => onSceneRangeLabel(e.target));
 
 $('resize-canvas-btn').addEventListener('click', resizeCanvas);
 $('se-preview-mode-scene').addEventListener('click', () => setScenePreviewMode('scene'));
