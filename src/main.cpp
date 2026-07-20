@@ -676,6 +676,17 @@ void setup() {
         }
     });
     webServer.setOnTimezoneChanged([](const char* tz) { TimeSync::begin(tz); });
+    webServer.setOnWifiConnectForConfirm([](std::function<void(bool)> onDone) {
+        wifiElection.connectForConfirm([onDone](bool ok) {
+            if (onDone) onDone(ok);
+            publishTelemetry();
+        });
+    });
+    webServer.setOnConfirmApDisable([]() {
+        wifiElection.confirmApDisable();
+        publishTelemetry();
+    });
+    webServer.setWifiAwaitingApConfirmProvider([]() { return wifiElection.awaitingApConfirm(); });
     webServer.setOnTestSound([](uint8_t idx) {
         if (idx < MAX_SOUNDS && Config::get().sounds[idx].exists) _sound.playTestMelody();
     });

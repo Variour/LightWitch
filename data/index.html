@@ -548,7 +548,8 @@ input[type=radio]:active { background-color: #1a5; }
       <button class="btn-ghost btn-sm" id="wifiRetryBtn" style="display:none">Retry WiFi</button>
       <button class="btn-ghost btn-sm" id="mesh-search-btn">Search devices</button>
       <button class="btn-ghost btn-sm" id="push-all-btn">Push config to all</button>
-      <span id="meshChannelBadge" style="font-size:.82rem;color:#888;margin-left:auto"></span>
+      <span id="selfIpBadge" style="font-size:.82rem;color:#888;margin-left:auto"></span>
+      <span id="meshChannelBadge" style="font-size:.82rem;color:#888"></span>
     </div>
     <div class="lights-table-wrap">
       <table class="lights-table">
@@ -876,6 +877,12 @@ input[type=radio]:active { background-color: #1a5; }
 
     <h3>WiFi</h3>
     <div style="font-size:.78rem;color:#666;margin-bottom:.35rem">Tried in order, top to bottom, until one connects.</div>
+    <div id="wifi-ip-display" style="font-size:.82rem;color:#4c4;margin-bottom:.35rem;display:none"></div>
+    <div id="wifi-ap-confirm-banner" style="display:none;background:#222;border:1px solid #48a;border-radius:4px;padding:.5rem;margin-bottom:.5rem">
+      <div style="font-size:.85rem">Connected — device IP: <strong id="wifi-ap-confirm-ip"></strong></div>
+      <div style="font-size:.75rem;color:#888;margin:.25rem 0">Note this address, then disable this device's WiFi hotspot to finish switching over. It disables automatically after 5 minutes if you don't confirm.</div>
+      <button class="btn-ghost btn-sm" id="wifi-ap-confirm-btn">Disable AP now</button>
+    </div>
     <div id="wifi-list" style="margin-bottom:.5rem"></div>
     <div style="display:flex;flex-direction:column;gap:.4rem">
       <label>SSID</label>
@@ -1918,6 +1925,28 @@ function renderLights(self, peers, wifiSingleClientMode) {
       channelBadge.title = '';
     }
   }
+  const ipBadge = $('selfIpBadge');
+  if (ipBadge) ipBadge.textContent = (self && self.ip) ? `IP: ${self.ip}` : '';
+
+  const ipDisplay = $('wifi-ip-display');
+  if (ipDisplay) {
+    if (self && self.ip) {
+      ipDisplay.textContent = `Connected — IP: ${self.ip}`;
+      ipDisplay.style.display = '';
+    } else {
+      ipDisplay.style.display = 'none';
+    }
+  }
+
+  const confirmBanner = $('wifi-ap-confirm-banner');
+  if (confirmBanner) {
+    if (self && self.wifiAwaitingApConfirm === true) {
+      $('wifi-ap-confirm-ip').textContent = self.ip || '';
+      confirmBanner.style.display = '';
+    } else {
+      confirmBanner.style.display = 'none';
+    }
+  }
   _self  = self;
   _peers = peers;
   if (self) _selfMac = self.mac;
@@ -2772,6 +2801,7 @@ async function addWifiNetwork() {
   const ssid = $('wifiSsidAdd').value.trim();
   const pass = $('wifiPasswordAdd').value;
   if (!ssid) { alert('SSID is required'); return; }
+  const wasConnected = _self && _self.wifiConnected === true;
   const res = await fetch('/api/wifi/add', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ssid, password: pass})
@@ -2783,6 +2813,46 @@ async function addWifiNetwork() {
   const wr = await fetch('/api/wifi');
   const wd = await wr.json();
   renderWifiList(wd.networks || [], wd.connected || null);
+  // Adding a network while disconnected kicks off a live connect attempt
+  // (see WebServer.h::_addWifi) — poll for its result so the "awaiting AP
+  // confirm" banner shows up even without a live WebSocket push.
+  if (!wasConnected) _pollForWifiConnectResult();
+}
+
+// Local dev (mock server) never opens the dashboard WebSocket (see
+// isLocalDev below), so self.ip/wifiConnected/wifiAwaitingApConfirm changes
+// triggered by these WiFi actions need a REST fallback to actually show up —
+// mirrors _updPollStatus()'s self-rescheduling poll used for firmware updates.
+let _wifiConnectPollTimer = null;
+let _wifiConnectPollTries = 0;
+
+function _pollForWifiConnectResult() {
+  clearTimeout(_wifiConnectPollTimer);
+  _wifiConnectPollTries = 0;
+  _wifiConnectPoll();
+}
+
+function _wifiConnectPoll() {
+  _wifiConnectPollTimer = setTimeout(async () => {
+    let stillTrying = true;
+    try {
+      const res = await fetch('/api/peers');
+      const d = await res.json();
+      renderLights(d.self, d.peers || [], d.wifiSingleClientMode === true);
+      // Keep polling through the connect attempt itself, and then through
+      // the AwaitingConfirm hold too (see WifiConnectAttempt) — that hold
+      // can end on its own via the server-side timeout, with no user click.
+      stillTrying = !(d.self && d.self.wifiConnected === true) ||
+                    (d.self && d.self.wifiAwaitingApConfirm === true);
+    } catch { /* keep polling through transient network errors */ }
+    _wifiConnectPollTries++;
+    // Bounded — a real connect attempt (3 tries x up to 10s, see
+    // WifiConnectAttempt) plus a short slice of the AwaitingConfirm hold is
+    // plenty for local dev/testing and for catching a dropped WS message on
+    // real hardware; beyond that, rely on the next manual refresh/reload
+    // rather than polling for the full multi-minute hold indefinitely.
+    if (stillTrying && _wifiConnectPollTries < 60) _wifiConnectPoll();
+  }, 1000);
 }
 
 async function deleteWifiNetwork(ssid) {
@@ -2795,6 +2865,9 @@ async function deleteWifiNetwork(ssid) {
     const wr = await fetch('/api/wifi');
     const wd = await wr.json();
     renderWifiList(wd.networks || [], wd.connected || null);
+    const pr = await fetch('/api/peers');
+    const pd = await pr.json();
+    renderLights(pd.self, pd.peers || [], pd.wifiSingleClientMode === true);
   });
 }
 
@@ -5686,6 +5759,15 @@ $('add-light-btn').addEventListener('click', openAddLightModal);
 $('add-sound-btn').addEventListener('click', openAddSoundModal);
 $('add-button-btn').addEventListener('click', openAddButtonModal);
 $('add-wifi-btn').addEventListener('click', addWifiNetwork);
+$('wifi-ap-confirm-btn').addEventListener('click', async () => {
+  const res = await _fetchOrToast('/api/wifi/confirm-disable-ap', {method: 'POST'}, 'Failed to disable AP');
+  if (!res) return;
+  try {
+    const pr = await fetch('/api/peers');
+    const pd = await pr.json();
+    renderLights(pd.self, pd.peers || [], pd.wifiSingleClientMode === true);
+  } catch { /* best-effort; the device may have just dropped this AP connection */ }
+});
 $('clear-mqtt-btn').addEventListener('click', clearMqtt);
 $('save-reboot-btn').addEventListener('click', saveSettings);
 SETTINGS_FIELD_IDS.forEach(id => {
