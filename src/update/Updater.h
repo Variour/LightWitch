@@ -18,9 +18,12 @@
 
 // GitHub API-based OTA updater.
 //
-// Normally checks the latest release in the configured repo using a PAT,
-// then flashes firmware and filesystem images if a newer version is
-// available. If Config::prOtaEnabled is set and Config::prTrack names a PR
+// Checks the latest release in the configured repo, then flashes firmware
+// and filesystem images if a newer version is available. A PAT is optional
+// (Config::githubToken) — requests are sent unauthenticated if it's empty,
+// which works fine against a public repo but is subject to GitHub's lower
+// per-IP rate limit for unauthenticated API calls. If Config::prOtaEnabled
+// is set and Config::prTrack names a PR
 // (see applyPrAsync), the same check/apply flow instead follows that PR's
 // prerelease (tag "pr-<n>") so a device already running a PR build keeps
 // picking up newer pushes to that PR through the ordinary "Check"/"Install
@@ -166,19 +169,17 @@ class Updater {
     static std::atomic<bool> _triggerPending;
     static String _pendingTag;
 
-    static String _authHeader() {
-        String h = "Bearer ";
-        h += Config::get().githubToken;
-        return h;
-    }
-
-    // Opens an authenticated GET request against the GitHub API and returns the HTTP status code.
+    // Opens a GET request against the GitHub API and returns the HTTP status code.
+    // Authenticates with the configured PAT if one is set, otherwise sends the
+    // request unauthenticated (fine for a public repo, just a lower rate limit).
     // tls/http are owned by the caller and must stay alive while the response body/stream is read.
     static int _httpGet(WiFiClientSecure& tls, HTTPClient& http, const String& url,
                         const char* accept) {
         tls.setCACertBundle(CA_BUNDLE);
         http.begin(tls, url);
-        http.addHeader("Authorization", _authHeader());
+        if (strlen(Config::get().githubToken) > 0) {
+            http.addHeader("Authorization", String("Bearer ") + Config::get().githubToken);
+        }
         http.addHeader("Accept", accept);
         http.addHeader("X-GitHub-Api-Version", "2022-11-28");
         http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
@@ -194,11 +195,6 @@ class Updater {
     // (see _checkForUpdate).
     static bool _fetchRelease(const String& tag, String& outTagName) {
         auto& c = Config::get();
-        if (strlen(c.githubToken) == 0) {
-            _status.error = "no GitHub token configured";
-            return false;
-        }
-
         String url = "https://api.github.com/repos/";
         url += c.githubRepo;
         url += tag.isEmpty() ? "/releases/latest" : ("/releases/tags/" + tag);
@@ -616,14 +612,6 @@ class Updater {
     // release this repo has ever published (whose bodies/assets can add up
     // to more JSON than the device can reliably buffer and parse).
     static void _listPrBuildsTask(void*) {
-        auto& c = Config::get();
-        if (strlen(c.githubToken) == 0) {
-            _prListStatus.error = "no GitHub token configured";
-            _prListStatus.state = PrListState::Error;
-            vTaskDelete(nullptr);
-            return;
-        }
-
         std::vector<int> prNumbers;
         if (!_fetchOpenPrNumbers(prNumbers)) {
             _prListStatus.state = PrListState::Error;
