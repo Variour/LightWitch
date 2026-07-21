@@ -111,8 +111,7 @@ void serializeButton(JsonObject o, const ButtonHardwareConfig& b) {
     o["name"] = b.name;
     o["pin"] = b.pin;
     o["activeLow"] = b.activeLow;
-    o["expander"] = (uint8_t)b.expander;
-    o["expanderAddress"] = b.expanderAddress;
+    o["viaExpander"] = b.viaExpander;
     o["exists"] = b.exists;
     serializeButtonAction(o["onShortPress"].to<JsonObject>(), b.onShortPress);
     serializeButtonAction(o["onLongPress"].to<JsonObject>(), b.onLongPress);
@@ -123,8 +122,7 @@ void deserializeButton(JsonVariant o, ButtonHardwareConfig& b) {
     strlcpy(b.name, o["name"] | "", sizeof(b.name));
     b.pin = o["pin"] | (uint8_t)0;
     b.activeLow = o["activeLow"] | true;
-    b.expander = (IoExpanderChip)(uint8_t)(o["expander"] | (uint8_t)IoExpanderChip::None);
-    b.expanderAddress = o["expanderAddress"] | (uint8_t)0x20;
+    b.viaExpander = o["viaExpander"] | false;
     b.exists = o["exists"] | false;
     b.onShortPress = deserializeButtonAction(o["onShortPress"], b.onShortPress);
     b.onLongPress = deserializeButtonAction(o["onLongPress"], b.onLongPress);
@@ -141,8 +139,7 @@ void serializeSound(JsonObject o, const SoundHardwareConfig& s) {
     o["i2sDoutPin"] = s.i2sDoutPin;
     o["paEnablePin"] = s.paEnablePin;
     o["paEnableActiveHigh"] = s.paEnableActiveHigh;
-    o["paExpander"] = (uint8_t)s.paExpander;
-    o["paExpanderAddress"] = s.paExpanderAddress;
+    o["paViaExpander"] = s.paViaExpander;
     o["exists"] = s.exists;
 }
 
@@ -156,8 +153,7 @@ void deserializeSound(JsonVariant o, SoundHardwareConfig& s) {
     s.i2sDoutPin = o["i2sDoutPin"] | PIN_UNUSED;
     s.paEnablePin = o["paEnablePin"] | PIN_UNUSED;
     s.paEnableActiveHigh = o["paEnableActiveHigh"] | true;
-    s.paExpander = (IoExpanderChip)(uint8_t)(o["paExpander"] | (uint8_t)IoExpanderChip::None);
-    s.paExpanderAddress = o["paExpanderAddress"] | (uint8_t)0x20;
+    s.paViaExpander = o["paViaExpander"] | false;
     s.exists = o["exists"] | false;
 }
 
@@ -191,6 +187,9 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().prTrackAssetId = doc["prTrackAssetId"] | (uint32_t)0;
     Config::get().i2cSdaPin = doc["i2cSdaPin"] | PIN_UNUSED;
     Config::get().i2cSclPin = doc["i2cSclPin"] | PIN_UNUSED;
+    Config::get().expanderChip =
+        (IoExpanderChip)(uint8_t)(doc["expanderChip"] | (uint8_t)IoExpanderChip::None);
+    Config::get().expanderAddress = doc["expanderAddress"] | (uint8_t)0x20;
     Config::get().wifiPolicyRevision = doc["wifiPolicyRevision"] | (uint32_t)0;
     for (uint8_t i = 0; i < 6; i++)
         Config::get().wifiPolicyOriginMac[i] = doc["wifiPolicyOriginMac"][i] | (uint8_t)0;
@@ -321,6 +320,8 @@ bool Config::save() {
     doc["prTrackAssetId"] = _cfg.prTrackAssetId;
     doc["i2cSdaPin"] = _cfg.i2cSdaPin;
     doc["i2cSclPin"] = _cfg.i2cSclPin;
+    doc["expanderChip"] = (uint8_t)_cfg.expanderChip;
+    doc["expanderAddress"] = _cfg.expanderAddress;
     doc["wifiPolicyRevision"] = _cfg.wifiPolicyRevision;
     {
         JsonArray origin = doc["wifiPolicyOriginMac"].to<JsonArray>();
@@ -679,9 +680,10 @@ bool Config::isPinInUse(uint8_t pin, int8_t excludeButtonIndex, int8_t excludeSo
         if ((int8_t)i == excludeButtonIndex) continue;
         auto& b = _cfg.buttons[i];
         // A button's pin only occupies the ESP32 GPIO address space when it's
-        // a direct pin — on an expander it's a pin index in a separate space
-        // (see IoExpanderChip) and must not be cross-checked against real GPIOs.
-        if (b.exists && b.expander == IoExpanderChip::None && b.pin == pin) return true;
+        // a direct pin — on the device expander it's a pin index in a
+        // separate space (see IoExpanderChip) and must not be cross-checked
+        // against real GPIOs.
+        if (b.exists && !b.viaExpander && b.pin == pin) return true;
     }
     if (pin != PIN_UNUSED) {
         for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
@@ -692,41 +694,46 @@ bool Config::isPinInUse(uint8_t pin, int8_t excludeButtonIndex, int8_t excludeSo
                 s.i2sDoutPin == pin)
                 return true;
             // paEnablePin only occupies the ESP32 GPIO address space when it's a
-            // direct pin — on an expander it's a pin index in a separate space
-            // (see IoExpanderChip) and must not be cross-checked against real GPIOs.
-            if (s.paExpander == IoExpanderChip::None && s.paEnablePin == pin) return true;
+            // direct pin — on the device expander it's a pin index in a
+            // separate space (see IoExpanderChip) and must not be
+            // cross-checked against real GPIOs.
+            if (!s.paViaExpander && s.paEnablePin == pin) return true;
         }
     }
     return false;
 }
 
-bool Config::isExpanderPinInUse(uint8_t address, uint8_t pin, int8_t excludeButtonIndex,
-                                bool excludeSoundPa) {
+bool Config::isExpanderPinInUse(uint8_t pin, int8_t excludeButtonIndex, bool excludeSoundPa) {
     for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
         if ((int8_t)i == excludeButtonIndex) continue;
         auto& b = _cfg.buttons[i];
-        if (b.exists && b.expander == IoExpanderChip::TCA9555 && b.expanderAddress == address &&
-            b.pin == pin)
-            return true;
+        if (b.exists && b.viaExpander && b.pin == pin) return true;
     }
     if (!excludeSoundPa) {
         for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
             auto& s = _cfg.sounds[i];
-            if (s.exists && s.paExpander == IoExpanderChip::TCA9555 &&
-                s.paExpanderAddress == address && s.paEnablePin == pin)
-                return true;
+            if (s.exists && s.paViaExpander && s.paEnablePin == pin) return true;
         }
     }
     return false;
 }
 
 bool Config::i2cBusInUse() {
+    if (_cfg.expanderChip != IoExpanderChip::None) return true;
     for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
         if (_cfg.sounds[i].exists) return true;
     }
+    return false;
+}
+
+bool Config::expanderInUse() {
+    for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
+        auto& s = _cfg.sounds[i];
+        if (s.exists && s.paViaExpander) return true;
+    }
     for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
         auto& b = _cfg.buttons[i];
-        if (b.exists && b.expander == IoExpanderChip::TCA9555) return true;
+        if (b.exists && b.viaExpander) return true;
     }
     return false;
 }

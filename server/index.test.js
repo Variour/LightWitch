@@ -238,7 +238,7 @@ describe('POST /api/sounds/update', () => {
   });
 
   test('an expander PA-enable pin index does not collide with a same-numbered GPIO', async () => {
-    // The mock sound starts with paExpander=1 (TCA9555); pin 4 is a native GPIO
+    // The mock sound starts with paViaExpander=true; pin 4 is a native GPIO
     // used by the "Wall switch" button, but as an expander pin index it's a
     // different address space and must be accepted.
     const res = await fetch(`${baseUrl}/api/sounds/update`, {
@@ -253,7 +253,7 @@ describe('POST /api/sounds/update', () => {
     const res = await fetch(`${baseUrl}/api/sounds/update`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ index: 0, paExpander: 0, paEnablePin: 4 }),
+      body: JSON.stringify({ index: 0, paViaExpander: false, paEnablePin: 4 }),
     });
     assert.equal(res.status, 400);
     assert.equal((await res.json()).error, 'pin already in use');

@@ -8,8 +8,9 @@ codec + speaker, its TCA9555-backed buttons, and its onboard WS2812 RGB LED.
 ## I2C bus
 
 The codec, the TCA9555 I/O expander, and the RTC all share a single I2C bus.
-Configure this **before** adding the sound output or any TCA9555-backed
-button below — both require it.
+Configure this **before** adding the sound output or any expander-backed
+button below — both require it. The expander itself is configured once,
+here — Sound and Buttons then just say *whether* they're wired through it.
 
 ### Field values
 
@@ -18,11 +19,14 @@ button below — both require it.
 | This board has an I2C bus | checked |
 | SDA pin | GPIO11 |
 | SCL pin | GPIO10 |
+| This bus has a TCA9555 I/O expander | checked |
+| TCA9555 I2C address | 0x20 *(TCA9555 default when A0–A2 are strapped low)* |
 
 ## Sound
 
 The board's speaker-amp enable line (PA_EN) isn't wired to a native GPIO —
-it sits on **EXIO8** of the onboard TCA9555 I2C GPIO expander.
+it sits on **EXIO8** of the onboard TCA9555 I2C GPIO expander configured
+above.
 
 ### Field values
 
@@ -36,9 +40,8 @@ it sits on **EXIO8** of the onboard TCA9555 I2C GPIO expander.
 | Board wires a separate MCLK pin | checked |
 | I2S MCLK pin | GPIO12 |
 | Separate speaker amp enable pin | checked |
-| Enable pin source | TCA9555 I2C expander |
 | Enable pin | 8 *(EXIO8)* |
-| TCA9555 I2C address | 0x20 *(TCA9555 default when A0–A2 are strapped low)* |
+| Wire this pin through the I2C expander | checked |
 | Active high | checked |
 
 GPIO15 (`I2S_DSIN`) is the codec's microphone input — not used, this firmware
@@ -52,15 +55,15 @@ The board has 5 physical buttons: **RESET**, **BOOT**, and **KEY1**–**KEY3**.
   line, not something firmware can read as a button.
 - **BOOT** is wired to native **GPIO0** (also the boot-mode strapping pin).
 - **KEY1**, **KEY2**, **KEY3** are wired to **EXIO9**, **EXIO10**, **EXIO11**
-  on the onboard TCA9555 I2C GPIO expander (same expander/address as Sound's
-  PA-enable pin above), not to native ESP32 GPIOs.
+  on the onboard TCA9555 I2C GPIO expander configured above, not to native
+  ESP32 GPIOs.
 
 ### Field values — BOOT
 
 | Field | Value |
 |---|---|
-| Pin source | Direct GPIO |
 | Pin | 0 *(GPIO0)* |
+| Wire this button through the I2C expander | unchecked |
 | Active low | checked *(button pulls to GND when pressed)* |
 
 ### Field values — KEY1 / KEY2 / KEY3
@@ -69,9 +72,8 @@ Add one button per key; only **Pin** differs between them.
 
 | Field | Value |
 |---|---|
-| Pin source | TCA9555 I2C expander |
 | Pin | 9 for KEY1, 10 for KEY2, 11 for KEY3 *(EXIO9/EXIO10/EXIO11)* |
-| TCA9555 I2C address | 0x20 *(TCA9555 default when A0–A2 are strapped low)* |
+| Wire this button through the I2C expander | checked |
 | Active low | checked *(button pulls to GND when pressed; the board provides its own pull-up — the TCA9555 has no internal pull resistors)* |
 
 ## Lights

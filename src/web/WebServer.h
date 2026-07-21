@@ -768,6 +768,8 @@ class BatteryWebServer {
         doc["prTrack"] = c.prTrack;
         doc["i2cSdaPin"] = c.i2cSdaPin;
         doc["i2cSclPin"] = c.i2cSclPin;
+        doc["expanderChip"] = (uint8_t)c.expanderChip;
+        doc["expanderAddress"] = c.expanderAddress;
         doc["mqttHost"] = c.mqttHost;
         doc["mqttPort"] = c.mqttPort;
         doc["mqttUser"] = c.mqttUser;
@@ -869,7 +871,9 @@ class BatteryWebServer {
             uint8_t scl = doc["i2cSclPin"];
             if (sda == PIN_UNUSED || scl == PIN_UNUSED) {
                 if (Config::i2cBusInUse()) {
-                    auto e = _makeErr("I2C bus still used by a configured sound output or button");
+                    auto e = _makeErr(
+                        "I2C bus still used by a configured sound output, button, or "
+                        "the configured expander");
                     _sendJson(r, 400, e);
                     return;
                 }
@@ -892,6 +896,33 @@ class BatteryWebServer {
                 c.i2cSdaPin = sda;
                 c.i2cSclPin = scl;
             }
+        }
+
+        // The device's single I2C expander (see IoExpanderChip) — same
+        // reasoning as the I2C bus above: no live-reconfigure path, so
+        // changing it always needs a reboot. Uses c.i2cSdaPin/i2cSclPin as
+        // already updated by the block above, so enabling the bus and the
+        // expander in the same save works.
+        if (!doc["expanderChip"].isNull() || !doc["expanderAddress"].isNull()) {
+            IoExpanderChip newChip = doc["expanderChip"].isNull()
+                                         ? c.expanderChip
+                                         : (IoExpanderChip)(uint8_t)doc["expanderChip"];
+            uint8_t newAddr = doc["expanderAddress"].isNull() ? c.expanderAddress
+                                                              : (uint8_t)doc["expanderAddress"];
+            if (newChip != IoExpanderChip::None &&
+                (c.i2cSdaPin == PIN_UNUSED || c.i2cSclPin == PIN_UNUSED)) {
+                auto e = _makeErr("configure the device I2C bus first");
+                _sendJson(r, 400, e);
+                return;
+            }
+            if (newChip == IoExpanderChip::None && Config::expanderInUse()) {
+                auto e = _makeErr("expander still used by a configured sound output or button");
+                _sendJson(r, 400, e);
+                return;
+            }
+            if (c.expanderChip != newChip || c.expanderAddress != newAddr) rebootNeeded = true;
+            c.expanderChip = newChip;
+            c.expanderAddress = newAddr;
         }
         // wifiSingleClientMode is intentionally not handled here — it's a
         // runtime-safe, mesh-wide toggle exposed from the device list instead
@@ -1959,22 +1990,27 @@ class BatteryWebServer {
     }
 
     // True if the device-wide I2C bus (DeviceConfig::i2cSdaPin/i2cSclPin) has
-    // been configured — required before a sound output or a TCA9555-backed
-    // button can be added.
+    // been configured — required before a sound output can be added, or
+    // before anything can be routed through the expander.
     static bool _i2cBusConfigured() {
         return Config::get().i2cSdaPin != PIN_UNUSED && Config::get().i2cSclPin != PIN_UNUSED;
     }
+
+    // True if the device's single I2C expander (DeviceConfig::expanderChip)
+    // has been configured — required before a sound's PA-enable pin or a
+    // button can be routed through it.
+    static bool _expanderConfigured() { return Config::get().expanderChip != IoExpanderChip::None; }
 
     // Returns an error string if any of s's non-unused pins collide with each
     // other or with a light/button/other-sound/device-I2C-bus pin, else
     // nullptr. Pass the sound's own index as excludeSoundIndex when
     // validating an update. paEnablePin is only checked as a real ESP32 GPIO
-    // when paExpander is None — on an expander it's a pin index in a separate
-    // address space (see IoExpanderChip) and is checked against other
+    // when paViaExpander is false — when true it's a pin index in the
+    // device expander's separate address space, checked against other
     // expander-backed pins via Config::isExpanderPinInUse instead.
     static const char* _soundPinConflict(const SoundHardwareConfig& s, int8_t excludeSoundIndex) {
         uint8_t pins[] = {s.i2sMclkPin, s.i2sBclkPin, s.i2sWsPin, s.i2sDoutPin, s.paEnablePin};
-        size_t count = s.paExpander == IoExpanderChip::None ? 5 : 4;
+        size_t count = s.paViaExpander ? 4 : 5;
         for (size_t i = 0; i < count; i++) {
             if (pins[i] == PIN_UNUSED) continue;
             for (size_t j = i + 1; j < count; j++) {
@@ -1982,17 +2018,17 @@ class BatteryWebServer {
             }
             if (Config::isPinInUse(pins[i], -1, excludeSoundIndex)) return "pin already in use";
         }
-        if (s.paExpander == IoExpanderChip::TCA9555 && s.paEnablePin != PIN_UNUSED &&
-            Config::isExpanderPinInUse(s.paExpanderAddress, s.paEnablePin, -1,
-                                       /*excludeSoundPa=*/true)) {
-            return "expander pin already in use";
+        if (s.paViaExpander && s.paEnablePin != PIN_UNUSED) {
+            if (!_expanderConfigured()) return "configure the device I2C expander first";
+            if (Config::isExpanderPinInUse(s.paEnablePin, -1, /*excludeSoundPa=*/true))
+                return "expander pin already in use";
         }
         return nullptr;
     }
 
     // ── POST /api/sounds/add ──────────────────────────────────────────────────
     // Body: {name?, chip?, i2cAddress?, i2sMclkPin?, i2sBclkPin, i2sWsPin, i2sDoutPin,
-    // paEnablePin?, paEnableActiveHigh?, paExpander?, paExpanderAddress?}
+    // paEnablePin?, paEnableActiveHigh?, paViaExpander?}
     void _addSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2039,7 +2075,7 @@ class BatteryWebServer {
 
     // ── POST /api/sounds/update ─────────────────────────────────────────────────
     // Body: {index, name?, chip?, i2cAddress?, i2sMclkPin?, i2sBclkPin?, i2sWsPin?,
-    // i2sDoutPin?, paEnablePin?, paEnableActiveHigh?, paExpander?, paExpanderAddress?}
+    // i2sDoutPin?, paEnablePin?, paEnableActiveHigh?, paViaExpander?}
     void _updateSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2088,12 +2124,8 @@ class BatteryWebServer {
             candidate.paEnableActiveHigh = (bool)doc["paEnableActiveHigh"];
             hwChanged = true;
         }
-        if (!doc["paExpander"].isNull()) {
-            candidate.paExpander = (IoExpanderChip)(uint8_t)doc["paExpander"];
-            hwChanged = true;
-        }
-        if (!doc["paExpanderAddress"].isNull()) {
-            candidate.paExpanderAddress = doc["paExpanderAddress"];
+        if (!doc["paViaExpander"].isNull()) {
+            candidate.paViaExpander = (bool)doc["paViaExpander"];
             hwChanged = true;
         }
 
@@ -2299,15 +2331,14 @@ class BatteryWebServer {
     // Returns an error string if b's pin collides with another configured
     // pin, else nullptr. Pass the button's own index as excludeButtonIndex
     // when validating an update. b.pin is checked as a real ESP32 GPIO only
-    // when expander is None — on an expander it's a pin index in a separate
-    // address space (see IoExpanderChip), checked against other
+    // when viaExpander is false — when true it's a pin index in the device
+    // expander's separate address space, checked against other
     // expander-backed pins via Config::isExpanderPinInUse instead.
     static const char* _buttonPinConflict(const ButtonHardwareConfig& b,
                                           int8_t excludeButtonIndex) {
-        if (b.expander == IoExpanderChip::TCA9555) {
-            if (!_i2cBusConfigured())
-                return "configure the device I2C bus in Hardware settings first";
-            if (Config::isExpanderPinInUse(b.expanderAddress, b.pin, excludeButtonIndex))
+        if (b.viaExpander) {
+            if (!_expanderConfigured()) return "configure the device I2C expander first";
+            if (Config::isExpanderPinInUse(b.pin, excludeButtonIndex))
                 return "expander pin already in use";
             return nullptr;
         }
@@ -2316,8 +2347,8 @@ class BatteryWebServer {
     }
 
     // ── POST /api/buttons/add ─────────────────────────────────────────────────
-    // Body: {name?, pin, activeLow?, expander?, expanderAddress?, onShortPress?,
-    // onLongPress?, onDoubleClick?}
+    // Body: {name?, pin, activeLow?, viaExpander?, onShortPress?, onLongPress?,
+    // onDoubleClick?}
     void _addButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2351,8 +2382,8 @@ class BatteryWebServer {
     }
 
     // ── POST /api/buttons/update ──────────────────────────────────────────────
-    // Body: {index, name?, pin?, activeLow?, expander?, expanderAddress?, onShortPress?,
-    // onLongPress?, onDoubleClick?}
+    // Body: {index, name?, pin?, activeLow?, viaExpander?, onShortPress?, onLongPress?,
+    // onDoubleClick?}
     void _updateButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2365,9 +2396,9 @@ class BatteryWebServer {
         auto& existing = Config::get().buttons[idx];
         if (!doc["name"].isNull()) strlcpy(existing.name, doc["name"] | "", sizeof(existing.name));
 
-        // pin/expander/expanderAddress together decide the pin's address space —
-        // apply on top of a copy first so a rejected conflict leaves the saved
-        // config untouched, mirroring _updateSound's candidate/hwChanged pattern.
+        // pin/viaExpander together decide the pin's address space — apply on
+        // top of a copy first so a rejected conflict leaves the saved config
+        // untouched, mirroring _updateSound's candidate/hwChanged pattern.
         ButtonHardwareConfig candidate = existing;
         bool pinChanged = false;
         if (!doc["activeLow"].isNull()) candidate.activeLow = (bool)doc["activeLow"];
@@ -2375,12 +2406,8 @@ class BatteryWebServer {
             candidate.pin = doc["pin"];
             pinChanged = true;
         }
-        if (!doc["expander"].isNull()) {
-            candidate.expander = (IoExpanderChip)(uint8_t)doc["expander"];
-            pinChanged = true;
-        }
-        if (!doc["expanderAddress"].isNull()) {
-            candidate.expanderAddress = doc["expanderAddress"];
+        if (!doc["viaExpander"].isNull()) {
+            candidate.viaExpander = (bool)doc["viaExpander"];
             pinChanged = true;
         }
         if (pinChanged) {

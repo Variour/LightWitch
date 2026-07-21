@@ -30,8 +30,8 @@ class ButtonManager {
         for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
             auto& b = Config::get().buttons[i];
             if (b.exists) {
-                if (b.expander == IoExpanderChip::TCA9555) {
-                    _expanders[i].setup(b.expanderAddress);
+                if (b.viaExpander) {
+                    _expanders[i].setup(Config::get().expanderAddress);
                     _expanders[i].beginInput(b.pin);
                 } else {
                     pinMode(b.pin, b.activeLow ? INPUT_PULLUP : INPUT_PULLDOWN);
@@ -61,8 +61,7 @@ class ButtonManager {
     ActionExecutor* _executor = nullptr;
 
     bool _readActive(uint8_t i, const ButtonHardwareConfig& b) {
-        bool high = b.expander == IoExpanderChip::TCA9555 ? _expanders[i].read(b.pin)
-                                                          : digitalRead(b.pin) == HIGH;
+        bool high = b.viaExpander ? _expanders[i].read(b.pin) : digitalRead(b.pin) == HIGH;
         return b.activeLow ? !high : high;
     }
 

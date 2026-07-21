@@ -37,6 +37,8 @@ const MOCK_CONFIG = {
   prTrack: '',
   i2cSdaPin: 21,
   i2cSclPin: 22,
+  expanderChip: 1,
+  expanderAddress: 0x20,
   mqttHost: 'mqtt.local',
   mqttPort: 1883,
   mqttUser: 'lights',
@@ -54,35 +56,37 @@ const MOCK_CONFIG = {
 
 // Mirrors SoundHardwareConfig shape from Config.h/WebServer.h::serializeSound.
 // 255 mirrors Config.h::PIN_UNUSED (an unconfigured/not-present pin). The I2C
-// control bus itself (sda/scl) is device-wide now — see MOCK_CONFIG.i2cSdaPin/
-// i2cSclPin — not a per-sound field.
+// control bus (sda/scl) and the expander (chip/address) are both device-wide
+// now — see MOCK_CONFIG.i2cSdaPin/i2cSclPin/expanderChip/expanderAddress —
+// not per-sound/per-button fields.
 const PIN_UNUSED = 255;
-// paExpander: 0 = None (paEnablePin is a native GPIO), 1 = TCA9555 (paEnablePin
-// is a pin index 0-15 on the expander instead) — mirrors Config.h::IoExpanderChip.
+// paViaExpander: false = paEnablePin is a native GPIO, true = it's a pin
+// index (0-15) on the device's expander instead — mirrors
+// SoundHardwareConfig::paViaExpander.
 const mockSounds = [
   { index: 0, name: 'Speaker', chip: 0, i2cAddress: 0x18,
     i2sMclkPin: PIN_UNUSED, i2sBclkPin: 15, i2sWsPin: 16, i2sDoutPin: 17,
-    paEnablePin: 8, paEnableActiveHigh: true, paExpander: 1, paExpanderAddress: 0x20,
+    paEnablePin: 8, paEnableActiveHigh: true, paViaExpander: true,
     exists: true },
 ];
 
 // Mirrors ButtonHardwareConfig/ButtonAction shape from WebServer.h::serializeButton.
-// expander/expanderAddress mirror SoundHardwareConfig's paExpander/paExpanderAddress
-// (see mockSounds above) — button 2 shares the expander/address with the sound's
-// PA-enable pin (8) but uses a different pin index (9) to exercise that overlap
+// viaExpander mirrors SoundHardwareConfig::paViaExpander (see mockSounds
+// above) — button 2 shares the device expander with the sound's PA-enable
+// pin (8) but uses a different pin index (9) to exercise that overlap
 // without conflicting, same as the Waveshare board's real KEY1 wiring.
 const mockButtons = [
-  { index: 0, name: 'Wall switch', pin: 4, activeLow: true, expander: 0, expanderAddress: 0x20, exists: true,
+  { index: 0, name: 'Wall switch', pin: 4, activeLow: true, viaExpander: false, exists: true,
     onShortPress:  { action: 1, groupId: 0, lightIndex: 0, numberValue: 20, stringValue: '', r: 255, g: 255, b: 255 }, // BrightnessStep
     onLongPress:   { action: 6, groupId: 0, lightIndex: 0, numberValue: 0,  stringValue: '', r: 255, g: 255, b: 255 }, // PatternNext
     onDoubleClick: { action: 3, groupId: 0, lightIndex: 0, numberValue: 0,  stringValue: '', r: 0,   g: 150, b: 255 }, // ColorSet
   },
-  { index: 1, name: 'Nightstand', pin: 5, activeLow: true, expander: 0, expanderAddress: 0x20, exists: true,
+  { index: 1, name: 'Nightstand', pin: 5, activeLow: true, viaExpander: false, exists: true,
     onShortPress:  { action: 12, groupId: 1, lightIndex: 0, numberValue: 0, stringValue: '0002ee38f7ce6ab7acd6a859', r: 255, g: 255, b: 255 }, // SceneSet
     onLongPress:   { action: 5,  groupId: 1, lightIndex: 0, numberValue: 1, stringValue: '', r: 255, g: 255, b: 255 }, // ModeSet → Scene
     onDoubleClick: { action: 29, groupId: 0, lightIndex: 1, numberValue: 20, stringValue: '', r: 255, g: 255, b: 255 }, // LightBrightnessOverrideStep on Bedroom
   },
-  { index: 2, name: 'KEY1 (expander)', pin: 9, activeLow: true, expander: 1, expanderAddress: 0x20, exists: true,
+  { index: 2, name: 'KEY1 (expander)', pin: 9, activeLow: true, viaExpander: true, exists: true,
     onShortPress:  { action: 9, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 }, // SceneNext
     onLongPress:   { action: 0, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 },
     onDoubleClick: { action: 0, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 },
@@ -243,14 +247,51 @@ app.post('/api/config', (req, res) => {
   delete rest.githubToken;
   delete rest.prTrack;
 
+  // Mirrors _postConfig's I2C bus guard: reject disabling it while a sound
+  // output, button, or the configured expander still needs it. The expander
+  // block below sees this already-resolved target chip, matching how the
+  // real device applies the bus fields before the expander fields.
+  const targetExpanderChip = 'expanderChip' in rest ? rest.expanderChip : MOCK_CONFIG.expanderChip;
+  if ('i2cSdaPin' in rest && 'i2cSclPin' in rest) {
+    const disablingBus = rest.i2cSdaPin === PIN_UNUSED || rest.i2cSclPin === PIN_UNUSED;
+    if (disablingBus) {
+      const busInUse = mockSounds.some(s => s.exists) || targetExpanderChip !== 0;
+      if (busInUse) {
+        return res.status(400).json({
+          error: 'I2C bus still used by a configured sound output, button, or the configured expander',
+        });
+      }
+    } else if (rest.i2cSdaPin === rest.i2cSclPin) {
+      return res.status(400).json({ error: 'SDA and SCL must be different pins' });
+    }
+  }
+
+  // Mirrors _postConfig's expander guard: enabling it requires the (possibly
+  // just-updated-above) bus; disabling it requires nothing still using it.
+  if ('expanderChip' in rest || 'expanderAddress' in rest) {
+    const sda = 'i2cSdaPin' in rest ? rest.i2cSdaPin : MOCK_CONFIG.i2cSdaPin;
+    const scl = 'i2cSclPin' in rest ? rest.i2cSclPin : MOCK_CONFIG.i2cSclPin;
+    if (targetExpanderChip !== 0 && (sda === PIN_UNUSED || scl === PIN_UNUSED)) {
+      return res.status(400).json({ error: 'configure the device I2C bus first' });
+    }
+    if (targetExpanderChip === 0) {
+      const expanderUsed = mockSounds.some(s => s.exists && s.paViaExpander) ||
+        mockButtons.some(b => b.exists && b.viaExpander);
+      if (expanderUsed) {
+        return res.status(400).json({ error: 'expander still used by a configured sound output or button' });
+      }
+    }
+  }
+
   // Mirrors _postConfig's rebootNeeded logic: deviceName/otaPort/otaEnabled
   // are one-shot on the real device (mDNS/ArduinoOTA/AP SSID init at boot
-  // only); i2cSdaPin/i2cSclPin are too, since the I2C bus is only ever
+  // only); the I2C bus and expander are too, since both are only ever
   // brought up once at boot (see main.cpp) with no live-reconfigure path.
   // Every other field applies live, no reboot.
-  const rebooting = ['deviceName', 'otaPort', 'otaEnabled', 'i2cSdaPin', 'i2cSclPin'].some(
-    k => k in rest && rest[k] !== MOCK_CONFIG[k]
-  );
+  const rebooting = [
+    'deviceName', 'otaPort', 'otaEnabled',
+    'i2cSdaPin', 'i2cSclPin', 'expanderChip', 'expanderAddress',
+  ].some(k => k in rest && rest[k] !== MOCK_CONFIG[k]);
 
   Object.assign(MOCK_CONFIG, rest);
   res.json({ ok: true, rebooting });
@@ -428,7 +469,7 @@ function lightPinConflict(l, excludeIndex) {
   if (pins.some(p => busPins().includes(p))) return 'pin already in use';
   if (mockLights.some(other => other.index !== excludeIndex && lightPins(other).some(p => pins.includes(p))))
     return 'pin already in use';
-  if (mockButtons.some(b => !b.expander && pins.includes(b.pin))) return 'pin already in use';
+  if (mockButtons.some(b => !b.viaExpander && pins.includes(b.pin))) return 'pin already in use';
   if (mockSounds.some(s => soundPins(s).some(p => pins.includes(p)))) return 'pin already in use';
   return null;
 }
@@ -486,33 +527,41 @@ app.post('/api/lights/testcolor', (req, res) => {
 });
 
 // True once MOCK_CONFIG.i2cSdaPin/i2cSclPin are both set — mirrors
-// WebServer.h::_i2cBusConfigured(), required before a sound output or a
-// TCA9555-backed button can be added.
+// WebServer.h::_i2cBusConfigured(), required before a sound output can be
+// added, or before anything can be routed through the expander.
 function i2cBusConfigured() {
   return MOCK_CONFIG.i2cSdaPin !== PIN_UNUSED && MOCK_CONFIG.i2cSclPin !== PIN_UNUSED;
 }
 function busPins() {
   return [MOCK_CONFIG.i2cSdaPin, MOCK_CONFIG.i2cSclPin].filter(p => p !== PIN_UNUSED);
 }
+// True once MOCK_CONFIG.expanderChip is set — mirrors
+// WebServer.h::_expanderConfigured(), required before a sound's PA-enable
+// pin or a button can be routed through the device's single expander.
+function expanderConfigured() {
+  return MOCK_CONFIG.expanderChip !== 0;
+}
 
-// paEnablePin only occupies the ESP32 GPIO address space when paExpander is 0
-// (None) — on a TCA9555 it's a pin index in a separate space (see
-// Config.h::IoExpanderChip) and must not be cross-checked against real GPIOs.
+// paEnablePin only occupies the ESP32 GPIO address space when paViaExpander
+// is false — when true it's a pin index in the device expander's separate
+// address space (see Config.h::IoExpanderChip) and must not be
+// cross-checked against real GPIOs.
 function soundPins(s) {
   const pins = [s.i2sMclkPin, s.i2sBclkPin, s.i2sWsPin, s.i2sDoutPin];
-  if (!s.paExpander) pins.push(s.paEnablePin);
+  if (!s.paViaExpander) pins.push(s.paEnablePin);
   return pins.filter(p => p !== PIN_UNUSED);
 }
 
-// Mirrors Config.cpp::isExpanderPinInUse: true if (address, pin) on a TCA9555
-// is already claimed by another button, or by the sound's PA-enable pin. Pass
-// excludeSoundPa=true when validating the sound output's own PA pin, so an
-// unchanged value doesn't collide with itself (there's only ever one sound).
-function isExpanderPinInUse(address, pin, excludeButtonIndex, excludeSoundPa = false) {
-  if (mockButtons.some(b => b.index !== excludeButtonIndex && b.expander === 1 &&
-      b.expanderAddress === address && b.pin === pin)) return true;
+// Mirrors Config.cpp::isExpanderPinInUse: true if pin index `pin` (0-15) on
+// the device's single expander is already claimed by another button, or by
+// the sound's PA-enable pin. Pass excludeSoundPa=true when validating the
+// sound output's own PA pin, so an unchanged value doesn't collide with
+// itself (there's only ever one sound).
+function isExpanderPinInUse(pin, excludeButtonIndex, excludeSoundPa = false) {
+  if (mockButtons.some(b => b.index !== excludeButtonIndex && b.viaExpander && b.pin === pin))
+    return true;
   if (excludeSoundPa) return false;
-  return mockSounds.some(s => s.paExpander === 1 && s.paExpanderAddress === address && s.paEnablePin === pin);
+  return mockSounds.some(s => s.paViaExpander && s.paEnablePin === pin);
 }
 
 // Mirrors Config.cpp::isPinInUse for a native-GPIO button/light/sound pin —
@@ -521,15 +570,15 @@ function isButtonPinInUse(pin, excludeIndex) {
   if (busPins().includes(pin)) return true;
   if (mockLights.some(l => l.dataPin === pin || l.clockPin === pin)) return true;
   if (mockSounds.some(s => soundPins(s).includes(pin))) return true;
-  return mockButtons.some(b => b.index !== excludeIndex && !b.expander && b.pin === pin);
+  return mockButtons.some(b => b.index !== excludeIndex && !b.viaExpander && b.pin === pin);
 }
 
 // Mirrors WebServer.h::_buttonPinConflict: routes to the native-GPIO or
-// expander address space depending on b.expander.
+// expander address space depending on b.viaExpander.
 function buttonPinConflict(b, excludeIndex) {
-  if (b.expander) {
-    if (!i2cBusConfigured()) return 'configure the device I2C bus in Hardware settings first';
-    if (isExpanderPinInUse(b.expanderAddress, b.pin, excludeIndex)) return 'expander pin already in use';
+  if (b.viaExpander) {
+    if (!expanderConfigured()) return 'configure the device I2C expander first';
+    if (isExpanderPinInUse(b.pin, excludeIndex)) return 'expander pin already in use';
     return null;
   }
   if (isButtonPinInUse(b.pin, excludeIndex)) return 'pin already in use';
@@ -545,12 +594,14 @@ function soundPinConflict(s, excludeIndex) {
   if (new Set(pins).size !== pins.length) return 'duplicate pin within sound config';
   if (pins.some(p => busPins().includes(p))) return 'pin already in use';
   if (mockLights.some(l => pins.includes(l.dataPin) || pins.includes(l.clockPin))) return 'pin already in use';
-  if (mockButtons.some(b => !b.expander && pins.includes(b.pin))) return 'pin already in use';
+  if (mockButtons.some(b => !b.viaExpander && pins.includes(b.pin))) return 'pin already in use';
   if (mockSounds.some(other => other.index !== excludeIndex && soundPins(other).some(p => pins.includes(p))))
     return 'pin already in use';
-  if (s.paExpander && s.paEnablePin !== PIN_UNUSED &&
-      isExpanderPinInUse(s.paExpanderAddress, s.paEnablePin, undefined, /*excludeSoundPa=*/true))
-    return 'expander pin already in use';
+  if (s.paViaExpander && s.paEnablePin !== PIN_UNUSED) {
+    if (!expanderConfigured()) return 'configure the device I2C expander first';
+    if (isExpanderPinInUse(s.paEnablePin, undefined, /*excludeSoundPa=*/true))
+      return 'expander pin already in use';
+  }
   return null;
 }
 
@@ -565,12 +616,12 @@ app.post('/api/sounds/add', (req, res) => {
     name = '', chip = 0,
     i2cAddress = 0x18, i2sMclkPin = PIN_UNUSED, i2sBclkPin = PIN_UNUSED,
     i2sWsPin = PIN_UNUSED, i2sDoutPin = PIN_UNUSED, paEnablePin = PIN_UNUSED,
-    paEnableActiveHigh = true, paExpander = 0, paExpanderAddress = 0x20,
+    paEnableActiveHigh = true, paViaExpander = false,
   } = req.body || {};
   if ([i2sBclkPin, i2sWsPin, i2sDoutPin].includes(PIN_UNUSED)) {
     return res.status(400).json({ error: 'missing required pin' });
   }
-  const sound = { index: free, name, chip, i2cAddress, i2sMclkPin, i2sBclkPin, i2sWsPin, i2sDoutPin, paEnablePin, paEnableActiveHigh, paExpander, paExpanderAddress, exists: true };
+  const sound = { index: free, name, chip, i2cAddress, i2sMclkPin, i2sBclkPin, i2sWsPin, i2sDoutPin, paEnablePin, paEnableActiveHigh, paViaExpander, exists: true };
   const conflict = soundPinConflict(sound, free);
   if (conflict) return res.status(400).json({ error: conflict });
   mockSounds.push(sound);
@@ -610,12 +661,12 @@ app.get('/api/buttons', (_req, res) => res.json({ buttons: mockButtons, maxButto
 app.post('/api/buttons/add', (req, res) => {
   const free = [0,1,2,3].find(i => !mockButtons.find(b => b.index === i));
   if (free === undefined) return res.status(400).json({ error: 'button limit reached' });
-  const { name = '', pin = 0, activeLow = true, expander = 0, expanderAddress = 0x20, onShortPress, onLongPress, onDoubleClick } = req.body || {};
-  const conflict = buttonPinConflict({ pin, expander, expanderAddress }, free);
+  const { name = '', pin = 0, activeLow = true, viaExpander = false, onShortPress, onLongPress, onDoubleClick } = req.body || {};
+  const conflict = buttonPinConflict({ pin, viaExpander }, free);
   if (conflict) return res.status(400).json({ error: conflict });
   const blankAction = () => ({ action: 0, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 });
   mockButtons.push({
-    index: free, name, pin, activeLow, expander, expanderAddress, exists: true,
+    index: free, name, pin, activeLow, viaExpander, exists: true,
     onShortPress:  onShortPress  || blankAction(),
     onLongPress:   onLongPress   || blankAction(),
     onDoubleClick: onDoubleClick || blankAction(),
@@ -626,7 +677,7 @@ app.post('/api/buttons/update', (req, res) => {
   const { index, ...fields } = req.body || {};
   const button = mockButtons.find(b => b.index === index);
   if (!button) return res.status(404).json({ error: 'not found' });
-  const pinChanged = ['pin', 'expander', 'expanderAddress'].some(k => fields[k] !== undefined);
+  const pinChanged = ['pin', 'viaExpander'].some(k => fields[k] !== undefined);
   if (pinChanged) {
     const candidate = { ...button, ...fields };
     const conflict = buttonPinConflict(candidate, index);

@@ -397,7 +397,8 @@ void setup() {
     // Initialise the sound output, if configured — hardware bring-up only for
     // now (see SoundDriver.h), so there's no per-loop pipeline to wire up here.
     Config::forEachSound([](uint8_t, SoundHardwareConfig& s) {
-        _sound.setup(s, Config::get().i2cSdaPin, Config::get().i2cSclPin);
+        _sound.setup(s, Config::get().i2cSdaPin, Config::get().i2cSclPin,
+                     Config::get().expanderAddress);
         _sound.begin();
     });
 

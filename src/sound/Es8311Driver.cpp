@@ -83,7 +83,7 @@ void Es8311Driver::_setPaEnabled(bool enabled) {
     if (_cfg.paEnablePin == PIN_UNUSED) return;
     bool driveHigh = enabled == _cfg.paEnableActiveHigh;
     Logger::d("[sound] PA enable pin -> %s", driveHigh ? "HIGH" : "LOW");
-    if (_cfg.paExpander == IoExpanderChip::TCA9555) {
+    if (_cfg.paViaExpander) {
         _paExpander.write(_cfg.paEnablePin, driveHigh);
     } else {
         digitalWrite(_cfg.paEnablePin, driveHigh ? HIGH : LOW);
@@ -164,8 +164,8 @@ void Es8311Driver::begin() {
     // Wire.begin() already called for the device-wide I2C bus in main.cpp.
 
     if (_cfg.paEnablePin != PIN_UNUSED) {
-        if (_cfg.paExpander == IoExpanderChip::TCA9555) {
-            _paExpander.setup(_cfg.paExpanderAddress);
+        if (_cfg.paViaExpander) {
+            _paExpander.setup(_expanderAddress);
             _paExpander.beginOutput(_cfg.paEnablePin);
         } else {
             pinMode(_cfg.paEnablePin, OUTPUT);
