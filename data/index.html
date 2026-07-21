@@ -1166,6 +1166,14 @@ const PATTERNS = [
   { name:'Candle',        desc:'Warm flickering candle light. Speed controls flicker rate.', hasColor: false, syncable: false },
 ];
 
+// LightConfig::SceneStringMode ordinals (src/config/Config.h) — short
+// explanation shown under the String color mode buttons for whichever is selected.
+const SCENE_STRING_MODE_DESC = [
+  'Each LED picks its own random color from the scene.',
+  'The whole string shares one random color from the scene.',
+  'Scene rows are read top to bottom and concatenated onto the string, one after another. More cells than LEDs: some are skipped. Fewer cells than LEDs: colors stretch to fill the string.',
+];
+
 // Mirrors TimeMatrix::BASE_W / BASE_H (src/patterns/TimeMatrix.h) — the
 // minimum matrix size that can legibly show HH:MM.
 const TIME_MIN_W = 17;
@@ -1327,7 +1335,7 @@ function renderGroups(groups) {
     const noSync      = PATTERNS[pat]?.syncable === false;
     const sceneId = String(g.sceneId || '');
     const transitionEnabled = Boolean(g.transitionEnabled);
-    const sceneUniformColor = Boolean(g.sceneUniformColor);
+    const sceneStringMode = Number(g.sceneStringMode) || 0;
     const transitionTime = Number.isFinite(g.transitionTime) && g.transitionTime >= 0.1 ? g.transitionTime : 2;
     const frameDuration = Number.isFinite(g.frameDuration) && g.frameDuration >= 0 ? g.frameDuration : 0;
     const animEnabled = frameDuration > 0;
@@ -1394,7 +1402,7 @@ function renderGroups(groups) {
               <option value=""${!sceneId?' selected':''}>Choose a scene…</option>
               ${_sceneOptions.map(s=>`<option value="${esc(s.id)}"${sceneId===String(s.id)?' selected':''}>${esc(s.name)} (${s.w}×${s.h})</option>`).join('')}
             </select>
-            <p class="pattern-desc">Matrix lights display the scene image pixel-by-pixel. String lights can either give each LED its own random scene color or keep the whole string on one random scene color.</p>
+            <p class="pattern-desc">Matrix lights display the scene image pixel-by-pixel. String lights can give each LED its own random scene color, keep the whole string on one random scene color, or map the scene image 1:1 onto the string like a matrix would.</p>
           </div>
           <div>
             <label>Brightness</label>
@@ -1403,11 +1411,13 @@ function renderGroups(groups) {
           </div>
           <div style="margin-top:.3rem">
             <label>String color mode</label>
-            <input type="hidden" id="gsceneuniform-${g.id}" value="${sceneUniformColor ? 'uniform' : 'per-led'}">
+            <input type="hidden" id="gscenestringmode-${g.id}" value="${sceneStringMode}">
             <div style="display:flex;gap:.4rem;flex-wrap:wrap">
-              <button type="button" id="gsceneuniform-perled-${g.id}" class="btn-sm ${sceneUniformColor ? 'btn-ghost' : 'btn-primary'}" data-action="setGroupSceneColorMode" data-id="${g.id}" data-mode="per-led">Per LED</button>
-              <button type="button" id="gsceneuniform-uniform-${g.id}" class="btn-sm ${sceneUniformColor ? 'btn-primary' : 'btn-ghost'}" data-action="setGroupSceneColorMode" data-id="${g.id}" data-mode="uniform">Whole string</button>
+              <button type="button" id="gscenestringmode-0-${g.id}" class="btn-sm ${sceneStringMode===0 ? 'btn-primary' : 'btn-ghost'}" data-action="setGroupSceneStringMode" data-id="${g.id}" data-mode="0">Per LED</button>
+              <button type="button" id="gscenestringmode-1-${g.id}" class="btn-sm ${sceneStringMode===1 ? 'btn-primary' : 'btn-ghost'}" data-action="setGroupSceneStringMode" data-id="${g.id}" data-mode="1">Whole string</button>
+              <button type="button" id="gscenestringmode-2-${g.id}" class="btn-sm ${sceneStringMode===2 ? 'btn-primary' : 'btn-ghost'}" data-action="setGroupSceneStringMode" data-id="${g.id}" data-mode="2">1:1 mapping</button>
             </div>
+            <p class="pattern-desc" id="gscenestringmode-desc-${g.id}" style="margin-top:.2rem">${SCENE_STRING_MODE_DESC[sceneStringMode] || ''}</p>
           </div>
           <p class="pattern-desc" style="margin-top:.2rem">Only affects string lights. Matrix lights still render the full scene image.</p>
           <div class="sync-row" style="margin-top:.3rem">
@@ -1638,7 +1648,7 @@ _delegate('groups-list', 'input', {
 });
 _delegate('groups-list', 'click', {
   deleteGroup:               el => deleteGroup(Number(el.dataset.id)),
-  setGroupSceneColorMode:    el => setGroupSceneColorMode(Number(el.dataset.id), el.dataset.mode),
+  setGroupSceneStringMode:   el => setGroupSceneStringMode(Number(el.dataset.id), Number(el.dataset.mode)),
   setGroupTextAnimation:     el => setGroupTextAnimation(Number(el.dataset.id), Number(el.dataset.anim)),
   setGroupTimeFormat:        el => setGroupTimeFormat(Number(el.dataset.id), el.dataset.format),
 });
@@ -1663,10 +1673,25 @@ function _setActiveButton(idA, idB, isA) {
   });
 }
 
-function setGroupSceneColorMode(id, mode) {
-  const input = $(`gsceneuniform-${id}`);
+function _setActiveButtonGroup(ids, activeIndex) {
+  ids.forEach((id, i) => {
+    const button = $(id);
+    if (!button) return;
+    const active = i === activeIndex;
+    button.classList.toggle('btn-primary', active);
+    button.classList.toggle('btn-ghost', !active);
+  });
+}
+
+function setGroupSceneStringMode(id, mode) {
+  const input = $(`gscenestringmode-${id}`);
   if (input) input.value = mode;
-  _setActiveButton(`gsceneuniform-perled-${id}`, `gsceneuniform-uniform-${id}`, mode === 'per-led');
+  _setActiveButtonGroup(
+    [0, 1, 2].map(m => `gscenestringmode-${m}-${id}`),
+    mode
+  );
+  const desc = $(`gscenestringmode-desc-${id}`);
+  if (desc) desc.textContent = SCENE_STRING_MODE_DESC[mode] || '';
   onGroupControl(id);
 }
 
@@ -1771,7 +1796,7 @@ async function applyGroupControl(id) {
       brightness:        parseInt(brEl?.value || 255),
       speed:             parseFloat(speedEl?.value || 1),
       transitionEnabled: $(`gtrans-${id}`)?.checked || false,
-      sceneUniformColor: ($(`gsceneuniform-${id}`)?.value || 'per-led') === 'uniform',
+      sceneStringMode:   parseInt($(`gscenestringmode-${id}`)?.value || 0),
       transitionTime:    parseFloat($(`gtt-${id}`)?.value || 2),
       frameDuration:     $(`ganim-${id}`)?.checked
                            ? clampFrameDuration(parseFloat($(`gfd-num-${id}`)?.value) || 1)
@@ -5459,7 +5484,7 @@ const ACTION_CATALOG = [
   {id:13, label:'Frame duration step',        cat:'Scene',     param:'number', hint:'± seconds'},
   {id:14, label:'Transition toggle',          cat:'Scene',     param:'none'},
   {id:15, label:'Transition time set',        cat:'Scene',     param:'number', hint:'seconds'},
-  {id:16, label:'Uniform color toggle',       cat:'Scene',     param:'none', hint:'string lights only'},
+  {id:16, label:'String color mode cycle',    cat:'Scene',     param:'none', hint:'string lights only — cycles Per LED → Whole string → 1:1 mapping'},
   {id:17, label:'Proximity scale step',       cat:'Proximity', param:'number', hint:'± step'},
   {id:18, label:'Proximity scale set',        cat:'Proximity', param:'number'},
   {id:19, label:'Gradient palette next',      cat:'Gradient',  param:'none'},

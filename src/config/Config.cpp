@@ -30,7 +30,7 @@ void serializeLightConfig(JsonObject o, const LightConfig& l) {
     o["speed"] = l.speed;
     o["seq"] = l.seq;
     o["transitionEnabled"] = l.transitionEnabled;
-    o["sceneUniformColor"] = l.sceneUniformColor;
+    o["sceneStringMode"] = (uint8_t)l.sceneStringMode;
     o["transitionTime"] = l.transitionTime;
     o["frameDuration"] = l.frameDuration;
     o["proximityScale"] = l.proximityScale;
@@ -53,7 +53,8 @@ LightConfig deserializeLightConfig(JsonVariant j, const LightConfig& def) {
     l.speed = j["speed"] | def.speed;
     l.seq = j["seq"] | def.seq;
     l.transitionEnabled = j["transitionEnabled"] | def.transitionEnabled;
-    l.sceneUniformColor = j["sceneUniformColor"] | def.sceneUniformColor;
+    l.sceneStringMode =
+        (SceneStringMode)(uint8_t)(j["sceneStringMode"] | (uint8_t)def.sceneStringMode);
     l.transitionTime = j["transitionTime"] | def.transitionTime;
     l.frameDuration = j["frameDuration"] | def.frameDuration;
     l.proximityScale = j["proximityScale"] | def.proximityScale;
