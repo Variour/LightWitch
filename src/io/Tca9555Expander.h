@@ -27,6 +27,16 @@ class Tca9555Expander {
     // Drives `pin` (0-15) high or low.
     void write(uint8_t pin, bool high);
 
+    // Configures `pin` (0-15) as an input. Same Wire/begin() caveats as
+    // beginOutput(). The TCA9555 has no internal pull resistors, unlike a
+    // native ESP32 GPIO's INPUT_PULLUP/INPUT_PULLDOWN — a board wiring a
+    // button through this pin must supply its own pull-up/pull-down.
+    void beginInput(uint8_t pin);
+
+    // Reads `pin` (0-15). Returns false (as if LOW) for an out-of-range pin
+    // or before beginInput()/beginOutput() has run.
+    bool read(uint8_t pin);
+
    private:
     uint8_t _i2cAddress = 0x20;
     std::unique_ptr<TCA9555> _expander;

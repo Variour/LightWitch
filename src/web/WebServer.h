@@ -766,6 +766,10 @@ class BatteryWebServer {
         doc["prOtaBoardSupported"] = Updater::supportsPrOta();
         doc["prOtaEnabled"] = c.prOtaEnabled;
         doc["prTrack"] = c.prTrack;
+        doc["i2cSdaPin"] = c.i2cSdaPin;
+        doc["i2cSclPin"] = c.i2cSclPin;
+        doc["expanderChip"] = (uint8_t)c.expanderChip;
+        doc["expanderAddress"] = c.expanderAddress;
         doc["mqttHost"] = c.mqttHost;
         doc["mqttPort"] = c.mqttPort;
         doc["mqttUser"] = c.mqttUser;
@@ -858,6 +862,68 @@ class BatteryWebServer {
             c.batteryMonitoringEnabled = newVal;
         }
         if (!doc["prOtaEnabled"].isNull()) c.prOtaEnabled = (bool)doc["prOtaEnabled"];
+
+        // The I2C bus is only ever brought up once at boot (see main.cpp) —
+        // unlike battery/mqtt/timezone above, there's no live-reconfigure path,
+        // so changing it always needs a reboot.
+        if (!doc["i2cSdaPin"].isNull() && !doc["i2cSclPin"].isNull()) {
+            uint8_t sda = doc["i2cSdaPin"];
+            uint8_t scl = doc["i2cSclPin"];
+            if (sda == PIN_UNUSED || scl == PIN_UNUSED) {
+                if (Config::i2cBusInUse()) {
+                    auto e = _makeErr(
+                        "I2C bus still used by a configured sound output, button, or "
+                        "the configured expander");
+                    _sendJson(r, 400, e);
+                    return;
+                }
+                if (c.i2cSdaPin != PIN_UNUSED || c.i2cSclPin != PIN_UNUSED) rebootNeeded = true;
+                c.i2cSdaPin = PIN_UNUSED;
+                c.i2cSclPin = PIN_UNUSED;
+            } else {
+                if (sda == scl) {
+                    auto e = _makeErr("SDA and SCL must be different pins");
+                    _sendJson(r, 400, e);
+                    return;
+                }
+                if (Config::isPinInUse(sda, -1, -1, -1, /*excludeI2cBus=*/true) ||
+                    Config::isPinInUse(scl, -1, -1, -1, /*excludeI2cBus=*/true)) {
+                    auto e = _makeErr("pin already in use");
+                    _sendJson(r, 400, e);
+                    return;
+                }
+                if (c.i2cSdaPin != sda || c.i2cSclPin != scl) rebootNeeded = true;
+                c.i2cSdaPin = sda;
+                c.i2cSclPin = scl;
+            }
+        }
+
+        // The device's single I2C expander (see IoExpanderChip) — same
+        // reasoning as the I2C bus above: no live-reconfigure path, so
+        // changing it always needs a reboot. Uses c.i2cSdaPin/i2cSclPin as
+        // already updated by the block above, so enabling the bus and the
+        // expander in the same save works.
+        if (!doc["expanderChip"].isNull() || !doc["expanderAddress"].isNull()) {
+            IoExpanderChip newChip = doc["expanderChip"].isNull()
+                                         ? c.expanderChip
+                                         : (IoExpanderChip)(uint8_t)doc["expanderChip"];
+            uint8_t newAddr = doc["expanderAddress"].isNull() ? c.expanderAddress
+                                                              : (uint8_t)doc["expanderAddress"];
+            if (newChip != IoExpanderChip::None &&
+                (c.i2cSdaPin == PIN_UNUSED || c.i2cSclPin == PIN_UNUSED)) {
+                auto e = _makeErr("configure the device I2C bus first");
+                _sendJson(r, 400, e);
+                return;
+            }
+            if (newChip == IoExpanderChip::None && Config::expanderInUse()) {
+                auto e = _makeErr("expander still used by a configured sound output or button");
+                _sendJson(r, 400, e);
+                return;
+            }
+            if (c.expanderChip != newChip || c.expanderAddress != newAddr) rebootNeeded = true;
+            c.expanderChip = newChip;
+            c.expanderAddress = newAddr;
+        }
         // wifiSingleClientMode is intentionally not handled here — it's a
         // runtime-safe, mesh-wide toggle exposed from the device list instead
         // (POST /api/mesh/wifipolicy), so flipping it doesn't force the
@@ -1923,33 +1989,54 @@ class BatteryWebServer {
         _sendJson(r, 200, doc);
     }
 
+    // True if the device-wide I2C bus (DeviceConfig::i2cSdaPin/i2cSclPin) has
+    // been configured — required before a sound output can be added, or
+    // before anything can be routed through the expander.
+    static bool _i2cBusConfigured() {
+        return Config::get().i2cSdaPin != PIN_UNUSED && Config::get().i2cSclPin != PIN_UNUSED;
+    }
+
+    // True if the device's single I2C expander (DeviceConfig::expanderChip)
+    // has been configured — required before a sound's PA-enable pin or a
+    // button can be routed through it.
+    static bool _expanderConfigured() { return Config::get().expanderChip != IoExpanderChip::None; }
+
     // Returns an error string if any of s's non-unused pins collide with each
-    // other or with a light/button/other-sound pin, else nullptr. Pass the
-    // sound's own index as excludeSoundIndex when validating an update.
-    // paEnablePin is only checked as a real ESP32 GPIO when paExpander is
-    // None — on an expander it's a pin index in a separate address space
-    // (see IoExpanderChip) and would produce false conflicts if compared
-    // against actual GPIO numbers.
+    // other or with a light/button/other-sound/device-I2C-bus pin, else
+    // nullptr. Pass the sound's own index as excludeSoundIndex when
+    // validating an update. paEnablePin is only checked as a real ESP32 GPIO
+    // when paViaExpander is false — when true it's a pin index in the
+    // device expander's separate address space, checked against other
+    // expander-backed pins via Config::isExpanderPinInUse instead.
     static const char* _soundPinConflict(const SoundHardwareConfig& s, int8_t excludeSoundIndex) {
-        uint8_t pins[] = {s.i2cSdaPin, s.i2cSclPin,  s.i2sMclkPin, s.i2sBclkPin,
-                          s.i2sWsPin,  s.i2sDoutPin, s.paEnablePin};
-        size_t count = s.paExpander == IoExpanderChip::None ? 7 : 6;
+        uint8_t pins[] = {s.i2sMclkPin, s.i2sBclkPin, s.i2sWsPin, s.i2sDoutPin, s.paEnablePin};
+        size_t count = s.paViaExpander ? 4 : 5;
         for (size_t i = 0; i < count; i++) {
-            if (pins[i] == SOUND_PIN_UNUSED) continue;
+            if (pins[i] == PIN_UNUSED) continue;
             for (size_t j = i + 1; j < count; j++) {
                 if (pins[j] == pins[i]) return "duplicate pin within sound config";
             }
             if (Config::isPinInUse(pins[i], -1, excludeSoundIndex)) return "pin already in use";
         }
+        if (s.paViaExpander && s.paEnablePin != PIN_UNUSED) {
+            if (!_expanderConfigured()) return "configure the device I2C expander first";
+            if (Config::isExpanderPinInUse(s.paEnablePin, -1, /*excludeSoundPa=*/true))
+                return "expander pin already in use";
+        }
         return nullptr;
     }
 
     // ── POST /api/sounds/add ──────────────────────────────────────────────────
-    // Body: {name?, chip?, i2cSdaPin, i2cSclPin, i2cAddress?, i2sMclkPin?, i2sBclkPin,
-    // i2sWsPin, i2sDoutPin, paEnablePin?, paEnableActiveHigh?, paExpander?, paExpanderAddress?}
+    // Body: {name?, chip?, i2cAddress?, i2sMclkPin?, i2sBclkPin, i2sWsPin, i2sDoutPin,
+    // paEnablePin?, paEnableActiveHigh?, paViaExpander?}
     void _addSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
+        if (!_i2cBusConfigured()) {
+            auto e = _makeErr("configure the device I2C bus in Hardware settings first");
+            _sendJson(r, 400, e);
+            return;
+        }
         uint8_t idx = 0xFF;
         for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
             if (!Config::get().sounds[i].exists) {
@@ -1964,9 +2051,7 @@ class BatteryWebServer {
         }
         SoundHardwareConfig s;
         deserializeSound(doc, s);
-        if (s.i2cSdaPin == SOUND_PIN_UNUSED || s.i2cSclPin == SOUND_PIN_UNUSED ||
-            s.i2sBclkPin == SOUND_PIN_UNUSED || s.i2sWsPin == SOUND_PIN_UNUSED ||
-            s.i2sDoutPin == SOUND_PIN_UNUSED) {
+        if (s.i2sBclkPin == PIN_UNUSED || s.i2sWsPin == PIN_UNUSED || s.i2sDoutPin == PIN_UNUSED) {
             auto e = _makeErr("missing required pin");
             _sendJson(r, 400, e);
             return;
@@ -1989,9 +2074,8 @@ class BatteryWebServer {
     }
 
     // ── POST /api/sounds/update ─────────────────────────────────────────────────
-    // Body: {index, name?, chip?, i2cSdaPin?, i2cSclPin?, i2cAddress?, i2sMclkPin?,
-    // i2sBclkPin?, i2sWsPin?, i2sDoutPin?, paEnablePin?, paEnableActiveHigh?, paExpander?,
-    // paExpanderAddress?}
+    // Body: {index, name?, chip?, i2cAddress?, i2sMclkPin?, i2sBclkPin?, i2sWsPin?,
+    // i2sDoutPin?, paEnablePin?, paEnableActiveHigh?, paViaExpander?}
     void _updateSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2010,14 +2094,6 @@ class BatteryWebServer {
         bool hwChanged = false;
         if (!doc["chip"].isNull()) {
             candidate.chip = (SoundChip)(uint8_t)doc["chip"];
-            hwChanged = true;
-        }
-        if (!doc["i2cSdaPin"].isNull()) {
-            candidate.i2cSdaPin = doc["i2cSdaPin"];
-            hwChanged = true;
-        }
-        if (!doc["i2cSclPin"].isNull()) {
-            candidate.i2cSclPin = doc["i2cSclPin"];
             hwChanged = true;
         }
         if (!doc["i2cAddress"].isNull()) {
@@ -2048,21 +2124,14 @@ class BatteryWebServer {
             candidate.paEnableActiveHigh = (bool)doc["paEnableActiveHigh"];
             hwChanged = true;
         }
-        if (!doc["paExpander"].isNull()) {
-            candidate.paExpander = (IoExpanderChip)(uint8_t)doc["paExpander"];
-            hwChanged = true;
-        }
-        if (!doc["paExpanderAddress"].isNull()) {
-            candidate.paExpanderAddress = doc["paExpanderAddress"];
+        if (!doc["paViaExpander"].isNull()) {
+            candidate.paViaExpander = (bool)doc["paViaExpander"];
             hwChanged = true;
         }
 
         if (hwChanged) {
-            if (candidate.i2cSdaPin == SOUND_PIN_UNUSED ||
-                candidate.i2cSclPin == SOUND_PIN_UNUSED ||
-                candidate.i2sBclkPin == SOUND_PIN_UNUSED ||
-                candidate.i2sWsPin == SOUND_PIN_UNUSED ||
-                candidate.i2sDoutPin == SOUND_PIN_UNUSED) {
+            if (candidate.i2sBclkPin == PIN_UNUSED || candidate.i2sWsPin == PIN_UNUSED ||
+                candidate.i2sDoutPin == PIN_UNUSED) {
                 auto e = _makeErr("missing required pin");
                 _sendJson(r, 400, e);
                 return;
@@ -2259,8 +2328,27 @@ class BatteryWebServer {
         _sendJson(r, 200, doc);
     }
 
+    // Returns an error string if b's pin collides with another configured
+    // pin, else nullptr. Pass the button's own index as excludeButtonIndex
+    // when validating an update. b.pin is checked as a real ESP32 GPIO only
+    // when viaExpander is false — when true it's a pin index in the device
+    // expander's separate address space, checked against other
+    // expander-backed pins via Config::isExpanderPinInUse instead.
+    static const char* _buttonPinConflict(const ButtonHardwareConfig& b,
+                                          int8_t excludeButtonIndex) {
+        if (b.viaExpander) {
+            if (!_expanderConfigured()) return "configure the device I2C expander first";
+            if (Config::isExpanderPinInUse(b.pin, excludeButtonIndex))
+                return "expander pin already in use";
+            return nullptr;
+        }
+        if (Config::isPinInUse(b.pin, excludeButtonIndex)) return "pin already in use";
+        return nullptr;
+    }
+
     // ── POST /api/buttons/add ─────────────────────────────────────────────────
-    // Body: {name?, pin, activeLow?, onShortPress?, onLongPress?, onDoubleClick?}
+    // Body: {name?, pin, activeLow?, viaExpander?, onShortPress?, onLongPress?,
+    // onDoubleClick?}
     void _addButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2276,17 +2364,15 @@ class BatteryWebServer {
             _sendJson(r, 400, e);
             return;
         }
-        uint8_t pin = doc["pin"] | (uint8_t)0;
-        if (Config::isPinInUse(pin)) {
-            auto e = _makeErr("pin already in use");
+        ButtonHardwareConfig b;
+        deserializeButton(doc, b);
+        if (const char* conflict = _buttonPinConflict(b, /*excludeButtonIndex=*/idx)) {
+            auto e = _makeErr(conflict);
             _sendJson(r, 400, e);
             return;
         }
-        auto& b = Config::get().buttons[idx];
-        b = ButtonHardwareConfig{};
-        deserializeButton(doc, b);
-        b.pin = pin;  // deserializeButton already applied it, but keep explicit — validated above
         b.exists = true;  // deserializeButton defaults "exists" to false when the key is absent
+        Config::get().buttons[idx] = b;
         Config::save();
         JsonDocument resp;
         resp["ok"] = true;
@@ -2296,7 +2382,8 @@ class BatteryWebServer {
     }
 
     // ── POST /api/buttons/update ──────────────────────────────────────────────
-    // Body: {index, name?, pin?, activeLow?, onShortPress?, onLongPress?, onDoubleClick?}
+    // Body: {index, name?, pin?, activeLow?, viaExpander?, onShortPress?, onLongPress?,
+    // onDoubleClick?}
     void _updateButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2306,24 +2393,40 @@ class BatteryWebServer {
             _sendJson(r, 404, e);
             return;
         }
-        auto& b = Config::get().buttons[idx];
-        if (!doc["name"].isNull()) strlcpy(b.name, doc["name"] | "", sizeof(b.name));
-        if (!doc["activeLow"].isNull()) b.activeLow = (bool)doc["activeLow"];
+        auto& existing = Config::get().buttons[idx];
+        if (!doc["name"].isNull()) strlcpy(existing.name, doc["name"] | "", sizeof(existing.name));
+
+        // pin/viaExpander together decide the pin's address space — apply on
+        // top of a copy first so a rejected conflict leaves the saved config
+        // untouched, mirroring _updateSound's candidate/hwChanged pattern.
+        ButtonHardwareConfig candidate = existing;
+        bool pinChanged = false;
+        if (!doc["activeLow"].isNull()) candidate.activeLow = (bool)doc["activeLow"];
         if (!doc["pin"].isNull()) {
-            uint8_t pin = doc["pin"];
-            if (Config::isPinInUse(pin, (int8_t)idx)) {
-                auto e = _makeErr("pin already in use");
+            candidate.pin = doc["pin"];
+            pinChanged = true;
+        }
+        if (!doc["viaExpander"].isNull()) {
+            candidate.viaExpander = (bool)doc["viaExpander"];
+            pinChanged = true;
+        }
+        if (pinChanged) {
+            if (const char* conflict = _buttonPinConflict(candidate, (int8_t)idx)) {
+                auto e = _makeErr(conflict);
                 _sendJson(r, 400, e);
                 return;
             }
-            b.pin = pin;
         }
+        existing = candidate;
         if (!doc["onShortPress"].isNull())
-            b.onShortPress = deserializeButtonAction(doc["onShortPress"], b.onShortPress);
+            existing.onShortPress =
+                deserializeButtonAction(doc["onShortPress"], existing.onShortPress);
         if (!doc["onLongPress"].isNull())
-            b.onLongPress = deserializeButtonAction(doc["onLongPress"], b.onLongPress);
+            existing.onLongPress =
+                deserializeButtonAction(doc["onLongPress"], existing.onLongPress);
         if (!doc["onDoubleClick"].isNull())
-            b.onDoubleClick = deserializeButtonAction(doc["onDoubleClick"], b.onDoubleClick);
+            existing.onDoubleClick =
+                deserializeButtonAction(doc["onDoubleClick"], existing.onDoubleClick);
         Config::save();
         auto ok = _makeOk();
         _sendJson(r, 200, ok);

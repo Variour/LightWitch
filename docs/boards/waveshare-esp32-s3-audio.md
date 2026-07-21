@@ -1,21 +1,38 @@
-# Waveshare ESP32-S3-AUDIO-Board — Sound & LED configuration
+# Waveshare ESP32-S3-AUDIO-Board — Sound, Button & LED configuration
 
-Per-board field values for **Settings → Sound → Add sound** and
+Per-board field values for **Settings → Hardware → I2C bus**,
+**Settings → Sound → Add sound**, **Settings → Hardware → Add button**, and
 **Settings → Lights → Add light**, for this board's onboard ES8311 mono
-codec + speaker and its onboard WS2812 RGB LED.
+codec + speaker, its TCA9555-backed buttons, and its onboard WS2812 RGB LED.
+
+## I2C bus
+
+The codec, the TCA9555 I/O expander, and the RTC all share a single I2C bus.
+Configure this **before** adding the sound output or any expander-backed
+button below — both require it. The expander itself is configured once,
+here — Sound and Buttons then just say *whether* they're wired through it.
+
+### Field values
+
+| Field | Value |
+|---|---|
+| This board has an I2C bus | checked |
+| SDA pin | GPIO11 |
+| SCL pin | GPIO10 |
+| This bus has a TCA9555 I/O expander | checked |
+| TCA9555 I2C address | 0x20 *(TCA9555 default when A0–A2 are strapped low)* |
 
 ## Sound
 
 The board's speaker-amp enable line (PA_EN) isn't wired to a native GPIO —
-it sits on **EXIO8** of the onboard TCA9555 I2C GPIO expander.
+it sits on **EXIO8** of the onboard TCA9555 I2C GPIO expander configured
+above.
 
 ### Field values
 
 | Field | Value |
 |---|---|
 | Chip | ES8311 |
-| I2C SDA pin | GPIO11 |
-| I2C SCL pin | GPIO10 |
 | I2C address | 0x18 *(ES8311 default)* |
 | I2S BCLK pin | GPIO13 *(labelled `I2S_SCLK` on the board's silkscreen/pin map — same signal as BCLK)* |
 | I2S WS/LRCK pin | GPIO14 |
@@ -23,13 +40,41 @@ it sits on **EXIO8** of the onboard TCA9555 I2C GPIO expander.
 | Board wires a separate MCLK pin | checked |
 | I2S MCLK pin | GPIO12 |
 | Separate speaker amp enable pin | checked |
-| Enable pin source | TCA9555 I2C expander |
+| *(under "Speaker amp enable")* Wire this pin through the I2C expander | checked |
 | Enable pin | 8 *(EXIO8)* |
-| TCA9555 I2C address | 0x20 *(TCA9555 default when A0–A2 are strapped low)* |
 | Active high | checked |
 
 GPIO15 (`I2S_DSIN`) is the codec's microphone input — not used, this firmware
 doesn't support mic input yet.
+
+## Buttons
+
+The board has 5 physical buttons: **RESET**, **BOOT**, and **KEY1**–**KEY3**.
+
+- **RESET** is wired to the ESP32-S3's `CHIP_PU` (EN) pin — a hardware reset
+  line, not something firmware can read as a button.
+- **BOOT** is wired to native **GPIO0** (also the boot-mode strapping pin).
+- **KEY1**, **KEY2**, **KEY3** are wired to **EXIO9**, **EXIO10**, **EXIO11**
+  on the onboard TCA9555 I2C GPIO expander configured above, not to native
+  ESP32 GPIOs.
+
+### Field values — BOOT
+
+| Field | Value |
+|---|---|
+| Wire this button through the I2C expander | unchecked *(field only shows up once an expander is configured above — irrelevant here, but leave it unchecked if it does)* |
+| Pin | 0 *(GPIO0)* |
+| Active low | checked *(button pulls to GND when pressed)* |
+
+### Field values — KEY1 / KEY2 / KEY3
+
+Add one button per key; only **Pin** differs between them.
+
+| Field | Value |
+|---|---|
+| Wire this button through the I2C expander | checked |
+| Pin | 9 for KEY1, 10 for KEY2, 11 for KEY3 *(EXIO9/EXIO10/EXIO11)* |
+| Active low | checked *(button pulls to GND when pressed; the board provides its own pull-up — the TCA9555 has no internal pull resistors)* |
 
 ## Lights
 

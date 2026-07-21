@@ -3,6 +3,7 @@
 #include <ESPmDNS.h>
 #include <LittleFS.h>
 #include <WiFi.h>
+#include <Wire.h>
 
 #include <new>
 
@@ -382,10 +383,22 @@ void setup() {
         if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
     });
 
+    // Bring up the device-wide I2C bus, if configured — shared by the sound
+    // codec's control interface and any TCA9555-backed button (see
+    // DeviceConfig::i2cSdaPin/i2cSclPin). Centralized here (rather than each
+    // consumer calling Wire.begin() itself) since ESP32 has a single default
+    // I2C bus that every consumer must agree on the same pins for.
+    if (Config::get().i2cSdaPin != PIN_UNUSED && Config::get().i2cSclPin != PIN_UNUSED) {
+        Wire.begin(Config::get().i2cSdaPin, Config::get().i2cSclPin);
+        Logger::i("[sys] I2C bus: sda=GPIO%d scl=GPIO%d", Config::get().i2cSdaPin,
+                  Config::get().i2cSclPin);
+    }
+
     // Initialise the sound output, if configured — hardware bring-up only for
     // now (see SoundDriver.h), so there's no per-loop pipeline to wire up here.
     Config::forEachSound([](uint8_t, SoundHardwareConfig& s) {
-        _sound.setup(s);
+        _sound.setup(s, Config::get().i2cSdaPin, Config::get().i2cSclPin,
+                     Config::get().expanderAddress);
         _sound.begin();
     });
 
