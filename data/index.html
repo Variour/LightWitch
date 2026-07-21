@@ -5278,7 +5278,8 @@ function _openSoundModal(s) {
     <select id="sm-chip">
       <option value="0"${(s.chip||0)===0?' selected':''}>ES8311 — mono I2S codec</option>
     </select>
-    <label>I2C address <small>(hex, e.g. 0x18 — "0x" prefix optional; 0x18 default, 0x19 if the chip's CE pin is strapped high — uses the device I2C bus configured above in Hardware &gt; I2C bus)</small></label>
+    <p style="font-size:.78rem;color:#666;margin:0 0 .5rem">Talks to the chip over the device I2C bus configured in Hardware &gt; I2C bus.</p>
+    <label>I2C address <small>(hex, e.g. 0x18 — "0x" prefix optional; 0x18 default, 0x19 if the chip's CE pin is strapped high)</small></label>
     <input type="text" id="sm-i2cAddress" value="${_formatHexByte(s.i2cAddress)}" placeholder="0x18" inputmode="text" autocapitalize="off" autocomplete="off" spellcheck="false">
     <label>I2S BCLK pin (GPIO)</label>
     <input type="number" id="sm-i2sBclkPin" value="${s.i2sBclkPin}" min="0" max="39">
@@ -5299,7 +5300,7 @@ function _openSoundModal(s) {
       <label>Enable pin source</label>
       <select id="sm-paExpander">
         <option value="0"${(s.paExpander||0)===0?' selected':''}>Direct GPIO</option>
-        <option value="1"${(s.paExpander||0)===1?' selected':''}>TCA9555 I2C expander <small>(shares the SDA/SCL bus above)</small></option>
+        <option value="1"${(s.paExpander||0)===1?' selected':''}>TCA9555 I2C expander <small>(shares the device I2C bus)</small></option>
       </select>
       <label id="sm-paEnablePin-label">Enable pin <small>${(s.paExpander||0)===1?'(pin index 0-15 on the expander)':'(GPIO number)'}</small></label>
       <input type="number" id="sm-paEnablePin" value="${hasPa ? s.paEnablePin : ''}" min="0" max="${(s.paExpander||0)===1?15:39}" placeholder="${(s.paExpander||0)===1?'expander pin 0-15':'GPIO'}">
