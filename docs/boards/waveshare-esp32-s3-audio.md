@@ -40,8 +40,8 @@ above.
 | Board wires a separate MCLK pin | checked |
 | I2S MCLK pin | GPIO12 |
 | Separate speaker amp enable pin | checked |
+| *(under "Speaker amp enable")* Wire this pin through the I2C expander | checked |
 | Enable pin | 8 *(EXIO8)* |
-| Wire this pin through the I2C expander | checked |
 | Active high | checked |
 
 GPIO15 (`I2S_DSIN`) is the codec's microphone input — not used, this firmware
@@ -62,8 +62,8 @@ The board has 5 physical buttons: **RESET**, **BOOT**, and **KEY1**–**KEY3**.
 
 | Field | Value |
 |---|---|
+| Wire this button through the I2C expander | unchecked *(field only shows up once an expander is configured above — irrelevant here, but leave it unchecked if it does)* |
 | Pin | 0 *(GPIO0)* |
-| Wire this button through the I2C expander | unchecked |
 | Active low | checked *(button pulls to GND when pressed)* |
 
 ### Field values — KEY1 / KEY2 / KEY3
@@ -72,8 +72,8 @@ Add one button per key; only **Pin** differs between them.
 
 | Field | Value |
 |---|---|
-| Pin | 9 for KEY1, 10 for KEY2, 11 for KEY3 *(EXIO9/EXIO10/EXIO11)* |
 | Wire this button through the I2C expander | checked |
+| Pin | 9 for KEY1, 10 for KEY2, 11 for KEY3 *(EXIO9/EXIO10/EXIO11)* |
 | Active low | checked *(button pulls to GND when pressed; the board provides its own pull-up — the TCA9555 has no internal pull resistors)* |
 
 ## Lights

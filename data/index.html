@@ -5322,18 +5322,20 @@ function _openSoundModal(s) {
       <span>Board wires a separate MCLK pin <small>(unchecked = derive MCLK from BCLK, common on smaller boards)</small></span>
     </label>
     <input type="number" id="sm-i2sMclkPin" value="${hasMclk ? s.i2sMclkPin : ''}" min="0" max="39" placeholder="GPIO" style="${hasMclk ? '' : 'display:none'}">
+    <hr class="section-divider">
+    <h3 style="margin:0 0 .5rem">Speaker amp enable</h3>
     <label style="display:flex;align-items:center;gap:.5rem">
       <input type="checkbox" id="sm-hasPa" ${hasPa?'checked':''}>
       <span>Separate speaker amp enable pin</span>
     </label>
     <div id="sm-pa-opts" style="${hasPa ? '' : 'display:none'}">
-      <label id="sm-paEnablePin-label">Enable pin <small>${s.paViaExpander?'(pin index 0-15 on the expander)':'(GPIO number)'}</small></label>
-      <input type="number" id="sm-paEnablePin" value="${hasPa ? s.paEnablePin : ''}" min="0" max="${s.paViaExpander?15:39}" placeholder="${s.paViaExpander?'expander pin 0-15':'GPIO'}">
       ${_localConfig.expanderChip === 1 ? `
       <label style="display:flex;align-items:center;gap:.5rem">
         <input type="checkbox" id="sm-paViaExpander" ${s.paViaExpander?'checked':''}>
         <span>Wire this pin through the I2C expander</span>
       </label>` : ''}
+      <label id="sm-paEnablePin-label">Enable pin <small>${s.paViaExpander?'(pin index 0-15 on the expander)':'(GPIO number)'}</small></label>
+      <input type="number" id="sm-paEnablePin" value="${hasPa ? s.paEnablePin : ''}" min="0" max="${s.paViaExpander?15:39}" placeholder="${s.paViaExpander?'expander pin 0-15':'GPIO'}">
       <label style="display:flex;align-items:center;gap:.5rem;margin-top:.4rem">
         <input type="checkbox" id="sm-paEnableActiveHigh" ${s.paEnableActiveHigh!==false?'checked':''}>
         <span>Active high</span>
@@ -5719,13 +5721,13 @@ function _openButtonModal(b) {
     </div>
     <label>Name <small>(optional)</small></label>
     <input type="text" id="bm-name" value="${esc(b.name || '')}" maxlength="19" placeholder="e.g. Living room switch">
-    <label id="bm-pin-label">Pin <small>${b.viaExpander?'(pin index 0-15 on the expander)':'(GPIO number)'}</small></label>
-    <input type="number" id="bm-pin" value="${b.pin || 0}" min="0" max="${b.viaExpander?15:39}">
     ${_localConfig.expanderChip === 1 ? `
     <label style="display:flex;align-items:center;gap:.5rem">
       <input type="checkbox" id="bm-viaExpander" ${b.viaExpander?'checked':''}>
       <span>Wire this button through the I2C expander</span>
     </label>` : ''}
+    <label id="bm-pin-label">Pin <small>${b.viaExpander?'(pin index 0-15 on the expander)':'(GPIO number)'}</small></label>
+    <input type="number" id="bm-pin" value="${b.pin || 0}" min="0" max="${b.viaExpander?15:39}">
     <label style="display:flex;align-items:center;gap:.5rem">
       <input type="checkbox" id="bm-activeLow" ${b.activeLow !== false ? 'checked' : ''}>
       <span>Active low <small>(pressed reads LOW — typical wiring: button to GND, pull-up to 3V3)</small></span>
