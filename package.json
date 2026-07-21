@@ -1,7 +1,7 @@
 {
   "name": "batterylight",
   "private": true,
-  "description": "ESP32-based addressable RGB light with web interface, OTA updates, and mesh sync.",
+  "description": "Dev tooling and mock server for the batteryLight web UI",
   "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
