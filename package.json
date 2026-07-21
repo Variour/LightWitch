@@ -1,7 +1,12 @@
 {
   "name": "batterylight",
   "private": true,
+  "description": "Dev tooling and mock server for the batteryLight web UI",
   "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Variour/batteryLight.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "node server/index.js",
