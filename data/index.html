@@ -1160,6 +1160,14 @@ const PATTERNS = [
   { name:'Candle',        desc:'Warm flickering candle light. Speed controls flicker rate.', hasColor: false, syncable: false },
 ];
 
+// LightConfig::SceneStringMode ordinals (src/config/Config.h) — short
+// explanation shown under the String color mode buttons for whichever is selected.
+const SCENE_STRING_MODE_DESC = [
+  'Each LED picks its own random color from the scene.',
+  'The whole string shares one random color from the scene.',
+  'The scene image is mapped 1:1 onto the string, like a matrix.',
+];
+
 // Mirrors TimeMatrix::BASE_W / BASE_H (src/patterns/TimeMatrix.h) — the
 // minimum matrix size that can legibly show HH:MM.
 const TIME_MIN_W = 17;
@@ -1403,6 +1411,7 @@ function renderGroups(groups) {
               <button type="button" id="gscenestringmode-1-${g.id}" class="btn-sm ${sceneStringMode===1 ? 'btn-primary' : 'btn-ghost'}" data-action="setGroupSceneStringMode" data-id="${g.id}" data-mode="1">Whole string</button>
               <button type="button" id="gscenestringmode-2-${g.id}" class="btn-sm ${sceneStringMode===2 ? 'btn-primary' : 'btn-ghost'}" data-action="setGroupSceneStringMode" data-id="${g.id}" data-mode="2">1:1 mapping</button>
             </div>
+            <p class="pattern-desc" id="gscenestringmode-desc-${g.id}" style="margin-top:.2rem">${SCENE_STRING_MODE_DESC[sceneStringMode] || ''}</p>
           </div>
           <p class="pattern-desc" style="margin-top:.2rem">Only affects string lights. Matrix lights still render the full scene image.</p>
           <div class="sync-row" style="margin-top:.3rem">
@@ -1675,6 +1684,8 @@ function setGroupSceneStringMode(id, mode) {
     [0, 1, 2].map(m => `gscenestringmode-${m}-${id}`),
     mode
   );
+  const desc = $(`gscenestringmode-desc-${id}`);
+  if (desc) desc.textContent = SCENE_STRING_MODE_DESC[mode] || '';
   onGroupControl(id);
 }
 
