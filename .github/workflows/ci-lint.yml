@@ -1,4 +1,4 @@
-name: Lint
+name: "CI: lint"
 
 on:
   pull_request:
@@ -9,9 +9,8 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'src/**'
-      - 'include/**'
       - '.clang-format'
-      - '.github/workflows/lint.yml'
+      - '.github/workflows/ci-lint.yml'
 
 concurrency:
   group: lint-${{ github.ref }}
@@ -23,6 +22,7 @@ permissions:
 jobs:
   eslint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 
@@ -35,10 +35,24 @@ jobs:
 
       - run: npm run lint
 
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
       - run: npm test
 
   clang-format:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 

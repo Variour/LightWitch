@@ -1,10 +1,14 @@
-name: Deploy infrastructure
+name: "Infra: deploy"
 
 on:
   push:
     branches: [main]
     paths: ['infra/**']
   workflow_dispatch:
+
+concurrency:
+  group: infra-deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   id-token: write
@@ -13,6 +17,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7
 

@@ -1,4 +1,4 @@
-name: Refresh CA bundle
+name: "Firmware: refresh CA bundle"
 
 on:
   push:
@@ -13,6 +13,7 @@ permissions:
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 
