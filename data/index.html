@@ -305,6 +305,8 @@ input[type=radio]:active { background-color: #1a5; }
 .light-preview-item-meta { display: block; font-size: .72rem; color: #666; }
 .grad-stop-underline { display: flex; height: 2px; margin-top: 2px; }
 .grad-stop-underline span { flex: 1; height: 100%; }
+.anim-preview-canvas { image-rendering: pixelated; border: 1px solid #333; border-radius: 4px;
+                        background: #000; display: block; width: 100%; height: auto; }
 @media (min-width: 700px) {
   .scene-editor-header {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -897,6 +899,12 @@ input[type=radio]:active { background-color: #1a5; }
           </div>
           <button class="btn-primary btn-sm" style="width:100%" id="resize-canvas-btn">Resize canvas</button>
           <small style="display:block;margin-top:.35rem;color:#666">Smaller sizes discard extra cells. New rows and columns are filled with black.</small>
+        </div>
+
+        <div class="card">
+          <h2>Animation preview</h2>
+          <canvas id="se-anim-preview" class="anim-preview-canvas"></canvas>
+          <small style="display:block;margin-top:.35rem;color:#666">Plays this scene's frames using the frame duration and blend settings above, independent of any physical light.</small>
         </div>
 
         <div class="card">
@@ -3493,6 +3501,95 @@ function _drawScenePreview(canvas, scene) {
   }
 }
 
+// ── Animation preview ────────────────────────────────────────────────────────
+// Plays _editScene's own frames at native resolution using the scene's frame
+// duration and blend/transition settings, independent of any physical light —
+// mirrors SceneMatrix::tick/_render (src/patterns/SceneMatrix.h).
+let _animPreviewRAF = null;
+let _animPreviewFrameIdx = 0, _animPreviewPrevFrameIdx = 0;
+let _animPreviewBlending = false;
+let _animPreviewFrameStartMs = 0, _animPreviewBlendStartMs = 0;
+
+function _animPreviewHoldMs() {
+  const d = _editScene.frameDuration;
+  return (Number.isFinite(d) && d >= 0 ? d : 1) * 1000;
+}
+
+function _animPreviewBlendMs() {
+  if (!_editScene.transitionEnabled) return 0;
+  const t = _editScene.transitionTime;
+  return (Number.isFinite(t) && t >= 0 ? t : 0.5) * 1000;
+}
+
+function _drawAnimPreviewFrame(idxA, idxB = idxA, t = 0) {
+  const canvas = $('se-anim-preview');
+  if (!canvas || !_editScene) return;
+  const { w, h, frames } = _editScene;
+  canvas.width  = w || 1;
+  canvas.height = h || 1;
+  const ctx = canvas.getContext('2d');
+  const fa = frames[idxA] || [];
+  const fb = frames[idxB] || fa;
+  const blend = t > 0 && idxA !== idxB;
+  for (let i = 0; i < w * h; i++) {
+    ctx.fillStyle = blend ? _lerpHex(fa[i] || '#000000', fb[i] || '#000000', t) : (fa[i] || '#000000');
+    ctx.fillRect(i % w, Math.floor(i / w), 1, 1);
+  }
+}
+
+function _animPreviewTick(now) {
+  const frames = _editScene?.frames || [];
+  const n = frames.length;
+  if (_animPreviewFrameIdx >= n) _animPreviewFrameIdx = 0;
+  if (_animPreviewPrevFrameIdx >= n) _animPreviewPrevFrameIdx = _animPreviewFrameIdx;
+
+  const holdMs  = _animPreviewHoldMs();
+  const blendMs = _animPreviewBlendMs();
+
+  if (_animPreviewBlending) {
+    const elapsed = now - _animPreviewBlendStartMs;
+    if (elapsed >= blendMs) {
+      _animPreviewBlending = false;
+      _animPreviewFrameStartMs = now;
+      _drawAnimPreviewFrame(_animPreviewFrameIdx);
+    } else {
+      const lt = elapsed / blendMs;
+      const s = lt * lt * (3 - 2 * lt); // smoothstep, matches firmware
+      _drawAnimPreviewFrame(_animPreviewPrevFrameIdx, _animPreviewFrameIdx, s);
+    }
+  } else if (n > 1 && holdMs > 0 && (now - _animPreviewFrameStartMs) >= holdMs) {
+    _animPreviewPrevFrameIdx = _animPreviewFrameIdx;
+    _animPreviewFrameIdx = (_animPreviewFrameIdx + 1) % n;
+    if (blendMs > 0) {
+      _animPreviewBlending = true;
+      _animPreviewBlendStartMs = now;
+      _drawAnimPreviewFrame(_animPreviewPrevFrameIdx, _animPreviewFrameIdx, 0);
+    } else {
+      _animPreviewFrameStartMs = now;
+      _drawAnimPreviewFrame(_animPreviewFrameIdx);
+    }
+  } else {
+    _drawAnimPreviewFrame(_animPreviewFrameIdx);
+  }
+
+  _animPreviewRAF = requestAnimationFrame(_animPreviewTick);
+}
+
+function _startAnimPreview() {
+  _animPreviewFrameIdx = 0;
+  _animPreviewPrevFrameIdx = 0;
+  _animPreviewBlending = false;
+  _animPreviewFrameStartMs = performance.now();
+  if (_animPreviewRAF === null) _animPreviewRAF = requestAnimationFrame(_animPreviewTick);
+}
+
+function _stopAnimPreview() {
+  if (_animPreviewRAF !== null) {
+    cancelAnimationFrame(_animPreviewRAF);
+    _animPreviewRAF = null;
+  }
+}
+
 // Nearest-neighbor stretch mapping — mirrors SceneMatrix::_nearest in firmware
 // (src/patterns/SceneMatrix.h), so this preview matches what the device renders.
 function _nearestIdx(dst, dstSize, srcSize) {
@@ -3911,6 +4008,7 @@ function _renderEditor() {
   _renderFrameList();
   _renderGrid();
   _renderScenePreview();
+  _startAnimPreview();
 }
 
 // ── Playback (frame-blend/playback settings, owned by the scene) ───────────────
@@ -4793,6 +4891,7 @@ function _hasUnsavedSceneChanges() {
 
 function _resetSceneEditorState() {
   clearTimeout(_autoSaveTimer);
+  _stopAnimPreview();
   _modified = false;
   _history  = [];
   _editScene = null;
