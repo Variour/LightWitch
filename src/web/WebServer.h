@@ -2305,7 +2305,8 @@ class BatteryWebServer {
     static const char* _buttonPinConflict(const ButtonHardwareConfig& b,
                                           int8_t excludeButtonIndex) {
         if (b.expander == IoExpanderChip::TCA9555) {
-            if (!_i2cBusConfigured()) return "configure the device I2C bus in Hardware settings first";
+            if (!_i2cBusConfigured())
+                return "configure the device I2C bus in Hardware settings first";
             if (Config::isExpanderPinInUse(b.expanderAddress, b.pin, excludeButtonIndex))
                 return "expander pin already in use";
             return nullptr;
@@ -2391,9 +2392,11 @@ class BatteryWebServer {
         }
         existing = candidate;
         if (!doc["onShortPress"].isNull())
-            existing.onShortPress = deserializeButtonAction(doc["onShortPress"], existing.onShortPress);
+            existing.onShortPress =
+                deserializeButtonAction(doc["onShortPress"], existing.onShortPress);
         if (!doc["onLongPress"].isNull())
-            existing.onLongPress = deserializeButtonAction(doc["onLongPress"], existing.onLongPress);
+            existing.onLongPress =
+                deserializeButtonAction(doc["onLongPress"], existing.onLongPress);
         if (!doc["onDoubleClick"].isNull())
             existing.onDoubleClick =
                 deserializeButtonAction(doc["onDoubleClick"], existing.onDoubleClick);

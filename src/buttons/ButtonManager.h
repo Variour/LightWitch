@@ -62,7 +62,7 @@ class ButtonManager {
 
     bool _readActive(uint8_t i, const ButtonHardwareConfig& b) {
         bool high = b.expander == IoExpanderChip::TCA9555 ? _expanders[i].read(b.pin)
-                                                            : digitalRead(b.pin) == HIGH;
+                                                          : digitalRead(b.pin) == HIGH;
         return b.activeLow ? !high : high;
     }
 

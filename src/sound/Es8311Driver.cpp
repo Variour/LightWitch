@@ -155,9 +155,8 @@ void Es8311Driver::_configureFormatAndPower() {
 }
 
 void Es8311Driver::begin() {
-    if (_i2cSdaPin == PIN_UNUSED || _i2cSclPin == PIN_UNUSED ||
-        _cfg.i2sBclkPin == PIN_UNUSED || _cfg.i2sWsPin == PIN_UNUSED ||
-        _cfg.i2sDoutPin == PIN_UNUSED) {
+    if (_i2cSdaPin == PIN_UNUSED || _i2cSclPin == PIN_UNUSED || _cfg.i2sBclkPin == PIN_UNUSED ||
+        _cfg.i2sWsPin == PIN_UNUSED || _cfg.i2sDoutPin == PIN_UNUSED) {
         Logger::w("[sound] ES8311 pins incomplete — not initializing");
         return;
     }

@@ -287,7 +287,7 @@ struct ButtonHardwareConfig {
     char name[20] = "";
     uint8_t pin = 0;
     bool activeLow = true;  // true = pressed reads LOW (INPUT_PULLUP wiring, or an
-                             // external pull-up on the expander pin — TCA9555 has none built in)
+                            // external pull-up on the expander pin — TCA9555 has none built in)
     IoExpanderChip expander = IoExpanderChip::None;
     uint8_t expanderAddress = 0x20;  // TCA9555 default 7-bit address (A0-A2 strapped low)
     ButtonAction onShortPress;
