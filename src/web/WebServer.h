@@ -89,6 +89,17 @@ using ApPasswordChangedCb = std::function<void()>;
 // Called after timezone changes via /api/config (new POSIX TZ string), so
 // TimeSync can re-apply it live instead of waiting for reboot.
 using TimezoneChangedCb = std::function<void(const char*)>;
+// Called from POST /api/wifi/add when this device has no active WiFi
+// connection, to kick off a live connect attempt for the newly-saved
+// network instead of waiting for the next reboot. Passed a callback that
+// fires once the attempt settles (success or failure).
+using WifiConnectForConfirmCb = std::function<void(std::function<void(bool)>)>;
+// Called from POST /api/wifi/confirm-disable-ap to end an AwaitingConfirm
+// hold early, disabling the AP right away instead of waiting out the timeout.
+using ConfirmApDisableCb = std::function<void()>;
+// Polled to report whether this device is holding its AP open, connected,
+// waiting for the user to confirm it's safe to disable (see WifiConnectForConfirmCb).
+using WifiAwaitingApConfirmCb = std::function<bool()>;
 
 class BatteryWebServer {
    private:
@@ -188,6 +199,11 @@ class BatteryWebServer {
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
                 _moveWifi(r, d, l);
             });
+        _server.on("/api/wifi/confirm-disable-ap", HTTP_POST, [this](AsyncWebServerRequest* r) {
+            if (_onConfirmApDisable) _onConfirmApDisable();
+            auto ok = _makeOk();
+            _sendJson(r, 200, ok);
+        });
 
         _server.on("/api/peers", HTTP_GET, [this](AsyncWebServerRequest* r) { _getPeers(r); });
 
@@ -631,6 +647,11 @@ class BatteryWebServer {
     }
     void setOnApPasswordChanged(ApPasswordChangedCb cb) { _onApPasswordChanged = cb; }
     void setOnTimezoneChanged(TimezoneChangedCb cb) { _onTimezoneChanged = cb; }
+    void setOnWifiConnectForConfirm(WifiConnectForConfirmCb cb) { _onWifiConnectForConfirm = cb; }
+    void setOnConfirmApDisable(ConfirmApDisableCb cb) { _onConfirmApDisable = cb; }
+    void setWifiAwaitingApConfirmProvider(WifiAwaitingApConfirmCb cb) {
+        _onWifiAwaitingApConfirm = cb;
+    }
 
    private:
     AsyncWebServer _server{80};
@@ -672,6 +693,9 @@ class BatteryWebServer {
     BatteryMonitoringChangedCb _onBatteryMonitoringChanged;
     ApPasswordChangedCb _onApPasswordChanged;
     TimezoneChangedCb _onTimezoneChanged;
+    WifiConnectForConfirmCb _onWifiConnectForConfirm;
+    ConfirmApDisableCb _onConfirmApDisable;
+    WifiAwaitingApConfirmCb _onWifiAwaitingApConfirm;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -922,8 +946,10 @@ class BatteryWebServer {
         self["name"] = c.deviceName;
         self["online"] = true;
         self["wifiConnected"] = (WiFi.status() == WL_CONNECTED);
+        self["ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
         self["hasWifiNetworks"] = Config::wifiCount() > 0;
         self["wifiConnecting"] = _onWifiAttempting && _onWifiAttempting();
+        self["wifiAwaitingApConfirm"] = _onWifiAwaitingApConfirm && _onWifiAwaitingApConfirm();
         self["channel"] = _channelMgr ? _channelMgr->lockedChannel() : 0;
         self["channelSearching"] = _channelMgr && _channelMgr->isSearching();
         self["version"] = FW_VERSION;
@@ -1329,6 +1355,12 @@ class BatteryWebServer {
             auto e = _makeErr("network list full");
             _sendJson(r, 409, e);
             return;
+        }
+        // Nothing else actually connects to a newly-saved network until the
+        // next reboot — kick off a live attempt now if this device isn't
+        // already on WiFi, so onboarding doesn't require a manual power cycle.
+        if (WiFi.status() != WL_CONNECTED && _onWifiConnectForConfirm) {
+            _onWifiConnectForConfirm([](bool) {});
         }
         auto ok = _makeOk();
         _sendJson(r, 200, ok);

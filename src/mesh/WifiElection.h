@@ -22,10 +22,24 @@ class WifiConnectAttempt {
 
     bool active() const { return _active; }
 
+    // True once connected while holding the AP open for the user to
+    // acknowledge (see the holdApForConfirm parameter to start()) — the
+    // radio is already up, just waiting on confirmDisableAp() or the hold
+    // timeout, not still trying to connect.
+    bool awaitingApConfirm() const { return _active && _phase == Phase::AwaitingConfirm; }
+
     // No-op if an attempt is already in flight — callers race to "claim" one.
-    void start(DoneCb onDone) {
+    //
+    // holdApForConfirm: on success, don't disable the AP immediately — hold
+    // it up (see Phase::AwaitingConfirm) so a client still connected to it
+    // can be shown the newly-acquired IP before losing that connection, and
+    // require confirmDisableAp() (or kApConfirmHoldMs elapsing) to actually
+    // disable it. Used only by WifiElection::connectForConfirm(); every
+    // other caller keeps today's immediate-disable behavior.
+    void start(DoneCb onDone, bool holdApForConfirm = false) {
         if (_active) return;
         _onDone = onDone;
+        _holdApForConfirm = holdApForConfirm;
         _count = Config::wifiCount();
         if (_count == 0) {
             _active = false;
@@ -37,6 +51,15 @@ class WifiConnectAttempt {
         _active = true;
         WiFi.disconnect(false);
         _beginPreDelay(100);
+    }
+
+    // Ends an AwaitingConfirm hold early — disables the AP right now instead
+    // of waiting for kApConfirmHoldMs. No-op if not currently holding.
+    void confirmDisableAp() {
+        if (!awaitingApConfirm()) return;
+        WiFi.softAPdisconnect(false);
+        _active = false;
+        _onDone = nullptr;
     }
 
     // Cancels an in-flight attempt without invoking the DoneCb — used when
@@ -55,6 +78,15 @@ class WifiConnectAttempt {
     void tick() {
         if (!_active) return;
 
+        if (_phase == Phase::AwaitingConfirm) {
+            if (millis() - _confirmStart >= kApConfirmHoldMs) {
+                WiFi.softAPdisconnect(false);
+                _active = false;
+                _onDone = nullptr;
+            }
+            return;
+        }
+
         if (_phase == Phase::PreDelay) {
             if (millis() - _phaseStart < _preDelayMs) return;
             WiFi.begin(_ssid(), _pass());
@@ -66,11 +98,21 @@ class WifiConnectAttempt {
 
         // Phase::Connecting
         if (WiFi.status() == WL_CONNECTED) {
-            WiFi.softAPdisconnect(false);
             if (_netIdx != Config::wifiLast()) {
                 Config::setWifiLast(_netIdx);
                 Config::saveWifi();
             }
+            if (_holdApForConfirm) {
+                // Deliberately leave _active true and _onDone untouched (no
+                // _finish()) — still "active" so a stray second start() is a
+                // safe no-op while the user has yet to confirm.
+                _phase = Phase::AwaitingConfirm;
+                _confirmStart = millis();
+                DoneCb cb = _onDone;
+                if (cb) cb(true);
+                return;
+            }
+            WiFi.softAPdisconnect(false);
             _finish(true);
             return;
         }
@@ -94,12 +136,18 @@ class WifiConnectAttempt {
     }
 
    private:
-    enum class Phase { PreDelay, Connecting };
+    enum class Phase { PreDelay, Connecting, AwaitingConfirm };
+
+    // Battery-safety fallback: disable the AP on its own if the user never
+    // confirms (e.g. they closed the tab or walked away).
+    static constexpr uint32_t kApConfirmHoldMs = 300000;  // 5 minutes
 
     bool _active = false;
     Phase _phase = Phase::PreDelay;
     uint32_t _phaseStart = 0;
     uint32_t _preDelayMs = 0;
+    bool _holdApForConfirm = false;
+    uint32_t _confirmStart = 0;
     uint8_t _count = 0;
     uint8_t _netIdx = 0;
     uint8_t _attemptNum = 0;
@@ -382,8 +430,46 @@ class WifiElection {
     // True while a WifiConnectAttempt is actually in flight (WiFi.begin()
     // issued, waiting on the result) — either this device's own election
     // turn or a temporary OTA connect. Broadcast in PresenceMsg so the
-    // device list can show a distinct "connecting…" state.
-    bool isAttempting() const { return _attempt.active(); }
+    // device list can show a distinct "connecting…" state. Excludes the
+    // AwaitingConfirm hold (see connectForConfirm()) — the radio is already
+    // connected by then, just waiting on the user, not still trying.
+    bool isAttempting() const { return _attempt.active() && !_attempt.awaitingApConfirm(); }
+
+    // On-demand connect for the web UI's "add network while disconnected"
+    // flow (see WebServer.h's POST /api/wifi/add) — holds the AP up on
+    // success instead of disabling it immediately, so a client still on the
+    // AP can be shown the newly-acquired IP before confirming it's safe to
+    // lose that connection (see WifiConnectAttempt's AwaitingConfirm phase).
+    //
+    // If already connected, onDone(true) fires immediately. No-ops (onDone
+    // never called) when a peer already holds the connection under
+    // single-client mode — adding a network here shouldn't fight that
+    // election — or when _attempt is already claimed by the election itself
+    // or an OTA temporary hold; accepted limitation, not resolved here.
+    void connectForConfirm(std::function<void(bool)> onDone) {
+        if (WiFi.status() == WL_CONNECTED) {
+            if (onDone) onDone(true);
+            return;
+        }
+        if (Config::get().wifiSingleClientMode && _state == State::Standby) return;
+        if (_attempt.active()) return;
+        // In single-client mode, claiming _attempt here bypasses tick()'s own
+        // State::Waiting handling (which would otherwise do this same
+        // start()+state update) — advance _state ourselves so it doesn't get
+        // left stuck at Waiting/GaveUp while a connection this device itself
+        // kicked off is actually in flight or succeeds.
+        if (Config::get().wifiSingleClientMode) _state = State::Connecting;
+        _attempt.start(
+            [this, onDone](bool ok) {
+                if (Config::get().wifiSingleClientMode) _onAttemptDone(ok);
+                if (onDone) onDone(ok);
+            },
+            /*holdApForConfirm=*/true);
+    }
+
+    bool awaitingApConfirm() const { return _attempt.awaitingApConfirm(); }
+
+    void confirmApDisable() { _attempt.confirmDisableAp(); }
 
     // What this device should advertise as PresenceMsg.wifiConnected — true
     // only when the connection is (or just became, via a piggybacked

@@ -77,7 +77,9 @@ const mockButtons = [
   },
 ];
 
-const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, channel: 6, channelSearching: false, version: '2026.06.27.0', fwState: 'checking', batteryPresent: true, batteryPercent: 82, batteryCharging: false };
+// wifiConnected/ip/wifiAwaitingApConfirm are derived at request time in
+// selfWithLights() from the module's wifiConnected SSID-tracking state below.
+const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  hasWifiNetworks: true,  wifiConnecting: false, channel: 6, channelSearching: false, version: '2026.06.27.0', fwState: 'checking', batteryPresent: true, batteryPercent: 82, batteryCharging: false };
 const MOCK_PEERS = [
   { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 46, batteryCharging: false },
   { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 12, batteryCharging: false },
@@ -91,6 +93,12 @@ const wifiNetworks = [
   { ssid: 'GuestWifi',   password: 'secret3' },
 ];
 let wifiConnected = 'HomeNetwork';
+const MOCK_SELF_IP = '192.168.1.87';
+// Shortened well below the firmware's 5-minute kApConfirmHoldMs so the
+// auto-timeout fallback is practical to exercise in local/CI testing.
+const MOCK_AP_CONFIRM_TIMEOUT_MS = 8000;
+let mockWifiAwaitingApConfirm = false;
+let mockApConfirmTimer = null;
 
 const scenes = new Map();
 
@@ -115,7 +123,13 @@ const mockUpdate = {
 let _rebooting = false;
 
 function selfWithLights() {
-  return { ...MOCK_SELF, lights: mockSelfLights() };
+  return {
+    ...MOCK_SELF,
+    wifiConnected: wifiConnected !== null,
+    ip: wifiConnected !== null ? MOCK_SELF_IP : '',
+    wifiAwaitingApConfirm: mockWifiAwaitingApConfirm,
+    lights: mockSelfLights(),
+  };
 }
 
 // Broadcast current self+peers state to all connected WS clients.
@@ -250,13 +264,36 @@ app.post('/api/wifi/add', (req, res) => {
   if (wifiNetworks.length >= 5) return res.status(409).json({ error: 'network list full' });
   wifiNetworks.push({ ssid, password: password || '' });
   res.json({ ok: true });
+
+  // Mirrors WebServer.h::_addWifi kicking off a live connect attempt when
+  // this device has no active WiFi connection, instead of waiting for a
+  // reboot. Holds the mock "AP" open (awaitingApConfirm) until confirmed or
+  // the shortened mock timeout elapses.
+  if (wifiConnected === null) {
+    setTimeout(() => {
+      wifiConnected = ssid;
+      mockWifiAwaitingApConfirm = true;
+      broadcastPeers();
+      clearTimeout(mockApConfirmTimer);
+      mockApConfirmTimer = setTimeout(() => {
+        mockWifiAwaitingApConfirm = false;
+        broadcastPeers();
+      }, MOCK_AP_CONFIRM_TIMEOUT_MS);
+    }, 1500);
+  }
+});
+app.post('/api/wifi/confirm-disable-ap', (_req, res) => {
+  mockWifiAwaitingApConfirm = false;
+  clearTimeout(mockApConfirmTimer);
+  broadcastPeers();
+  res.json({ ok: true });
 });
 app.post('/api/wifi/delete', (req, res) => {
   const { ssid } = req.body;
   if (!ssid) return res.status(400).json({ error: 'ssid required' });
   const idx = wifiNetworks.findIndex(n => n.ssid === ssid);
   if (idx !== -1) wifiNetworks.splice(idx, 1);
-  if (wifiConnected === ssid) wifiConnected = null;
+  if (wifiConnected === ssid) { wifiConnected = null; broadcastPeers(); }
   res.json({ ok: true });
 });
 app.post('/api/wifi/move', (req, res) => {
