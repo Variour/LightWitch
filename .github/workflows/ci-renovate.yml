@@ -1,4 +1,4 @@
-name: Renovate
+name: "CI: renovate"
 
 on:
   schedule:
@@ -13,6 +13,7 @@ permissions:
 jobs:
   renovate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 

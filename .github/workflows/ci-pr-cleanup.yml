@@ -1,4 +1,4 @@
-name: PR build cleanup
+name: "CI: clean up PR builds"
 
 # Deliberately has no `paths` filter, unlike firmware.yml's pull_request
 # trigger — this must always run when a PR closes so the pr-<number>
@@ -11,6 +11,7 @@ on:
 jobs:
   delete-pr-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
       actions: write
