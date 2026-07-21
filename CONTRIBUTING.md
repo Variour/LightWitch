@@ -1,5 +1,7 @@
 # Contributing
 
+See [docs/architecture.md](docs/architecture.md) for an overview of how `src/` is organized.
+
 ## Workflow
 
 1. Fork the repository and create a branch from `main`.
