@@ -1165,7 +1165,7 @@ const PATTERNS = [
 const SCENE_STRING_MODE_DESC = [
   'Each LED picks its own random color from the scene.',
   'The whole string shares one random color from the scene.',
-  'The scene image is mapped 1:1 onto the string, like a matrix.',
+  'Scene rows are read top to bottom and strung together end-to-end. More cells than LEDs: some are skipped. Fewer cells than LEDs: colors stretch to fill the string.',
 ];
 
 // Mirrors TimeMatrix::BASE_W / BASE_H (src/patterns/TimeMatrix.h) — the
