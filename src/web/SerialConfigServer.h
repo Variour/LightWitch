@@ -168,9 +168,8 @@ class SerialConfigServer {
         if (streaming) {
             const char* b64 = doc["chunk"] | "";
             size_t outLen = 0;
-            if (b64[0] &&
-                mbedtls_base64_decode(chunkBuf, sizeof(chunkBuf), &outLen,
-                                      (const unsigned char*)b64, strlen(b64)) != 0) {
+            if (b64[0] && mbedtls_base64_decode(chunkBuf, sizeof(chunkBuf), &outLen,
+                                                (const unsigned char*)b64, strlen(b64)) != 0) {
                 Logger::w("[serialcfg] bad base64 chunk, dropping request id=%u", (unsigned)id);
                 return;
             }

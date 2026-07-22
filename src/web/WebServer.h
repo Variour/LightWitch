@@ -1330,8 +1330,8 @@ class BatteryWebServer {
             if (_sceneSync) _sceneSync->onSceneChanged(st->id.c_str(), st->prevHash);
             if (_onSceneSaved) _onSceneSaved(st->id.c_str());
         } else {
-            Logger::e("[scene] save failed: %s (failed=%d written=%d)",
-                      st->error ? st->error : "?", st->failed, st->written);
+            Logger::e("[scene] save failed: %s (failed=%d written=%d)", st->error ? st->error : "?",
+                      st->failed, st->written);
         }
 
         s.status = ok ? 200 : 500;
