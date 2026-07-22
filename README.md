@@ -84,6 +84,23 @@ After reboot the device joins your WiFi and is reachable at **http://\<devicenam
 
 ---
 
+## Configuring over USB (no WiFi/AP needed)
+
+If the device's AP is unreachable, disabled, or just inconvenient, every
+setting can also be configured over a USB cable, no network involved:
+
+1. Connect the device to your computer with a USB cable.
+2. Open **https://variour.github.io/batteryLight/** in Chrome, Edge, or
+   Firefox 151+ (Web Serial support required — no Safari).
+3. Click **Connect via USB** and select the device's serial port.
+
+This is the exact same interface as the WiFi-connected web UI — the page
+detects it isn't reachable over HTTP and switches to talking to the device
+over serial instead. See [docs/serial-config.md](docs/serial-config.md) for
+how it works under the hood.
+
+---
+
 ## Device settings
 
 After first boot, go to **Settings** to review:

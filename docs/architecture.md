@@ -24,7 +24,7 @@ codebase for the first time. For build/flash/update instructions see
 | `storage` | `SdCardManager` wraps the onboard microSD reader for uploaded sound files. See `src/storage/README.md`. |
 | `timesync` | `TimeSync` gets wall-clock time from NTP or a mesh peer, for patterns like `TimeMatrix`. |
 | `update` | `Updater`, GitHub-releases-based OTA firmware/filesystem updater, including PR-build tracking. |
-| `web` | `BatteryWebServer` serves the dashboard and REST/WebSocket API, driving the rest of the system through injected callbacks. |
+| `web` | `BatteryWebServer` serves the dashboard and REST/WebSocket API, driving the rest of the system through injected callbacks. Every endpoint is registered once, as a transport-agnostic `(ApiRequest, ApiResponse)` handler (`ApiTypes.h`), so `SerialConfigServer` can reach the same handlers over USB serial when the device has no WiFi/AP connectivity — see [serial-config.md](serial-config.md). |
 
 ## Control flow
 
