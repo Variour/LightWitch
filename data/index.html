@@ -236,6 +236,10 @@ input[type=radio]:active { background-color: #1a5; }
 .section-divider { border: none; border-top: 1px solid #222; margin: .8rem 0; }
 .push-overlay { position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;overflow-y:auto;display:none }
 .push-modal { max-width:480px;margin:2rem auto;padding:1rem }
+.serial-overlay { position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:300;overflow-y:auto;display:none }
+.serial-modal { max-width:420px;margin:4rem auto;padding:1.25rem;text-align:center }
+.serial-modal p { color:#999;font-size:.9rem;line-height:1.4 }
+.serial-modal .error { color:#f88 }
 .push-fh { display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.2rem }
 .push-fh>span { font-size:.9rem;font-weight:600 }
 .push-fh small { font-weight:normal }
@@ -1160,6 +1164,18 @@ input[type=radio]:active { background-color: #1a5; }
         <button class="btn-primary" style="flex:1" id="push-submit-btn">Push</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- USB SERIAL CONNECT OVERLAY (#355): shown when this page isn't being
+     served by a device over HTTP (e.g. loaded from a static/offline copy)
+     and normal fetch()-based access can't reach one. -->
+<div id="serial-overlay" class="serial-overlay">
+  <div class="card serial-modal">
+    <h2>Connect over USB</h2>
+    <p id="serial-status">This page isn't connected to a battery light over the network.
+      Connect the device with a USB cable and click below to configure it directly.</p>
+    <button class="btn-primary" id="serial-connect-btn" style="width:100%">Connect via USB</button>
   </div>
 </div>
 
@@ -2995,6 +3011,256 @@ async function loadConfig() {
   } catch { /* best-effort refresh; ignore network errors */ }
   _captureSettingsBaseline();
 }
+
+// ── USB serial transport (#355) ────────────────────────────────────────────────
+// Lets this exact page configure a device over USB when it isn't reachable
+// over the network (no WiFi, not connected to the device's AP) — see
+// SerialConfigServer.h for the wire protocol this speaks. Only engaged when
+// the initial /api/config probe below fails; every other function in this
+// file keeps calling plain fetch()/XHR against relative /api/ URLs
+// unmodified — window.fetch itself is replaced with a serial-backed
+// implementation once a session is established, and the one XHR-based
+// upload path (uploadStorageFile) branches on _serialMode explicitly.
+let _serialMode = false;
+let _serialPort = null;
+let _serialWriter = null;
+let _serialReqId = 0;
+const _serialPending = new Map();  // id -> {onFrame(msg)}
+const SERIAL_PREFIX = '@BLCFG ';
+const SERIAL_CHUNK_BYTES = 2048;   // must match SerialConfigServer::CHUNK_BYTES
+const SERIAL_REQUEST_TIMEOUT_MS = 15000;
+let _serialHandshakeResolve = null;
+let _serialPollTimer = null;
+
+function _b64FromBytes(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function _bytesFromB64(b64) {
+  const bin = atob(b64 || '');
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function _serialSendLine(s) {
+  _serialWriter.write(new TextEncoder().encode(SERIAL_PREFIX + s + '\n'));
+}
+
+function _serialHandleLine(line) {
+  if (!line.startsWith(SERIAL_PREFIX)) return;  // stray/partial noise, ignore
+  const rest = line.slice(SERIAL_PREFIX.length);
+  if (rest.startsWith('READY ')) {
+    let info = {};
+    try { info = JSON.parse(rest.slice(6)); } catch { /* malformed handshake body */ }
+    if (_serialHandshakeResolve) { _serialHandshakeResolve(info); _serialHandshakeResolve = null; }
+    return;
+  }
+  if (rest === 'BYE') { _serialTeardown(); return; }
+  if (!rest.startsWith('RES ')) return;
+  let msg;
+  try { msg = JSON.parse(rest.slice(4)); } catch { return; }
+  const pending = _serialPending.get(msg.id);
+  if (pending) pending.onFrame(msg);
+}
+
+async function _serialReadLoop(reader) {
+  let buf = '';
+  const decoder = new TextDecoder();
+  try {
+    while (_serialMode) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        _serialHandleLine(buf.slice(0, nl).replace(/\r$/, ''));
+        buf = buf.slice(nl + 1);
+      }
+    }
+  } catch { /* port dropped — _serialTeardown() below reflects it in the UI */ }
+  if (_serialMode) _serialTeardown();
+}
+
+// One-shot, non-streaming request: GET, or a POST whose whole JSON body is
+// sent in one frame. The response may itself arrive as a single {body}
+// frame or, for a large body (e.g. GET /api/scenes/get), as a sequence of
+// {chunk,final} frames that get reassembled here either way.
+function _serialRequestRaw(method, path, { query, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const id = ++_serialReqId;
+    let chunks = null;
+    let chunkStatus = 200;
+    _serialPending.set(id, {
+      onFrame(msg) {
+        if (Object.prototype.hasOwnProperty.call(msg, 'chunk')) {
+          if (!chunks) chunks = [];
+          chunkStatus = msg.status;
+          if (msg.chunk) chunks.push(_bytesFromB64(msg.chunk));
+          if (!msg.final) return;
+          _serialPending.delete(id);
+          const total = chunks.reduce((n, c) => n + c.length, 0);
+          const merged = new Uint8Array(total);
+          let o = 0;
+          for (const c of chunks) { merged.set(c, o); o += c.length; }
+          resolve({ status: chunkStatus, bodyText: new TextDecoder().decode(merged) });
+          return;
+        }
+        _serialPending.delete(id);
+        resolve({ status: msg.status, body: msg.body });
+      },
+    });
+    const frame = { id, method, path };
+    if (query !== null && query !== undefined) frame.query = query;
+    if (body !== undefined) frame.body = body;
+    _serialSendLine('REQ ' + JSON.stringify(frame));
+    setTimeout(() => {
+      if (_serialPending.has(id)) { _serialPending.delete(id); reject(new Error('Request timed out')); }
+    }, SERIAL_REQUEST_TIMEOUT_MS);
+  });
+}
+
+// Sends one chunk of a streaming upload (scene save / storage upload) and
+// resolves with either {ack:true} (send the next chunk) or the final
+// {status,body} once the device reports the last chunk processed.
+function _serialSendChunk(path, query, index, total, chunkBytes) {
+  return new Promise((resolve, reject) => {
+    const id = ++_serialReqId;
+    _serialPending.set(id, {
+      onFrame(msg) {
+        _serialPending.delete(id);
+        resolve(msg.ack ? { ack: true } : { status: msg.status, body: msg.body });
+      },
+    });
+    const frame = { id, method: 'POST', path, index, total, chunk: _b64FromBytes(chunkBytes) };
+    if (query !== null && query !== undefined) frame.query = query;
+    _serialSendLine('REQ ' + JSON.stringify(frame));
+    setTimeout(() => {
+      if (_serialPending.has(id)) { _serialPending.delete(id); reject(new Error('Upload timed out')); }
+    }, SERIAL_REQUEST_TIMEOUT_MS);
+  });
+}
+
+// Splits `buffer` into SERIAL_CHUNK_BYTES pieces and sends them one at a
+// time (waiting for each ack), mirroring how SerialConfigServer/WebServer.h
+// stream scene save and storage uploads over HTTP. Always sends at least
+// one (possibly empty) chunk, matching the firmware side's chunkIndex+
+// chunkLen>=chunkTotal "final" check.
+async function _serialUploadStream(path, query, buffer, onProgress) {
+  const bytes = new Uint8Array(buffer);
+  const total = bytes.length;
+  let index = 0;
+  for (;;) {
+    const end = Math.min(index + SERIAL_CHUNK_BYTES, total);
+    const res = await _serialSendChunk(path, query, index, total, bytes.subarray(index, end));
+    index = end;
+    if (onProgress) onProgress(index, total);
+    if (!res.ack) return res;
+  }
+}
+
+function _serialResponseFromResult(result) {
+  const status = result.status ?? 200;
+  const text = result.bodyText !== undefined ? result.bodyText : JSON.stringify(result.body ?? {});
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => JSON.parse(text || '{}'),
+    text: async () => text,
+  };
+}
+
+// Replaces window.fetch with a serial-backed implementation once a session
+// is established — every existing fetch('/api/...') call site in this file
+// keeps working unmodified. /api/scenes/save is the one fetch-based
+// endpoint whose body needs streaming; every other call is a single
+// request/response round trip.
+function _installSerialFetch() {
+  window.fetch = async (url, options = {}) => {
+    const u = new URL(url, location.href);
+    const path = u.pathname;
+    const params = new URLSearchParams(u.search);
+    const query = params.get('id') ?? params.get('name') ?? null;
+    const method = (options.method || 'GET').toUpperCase();
+
+    if (path === '/api/scenes/save' && method === 'POST') {
+      const bytes = new TextEncoder().encode(options.body || '');
+      return _serialResponseFromResult(await _serialUploadStream(path, null, bytes.buffer));
+    }
+
+    let body;
+    if (typeof options.body === 'string' && options.body.length) {
+      try { body = JSON.parse(options.body); } catch { /* non-JSON body: unexpected for this file */ }
+    }
+    return _serialResponseFromResult(await _serialRequestRaw(method, path, { query, body }));
+  };
+}
+
+async function _serialTeardown() {
+  _serialMode = false;
+  clearInterval(_serialPollTimer);
+  _serialPollTimer = null;
+  _serialPending.clear();  // any still-open requests simply time out on their own
+  try { await _serialWriter?.close(); } catch { /* already gone */ }
+  try { await _serialPort?.close(); } catch { /* already gone */ }
+  _serialPort = null;
+  _serialWriter = null;
+  const st = $('ws-status');
+  if (st) { st.textContent = 'USB serial: disconnected'; st.style.color = '#933'; }
+}
+
+// Lightweight substitute for the WebSocket peers/groups push this device
+// can't offer over serial — same renderLights/renderGroups calls the
+// ws.onmessage handler below makes, without touching the settings form
+// fields the way a full loadConfig() would.
+function _serialPollTick() {
+  fetch('/api/config').then(r => r.json()).then(d => { if (d.groups) renderGroups(d.groups); }).catch(() => {});
+  fetch('/api/peers').then(r => r.json()).then(d => {
+    renderLights(d.self, d.peers || [], d.wifiSingleClientMode === true);
+    _refreshSceneOptionViews();
+  }).catch(() => {});
+}
+
+async function connectSerial() {
+  if (!('serial' in navigator)) {
+    $('serial-status').textContent = 'This browser does not support Web Serial. Use Chrome, Edge, or Firefox 151+.';
+    $('serial-status').classList.add('error');
+    return;
+  }
+  try {
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    _serialPort = port;
+    _serialWriter = port.writable.getWriter();
+    _serialMode = true;
+    _serialReadLoop(port.readable.getReader());
+
+    await new Promise((resolve, reject) => {
+      _serialHandshakeResolve = resolve;
+      _serialSendLine('HELLO');
+      setTimeout(() => {
+        if (_serialHandshakeResolve) {
+          _serialHandshakeResolve = null;
+          reject(new Error('Device did not respond — check the cable and that it is a batteryLight device.'));
+        }
+      }, 5000);
+    });
+
+    _installSerialFetch();
+    $('serial-overlay').style.display = 'none';
+    appendLog('I', 'Connected over USB serial — live log streaming is not available in this mode.');
+    await loadConfig();
+    _serialPollTimer = setInterval(_serialPollTick, 5000);
+    _routeFromPath(location.pathname);
+  } catch (e) {
+    _serialMode = false;
+    $('serial-status').textContent = 'Connection failed: ' + e.message;
+    $('serial-status').classList.add('error');
+  }
+}
+
+$('serial-connect-btn').addEventListener('click', connectSerial);
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 function appendLog(level, msg) {
@@ -5523,6 +5789,29 @@ function uploadStorageFile(file) {
     wrap.style.display = 'none';
   };
 
+  // Serial mode has no XMLHttpRequest-over-USB equivalent, so this one path
+  // (the only fetch-bypassing upload in this file) branches explicitly
+  // instead of going through the window.fetch shim.
+  if (_serialMode) {
+    file.arrayBuffer().then(buf =>
+      _serialUploadStream('/api/storage/upload', file.name, buf, (sent, total) => {
+        const pct = Math.round((sent / total) * 100);
+        bar.style.width = pct + '%';
+        status.textContent = `${pct}% of ${fmtBytes(file.size)}`;
+      })
+    ).then(result => {
+      finish();
+      if (result.status < 200 || result.status >= 300) {
+        alert('Error: ' + (result.body?.error || result.status));
+      }
+      loadStorage().catch(() => {});
+    }).catch(e => {
+      finish();
+      alert('Error: ' + e.message);
+    });
+    return;
+  }
+
   const xhr = new XMLHttpRequest();
   xhr.open('POST', `/api/storage/upload?name=${encodeURIComponent(file.name)}`);
   xhr.setRequestHeader('Content-Type', 'application/octet-stream');
@@ -5945,10 +6234,25 @@ $('push-submit-btn').addEventListener('click', submitPushConfig);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 _initPasswordToggles();
-loadConfig();
 const isLocalDev = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
-if (!isLocalDev) connectWs();
-_routeFromPath(location.pathname);
+
+// This exact page can be reached two ways: served directly by a device over
+// HTTP (the normal case), or opened standalone (e.g. from a static host,
+// see #355) with no device reachable over the network at all. Probe once,
+// quickly, to tell them apart — a standalone load shows the USB-connect
+// overlay instead of trying (and failing) to render device data.
+(async () => {
+  try {
+    const res = await fetch('/api/config', { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) throw new Error('not ok');
+  } catch {
+    $('serial-overlay').style.display = 'block';
+    return;
+  }
+  loadConfig();
+  if (!isLocalDev) connectWs();
+  _routeFromPath(location.pathname);
+})();
 })();
 </script>
 </body>
