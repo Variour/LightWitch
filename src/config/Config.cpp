@@ -37,7 +37,7 @@ void serializeLightConfig(JsonObject o, const LightConfig& l) {
     o["time24h"] = l.time24h;
 }
 
-LightConfig deserializeLightConfig(JsonVariant j, const LightConfig& def) {
+LightConfig deserializeLightConfig(JsonVariantConst j, const LightConfig& def) {
     LightConfig l = def;
     l.mode = (GroupMode)(uint8_t)(j["mode"] | (uint8_t)def.mode);
     strlcpy(l.sceneId, j["sceneId"] | def.sceneId, sizeof(l.sceneId));
@@ -65,7 +65,7 @@ void serializeGroup(JsonObject o, const GroupConfig& g) {
     serializeLightConfig(o, g.light);
 }
 
-void deserializeGroup(JsonVariant o, GroupConfig& g) {
+void deserializeGroup(JsonVariantConst o, GroupConfig& g) {
     g.id = o["id"] | (uint8_t)0;
     g.exists = o["exists"] | false;
     g.syncEnabled = o["syncEnabled"] | true;
@@ -84,7 +84,7 @@ void serializeButtonAction(JsonObject o, const ButtonAction& a) {
     o["b"] = a.params.colorValue.b;
 }
 
-ButtonAction deserializeButtonAction(JsonVariant j, const ButtonAction& def) {
+ButtonAction deserializeButtonAction(JsonVariantConst j, const ButtonAction& def) {
     ButtonAction a = def;
     a.action = (ActionId)(uint8_t)(j["action"] | (uint8_t)def.action);
     a.groupId = j["groupId"] | def.groupId;
@@ -109,7 +109,7 @@ void serializeButton(JsonObject o, const ButtonHardwareConfig& b) {
     serializeButtonAction(o["onDoubleClick"].to<JsonObject>(), b.onDoubleClick);
 }
 
-void deserializeButton(JsonVariant o, ButtonHardwareConfig& b) {
+void deserializeButton(JsonVariantConst o, ButtonHardwareConfig& b) {
     strlcpy(b.name, o["name"] | "", sizeof(b.name));
     b.pin = o["pin"] | (uint8_t)0;
     b.activeLow = o["activeLow"] | true;
@@ -134,7 +134,7 @@ void serializeSound(JsonObject o, const SoundHardwareConfig& s) {
     o["exists"] = s.exists;
 }
 
-void deserializeSound(JsonVariant o, SoundHardwareConfig& s) {
+void deserializeSound(JsonVariantConst o, SoundHardwareConfig& s) {
     strlcpy(s.name, o["name"] | "", sizeof(s.name));
     s.chip = (SoundChip)(uint8_t)(o["chip"] | (uint8_t)SoundChip::ES8311);
     s.i2cAddress = o["i2cAddress"] | (uint8_t)0x18;

@@ -256,9 +256,9 @@ struct GroupConfig {
 // Config.cpp (full config load/save) and WebServer.h (REST API request/response),
 // so the field list only needs to be maintained in one place.
 void serializeLightConfig(JsonObject o, const LightConfig& l);
-LightConfig deserializeLightConfig(JsonVariant j, const LightConfig& def = LightConfig{});
+LightConfig deserializeLightConfig(JsonVariantConst j, const LightConfig& def = LightConfig{});
 void serializeGroup(JsonObject o, const GroupConfig& g);
-void deserializeGroup(JsonVariant o, GroupConfig& g);
+void deserializeGroup(JsonVariantConst o, GroupConfig& g);
 
 // Sentinel for an unused/unconfigured GPIO pin field (button pin, sound I2S
 // pin, device I2C bus pin, ...).
@@ -302,9 +302,9 @@ struct ButtonHardwareConfig {
 };
 
 void serializeButtonAction(JsonObject o, const ButtonAction& a);
-ButtonAction deserializeButtonAction(JsonVariant j, const ButtonAction& def = ButtonAction{});
+ButtonAction deserializeButtonAction(JsonVariantConst j, const ButtonAction& def = ButtonAction{});
 void serializeButton(JsonObject o, const ButtonHardwareConfig& b);
-void deserializeButton(JsonVariant o, ButtonHardwareConfig& b);
+void deserializeButton(JsonVariantConst o, ButtonHardwareConfig& b);
 
 // Per-light physical hardware configuration, stored in DeviceConfig.
 struct LightHardwareConfig {
@@ -372,7 +372,7 @@ struct SoundHardwareConfig {
 };
 
 void serializeSound(JsonObject o, const SoundHardwareConfig& s);
-void deserializeSound(JsonVariant o, SoundHardwareConfig& s);
+void deserializeSound(JsonVariantConst o, SoundHardwareConfig& s);
 
 static constexpr uint8_t MAX_SOUNDS = 1;
 

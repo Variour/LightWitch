@@ -159,6 +159,7 @@ class SerialConfigServer {
         ApiRequest req;
         req.method = m;
         req.path = path.c_str();
+        req.body = doc["body"].as<JsonVariantConst>();
         ApiResponse resp;
 
         String query = doc["query"] | "";
