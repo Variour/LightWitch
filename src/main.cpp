@@ -24,6 +24,7 @@
 #include "storage/SdCardManager.h"
 #include "timesync/TimeSync.h"
 #include "version.h"
+#include "web/SerialConfigServer.h"
 #include "web/WebServer.h"
 
 static Ws2812bDriver _ws2812bPool[MAX_LIGHTS];
@@ -36,6 +37,7 @@ static MeshManager mesh;
 static ChannelManager channelMgr;
 static WifiElection wifiElection;
 static BatteryWebServer webServer;
+static SerialConfigServer serialConfigServer;
 static MqttManager mqtt;
 static SceneSyncManager sceneSync;
 static ActionExecutor actionExecutor;
@@ -87,6 +89,10 @@ static String _cfgSyncBuf;
 static uint16_t _cfgSyncExpected = 0;
 
 static void serialSink(LogLevel level, const char* msg) {
+    // A serial config session (see SerialConfigServer, #355) needs the wire
+    // free of plain-text log lines so its framed protocol can't be corrupted
+    // by one interleaving mid-frame.
+    if (serialConfigServer.sessionActive()) return;
     const char* p = level == LogLevel::ERROR     ? "[E]"
                     : level == LogLevel::WARN    ? "[W]"
                     : level == LogLevel::INFO    ? "[I]"
@@ -327,6 +333,11 @@ static void setupOta() {
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 void setup() {
+    // Above the default 256 bytes so a serial config session (see
+    // SerialConfigServer, #355) has room for one full base64 chunk line
+    // without the browser needing to wait on a byte-by-byte drain. Must be
+    // called before begin().
+    Serial.setRxBufferSize(4096);
     Serial.begin(115200);
     Logger::addSink(serialSink);
 
@@ -636,6 +647,8 @@ void setup() {
 
         &channelMgr, &_sdCard);
 
+    serialConfigServer.begin(&webServer);
+
     auto notifySceneUpdated = [](const char* id) {
         for (uint8_t i = 0; i < MAX_LIGHTS; i++)
             if (_leds[i]) _runners[i].notifySceneUpdated(id);
@@ -718,6 +731,11 @@ void setup() {
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 void loop() {
+    // Unthrottled and ahead of every early return below — a serial config
+    // session (#355) needs bytes drained promptly regardless of what else
+    // main.cpp is busy with (an in-flight OTA download included).
+    serialConfigServer.loop();
+
     uint32_t now = millis();
     bool backgroundTick = now - _lastBackgroundTickMs >= BACKGROUND_TICK_INTERVAL_MS;
     if (backgroundTick) _lastBackgroundTickMs = now;

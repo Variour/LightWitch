@@ -4,6 +4,7 @@
 #include <WiFi.h>
 
 #include <functional>
+#include <vector>
 
 #include "../battery/BatteryMonitor.h"
 #include "../config/Config.h"
@@ -15,6 +16,7 @@
 #include "../storage/SdCardManager.h"
 #include "../update/Updater.h"
 #include "../version.h"
+#include "ApiTypes.h"
 
 // Called when this device's own group changes
 using GroupChangeCb = std::function<void()>;
@@ -128,6 +130,20 @@ class BatteryWebServer {
         const char* error = nullptr;
     };
 
+    // What a streaming route (scene save, storage upload) stores in
+    // AsyncWebServerRequest::_tempObject: the handler's own per-request
+    // scratch state (state) plus the response it computed once the final
+    // chunk was processed — the response can only actually be sent from the
+    // onRequest callback (below, after every onBody call has fired), not
+    // from inside onBody itself.
+    struct StreamCtx {
+        void* state = nullptr;
+        bool done = false;
+        int status = 200;
+        JsonDocument body;
+        bool restart = false;
+    };
+
    public:
     void begin(GroupChangeCb onGroupChange, GroupLightCb onGroupLight, GroupSyncCb onGroupSync,
                SetRemoteGroupCb onSetRemote, PeerRegistry* peers,
@@ -171,142 +187,64 @@ class BatteryWebServer {
         });
         _server.addHandler(_ws);
 
+        // Every endpoint below is registered exactly once via _get/_post/
+        // _postSimple/_postStream, which both wires it up for HTTP (through
+        // ESPAsyncWebServer) and records it in _routes — the table
+        // SerialConfigServer's dispatch() walks for the USB-serial config
+        // transport (see #355). A new endpoint only needs to be added here
+        // once to work over both.
+        //
         // API routes must be registered before serveStatic, otherwise the
         // static handler matches /api/* paths and tries to open them from LittleFS.
-        _server.on("/api/config", HTTP_GET, [this](AsyncWebServerRequest* r) { _getConfig(r); });
-        _server.on(
-            "/api/config", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _postConfig(r, d, l);
-            });
+        _get("/api/config", [this](ApiRequest& q, ApiResponse& s) { _getConfig(q, s); });
+        _post("/api/config", [this](ApiRequest& q, ApiResponse& s) { _postConfig(q, s); });
 
-        _server.on("/api/mqtt/clear", HTTP_POST,
-                   [this](AsyncWebServerRequest* r) { _clearMqtt(r); });
+        _postSimple("/api/mqtt/clear", [this](ApiRequest& q, ApiResponse& s) { _clearMqtt(q, s); });
 
-        _server.on("/api/wifi", HTTP_GET, [this](AsyncWebServerRequest* r) { _getWifi(r); });
-        _server.on(
-            "/api/wifi/add", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _addWifi(r, d, l);
-            });
-        _server.on(
-            "/api/wifi/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _deleteWifi(r, d, l);
-            });
-        _server.on(
-            "/api/wifi/move", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _moveWifi(r, d, l);
-            });
-        _server.on("/api/wifi/confirm-disable-ap", HTTP_POST, [this](AsyncWebServerRequest* r) {
+        _get("/api/wifi", [this](ApiRequest& q, ApiResponse& s) { _getWifi(q, s); });
+        _post("/api/wifi/add", [this](ApiRequest& q, ApiResponse& s) { _addWifi(q, s); });
+        _post("/api/wifi/delete", [this](ApiRequest& q, ApiResponse& s) { _deleteWifi(q, s); });
+        _post("/api/wifi/move", [this](ApiRequest& q, ApiResponse& s) { _moveWifi(q, s); });
+        _postSimple("/api/wifi/confirm-disable-ap", [this](ApiRequest&, ApiResponse& s) {
             if (_onConfirmApDisable) _onConfirmApDisable();
-            auto ok = _makeOk();
-            _sendJson(r, 200, ok);
+            s.body["ok"] = true;
         });
 
-        _server.on("/api/peers", HTTP_GET, [this](AsyncWebServerRequest* r) { _getPeers(r); });
+        _get("/api/peers", [this](ApiRequest& q, ApiResponse& s) { _getPeers(q, s); });
 
-        _server.on(
-            "/api/groups/create", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _createGroup(r, d, l);
-            });
-        _server.on(
-            "/api/groups/update", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _updateGroup(r, d, l);
-            });
-        _server.on(
-            "/api/groups/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _deleteGroup(r, d, l);
-            });
+        _post("/api/groups/create", [this](ApiRequest& q, ApiResponse& s) { _createGroup(q, s); });
+        _post("/api/groups/update", [this](ApiRequest& q, ApiResponse& s) { _updateGroup(q, s); });
+        _post("/api/groups/delete", [this](ApiRequest& q, ApiResponse& s) { _deleteGroup(q, s); });
 
-        _server.on(
-            "/api/peers/setgroup", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _setRemoteGroup(r, d, l);
-            });
+        _post("/api/peers/setgroup",
+              [this](ApiRequest& q, ApiResponse& s) { _setRemoteGroup(q, s); });
 
-        _server.on("/api/lights", HTTP_GET, [this](AsyncWebServerRequest* r) { _getLights(r); });
-        _server.on(
-            "/api/lights/add", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _addLight(r, d, l);
-            });
-        _server.on(
-            "/api/lights/update", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _updateLight(r, d, l);
-            });
-        _server.on(
-            "/api/lights/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _deleteLight(r, d, l);
-            });
-        _server.on(
-            "/api/lights/test", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _testLight(r, d, l);
-            });
-        _server.on(
-            "/api/lights/testcolor", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _testColorOrder(r, d, l);
-            });
+        _get("/api/lights", [this](ApiRequest& q, ApiResponse& s) { _getLights(q, s); });
+        _post("/api/lights/add", [this](ApiRequest& q, ApiResponse& s) { _addLight(q, s); });
+        _post("/api/lights/update", [this](ApiRequest& q, ApiResponse& s) { _updateLight(q, s); });
+        _post("/api/lights/delete", [this](ApiRequest& q, ApiResponse& s) { _deleteLight(q, s); });
+        _post("/api/lights/test", [this](ApiRequest& q, ApiResponse& s) { _testLight(q, s); });
+        _post("/api/lights/testcolor",
+              [this](ApiRequest& q, ApiResponse& s) { _testColorOrder(q, s); });
 
-        _server.on("/api/sounds", HTTP_GET, [this](AsyncWebServerRequest* r) { _getSounds(r); });
-        _server.on(
-            "/api/sounds/add", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _addSound(r, d, l);
-            });
-        _server.on(
-            "/api/sounds/update", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _updateSound(r, d, l);
-            });
-        _server.on(
-            "/api/sounds/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _deleteSound(r, d, l);
-            });
-        _server.on(
-            "/api/sounds/test", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _testSound(r, d, l);
-            });
+        _get("/api/sounds", [this](ApiRequest& q, ApiResponse& s) { _getSounds(q, s); });
+        _post("/api/sounds/add", [this](ApiRequest& q, ApiResponse& s) { _addSound(q, s); });
+        _post("/api/sounds/update", [this](ApiRequest& q, ApiResponse& s) { _updateSound(q, s); });
+        _post("/api/sounds/delete", [this](ApiRequest& q, ApiResponse& s) { _deleteSound(q, s); });
+        _post("/api/sounds/test", [this](ApiRequest& q, ApiResponse& s) { _testSound(q, s); });
 
-        _server.on("/api/storage", HTTP_GET, [this](AsyncWebServerRequest* r) { _getStorage(r); });
-        _server.on(
-            "/api/storage/upload", HTTP_POST,
-            [this](AsyncWebServerRequest* r) { _finishStorageUpload(r); }, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t index, size_t total) {
-                _storageUploadChunk(r, d, l, index, total);
-            });
-        _server.on(
-            "/api/storage/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _deleteStorageFile(r, d, l);
-            });
+        _get("/api/storage", [this](ApiRequest& q, ApiResponse& s) { _getStorage(q, s); });
+        _postStream("/api/storage/upload",
+                    [this](ApiRequest& q, ApiResponse& s) { _storageUpload(q, s); });
+        _post("/api/storage/delete",
+              [this](ApiRequest& q, ApiResponse& s) { _deleteStorageFile(q, s); });
 
-        _server.on("/api/buttons", HTTP_GET, [this](AsyncWebServerRequest* r) { _getButtons(r); });
-        _server.on(
-            "/api/buttons/add", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _addButton(r, d, l);
-            });
-        _server.on(
-            "/api/buttons/update", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _updateButton(r, d, l);
-            });
-        _server.on(
-            "/api/buttons/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _deleteButton(r, d, l);
-            });
+        _get("/api/buttons", [this](ApiRequest& q, ApiResponse& s) { _getButtons(q, s); });
+        _post("/api/buttons/add", [this](ApiRequest& q, ApiResponse& s) { _addButton(q, s); });
+        _post("/api/buttons/update",
+              [this](ApiRequest& q, ApiResponse& s) { _updateButton(q, s); });
+        _post("/api/buttons/delete",
+              [this](ApiRequest& q, ApiResponse& s) { _deleteButton(q, s); });
 
         // ── Scene API ─────────────────────────────────────────────────────────
         // Specific routes must be registered before /api/scenes because
@@ -314,287 +252,131 @@ class BatteryWebServer {
         // intercept /api/scenes/get, /api/scenes/save, etc.
         SceneManager::init();
 
-        _server.on("/api/scenes/get", HTTP_GET, [this](AsyncWebServerRequest* r) { _getScene(r); });
-
-        _server.on(
-            "/api/scenes/create", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _createScene(r, d, l);
-            });
-
-        _server.on(
-            "/api/scenes/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _deleteScene(r, d, l);
-            });
-
-        // Scene save buffers the full body (may span multiple TCP packets)
-        // before writing to LittleFS.
-        _server.on(
-            "/api/scenes/save", HTTP_POST,
-            [this](AsyncWebServerRequest* r) {
-                auto* st = static_cast<SceneSaveState*>(r->_tempObject);
-                if (!st) {
-                    Logger::e("[scene] save: request handler fired with no state");
-                    r->send(400, "application/json", "{\"error\":\"no body\"}");
-                    return;
-                }
-
-                bool ok = !st->failed && st->written;
-                if (st->file) st->file.close();
-
-                if (ok) {
-                    Logger::i("[scene] save ok: %s", st->id.c_str());
-                    if (_sceneSync) _sceneSync->onSceneChanged(st->id.c_str(), st->prevHash);
-                    if (_onSceneSaved) _onSceneSaved(st->id.c_str());
-                } else {
-                    Logger::e("[scene] save failed: %s (failed=%d written=%d)",
-                              st->error ? st->error : "?", st->failed, st->written);
-                }
-
-                JsonDocument resp;
-                if (ok)
-                    resp["ok"] = true;
-                else
-                    resp["error"] =
-                        st->failed ? (st->error ? st->error : "save failed") : "save failed";
-
-                delete st;
-                r->_tempObject = nullptr;
-                _sendJson(r, ok ? 200 : 500, resp);
-            },
-            nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* data, size_t len, size_t index,
-                   size_t total) {
-                auto* st = static_cast<SceneSaveState*>(r->_tempObject);
-                if (!st) {
-                    st = new SceneSaveState();
-                    r->_tempObject = st;
-                    Logger::d("[scene] save: body start, total=%u bytes", (unsigned)total);
-                }
-
-                if (st->failed || !len) return;
-
-                if (!st->file) {
-                    st->buffer.concat((char*)data, len);
-                    Logger::d("[scene] save: buffering chunk %u bytes (buf=%u): %.80s",
-                              (unsigned)len, (unsigned)st->buffer.length(), st->buffer.c_str());
-                    String found;
-                    if (!SceneManager::extractId(st->buffer.c_str(), st->buffer.length(), found)) {
-                        if (st->buffer.length() > 16384) {
-                            Logger::e("[scene] save: id not found after %u bytes",
-                                      (unsigned)st->buffer.length());
-                            st->failed = true;
-                            st->error = "missing id";
-                        } else {
-                            Logger::w(
-                                "[scene] save: extractId returned false for buf=%u bytes (body "
-                                "complete at total=%u)",
-                                (unsigned)st->buffer.length(), (unsigned)total);
-                        }
-                        return;
-                    }
-
-                    st->id = found;
-                    st->prevHash = SceneManager::crc32(st->id.c_str());
-                    Logger::d("[scene] save: id=%s prevHash=%08x, opening file", st->id.c_str(),
-                              st->prevHash);
-                    SceneManager::init();
-                    st->file = LittleFS.open(SceneManager::path(st->id.c_str()), "w");
-                    if (!st->file) {
-                        Logger::e("[scene] save: open failed for %s", st->id.c_str());
-                        st->failed = true;
-                        st->error = "open failed";
-                        return;
-                    }
-
-                    size_t written =
-                        st->file.write((const uint8_t*)st->buffer.c_str(), st->buffer.length());
-                    Logger::d("[scene] save: wrote initial buffer %u/%u bytes", (unsigned)written,
-                              (unsigned)st->buffer.length());
-                    if (written != st->buffer.length()) {
-                        Logger::e("[scene] save: initial write incomplete (%u/%u)",
-                                  (unsigned)written, (unsigned)st->buffer.length());
-                        st->failed = true;
-                        st->error = "write failed";
-                        st->file.close();
-                        st->file = File();
-                        return;
-                    }
-
-                    st->buffer = "";
-                    st->written = true;
-                    return;
-                }
-
-                size_t written = st->file.write(data, len);
-                Logger::d("[scene] save: chunk at index=%u len=%u written=%u", (unsigned)index,
-                          (unsigned)len, (unsigned)written);
-                if (written != len) {
-                    Logger::e("[scene] save: chunk write incomplete (%u/%u) at index=%u",
-                              (unsigned)written, (unsigned)len, (unsigned)index);
-                    st->failed = true;
-                    st->error = "write failed";
-                    st->file.close();
-                    st->file = File();
-                    return;
-                }
-                st->written = true;
-            });
-
-        _server.on("/api/scenes", HTTP_GET, [this](AsyncWebServerRequest* r) { _getScenes(r); });
+        _get("/api/scenes/get", [this](ApiRequest& q, ApiResponse& s) { _getScene(q, s); });
+        _post("/api/scenes/create", [this](ApiRequest& q, ApiResponse& s) { _createScene(q, s); });
+        _post("/api/scenes/delete", [this](ApiRequest& q, ApiResponse& s) { _deleteScene(q, s); });
+        _postStream("/api/scenes/save",
+                    [this](ApiRequest& q, ApiResponse& s) { _saveScene(q, s); });
+        _get("/api/scenes", [this](ApiRequest& q, ApiResponse& s) { _getScenes(q, s); });
 
         // ── Scene sync API ────────────────────────────────────────────────────
-        _server.on("/api/scenes/sync/conflicts", HTTP_GET,
-                   [this](AsyncWebServerRequest* r) { _getSyncConflicts(r); });
+        _get("/api/scenes/sync/conflicts",
+             [this](ApiRequest& q, ApiResponse& s) { _getSyncConflicts(q, s); });
+        _post("/api/scenes/sync/resolve",
+              [this](ApiRequest& q, ApiResponse& s) { _resolveSyncConflict(q, s); });
+        _post("/api/peers/setscenesync",
+              [this](ApiRequest& q, ApiResponse& s) { _setRemoteSceneSync(q, s); });
+        _post("/api/peers/pushconfig",
+              [this](ApiRequest& q, ApiResponse& s) { _pushConfig(q, s); });
+        _post("/api/peers/triggerupdate",
+              [this](ApiRequest& q, ApiResponse& s) { _triggerPeerUpdate(q, s); });
+        _post("/api/peers/checkupdate",
+              [this](ApiRequest& q, ApiResponse& s) { _checkPeerUpdate(q, s); });
 
-        _server.on(
-            "/api/scenes/sync/resolve", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _resolveSyncConflict(r, d, l);
-            });
-
-        _server.on(
-            "/api/peers/setscenesync", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _setRemoteSceneSync(r, d, l);
-            });
-
-        _server.on(
-            "/api/peers/pushconfig", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _pushConfig(r, d, l);
-            });
-
-        _server.on(
-            "/api/peers/triggerupdate", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _triggerPeerUpdate(r, d, l);
-            });
-
-        _server.on(
-            "/api/peers/checkupdate", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _checkPeerUpdate(r, d, l);
-            });
-
-        _server.on("/api/update/trigger", HTTP_POST, [this](AsyncWebServerRequest* r) {
+        _postSimple("/api/update/trigger", [this](ApiRequest&, ApiResponse& s) {
             if (_onRequestWifi)
                 _onRequestWifi([]() { Updater::triggerAsync(); });
             else
                 Updater::triggerAsync();
-            r->send(200, "application/json", "{\"ok\":true}");
+            s.body["ok"] = true;
         });
 
-        _server.on("/api/update/status", HTTP_GET, [](AsyncWebServerRequest* r) {
-            auto& s = Updater::status();
-            JsonDocument doc;
-            doc["currentVersion"] = s.currentVersion;
-            doc["latestVersion"] = s.latestVersion;
-            doc["hasUpdate"] = s.hasUpdate;
-            doc["progress"] = s.progress;
-            doc["state"] = _fwStateToString(s.state);
-            if (s.error) doc["error"] = s.error;
-            String out;
-            serializeJson(doc, out);
-            r->send(200, "application/json", out);
+        _get("/api/update/status", [](ApiRequest&, ApiResponse& s) {
+            auto& u = Updater::status();
+            s.body["currentVersion"] = u.currentVersion;
+            s.body["latestVersion"] = u.latestVersion;
+            s.body["hasUpdate"] = u.hasUpdate;
+            s.body["progress"] = u.progress;
+            s.body["state"] = _fwStateToString(u.state);
+            if (u.error) s.body["error"] = u.error;
         });
 
-        _server.on("/api/update/check", HTTP_POST, [this](AsyncWebServerRequest* r) {
+        _postSimple("/api/update/check", [this](ApiRequest&, ApiResponse& s) {
             if (_onRequestWifi)
                 _onRequestWifi([]() { Updater::checkAsync(); });
             else
                 Updater::checkAsync();
-            r->send(200, "application/json", "{\"ok\":true}");
+            s.body["ok"] = true;
         });
 
-        _server.on("/api/update/apply", HTTP_POST, [this](AsyncWebServerRequest* r) {
-            auto& s = Updater::status();
-            if (!s.hasUpdate) {
-                r->send(400, "application/json", "{\"error\":\"no update available\"}");
+        _postSimple("/api/update/apply", [this](ApiRequest&, ApiResponse& s) {
+            auto& u = Updater::status();
+            if (!u.hasUpdate) {
+                s.status = 400;
+                s.body["error"] = "no update available";
                 return;
             }
             if (_onRequestWifi)
                 _onRequestWifi([]() { Updater::applyAsync(); });
             else
                 Updater::applyAsync();
-            r->send(200, "application/json", "{\"ok\":true}");
+            s.body["ok"] = true;
         });
 
         // Experimental "install from PR" flow — every endpoint below requires
         // Config::prOtaEnabled, so it costs nothing unless explicitly opted in.
-        _server.on("/api/update/prs/refresh", HTTP_POST, [this](AsyncWebServerRequest* r) {
+        _postSimple("/api/update/prs/refresh", [this](ApiRequest&, ApiResponse& s) {
             if (!Config::get().prOtaEnabled) {
-                r->send(403, "application/json", "{\"error\":\"PR installs are disabled\"}");
+                s.status = 403;
+                s.body["error"] = "PR installs are disabled";
                 return;
             }
             if (_onRequestWifi)
                 _onRequestWifi([]() { Updater::listPrBuildsAsync(); });
             else
                 Updater::listPrBuildsAsync();
-            r->send(200, "application/json", "{\"ok\":true}");
+            s.body["ok"] = true;
         });
 
-        _server.on("/api/update/prs", HTTP_GET, [](AsyncWebServerRequest* r) {
-            auto& s = Updater::prListStatus();
-            JsonDocument doc;
-            doc["state"] = _prListStateToString(s.state);
-            JsonArray arr = doc["prs"].to<JsonArray>();
-            for (auto& b : s.builds) {
+        _get("/api/update/prs", [](ApiRequest&, ApiResponse& s) {
+            auto& st = Updater::prListStatus();
+            s.body["state"] = _prListStateToString(st.state);
+            JsonArray arr = s.body["prs"].to<JsonArray>();
+            for (auto& b : st.builds) {
                 JsonObject o = arr.add<JsonObject>();
                 o["number"] = b.number;
                 o["title"] = b.title;
                 o["tag"] = b.tag;
             }
-            if (s.error) doc["error"] = s.error;
-            String out;
-            serializeJson(doc, out);
-            r->send(200, "application/json", out);
+            if (st.error) s.body["error"] = st.error;
         });
 
-        _server.on(
-            "/api/update/apply-pr", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                if (!Config::get().prOtaEnabled) {
-                    r->send(403, "application/json", "{\"error\":\"PR installs are disabled\"}");
-                    return;
-                }
-                JsonDocument doc;
-                if (!_parseJson(r, doc, d, l)) return;
-                String tag = doc["tag"] | "";
-                if (_onRequestWifi)
-                    _onRequestWifi([tag]() { Updater::applyPrAsync(tag); });
-                else
-                    Updater::applyPrAsync(tag);
-                r->send(200, "application/json", "{\"ok\":true}");
-            });
+        _post("/api/update/apply-pr", [this](ApiRequest& q, ApiResponse& s) {
+            if (!Config::get().prOtaEnabled) {
+                s.status = 403;
+                s.body["error"] = "PR installs are disabled";
+                return;
+            }
+            String tag = q.body["tag"] | "";
+            if (_onRequestWifi)
+                _onRequestWifi([tag]() { Updater::applyPrAsync(tag); });
+            else
+                Updater::applyPrAsync(tag);
+            s.body["ok"] = true;
+        });
 
-        _server.on("/api/reset", HTTP_POST, [](AsyncWebServerRequest* r) {
+        _postSimple("/api/reset", [](ApiRequest&, ApiResponse& s) {
             Config::reset();
-            r->send(200, "application/json", "{\"ok\":true}");
-            delay(500);
-            ESP.restart();
+            s.body["ok"] = true;
+            s.restart = true;
         });
 
-        _server.on("/api/mesh/search", HTTP_POST, [this](AsyncWebServerRequest* r) {
+        _postSimple("/api/mesh/search", [this](ApiRequest&, ApiResponse& s) {
             if (_onMeshSearch) _onMeshSearch();
-            r->send(200, "application/json", "{\"ok\":true}");
+            s.body["ok"] = true;
         });
 
         // Body: {enabled}. Runtime-safe, mesh-wide toggle — no reboot, applies
         // to this device immediately and broadcasts to peers (see WifiElection).
-        _server.on(
-            "/api/mesh/wifipolicy", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
-            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
-                _setWifiPolicy(r, d, l);
-            });
+        _post("/api/mesh/wifipolicy",
+              [this](ApiRequest& q, ApiResponse& s) { _setWifiPolicy(q, s); });
 
         // Manual "retry WiFi now" — applies locally and broadcasts to every
         // peer, so a mesh where every candidate gave up doesn't need the
         // mode toggled off and back on to try again.
-        _server.on("/api/mesh/wifiretry", HTTP_POST, [this](AsyncWebServerRequest* r) {
+        _postSimple("/api/mesh/wifiretry", [this](ApiRequest&, ApiResponse& s) {
             if (_onWifiRetry) _onWifiRetry();
-            r->send(200, "application/json", "{\"ok\":true}");
+            s.body["ok"] = true;
         });
 
         // Browsers always request a favicon; return 204 so the request doesn't
@@ -653,6 +435,31 @@ class BatteryWebServer {
         _onWifiAwaitingApConfirm = cb;
     }
 
+    // Looks up and invokes a registered route by (method, path) — the single
+    // entry point SerialConfigServer uses to reach every endpoint above, so a
+    // new endpoint only has to be registered once (via _get/_post/_postSimple/
+    // _postStream) to work over both HTTP and USB-serial (see #355). Returns
+    // false if no route matches; the caller sends a 404 itself in that case.
+    bool dispatch(ApiRequest& req, ApiResponse& resp) {
+        for (auto& rt : _routes) {
+            if (rt.method == req.method && strcmp(rt.path, req.path) == 0) {
+                rt.handler(req, resp);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // True for the two endpoints registered via _postStream (scene save,
+    // storage upload) — SerialConfigServer needs this to know whether an
+    // incoming request should be fed to the handler in chunks (one dispatch()
+    // call per chunk) or all at once.
+    bool isStreamingRoute(ApiMethod method, const char* path) const {
+        for (auto& rt : _routes)
+            if (rt.method == method && strcmp(rt.path, path) == 0) return rt.streaming;
+        return false;
+    }
+
    private:
     AsyncWebServer _server{80};
     AsyncWebSocket* _ws = nullptr;
@@ -660,6 +467,7 @@ class BatteryWebServer {
     PeerRegistry* _peers = nullptr;
     ChannelManager* _channelMgr = nullptr;
     SdCardManager* _sdCard = nullptr;
+    std::vector<ApiRoute> _routes;
 
     GroupChangeCb _onGroupChange;
     GroupLightCb _onGroupLight;
@@ -697,13 +505,151 @@ class BatteryWebServer {
     ConfirmApDisableCb _onConfirmApDisable;
     WifiAwaitingApConfirmCb _onWifiAwaitingApConfirm;
 
+    // ── transport-agnostic route registration ───────────────────────────────
+    // Each of these both (a) registers the handler in _routes for
+    // SerialConfigServer::dispatch(), and (b) wires up the matching
+    // AsyncWebServer route, translating to/from ApiRequest/ApiResponse so the
+    // handler body itself never touches AsyncWebServerRequest.
+
+    void _sendApiResponse(AsyncWebServerRequest* r, ApiResponse& resp) {
+        if (resp.rawFilePath.length())
+            r->send(LittleFS, resp.rawFilePath, "application/json");
+        else
+            _sendJson(r, resp.status, resp.body);
+        if (resp.restart) {
+            delay(200);
+            ESP.restart();
+        }
+    }
+
+    // GET endpoints never carry a body; /api/scenes/get is the one route
+    // that takes a query parameter ("id") instead.
+    void _get(const char* path, ApiHandler h) {
+        _routes.push_back({ApiMethod::GET, path, h, false});
+        _server.on(path, HTTP_GET, [this, path, h](AsyncWebServerRequest* r) {
+            ApiRequest req;
+            req.method = ApiMethod::GET;
+            req.path = path;
+            String qv;
+            if (r->hasParam("id")) {
+                qv = r->getParam("id")->value();
+                req.query = qv.c_str();
+            }
+            ApiResponse resp;
+            h(req, resp);
+            _sendApiResponse(r, resp);
+        });
+    }
+
+    // POST endpoints whose whole JSON body arrives in a single onBody call —
+    // true for every non-streaming POST here, same assumption the original
+    // per-endpoint handlers already made via _parseJson.
+    void _post(const char* path, ApiHandler h) {
+        _routes.push_back({ApiMethod::POST, path, h, false});
+        _server.on(
+            path, HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this, path, h](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                JsonDocument doc;
+                if (l && deserializeJson(doc, d, l)) {
+                    auto e = _makeErr("bad json");
+                    _sendJson(r, 400, e);
+                    return;
+                }
+                ApiRequest req;
+                req.method = ApiMethod::POST;
+                req.path = path;
+                req.body = doc.as<JsonVariantConst>();
+                ApiResponse resp;
+                h(req, resp);
+                _sendApiResponse(r, resp);
+            });
+    }
+
+    // POST endpoints that take no body at all — registered as onRequest-only
+    // (matching how these already behaved before this route table existed),
+    // since relying on the onBody callback for a body-less request isn't
+    // guaranteed to fire.
+    void _postSimple(const char* path, ApiHandler h) {
+        _routes.push_back({ApiMethod::POST, path, h, false});
+        _server.on(path, HTTP_POST, [this, path, h](AsyncWebServerRequest* r) {
+            ApiRequest req;
+            req.method = ApiMethod::POST;
+            req.path = path;
+            ApiResponse resp;
+            h(req, resp);
+            _sendApiResponse(r, resp);
+        });
+    }
+
+    // POST endpoints whose body streams in over multiple chunks (scene save,
+    // storage upload) — h is called once per chunk via onBody, computing a
+    // response once the final chunk (chunkIndex + chunkLen >= chunkTotal) has
+    // been processed. The response can only be sent once ESPAsyncWebServer
+    // calls the onRequest callback (guaranteed to fire once, after every
+    // onBody call) — calling request->send() from inside onBody itself isn't
+    // the library's supported pattern, so the computed response is stashed in
+    // StreamCtx (via _tempObject) for onRequest to actually send.
+    void _postStream(const char* path, ApiHandler h) {
+        _routes.push_back({ApiMethod::POST, path, h, true});
+        _server.on(
+            path, HTTP_POST,
+            [this](AsyncWebServerRequest* r) {
+                auto* ctx = static_cast<StreamCtx*>(r->_tempObject);
+                if (!ctx || !ctx->done) {
+                    auto e = _makeErr("no body");
+                    _sendJson(r, 400, e);
+                    delete ctx;
+                    r->_tempObject = nullptr;
+                    return;
+                }
+                _sendJson(r, ctx->status, ctx->body);
+                bool restart = ctx->restart;
+                delete ctx;
+                r->_tempObject = nullptr;
+                if (restart) {
+                    delay(200);
+                    ESP.restart();
+                }
+            },
+            nullptr,
+            [this, path, h](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t index,
+                            size_t total) {
+                auto* ctx = static_cast<StreamCtx*>(r->_tempObject);
+                if (!ctx) {
+                    ctx = new StreamCtx();
+                    r->_tempObject = ctx;
+                }
+
+                ApiRequest req;
+                req.method = ApiMethod::POST;
+                req.path = path;
+                req.chunk = d;
+                req.chunkLen = l;
+                req.chunkIndex = index;
+                req.chunkTotal = total;
+                req.streamState = ctx->state;
+                String qv;
+                // Only /api/storage/upload takes a query param ("name");
+                // harmless no-op for /api/scenes/save.
+                if (r->hasParam("name")) {
+                    qv = r->getParam("name")->value();
+                    req.query = qv.c_str();
+                }
+                ApiResponse resp;
+                resp.streamDone = false;
+                h(req, resp);
+                ctx->state = req.streamState;
+                if (resp.streamDone) {
+                    ctx->done = true;
+                    ctx->status = resp.status;
+                    ctx->body = resp.body;
+                    ctx->restart = resp.restart;
+                }
+            });
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    static JsonDocument _makeOk() {
-        JsonDocument d;
-        d["ok"] = true;
-        return d;
-    }
     static JsonDocument _makeErr(const char* e) {
         JsonDocument d;
         d["error"] = e;
@@ -714,19 +660,6 @@ class BatteryWebServer {
         String s;
         serializeJson(doc, s);
         r->send(code, "application/json", s);
-    }
-
-    // Parses the request body into doc, sending a 400 "bad json" response on failure.
-    // logCtx, if given, logs "[scene] <logCtx>: bad json" before responding.
-    static bool _parseJson(AsyncWebServerRequest* r, JsonDocument& doc, uint8_t* data, size_t len,
-                           const char* logCtx = nullptr) {
-        if (deserializeJson(doc, data, len)) {
-            if (logCtx) Logger::e("[scene] %s: bad json", logCtx);
-            auto e = _makeErr("bad json");
-            _sendJson(r, 400, e);
-            return false;
-        }
-        return true;
     }
 
     // Parses a "xx:xx:xx:xx:xx:xx" MAC string into a 6-byte array.
@@ -749,9 +682,9 @@ class BatteryWebServer {
     }
 
     // ── GET /api/config ──────────────────────────────────────────────────────
-    void _getConfig(AsyncWebServerRequest* r) {
+    void _getConfig(ApiRequest&, ApiResponse& s) {
         auto& c = Config::get();
-        JsonDocument doc;
+        JsonDocument& doc = s.body;
         doc["deviceName"] = c.deviceName;
         doc["otaPort"] = c.otaPort;
         doc["otaEnabled"] = c.otaEnabled;
@@ -806,7 +739,6 @@ class BatteryWebServer {
             if (!c.groups[i].exists) continue;
             serializeGroup(arr.add<JsonObject>(), c.groups[i]);
         }
-        _sendJson(r, 200, doc);
     }
 
     // ── POST /api/config ─────────────────────────────────────────────────────
@@ -817,9 +749,8 @@ class BatteryWebServer {
     // is applied live via the callbacks below, and the response reports
     // whether a reboot is actually happening so the web UI only shows/waits
     // for one when it's really going to happen.
-    void _postConfig(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _postConfig(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         auto& c = Config::get();
 
         bool rebootNeeded = false;
@@ -871,10 +802,10 @@ class BatteryWebServer {
             uint8_t scl = doc["i2cSclPin"];
             if (sda == PIN_UNUSED || scl == PIN_UNUSED) {
                 if (Config::i2cBusInUse()) {
-                    auto e = _makeErr(
+                    s.status = 400;
+                    s.body["error"] =
                         "I2C bus still used by a configured sound output, button, or "
-                        "the configured expander");
-                    _sendJson(r, 400, e);
+                        "the configured expander";
                     return;
                 }
                 if (c.i2cSdaPin != PIN_UNUSED || c.i2cSclPin != PIN_UNUSED) rebootNeeded = true;
@@ -882,14 +813,14 @@ class BatteryWebServer {
                 c.i2cSclPin = PIN_UNUSED;
             } else {
                 if (sda == scl) {
-                    auto e = _makeErr("SDA and SCL must be different pins");
-                    _sendJson(r, 400, e);
+                    s.status = 400;
+                    s.body["error"] = "SDA and SCL must be different pins";
                     return;
                 }
                 if (Config::isPinInUse(sda, -1, -1, -1, /*excludeI2cBus=*/true) ||
                     Config::isPinInUse(scl, -1, -1, -1, /*excludeI2cBus=*/true)) {
-                    auto e = _makeErr("pin already in use");
-                    _sendJson(r, 400, e);
+                    s.status = 400;
+                    s.body["error"] = "pin already in use";
                     return;
                 }
                 if (c.i2cSdaPin != sda || c.i2cSclPin != scl) rebootNeeded = true;
@@ -911,13 +842,13 @@ class BatteryWebServer {
                                                               : (uint8_t)doc["expanderAddress"];
             if (newChip != IoExpanderChip::None &&
                 (c.i2cSdaPin == PIN_UNUSED || c.i2cSclPin == PIN_UNUSED)) {
-                auto e = _makeErr("configure the device I2C bus first");
-                _sendJson(r, 400, e);
+                s.status = 400;
+                s.body["error"] = "configure the device I2C bus first";
                 return;
             }
             if (newChip == IoExpanderChip::None && Config::expanderInUse()) {
-                auto e = _makeErr("expander still used by a configured sound output or button");
-                _sendJson(r, 400, e);
+                s.status = 400;
+                s.body["error"] = "expander still used by a configured sound output or button";
                 return;
             }
             if (c.expanderChip != newChip || c.expanderAddress != newAddr) rebootNeeded = true;
@@ -966,13 +897,9 @@ class BatteryWebServer {
         if (apPasswordChanged && _onApPasswordChanged) _onApPasswordChanged();
         if (timezoneChanged && _onTimezoneChanged) _onTimezoneChanged(c.timezone);
 
-        auto ok = _makeOk();
-        ok["rebooting"] = rebootNeeded;
-        _sendJson(r, 200, ok);
-        if (rebootNeeded) {
-            delay(200);
-            ESP.restart();
-        }
+        s.body["ok"] = true;
+        s.body["rebooting"] = rebootNeeded;
+        s.restart = rebootNeeded;
     }
 
     // ── POST /api/mqtt/clear ─────────────────────────────────────────────────
@@ -982,7 +909,7 @@ class BatteryWebServer {
     // stale on the broker forever, since nothing else ever cleans it up.
     // Runtime-safe, like the dedicated /api/mesh/wifipolicy endpoint — no
     // reboot needed, MqttManager just disables itself for the rest of this session.
-    void _clearMqtt(AsyncWebServerRequest* r) {
+    void _clearMqtt(ApiRequest&, ApiResponse& s) {
         if (_onClearMqtt) _onClearMqtt();
         auto& c = Config::get();
         c.mqttHost[0] = '\0';
@@ -990,16 +917,11 @@ class BatteryWebServer {
         c.mqttUser[0] = '\0';
         c.mqttPassword[0] = '\0';
         Config::save();
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // ── GET /api/peers ───────────────────────────────────────────────────────
-    void _getPeers(AsyncWebServerRequest* r) {
-        JsonDocument doc;
-        _buildPeersJson(doc);
-        _sendJson(r, 200, doc);
-    }
+    void _getPeers(ApiRequest&, ApiResponse& s) { _buildPeersJson(s.body); }
 
     void _buildPeersJson(JsonDocument& doc) {
         auto& c = Config::get();
@@ -1074,37 +996,32 @@ class BatteryWebServer {
     }
 
     // ── POST /api/groups/create ──────────────────────────────────────────────
-    void _createGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        const char* name = doc["name"] | "New Group";
+    void _createGroup(ApiRequest& q, ApiResponse& s) {
+        const char* name = q.body["name"] | "New Group";
         uint8_t id = Config::createGroup(name);
         if (id == 0xFF) {
-            auto e = _makeErr("group limit reached");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "group limit reached";
             return;
         }
         const GroupConfig& g = Config::get().groups[id];
         Config::save();
         if (_onGroupSync) _onGroupSync(g);
 
-        JsonDocument resp;
-        resp["ok"] = true;
-        resp["id"] = id;
-        _sendJson(r, 200, resp);
+        s.body["ok"] = true;
+        s.body["id"] = id;
         _pushGroups();
     }
 
     // ── POST /api/groups/update ──────────────────────────────────────────────
     // Body: {id, name?, pattern?, r?, g?, b?, brightness?, speed?}
-    void _updateGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _updateGroup(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         uint8_t id = doc["id"] | (uint8_t)0;
         GroupConfig* g = Config::group(id);
         if (!g) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
 
@@ -1119,8 +1036,7 @@ class BatteryWebServer {
             Config::bumpGroupRevision(*g);
             Config::save();
             if (_onGroupSync) _onGroupSync(*g);
-            auto ok = _makeOk();
-            _sendJson(r, 200, ok);
+            s.body["ok"] = true;
             _pushGroups();
             return;
         }
@@ -1144,25 +1060,22 @@ class BatteryWebServer {
 
         Config::save();
         if (nameChanged && _onGroupSync) _onGroupSync(*g);
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
         if (nameChanged) _pushGroups();
     }
 
     // ── POST /api/groups/delete ──────────────────────────────────────────────
-    void _deleteGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        uint8_t id = doc["id"] | (uint8_t)0;
+    void _deleteGroup(ApiRequest& q, ApiResponse& s) {
+        uint8_t id = q.body["id"] | (uint8_t)0;
         if (id == 0) {
-            auto e = _makeErr("cannot delete Default");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "cannot delete Default";
             return;
         }
         GroupConfig* g = Config::group(id);
         if (!g) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
 
@@ -1184,23 +1097,21 @@ class BatteryWebServer {
 
         Config::save();
         if (_onGroupSync) _onGroupSync(tombstone);
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
         _pushGroups();
     }
 
     // ── POST /api/peers/setgroup ─────────────────────────────────────────────
     // Body: {mac, lightIndex, groupId}
-    void _setRemoteGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _setRemoteGroup(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         uint8_t lightIndex = doc["lightIndex"] | (uint8_t)0;
         uint8_t groupId = doc["groupId"] | (uint8_t)0;
         const char* macStr = doc["mac"] | "";
 
         if (lightIndex >= MAX_LIGHTS) {
-            auto e = _makeErr("invalid lightIndex");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "invalid lightIndex";
             return;
         }
 
@@ -1210,22 +1121,20 @@ class BatteryWebServer {
                 Config::save();
                 if (_onGroupChange) _onGroupChange();
             }
-            auto ok = _makeOk();
-            _sendJson(r, 200, ok);
+            s.body["ok"] = true;
             _pushPeers();
             return;
         }
 
         uint8_t mac[6];
         if (!_parseMac(macStr, mac)) {
-            auto e = _makeErr("bad mac");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "bad mac";
             return;
         }
 
         if (_onSetRemote) _onSetRemote(mac, lightIndex, groupId);
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // ── WebSocket push ───────────────────────────────────────────────────────
@@ -1270,101 +1179,192 @@ class BatteryWebServer {
 
     // ── Scene handlers ───────────────────────────────────────────────────────
 
-    void _getScenes(AsyncWebServerRequest* r) {
-        JsonDocument resp;
-        SceneManager::buildList(resp);
-        JsonArray arr = resp["scenes"].as<JsonArray>();
+    void _getScenes(ApiRequest&, ApiResponse& s) {
+        SceneManager::buildList(s.body);
+        JsonArray arr = s.body["scenes"].as<JsonArray>();
         Logger::d("[scene] list: %u scene(s)", arr ? (unsigned)arr.size() : 0);
-        _sendJson(r, 200, resp);
     }
 
-    void _getScene(AsyncWebServerRequest* r) {
-        if (!r->hasParam("id")) {
+    void _getScene(ApiRequest& q, ApiResponse& s) {
+        if (!q.query) {
             Logger::w("[scene] get: missing id param");
-            auto e = _makeErr("missing id");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "missing id";
             return;
         }
-        String id = r->getParam("id")->value();
-        String path = SceneManager::path(id.c_str());
-        Logger::d("[scene] get: id=%s path=%s exists=%d", id.c_str(), path.c_str(),
+        String path = SceneManager::path(q.query);
+        Logger::d("[scene] get: id=%s path=%s exists=%d", q.query, path.c_str(),
                   LittleFS.exists(path));
         if (!LittleFS.exists(path)) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
-        r->send(LittleFS, path, "application/json");
+        s.rawFilePath = path;
     }
 
-    void _createScene(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len, "create")) return;
-        const char* name = doc["name"] | "Unnamed";
-        uint16_t w = doc["w"] | 20;
-        uint16_t h = doc["h"] | 10;
+    void _createScene(ApiRequest& q, ApiResponse& s) {
+        const char* name = q.body["name"] | "Unnamed";
+        uint16_t w = q.body["w"] | 20;
+        uint16_t h = q.body["h"] | 10;
         Logger::i("[scene] create: name=%s w=%u h=%u", name, w, h);
         String id = SceneManager::create(name, w, h);
         if (id.isEmpty()) {
             Logger::e("[scene] create: failed");
-            auto e = _makeErr("create failed");
-            _sendJson(r, 500, e);
+            s.status = 500;
+            s.body["error"] = "create failed";
             return;
         }
         Logger::i("[scene] create: ok id=%s", id.c_str());
         if (_onSceneListChanged) _onSceneListChanged();
-        JsonDocument resp;
-        resp["ok"] = true;
-        resp["id"] = id;
-        _sendJson(r, 200, resp);
+        s.body["ok"] = true;
+        s.body["id"] = id;
     }
 
-    void _deleteScene(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len, "delete")) return;
-        const char* id = doc["id"] | "";
+    void _deleteScene(ApiRequest& q, ApiResponse& s) {
+        const char* id = q.body["id"] | "";
         if (!id[0]) {
             Logger::w("[scene] delete: missing id");
-            auto e = _makeErr("missing id");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "missing id";
             return;
         }
         Logger::i("[scene] delete: id=%s", id);
         bool ok = _sceneSync ? _sceneSync->deleteScene(id) : SceneManager::remove(id);
         Logger::i("[scene] delete: %s", ok ? "ok" : "not found");
         if (ok && _onSceneListChanged) _onSceneListChanged();
-        JsonDocument resp;
+        s.status = ok ? 200 : 404;
         if (ok)
-            resp["ok"] = true;
+            s.body["ok"] = true;
         else
-            resp["error"] = "not found";
-        _sendJson(r, ok ? 200 : 404, resp);
+            s.body["error"] = "not found";
+    }
+
+    // ── POST /api/scenes/save ────────────────────────────────────────────────
+    // Streaming: the body's id field isn't known until enough of it has
+    // arrived, so bytes are buffered until SceneManager::extractId finds it,
+    // then written straight to LittleFS from there on (mirrors the original
+    // AsyncWebServerRequest-based implementation, just keyed off
+    // req.streamState instead of r->_tempObject).
+    void _saveScene(ApiRequest& q, ApiResponse& s) {
+        auto* st = static_cast<SceneSaveState*>(q.streamState);
+        if (!st) {
+            st = new SceneSaveState();
+            q.streamState = st;
+            Logger::d("[scene] save: body start, total=%u bytes", (unsigned)q.chunkTotal);
+        }
+
+        s.streamDone = false;
+
+        if (!st->failed && q.chunkLen) {
+            if (!st->file) {
+                st->buffer.concat((const char*)q.chunk, q.chunkLen);
+                Logger::d("[scene] save: buffering chunk %u bytes (buf=%u): %.80s",
+                          (unsigned)q.chunkLen, (unsigned)st->buffer.length(), st->buffer.c_str());
+                String found;
+                if (!SceneManager::extractId(st->buffer.c_str(), st->buffer.length(), found)) {
+                    if (st->buffer.length() > 16384) {
+                        Logger::e("[scene] save: id not found after %u bytes",
+                                  (unsigned)st->buffer.length());
+                        st->failed = true;
+                        st->error = "missing id";
+                    } else {
+                        Logger::w(
+                            "[scene] save: extractId returned false for buf=%u bytes (body "
+                            "complete at total=%u)",
+                            (unsigned)st->buffer.length(), (unsigned)q.chunkTotal);
+                    }
+                } else {
+                    st->id = found;
+                    st->prevHash = SceneManager::crc32(st->id.c_str());
+                    Logger::d("[scene] save: id=%s prevHash=%08x, opening file", st->id.c_str(),
+                              st->prevHash);
+                    SceneManager::init();
+                    st->file = LittleFS.open(SceneManager::path(st->id.c_str()), "w");
+                    if (!st->file) {
+                        Logger::e("[scene] save: open failed for %s", st->id.c_str());
+                        st->failed = true;
+                        st->error = "open failed";
+                    } else {
+                        size_t written =
+                            st->file.write((const uint8_t*)st->buffer.c_str(), st->buffer.length());
+                        Logger::d("[scene] save: wrote initial buffer %u/%u bytes",
+                                  (unsigned)written, (unsigned)st->buffer.length());
+                        if (written != st->buffer.length()) {
+                            Logger::e("[scene] save: initial write incomplete (%u/%u)",
+                                      (unsigned)written, (unsigned)st->buffer.length());
+                            st->failed = true;
+                            st->error = "write failed";
+                            st->file.close();
+                            st->file = File();
+                        } else {
+                            st->buffer = "";
+                            st->written = true;
+                        }
+                    }
+                }
+            } else {
+                size_t written = st->file.write(q.chunk, q.chunkLen);
+                Logger::d("[scene] save: chunk at index=%u len=%u written=%u",
+                          (unsigned)q.chunkIndex, (unsigned)q.chunkLen, (unsigned)written);
+                if (written != q.chunkLen) {
+                    Logger::e("[scene] save: chunk write incomplete (%u/%u) at index=%u",
+                              (unsigned)written, (unsigned)q.chunkLen, (unsigned)q.chunkIndex);
+                    st->failed = true;
+                    st->error = "write failed";
+                    st->file.close();
+                    st->file = File();
+                } else {
+                    st->written = true;
+                }
+            }
+        }
+
+        if (q.chunkIndex + q.chunkLen < q.chunkTotal) return;  // more chunks coming
+
+        bool ok = !st->failed && st->written;
+        if (st->file) st->file.close();
+
+        if (ok) {
+            Logger::i("[scene] save ok: %s", st->id.c_str());
+            if (_sceneSync) _sceneSync->onSceneChanged(st->id.c_str(), st->prevHash);
+            if (_onSceneSaved) _onSceneSaved(st->id.c_str());
+        } else {
+            Logger::e("[scene] save failed: %s (failed=%d written=%d)",
+                      st->error ? st->error : "?", st->failed, st->written);
+        }
+
+        s.status = ok ? 200 : 500;
+        if (ok)
+            s.body["ok"] = true;
+        else
+            s.body["error"] = st->failed ? (st->error ? st->error : "save failed") : "save failed";
+        s.streamDone = true;
+        delete st;
+        q.streamState = nullptr;
     }
 
     // ── Scene sync handlers ──────────────────────────────────────────────────
 
-    void _getSyncConflicts(AsyncWebServerRequest* r) {
-        JsonDocument doc;
+    void _getSyncConflicts(ApiRequest&, ApiResponse& s) {
         if (_sceneSync) {
-            _sceneSync->buildConflictsJson(doc);
-            _sceneSync->buildPeerScenesJson(doc);
+            _sceneSync->buildConflictsJson(s.body);
+            _sceneSync->buildPeerScenesJson(s.body);
         } else {
-            doc["conflicts"].to<JsonArray>();
-            doc["peerScenes"].to<JsonArray>();
+            s.body["conflicts"].to<JsonArray>();
+            s.body["peerScenes"].to<JsonArray>();
         }
-        _sendJson(r, 200, doc);
     }
 
     // Body: {id, sourceMac}  — sourceMac is the device whose copy wins.
     // Use sourceMac == own MAC or omit to use local copy.
-    void _resolveSyncConflict(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _resolveSyncConflict(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         const char* id = doc["id"] | "";
         const char* macStr = doc["sourceMac"] | "";
         if (!id[0]) {
-            auto e = _makeErr("missing id");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "missing id";
             return;
         }
 
@@ -1376,50 +1376,45 @@ class BatteryWebServer {
         } else {
             uint8_t mac[6];
             if (!_parseMac(macStr, mac)) {
-                auto e = _makeErr("bad mac");
-                _sendJson(r, 400, e);
+                s.status = 400;
+                s.body["error"] = "bad mac";
                 return;
             }
             if (_onResolveConflict) _onResolveConflict(id, mac);
         }
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // ── GET /api/wifi ─────────────────────────────────────────────────────────
-    void _getWifi(AsyncWebServerRequest* r) {
-        JsonDocument doc;
+    void _getWifi(ApiRequest&, ApiResponse& s) {
         if (WiFi.status() == WL_CONNECTED) {
             // Use Config::wifiLast() rather than WiFi.SSID() to avoid calling
             // esp_wifi_sta_get_ap_info() from an async handler — that call can
             // block waiting for the WiFi driver lock during reconnect events.
             uint8_t last = Config::wifiLast();
-            doc["connected"] = (last < Config::wifiCount())
-                                   ? (const char*)Config::wifiNetworks()[last].ssid
-                                   : (const char*)nullptr;
+            s.body["connected"] = (last < Config::wifiCount())
+                                      ? (const char*)Config::wifiNetworks()[last].ssid
+                                      : (const char*)nullptr;
         } else {
-            doc["connected"] = nullptr;
+            s.body["connected"] = nullptr;
         }
-        JsonArray arr = doc["networks"].to<JsonArray>();
+        JsonArray arr = s.body["networks"].to<JsonArray>();
         for (uint8_t i = 0; i < Config::wifiCount(); i++) arr.add(Config::wifiNetworks()[i].ssid);
-        _sendJson(r, 200, doc);
     }
 
     // ── POST /api/wifi/add ────────────────────────────────────────────────────
     // Body: {ssid, password}
-    void _addWifi(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        const char* ssid = doc["ssid"] | "";
-        const char* pass = doc["password"] | "";
+    void _addWifi(ApiRequest& q, ApiResponse& s) {
+        const char* ssid = q.body["ssid"] | "";
+        const char* pass = q.body["password"] | "";
         if (strlen(ssid) == 0) {
-            auto e = _makeErr("ssid required");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "ssid required";
             return;
         }
         if (!Config::addWifiNetwork(ssid, pass)) {
-            auto e = _makeErr("network list full");
-            _sendJson(r, 409, e);
+            s.status = 409;
+            s.body["error"] = "network list full";
             return;
         }
         // Nothing else actually connects to a newly-saved network until the
@@ -1428,37 +1423,31 @@ class BatteryWebServer {
         if (WiFi.status() != WL_CONNECTED && _onWifiConnectForConfirm) {
             _onWifiConnectForConfirm([](bool) {});
         }
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // ── POST /api/wifi/delete ─────────────────────────────────────────────────
     // Body: {ssid}
-    void _deleteWifi(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        const char* ssid = doc["ssid"] | "";
+    void _deleteWifi(ApiRequest& q, ApiResponse& s) {
+        const char* ssid = q.body["ssid"] | "";
         if (strlen(ssid) == 0) {
-            auto e = _makeErr("ssid required");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "ssid required";
             return;
         }
         Config::deleteWifiNetwork(ssid);
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // ── POST /api/wifi/move ───────────────────────────────────────────────────
     // Body: {ssid, direction: "up"|"down"} — swaps ssid with its immediate
     // neighbor; connect order is list order, so this changes priority.
-    void _moveWifi(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        const char* ssid = doc["ssid"] | "";
-        const char* dir = doc["direction"] | "";
+    void _moveWifi(ApiRequest& q, ApiResponse& s) {
+        const char* ssid = q.body["ssid"] | "";
+        const char* dir = q.body["direction"] | "";
         if (strlen(ssid) == 0) {
-            auto e = _makeErr("ssid required");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "ssid required";
             return;
         }
         int8_t direction;
@@ -1467,17 +1456,16 @@ class BatteryWebServer {
         else if (strcmp(dir, "down") == 0)
             direction = 1;
         else {
-            auto e = _makeErr("direction must be up or down");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "direction must be up or down";
             return;
         }
         if (!Config::moveWifiNetwork(ssid, direction)) {
-            auto e = _makeErr("cannot move");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "cannot move";
             return;
         }
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // Body: {mac?, deviceName?, ledType?, addWifiNetworks?, apPassword?,
@@ -1485,15 +1473,14 @@ class BatteryWebServer {
     //        otaEnabled?}
     // mac omitted or empty = push to all peers. Only present fields are pushed;
     // deviceName and ledType require a specific target mac.
-    void _pushConfig(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _pushConfig(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         const char* macStr = doc["mac"] | "";
         uint8_t targetMac[6] = {0, 0, 0, 0, 0, 0};
         bool hasTarget = macStr[0] != '\0';
         if (hasTarget && !_parseMac(macStr, targetMac)) {
-            auto e = _makeErr("bad mac");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "bad mac";
             return;
         }
 
@@ -1525,16 +1512,16 @@ class BatteryWebServer {
                 if (newName[0] != '\0') {
                     // Uniqueness check against peer registry and own name
                     if (strcmp(Config::get().deviceName, newName) == 0) {
-                        auto e = _makeErr("name already in use");
-                        _sendJson(r, 409, e);
+                        s.status = 409;
+                        s.body["error"] = "name already in use";
                         return;
                     }
                     if (_peers) {
                         for (auto& p : *_peers) {
                             if (!p.active || memcmp(p.mac, targetMac, 6) == 0) continue;
                             if (strcmp(p.name, newName) == 0) {
-                                auto e = _makeErr("name already in use");
-                                _sendJson(r, 409, e);
+                                s.status = 409;
+                                s.body["error"] = "name already in use";
                                 return;
                             }
                         }
@@ -1547,9 +1534,9 @@ class BatteryWebServer {
 
         // useLocal: fields the UI wants filled from this device's own config
         auto& c = Config::get();
-        JsonArray useLocal = doc["useLocal"].as<JsonArray>();
+        JsonArrayConst useLocal = doc["useLocal"].as<JsonArrayConst>();
         auto isUseLocal = [&](const char* key) -> bool {
-            for (JsonVariant v : useLocal)
+            for (JsonVariantConst v : useLocal)
                 if (strcmp(v.as<const char*>(), key) == 0) return true;
             return false;
         };
@@ -1594,22 +1581,20 @@ class BatteryWebServer {
         addBool("otaEnabled");
 
         if (!any) {
-            auto e = _makeErr("no fields to push");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "no fields to push";
             return;
         }
 
         String json;
         serializeJson(payload, json);
         if (_onPushConfig) _onPushConfig(targetMac, json.c_str(), json.length());
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // Body: {mac, enabled}
-    void _setRemoteSceneSync(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _setRemoteSceneSync(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         const char* macStr = doc["mac"] | "";
         bool enabled = doc["enabled"] | true;
 
@@ -1619,58 +1604,51 @@ class BatteryWebServer {
             Config::save();
             if (enabled && !prev && _sceneSync) _sceneSync->onSyncEnabled();
             if (enabled != prev && _onSceneSyncChanged) _onSceneSyncChanged();
-            auto ok = _makeOk();
-            _sendJson(r, 200, ok);
+            s.body["ok"] = true;
             return;
         }
 
         uint8_t mac[6];
         if (!_parseMac(macStr, mac)) {
-            auto e = _makeErr("bad mac");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "bad mac";
             return;
         }
         if (_onSetRemoteSync) _onSetRemoteSync(mac, enabled);
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // Body: {enabled}
-    void _setWifiPolicy(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        bool enabled = doc["enabled"] | false;
+    void _setWifiPolicy(ApiRequest& q, ApiResponse& s) {
+        bool enabled = q.body["enabled"] | false;
         if (_onMeshPolicyChange)
             _onMeshPolicyChange(enabled);
         else {
             Config::get().wifiSingleClientMode = enabled;
             Config::save();
         }
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
         _pushPeers();  // wifi icon colors in the device list depend on this flag
     }
 
     // Shared body for /api/peers/triggerupdate and /api/peers/checkupdate:
     // parse the target MAC, reject if that peer is known but offline, then
     // invoke the given callback.
-    void _peerUpdateRequest(AsyncWebServerRequest* r, uint8_t* data, size_t len,
-                            const char* logVerb, const std::function<void(const uint8_t*)>& cb) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        const char* macStr = doc["mac"] | "";
+    void _peerUpdateRequest(ApiRequest& q, ApiResponse& s, const char* logVerb,
+                            const std::function<void(const uint8_t*)>& cb) {
+        const char* macStr = q.body["mac"] | "";
         uint8_t mac[6];
         if (!_parseMac(macStr, mac)) {
-            auto e = _makeErr("bad mac");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "bad mac";
             return;
         }
         if (_peers) {
             for (auto& p : *_peers) {
                 if (p.active && memcmp(p.mac, mac, 6) == 0) {
                     if (!p.online()) {
-                        auto e = _makeErr("peer offline");
-                        _sendJson(r, 409, e);
+                        s.status = 409;
+                        s.body["error"] = "peer offline";
                         return;
                     }
                     // In single-client mode, an online candidate peer that's
@@ -1682,8 +1660,8 @@ class BatteryWebServer {
                     bool canConnectOnDemand =
                         Config::get().wifiSingleClientMode && p.hasWifiNetworks;
                     if (!p.wifiConnected && !canConnectOnDemand) {
-                        auto e = _makeErr("peer not connected to WiFi");
-                        _sendJson(r, 409, e);
+                        s.status = 409;
+                        s.body["error"] = "peer not connected to WiFi";
                         return;
                     }
                     break;
@@ -1692,25 +1670,23 @@ class BatteryWebServer {
         }
         Logger::i("[web] %s for %s", logVerb, macStr);
         if (cb) cb(mac);
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // ── POST /api/peers/triggerupdate ─────────────────────────────────────────
-    void _triggerPeerUpdate(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        _peerUpdateRequest(r, data, len, "trigger-update", _onTriggerPeerUpdate);
+    void _triggerPeerUpdate(ApiRequest& q, ApiResponse& s) {
+        _peerUpdateRequest(q, s, "trigger-update", _onTriggerPeerUpdate);
     }
 
     // ── POST /api/peers/checkupdate ───────────────────────────────────────────
-    void _checkPeerUpdate(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        _peerUpdateRequest(r, data, len, "check-update", _onCheckPeerUpdate);
+    void _checkPeerUpdate(ApiRequest& q, ApiResponse& s) {
+        _peerUpdateRequest(q, s, "check-update", _onCheckPeerUpdate);
     }
 
     // ── GET /api/lights ───────────────────────────────────────────────────────
-    void _getLights(AsyncWebServerRequest* r) {
-        JsonDocument doc;
-        JsonArray arr = doc["lights"].to<JsonArray>();
-        doc["maxLights"] = MAX_LIGHTS;
+    void _getLights(ApiRequest&, ApiResponse& s) {
+        JsonArray arr = s.body["lights"].to<JsonArray>();
+        s.body["maxLights"] = MAX_LIGHTS;
         for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
             auto& l = Config::get().lights[i];
             if (!l.exists) continue;
@@ -1732,7 +1708,6 @@ class BatteryWebServer {
             o["brightnessOverrideEnabled"] = l.brightnessOverrideEnabled;
             o["brightnessOverride"] = l.brightnessOverride;
         }
-        _sendJson(r, 200, doc);
     }
 
     // Returns an error string if the light's active pins collide with each
@@ -1754,9 +1729,8 @@ class BatteryWebServer {
     // ── POST /api/lights/add ──────────────────────────────────────────────────
     // Body: {ledType, colorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir,
     // matrixSerpentine, wrapWidth, wrapHeight, groupId}
-    void _addLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _addLight(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         // Find first free slot
         uint8_t idx = 0xFF;
         for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
@@ -1766,8 +1740,8 @@ class BatteryWebServer {
             }
         }
         if (idx == 0xFF) {
-            auto e = _makeErr("light limit reached");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "light limit reached";
             return;
         }
         LightHardwareConfig l;
@@ -1788,32 +1762,28 @@ class BatteryWebServer {
         if (l.width == 0) l.width = 1;
         if (l.height == 0) l.height = 1;
         if (const char* conflict = _lightPinConflict(l, /*excludeLightIndex=*/idx)) {
-            auto e = _makeErr(conflict);
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = conflict;
             return;
         }
         l.exists = true;
         Config::get().lights[idx] = l;
         Config::save();
-        JsonDocument resp;
-        resp["ok"] = true;
-        resp["index"] = idx;
-        _sendJson(r, 200, resp);
+        s.body["ok"] = true;
+        s.body["index"] = idx;
         // Hardware config changes require restart to take effect
-        delay(200);
-        ESP.restart();
+        s.restart = true;
     }
 
     // ── POST /api/lights/update ───────────────────────────────────────────────
     // Body: {index, ledType?, colorOrder?, dataPin?, clockPin?, width?, height?, matrixStart?,
     // matrixDir?, matrixSerpentine?, wrapWidth?, wrapHeight?, groupId?}
-    void _updateLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _updateLight(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         uint8_t idx = doc["index"] | (uint8_t)0xFF;
         if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
         auto& l = Config::get().lights[idx];
@@ -1842,8 +1812,8 @@ class BatteryWebServer {
         }
         if (pinsChanged) {
             if (const char* conflict = _lightPinConflict(pinCandidate, (int8_t)idx)) {
-                auto e = _makeErr(conflict);
-                _sendJson(r, 400, e);
+                s.status = 400;
+                s.body["error"] = conflict;
                 return;
             }
             l.ledType = pinCandidate.ledType;
@@ -1904,11 +1874,9 @@ class BatteryWebServer {
             brightnessOverrideChanged = true;
         }
         Config::save();
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
         if (hwChanged) {
-            delay(200);
-            ESP.restart();
+            s.restart = true;
             return;
         }
         if (orientationChanged && _onOrientationChange) _onOrientationChange(idx);
@@ -1918,75 +1886,63 @@ class BatteryWebServer {
 
     // ── POST /api/lights/test ─────────────────────────────────────────────────
     // Body: {index}
-    void _testLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+    void _testLight(ApiRequest& q, ApiResponse& s) {
+        uint8_t idx = q.body["index"] | (uint8_t)0xFF;
         if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
         if (Config::get().lights[idx].height < 2) {
-            auto e = _makeErr("not a matrix");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "not a matrix";
             return;
         }
         if (_onTestLight) _onTestLight(idx);
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // ── POST /api/lights/testcolor ────────────────────────────────────────────
     // Body: {index} — cycles the light through solid red/green/blue so the
     // user can check colorOrder against the strip's actual wiring. Unlike
     // /api/lights/test (orientation), this isn't restricted to matrix lights.
-    void _testColorOrder(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+    void _testColorOrder(ApiRequest& q, ApiResponse& s) {
+        uint8_t idx = q.body["index"] | (uint8_t)0xFF;
         if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
         if (_onTestColorOrder) _onTestColorOrder(idx);
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // ── POST /api/lights/delete ───────────────────────────────────────────────
     // Body: {index}
-    void _deleteLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+    void _deleteLight(ApiRequest& q, ApiResponse& s) {
+        uint8_t idx = q.body["index"] | (uint8_t)0xFF;
         if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
         Config::get().lights[idx].exists = false;
         Config::save();
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
-        delay(200);
-        ESP.restart();
+        s.body["ok"] = true;
+        s.restart = true;
     }
 
     // ── GET /api/sounds ────────────────────────────────────────────────────────
-    void _getSounds(AsyncWebServerRequest* r) {
-        JsonDocument doc;
-        JsonArray arr = doc["sounds"].to<JsonArray>();
-        doc["maxSounds"] = MAX_SOUNDS;
+    void _getSounds(ApiRequest&, ApiResponse& s) {
+        JsonArray arr = s.body["sounds"].to<JsonArray>();
+        s.body["maxSounds"] = MAX_SOUNDS;
         for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
-            auto& s = Config::get().sounds[i];
-            if (!s.exists) continue;
+            auto& snd = Config::get().sounds[i];
+            if (!snd.exists) continue;
             JsonObject o = arr.add<JsonObject>();
             o["index"] = i;
-            serializeSound(o, s);
+            serializeSound(o, snd);
         }
-        _sendJson(r, 200, doc);
     }
 
     // True if the device-wide I2C bus (DeviceConfig::i2cSdaPin/i2cSclPin) has
@@ -2029,12 +1985,11 @@ class BatteryWebServer {
     // ── POST /api/sounds/add ──────────────────────────────────────────────────
     // Body: {name?, chip?, i2cAddress?, i2sMclkPin?, i2sBclkPin, i2sWsPin, i2sDoutPin,
     // paEnablePin?, paEnableActiveHigh?, paViaExpander?}
-    void _addSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _addSound(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         if (!_i2cBusConfigured()) {
-            auto e = _makeErr("configure the device I2C bus in Hardware settings first");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "configure the device I2C bus in Hardware settings first";
             return;
         }
         uint8_t idx = 0xFF;
@@ -2045,44 +2000,41 @@ class BatteryWebServer {
             }
         }
         if (idx == 0xFF) {
-            auto e = _makeErr("sound limit reached");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "sound limit reached";
             return;
         }
-        SoundHardwareConfig s;
-        deserializeSound(doc, s);
-        if (s.i2sBclkPin == PIN_UNUSED || s.i2sWsPin == PIN_UNUSED || s.i2sDoutPin == PIN_UNUSED) {
-            auto e = _makeErr("missing required pin");
-            _sendJson(r, 400, e);
+        SoundHardwareConfig snd;
+        deserializeSound(doc, snd);
+        if (snd.i2sBclkPin == PIN_UNUSED || snd.i2sWsPin == PIN_UNUSED ||
+            snd.i2sDoutPin == PIN_UNUSED) {
+            s.status = 400;
+            s.body["error"] = "missing required pin";
             return;
         }
-        if (const char* conflict = _soundPinConflict(s, /*excludeSoundIndex=*/idx)) {
-            auto e = _makeErr(conflict);
-            _sendJson(r, 400, e);
+        if (const char* conflict = _soundPinConflict(snd, /*excludeSoundIndex=*/idx)) {
+            s.status = 400;
+            s.body["error"] = conflict;
             return;
         }
-        s.exists = true;
-        Config::get().sounds[idx] = s;
+        snd.exists = true;
+        Config::get().sounds[idx] = snd;
         Config::save();
-        JsonDocument resp;
-        resp["ok"] = true;
-        resp["index"] = idx;
-        _sendJson(r, 200, resp);
+        s.body["ok"] = true;
+        s.body["index"] = idx;
         // Hardware config changes require restart to take effect
-        delay(200);
-        ESP.restart();
+        s.restart = true;
     }
 
     // ── POST /api/sounds/update ─────────────────────────────────────────────────
     // Body: {index, name?, chip?, i2cAddress?, i2sMclkPin?, i2sBclkPin?, i2sWsPin?,
     // i2sDoutPin?, paEnablePin?, paEnableActiveHigh?, paViaExpander?}
-    void _updateSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _updateSound(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         uint8_t idx = doc["index"] | (uint8_t)0xFF;
         if (idx >= MAX_SOUNDS || !Config::get().sounds[idx].exists) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
         auto& existing = Config::get().sounds[idx];
@@ -2132,60 +2084,49 @@ class BatteryWebServer {
         if (hwChanged) {
             if (candidate.i2sBclkPin == PIN_UNUSED || candidate.i2sWsPin == PIN_UNUSED ||
                 candidate.i2sDoutPin == PIN_UNUSED) {
-                auto e = _makeErr("missing required pin");
-                _sendJson(r, 400, e);
+                s.status = 400;
+                s.body["error"] = "missing required pin";
                 return;
             }
             if (const char* conflict = _soundPinConflict(candidate, /*excludeSoundIndex=*/idx)) {
-                auto e = _makeErr(conflict);
-                _sendJson(r, 400, e);
+                s.status = 400;
+                s.body["error"] = conflict;
                 return;
             }
             candidate.exists = true;
             existing = candidate;
         }
         Config::save();
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
-        if (hwChanged) {
-            delay(200);
-            ESP.restart();
-        }
+        s.body["ok"] = true;
+        if (hwChanged) s.restart = true;
     }
 
     // ── POST /api/sounds/delete ───────────────────────────────────────────────
     // Body: {index}
-    void _deleteSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+    void _deleteSound(ApiRequest& q, ApiResponse& s) {
+        uint8_t idx = q.body["index"] | (uint8_t)0xFF;
         if (idx >= MAX_SOUNDS || !Config::get().sounds[idx].exists) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
         Config::get().sounds[idx].exists = false;
         Config::save();
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
-        delay(200);
-        ESP.restart();
+        s.body["ok"] = true;
+        s.restart = true;
     }
 
     // ── POST /api/sounds/test ─────────────────────────────────────────────────
     // Body: {index} — plays the built-in hardware-verification melody.
-    void _testSound(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+    void _testSound(ApiRequest& q, ApiResponse& s) {
+        uint8_t idx = q.body["index"] | (uint8_t)0xFF;
         if (idx >= MAX_SOUNDS || !Config::get().sounds[idx].exists) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
         if (_onTestSound) _onTestSound(idx);
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // ── Storage (SD card) ────────────────────────────────────────────────────
@@ -2202,18 +2143,17 @@ class BatteryWebServer {
     }
 
     // ── GET /api/storage ─────────────────────────────────────────────────────
-    void _getStorage(AsyncWebServerRequest* r) {
-        JsonDocument doc;
-        doc["hwSupported"] = SdCardManager::kHwSupported;
+    void _getStorage(ApiRequest&, ApiResponse& s) {
+        s.body["hwSupported"] = SdCardManager::kHwSupported;
         bool present = _sdCard && _sdCard->present();
-        doc["present"] = present;
-        doc["totalBytes"] = present ? _sdCard->totalBytes() : 0;
-        doc["usedBytes"] = present ? _sdCard->usedBytes() : 0;
+        s.body["present"] = present;
+        s.body["totalBytes"] = present ? _sdCard->totalBytes() : 0;
+        s.body["usedBytes"] = present ? _sdCard->usedBytes() : 0;
         // Only list files this API can actually manage (see _isValidWavName) —
         // the card's root can otherwise hold arbitrary pre-existing files (a
         // prior recording, OS-created metadata from formatting the card on a
         // computer, ...) that would show up here but always 400 on delete.
-        JsonArray files = doc["files"].to<JsonArray>();
+        JsonArray files = s.body["files"].to<JsonArray>();
         if (present) {
             _sdCard->forEachFile([&](const String& name, size_t size) {
                 if (!_isValidWavName(name)) return;
@@ -2222,102 +2162,86 @@ class BatteryWebServer {
                 o["size"] = size;
             });
         }
-        _sendJson(r, 200, doc);
     }
 
     // ── POST /api/storage/upload?name=<file.wav> ────────────────────────────
-    // Body: raw file bytes (streamed straight to the SD card, not buffered —
-    // audio files are too large for that, unlike the scene-save JSON above).
-    void _storageUploadChunk(AsyncWebServerRequest* r, uint8_t* data, size_t len, size_t index,
-                             size_t) {
-        auto* st = static_cast<StorageUploadState*>(r->_tempObject);
+    // Streaming: raw file bytes written straight to the SD card as they
+    // arrive, not buffered — audio files are too large for that, unlike the
+    // scene-save JSON above.
+    void _storageUpload(ApiRequest& q, ApiResponse& s) {
+        auto* st = static_cast<StorageUploadState*>(q.streamState);
+        s.streamDone = false;
         if (!st) {
             st = new StorageUploadState();
-            r->_tempObject = st;
+            q.streamState = st;
 
-            String name;
-            if (r->hasParam("name")) name = r->getParam("name")->value();
+            String name = q.query ? q.query : "";
             if (!_isValidWavName(name)) {
                 Logger::w("[storage] upload: rejected filename %s", name.c_str());
                 st->failed = true;
                 st->error = "invalid filename";
-                return;
-            }
-            if (!_sdCard || !_sdCard->present()) {
+            } else if (!_sdCard || !_sdCard->present()) {
                 st->failed = true;
                 st->error = "no SD card";
-                return;
+            } else {
+                st->file = _sdCard->openForWrite(name);
+                if (!st->file) {
+                    Logger::e("[storage] upload: open failed for %s", name.c_str());
+                    st->failed = true;
+                    st->error = "open failed";
+                } else {
+                    Logger::i("[storage] upload: %s", name.c_str());
+                }
             }
-            st->file = _sdCard->openForWrite(name);
-            if (!st->file) {
-                Logger::e("[storage] upload: open failed for %s", name.c_str());
+        }
+
+        if (!st->failed && q.chunkLen) {
+            size_t written = st->file.write(q.chunk, q.chunkLen);
+            if (written != q.chunkLen) {
+                Logger::e("[storage] upload: chunk write incomplete (%u/%u) at index=%u",
+                          (unsigned)written, (unsigned)q.chunkLen, (unsigned)q.chunkIndex);
                 st->failed = true;
-                st->error = "open failed";
-                return;
+                st->error = "write failed";
+                st->file.close();
+                st->file = File();
             }
-            Logger::i("[storage] upload: %s", name.c_str());
         }
 
-        if (st->failed || !len) return;
+        if (q.chunkIndex + q.chunkLen < q.chunkTotal) return;  // more chunks coming
 
-        size_t written = st->file.write(data, len);
-        if (written != len) {
-            Logger::e("[storage] upload: chunk write incomplete (%u/%u) at index=%u",
-                      (unsigned)written, (unsigned)len, (unsigned)index);
-            st->failed = true;
-            st->error = "write failed";
-            st->file.close();
-            st->file = File();
-        }
-    }
-
-    void _finishStorageUpload(AsyncWebServerRequest* r) {
-        auto* st = static_cast<StorageUploadState*>(r->_tempObject);
-        if (!st) {
-            auto e = _makeErr("no body");
-            _sendJson(r, 400, e);
-            return;
-        }
         if (st->file) st->file.close();
-
-        JsonDocument resp;
-        int code = 200;
+        s.streamDone = true;
         if (st->failed) {
-            resp["error"] = st->error ? st->error : "upload failed";
-            code = 400;
+            s.status = 400;
+            s.body["error"] = st->error ? st->error : "upload failed";
         } else {
-            resp["ok"] = true;
+            s.body["ok"] = true;
         }
         delete st;
-        r->_tempObject = nullptr;
-        _sendJson(r, code, resp);
+        q.streamState = nullptr;
     }
 
     // ── POST /api/storage/delete ─────────────────────────────────────────────
     // Body: {name}
-    void _deleteStorageFile(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        String name = doc["name"] | "";
+    void _deleteStorageFile(ApiRequest& q, ApiResponse& s) {
+        String name = q.body["name"] | "";
         if (!_isValidWavName(name)) {
-            auto e = _makeErr("invalid filename");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "invalid filename";
             return;
         }
         if (!_sdCard || !_sdCard->deleteFile(name)) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
     }
 
     // ── GET /api/buttons ──────────────────────────────────────────────────────
-    void _getButtons(AsyncWebServerRequest* r) {
-        JsonDocument doc;
-        doc["maxButtons"] = MAX_BUTTONS;
-        JsonArray arr = doc["buttons"].to<JsonArray>();
+    void _getButtons(ApiRequest&, ApiResponse& s) {
+        s.body["maxButtons"] = MAX_BUTTONS;
+        JsonArray arr = s.body["buttons"].to<JsonArray>();
         for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
             auto& b = Config::get().buttons[i];
             if (!b.exists) continue;
@@ -2325,7 +2249,6 @@ class BatteryWebServer {
             o["index"] = i;
             serializeButton(o, b);
         }
-        _sendJson(r, 200, doc);
     }
 
     // Returns an error string if b's pin collides with another configured
@@ -2349,9 +2272,8 @@ class BatteryWebServer {
     // ── POST /api/buttons/add ─────────────────────────────────────────────────
     // Body: {name?, pin, activeLow?, viaExpander?, onShortPress?, onLongPress?,
     // onDoubleClick?}
-    void _addButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _addButton(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         uint8_t idx = 0xFF;
         for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
             if (!Config::get().buttons[i].exists) {
@@ -2360,37 +2282,34 @@ class BatteryWebServer {
             }
         }
         if (idx == 0xFF) {
-            auto e = _makeErr("button limit reached");
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = "button limit reached";
             return;
         }
         ButtonHardwareConfig b;
         deserializeButton(doc, b);
         if (const char* conflict = _buttonPinConflict(b, /*excludeButtonIndex=*/idx)) {
-            auto e = _makeErr(conflict);
-            _sendJson(r, 400, e);
+            s.status = 400;
+            s.body["error"] = conflict;
             return;
         }
         b.exists = true;  // deserializeButton defaults "exists" to false when the key is absent
         Config::get().buttons[idx] = b;
         Config::save();
-        JsonDocument resp;
-        resp["ok"] = true;
-        resp["index"] = idx;
-        _sendJson(r, 200, resp);
+        s.body["ok"] = true;
+        s.body["index"] = idx;
         if (_onButtonsChanged) _onButtonsChanged();
     }
 
     // ── POST /api/buttons/update ──────────────────────────────────────────────
     // Body: {index, name?, pin?, activeLow?, viaExpander?, onShortPress?, onLongPress?,
     // onDoubleClick?}
-    void _updateButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
+    void _updateButton(ApiRequest& q, ApiResponse& s) {
+        JsonVariantConst doc = q.body;
         uint8_t idx = doc["index"] | (uint8_t)0xFF;
         if (idx >= MAX_BUTTONS || !Config::get().buttons[idx].exists) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
         auto& existing = Config::get().buttons[idx];
@@ -2412,8 +2331,8 @@ class BatteryWebServer {
         }
         if (pinChanged) {
             if (const char* conflict = _buttonPinConflict(candidate, (int8_t)idx)) {
-                auto e = _makeErr(conflict);
-                _sendJson(r, 400, e);
+                s.status = 400;
+                s.body["error"] = conflict;
                 return;
             }
         }
@@ -2428,26 +2347,22 @@ class BatteryWebServer {
             existing.onDoubleClick =
                 deserializeButtonAction(doc["onDoubleClick"], existing.onDoubleClick);
         Config::save();
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
         if (_onButtonsChanged) _onButtonsChanged();
     }
 
     // ── POST /api/buttons/delete ──────────────────────────────────────────────
     // Body: {index}
-    void _deleteButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
-        JsonDocument doc;
-        if (!_parseJson(r, doc, data, len)) return;
-        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+    void _deleteButton(ApiRequest& q, ApiResponse& s) {
+        uint8_t idx = q.body["index"] | (uint8_t)0xFF;
         if (idx >= MAX_BUTTONS || !Config::get().buttons[idx].exists) {
-            auto e = _makeErr("not found");
-            _sendJson(r, 404, e);
+            s.status = 404;
+            s.body["error"] = "not found";
             return;
         }
         Config::get().buttons[idx].exists = false;
         Config::save();
-        auto ok = _makeOk();
-        _sendJson(r, 200, ok);
+        s.body["ok"] = true;
         if (_onButtonsChanged) _onButtonsChanged();
     }
 
