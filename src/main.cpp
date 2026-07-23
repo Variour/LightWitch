@@ -8,6 +8,7 @@
 #include <new>
 
 #include "actions/ActionExecutor.h"
+#include "automations/AutomationManager.h"
 #include "battery/BatteryMonitor.h"
 #include "buttons/ButtonManager.h"
 #include "config/Config.h"
@@ -43,6 +44,7 @@ static SceneSyncManager sceneSync;
 static PlaylistSyncManager playlistSync;
 static ActionExecutor actionExecutor;
 static ButtonManager buttonManager;
+static AutomationManager automationManager;
 static BatteryMonitor battery;
 static bool _otaActive = false;
 
@@ -528,6 +530,7 @@ void setup() {
         [](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
     buttonManager.setExecutor(&actionExecutor);
     buttonManager.begin();
+    automationManager.setExecutor(&actionExecutor);
 
     if (MDNS.begin(Config::get().deviceName))
         Logger::i("[mdns] http://%s.local", Config::get().deviceName);
@@ -543,6 +546,9 @@ void setup() {
         [](const MeshManager::MeshPolicyState& state) { applyWifiPolicyState(state, "mesh"); });
     mesh.setOnWifiRetry([]() { wifiElection.retryNow(); });
     mesh.setOnMeshSearch([]() { channelMgr.beginSearch(); });
+    mesh.setOnGenericEvent([](const uint8_t* mac, const char* eventType, uint16_t payload) {
+        automationManager.onGenericEvent(mac, eventType, payload);
+    });
     mesh.setBatteryStatusProvider([]() { return battery.status(); });
 
     // Wire SceneSyncManager → MeshManager

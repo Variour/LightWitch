@@ -152,6 +152,14 @@ enum class ActionId : uint8_t {
     LightBrightnessOverrideClear,
 };
 
+// What kind of event an AutomationBinding matches against (see AutomationBinding
+// below, issue #439). Each future trigger type gets its own binding table using
+// the same selector -> condition -> action-fan-out pattern, not a shared struct
+// — see the issue's "Rejected/deferred alternatives" for why.
+enum class TriggerType : uint8_t {
+    GenericEvent = 0,
+};
+
 struct Color {
     uint8_t r = 255;
     uint8_t g = 255;
@@ -166,6 +174,11 @@ struct Color {
 
 // Scene id buffer size, incl. null terminator (also used for wire structs in MeshTypes.h).
 static constexpr uint8_t SCENE_ID_LEN = 33;
+
+// GenericEventMsg::eventType buffer size, incl. null terminator (see MeshTypes.h)
+// — also used here so AutomationBinding::eventType can match it directly, same
+// convention as SCENE_ID_LEN.
+static constexpr uint8_t EVENT_TYPE_LEN = 33;
 
 struct LightConfig {
     GroupMode mode = GroupMode::Pattern;
@@ -305,6 +318,44 @@ void serializeButtonAction(JsonObject o, const ButtonAction& a);
 ButtonAction deserializeButtonAction(JsonVariant j, const ButtonAction& def = ButtonAction{});
 void serializeButton(JsonObject o, const ButtonHardwareConfig& b);
 void deserializeButton(JsonVariant o, ButtonHardwareConfig& b);
+
+// Decentralized automation engine (issue #439, part of #437): "when a
+// GenericEvent with a given eventType arrives, and its payload falls in a
+// given range, run this list of local actions." Per-device, not synced over
+// mesh — a device with no binding for an eventType already does nothing when
+// it receives that event, so there's deliberately no separate enable/disable
+// flag either (see the issue).
+static constexpr uint8_t MAX_ACTIONS_PER_RULE = 3;
+static constexpr uint8_t MAX_RULES_PER_BINDING = 4;
+static constexpr uint8_t MAX_AUTOMATION_BINDINGS = 8;
+
+// One [valueMin, valueMax] branch of a binding. Rules within a binding are
+// evaluated in array order; the first whose range contains the incoming
+// payload wins (mutually exclusive, not "all matching rules fire") and all
+// of its non-None actions fire (fan-out). exists=false marks an unused slot,
+// skipped during evaluation — it does not mean "disabled", just "no rule
+// here yet".
+struct AutomationRule {
+    uint16_t valueMin = 0;
+    uint16_t valueMax = 0xFFFF;
+    ButtonAction actions[MAX_ACTIONS_PER_RULE];
+    bool exists = false;
+};
+
+// One trigger binding: which eventType (for TriggerType::GenericEvent) to
+// match, and the ordered rule table to evaluate against its payload when it
+// does. exists=false marks an unused slot.
+struct AutomationBinding {
+    TriggerType triggerType = TriggerType::GenericEvent;
+    char eventType[EVENT_TYPE_LEN] = {};
+    AutomationRule rules[MAX_RULES_PER_BINDING];
+    bool exists = false;
+};
+
+void serializeAutomationRule(JsonObject o, const AutomationRule& r);
+AutomationRule deserializeAutomationRule(JsonVariant j, const AutomationRule& def = AutomationRule{});
+void serializeAutomationBinding(JsonObject o, const AutomationBinding& b);
+void deserializeAutomationBinding(JsonVariant o, AutomationBinding& b);
 
 // Per-light physical hardware configuration, stored in DeviceConfig.
 struct LightHardwareConfig {
@@ -486,6 +537,7 @@ struct DeviceConfig {
     ButtonHardwareConfig buttons[MAX_BUTTONS];
     SoundHardwareConfig sounds[MAX_SOUNDS];
     AudioGroupConfig audioGroups[MAX_AUDIO_GROUPS];
+    AutomationBinding automations[MAX_AUTOMATION_BINDINGS];
 };
 
 class Config {
@@ -552,6 +604,15 @@ class Config {
         for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
             auto& b = _cfg.buttons[i];
             if (b.exists && !fn(i, b)) return;
+        }
+    }
+
+    // Invoke fn(index, binding) for every configured automation binding where
+    // binding.exists is true.
+    static void forEachAutomation(const std::function<void(uint8_t, AutomationBinding&)>& fn) {
+        for (uint8_t i = 0; i < MAX_AUTOMATION_BINDINGS; i++) {
+            auto& a = _cfg.automations[i];
+            if (a.exists) fn(i, a);
         }
     }
 

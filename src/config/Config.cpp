@@ -120,6 +120,44 @@ void deserializeButton(JsonVariant o, ButtonHardwareConfig& b) {
     b.onDoubleClick = deserializeButtonAction(o["onDoubleClick"], b.onDoubleClick);
 }
 
+void serializeAutomationRule(JsonObject o, const AutomationRule& r) {
+    o["valueMin"] = r.valueMin;
+    o["valueMax"] = r.valueMax;
+    o["exists"] = r.exists;
+    JsonArray arr = o["actions"].to<JsonArray>();
+    for (uint8_t i = 0; i < MAX_ACTIONS_PER_RULE; i++)
+        serializeButtonAction(arr.add<JsonObject>(), r.actions[i]);
+}
+
+AutomationRule deserializeAutomationRule(JsonVariant j, const AutomationRule& def) {
+    AutomationRule r = def;
+    r.valueMin = j["valueMin"] | def.valueMin;
+    r.valueMax = j["valueMax"] | def.valueMax;
+    r.exists = j["exists"] | def.exists;
+    JsonArray arr = j["actions"].as<JsonArray>();
+    for (uint8_t i = 0; i < MAX_ACTIONS_PER_RULE; i++)
+        r.actions[i] = deserializeButtonAction(arr[i], def.actions[i]);
+    return r;
+}
+
+void serializeAutomationBinding(JsonObject o, const AutomationBinding& b) {
+    o["triggerType"] = (uint8_t)b.triggerType;
+    o["eventType"] = b.eventType;
+    o["exists"] = b.exists;
+    JsonArray arr = o["rules"].to<JsonArray>();
+    for (uint8_t i = 0; i < MAX_RULES_PER_BINDING; i++)
+        serializeAutomationRule(arr.add<JsonObject>(), b.rules[i]);
+}
+
+void deserializeAutomationBinding(JsonVariant o, AutomationBinding& b) {
+    b.triggerType = (TriggerType)(uint8_t)(o["triggerType"] | (uint8_t)TriggerType::GenericEvent);
+    strlcpy(b.eventType, o["eventType"] | "", sizeof(b.eventType));
+    b.exists = o["exists"] | false;
+    JsonArray arr = o["rules"].as<JsonArray>();
+    for (uint8_t i = 0; i < MAX_RULES_PER_BINDING; i++)
+        b.rules[i] = deserializeAutomationRule(arr[i], b.rules[i]);
+}
+
 void serializeSound(JsonObject o, const SoundHardwareConfig& s) {
     o["name"] = s.name;
     o["chip"] = (uint8_t)s.chip;
@@ -292,6 +330,14 @@ static void applyDoc(JsonDocument& doc) {
             for (uint8_t b = 0; b < 6; b++) g.originMac[b] = v["originMac"][b] | (uint8_t)0;
         }
     }
+
+    if (doc["automations"].is<JsonArray>()) {
+        for (JsonVariant v : doc["automations"].as<JsonArray>()) {
+            uint8_t idx = v["index"] | (uint8_t)0;
+            if (idx < MAX_AUTOMATION_BINDINGS)
+                deserializeAutomationBinding(v, Config::get().automations[idx]);
+        }
+    }
 }
 
 bool Config::load() {
@@ -443,6 +489,14 @@ bool Config::save() {
         o["revision"] = _cfg.audioGroups[i].revision;
         JsonArray origin = o["originMac"].to<JsonArray>();
         for (uint8_t b = 0; b < 6; b++) origin.add(_cfg.audioGroups[i].originMac[b]);
+    }
+
+    JsonArray automationsArr = doc["automations"].to<JsonArray>();
+    for (uint8_t i = 0; i < MAX_AUTOMATION_BINDINGS; i++) {
+        if (!_cfg.automations[i].exists) continue;
+        JsonObject o = automationsArr.add<JsonObject>();
+        o["index"] = i;
+        serializeAutomationBinding(o, _cfg.automations[i]);
     }
 
     bool fsOk = false;

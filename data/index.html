@@ -1085,6 +1085,14 @@ input[type=radio]:active { background-color: #1a5; }
     </div>
   </div>
 
+  <!-- AUTOMATIONS -->
+  <div class="card">
+    <h2>Automations</h2>
+    <p style="font-size:.78rem;color:#666;margin:0 0 .5rem">Runs local actions when a mesh event (e.g. from a Buzzer device) arrives with a payload in a matching range.</p>
+    <div id="automations-list" style="margin-bottom:.75rem"></div>
+    <button class="btn-ghost" style="width:100%" id="add-automation-btn">Add automation</button>
+  </div>
+
   <!-- UPDATES -->
   <div class="card">
     <h2>Updates</h2>
@@ -3073,6 +3081,7 @@ async function loadConfig() {
   if (d.logLevel !== undefined) $('logLevel').value = d.logLevel;
   if (d.lights) renderLightsHw(d.lights);
   loadButtons().catch(() => {});
+  loadAutomations().catch(() => {});
   await loadAudioGroups().catch(() => {});
   loadSounds().catch(() => {});
   loadStorage().catch(() => {});
@@ -6328,6 +6337,209 @@ async function loadButtons() {
   renderButtonsHw(d.buttons || []);
 }
 
+// ── Automations ────────────────────────────────────────────────────────────────
+// Decentralized automation engine (issue #439): "when a GenericEvent with a
+// given eventType arrives, and its payload falls in a range, run these
+// actions." Unlike the button modal's fixed 3 named slots, both the rules
+// list and each rule's actions list are dynamic (add/remove) — capped at
+// maxRulesPerBinding/maxActionsPerRule (from GET /api/automations) to match
+// the firmware's fixed-size backing arrays. Each action row reuses
+// _renderActionSlot/_readActionSlot from the button editor verbatim, with a
+// generated prefix per rule/action instead of the fixed bm-short/-long/-double.
+let _automations = [];
+let _automationsMaxRules = 4;
+let _automationsMaxActions = 3;
+let _editAutomationIndex = null;
+let _amRules = [];  // working copy of the binding-under-edit's rules
+
+function _blankAutomationAction() {
+  return {action: 0, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255};
+}
+
+function renderAutomationsList(automations) {
+  _automations = automations || [];
+  const el = $('automations-list');
+  if (!el) return;
+  if (!automations || !automations.length) {
+    el.innerHTML = '<p style="color:#555;font-size:.85rem">No automations configured.</p>';
+    return;
+  }
+  el.innerHTML = automations.map(a => {
+    const rules = (a.rules || []).filter(r => r.exists);
+    const actionCount = rules.reduce((n, r) => n + (r.actions || []).filter(x => x.action).length, 0);
+    return `<div class="card" style="margin-bottom:.5rem;padding:.6rem .75rem">
+      <div class="flex-between">
+        <div>
+          <strong>${esc(a.eventType)}</strong>
+          <span style="color:#888;font-size:.82rem;margin-left:.5rem">${rules.length} rule${rules.length === 1 ? '' : 's'}</span>
+        </div>
+        <div style="display:flex;gap:.4rem">
+          <button class="btn-ghost btn-sm" data-action="openEditAutomationModal" data-index="${a.index}">Edit</button>
+          <button class="btn-ghost btn-sm" style="color:#c44" data-action="deleteAutomation" data-index="${a.index}">Delete</button>
+        </div>
+      </div>
+      <div style="font-size:.8rem;color:#888;margin-top:.25rem">${actionCount ? `${actionCount} action${actionCount === 1 ? '' : 's'} total` : 'No actions assigned'}</div>
+    </div>`;
+  }).join('');
+}
+
+_delegate('automations-list', 'click', {
+  openEditAutomationModal: el => openEditAutomationModal(_automations.find(a => a.index === Number(el.dataset.index))),
+  deleteAutomation:        el => deleteAutomation(Number(el.dataset.index)),
+});
+
+function openAddAutomationModal() {
+  _editAutomationIndex = null;
+  _openAutomationModal({index: null, eventType: '', rules: []});
+}
+
+function openEditAutomationModal(a) {
+  _editAutomationIndex = a.index;
+  _openAutomationModal(a);
+}
+
+function _openAutomationModal(a) {
+  _amRules = (a.rules || []).filter(r => r.exists).map(r => ({
+    valueMin: r.valueMin,
+    valueMax: r.valueMax,
+    actions: (r.actions || []).filter(x => x.action).map(x => ({...x})),
+  }));
+  const title = _editAutomationIndex === null ? 'Add automation' : `Edit automation ${a.index}`;
+  const overlay = document.createElement('div');
+  overlay.id = 'automation-modal-overlay';
+  overlay.className = 'push-overlay';
+  overlay.innerHTML = `<div class="push-modal"><div class="card" style="margin:0">
+    <div class="flex-between" style="margin-bottom:.5rem">
+      <h2 style="margin:0">${title}</h2>
+      <button class="btn-ghost btn-sm" id="am-close-btn">✕</button>
+    </div>
+    <label>Event type <small>(must match the sender's eventType exactly, e.g. "buzz.press")</small></label>
+    <input type="text" id="am-eventType" value="${esc(a.eventType || '')}" maxlength="32" placeholder="buzz.press">
+    <hr class="section-divider">
+    <div id="am-rules-wrap"></div>
+    <button class="btn-ghost btn-sm" id="am-add-rule-btn" style="width:100%;margin-top:.25rem">Add rule</button>
+    <button id="am-save-btn" class="btn-primary" style="width:100%;margin-top:.75rem">Save</button>
+  </div></div>`;
+  overlay.style.display = 'block';
+  document.body.appendChild(overlay);
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.querySelector('#am-close-btn').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#am-save-btn').addEventListener('click', saveAutomationModal);
+  overlay.querySelector('#am-add-rule-btn').addEventListener('click', () => {
+    _captureAmRulesFromDom();
+    if (_amRules.length >= _automationsMaxRules) return;
+    _amRules.push({valueMin: 0, valueMax: 65535, actions: [_blankAutomationAction()]});
+    _renderAmRules();
+  });
+  _delegate('am-rules-wrap', 'click', {
+    removeRule: el => {
+      _captureAmRulesFromDom();
+      _amRules.splice(Number(el.dataset.rule), 1);
+      _renderAmRules();
+    },
+    addAction: el => {
+      _captureAmRulesFromDom();
+      const ri = Number(el.dataset.rule);
+      if (_amRules[ri].actions.length >= _automationsMaxActions) return;
+      _amRules[ri].actions.push(_blankAutomationAction());
+      _renderAmRules();
+    },
+    removeAction: el => {
+      _captureAmRulesFromDom();
+      const ri = Number(el.dataset.rule), ai = Number(el.dataset.actionIndex);
+      _amRules[ri].actions.splice(ai, 1);
+      _renderAmRules();
+    },
+  });
+  _renderAmRules();
+}
+
+// Reads the currently-rendered rule/action fields back into _amRules, so an
+// add/remove elsewhere in the modal doesn't discard an in-progress edit.
+function _captureAmRulesFromDom() {
+  _amRules.forEach((rule, ri) => {
+    const minEl = $(`am-r${ri}-min`), maxEl = $(`am-r${ri}-max`);
+    if (minEl) rule.valueMin = parseInt(minEl.value) || 0;
+    if (maxEl) rule.valueMax = parseInt(maxEl.value) || 0;
+    rule.actions.forEach((act, ai) => {
+      const prefix = `am-r${ri}-a${ai}`;
+      if ($(prefix + '-action')) rule.actions[ai] = _readActionSlot(prefix);
+    });
+  });
+}
+
+function _renderAmRules() {
+  const wrap = $('am-rules-wrap');
+  if (!wrap) return;
+  if (!_amRules.length) {
+    wrap.innerHTML = '<p style="color:#555;font-size:.85rem">No rules yet — add one to match a payload range.</p>';
+  } else {
+    wrap.innerHTML = _amRules.map((rule, ri) => `
+      <div class="card" style="margin-bottom:.5rem;padding:.5rem .6rem">
+        <div class="flex-between">
+          <strong style="font-size:.85rem">Rule ${ri + 1}</strong>
+          <button class="btn-ghost btn-sm" style="color:#c44" data-action="removeRule" data-rule="${ri}">Remove rule</button>
+        </div>
+        <label>Payload range <small>(inclusive, 0-65535)</small></label>
+        <div style="display:flex;gap:.5rem">
+          <input type="number" id="am-r${ri}-min" value="${rule.valueMin}" min="0" max="65535" style="flex:1">
+          <input type="number" id="am-r${ri}-max" value="${rule.valueMax}" min="0" max="65535" style="flex:1">
+        </div>
+        ${rule.actions.map((act, ai) => `
+          <div style="position:relative">
+            ${_renderActionSlot(`am-r${ri}-a${ai}`, `Action ${ai + 1}`, act)}
+            <button class="btn-ghost btn-sm" style="color:#c44;position:absolute;top:.4rem;right:.4rem" data-action="removeAction" data-rule="${ri}" data-action-index="${ai}">✕</button>
+          </div>
+        `).join('')}
+        ${rule.actions.length < _automationsMaxActions
+          ? `<button class="btn-ghost btn-sm" data-action="addAction" data-rule="${ri}">Add action</button>`
+          : ''}
+      </div>
+    `).join('');
+  }
+  $('am-add-rule-btn').style.display = _amRules.length >= _automationsMaxRules ? 'none' : '';
+  _amRules.forEach((rule, ri) => {
+    rule.actions.forEach((act, ai) => {
+      const prefix = `am-r${ri}-a${ai}`;
+      wrap.querySelector(`#${prefix}-action`)?.addEventListener('change', e => {
+        _updateActionParamVisibility(prefix, parseInt(e.target.value), null);
+      });
+    });
+  });
+}
+
+async function saveAutomationModal() {
+  _captureAmRulesFromDom();
+  const eventType = $('am-eventType').value.trim();
+  const body = {
+    eventType,
+    triggerType: 0,
+    rules: _amRules.map(r => ({valueMin: r.valueMin, valueMax: r.valueMax, exists: true, actions: r.actions})),
+  };
+  const url = _editAutomationIndex === null ? '/api/automations/add' : '/api/automations/update';
+  if (_editAutomationIndex !== null) body.index = _editAutomationIndex;
+  const res = await _fetchOrAlert(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!res) return;
+  $('automation-modal-overlay')?.remove();
+  loadAutomations();
+}
+
+async function deleteAutomation(index) {
+  await _confirmAction(`Delete automation ${index}?`, async () => {
+    const res = await _fetchOrAlert('/api/automations/delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({index})});
+    if (!res) return;
+    loadAutomations();
+  });
+}
+
+async function loadAutomations() {
+  const res = await fetch('/api/automations');
+  const d = await res.json();
+  _automationsMaxRules = d.maxRulesPerBinding || 4;
+  _automationsMaxActions = d.maxActionsPerRule || 3;
+  renderAutomationsList(d.automations || []);
+}
+
 // ── Static event wiring ───────────────────────────────────────────────────────
 // Elements present in the initial DOM (never rebuilt via innerHTML); dynamically
 // rendered elements wire their own listeners via delegation near their render
@@ -6418,6 +6630,7 @@ $('hasI2cBus').addEventListener('change', e => {
 $('hasExpander').addEventListener('change', e => { $('expander-fields').style.display = e.target.checked ? '' : 'none'; });
 $('add-sound-btn').addEventListener('click', openAddSoundModal);
 $('add-button-btn').addEventListener('click', openAddButtonModal);
+$('add-automation-btn').addEventListener('click', openAddAutomationModal);
 $('add-wifi-btn').addEventListener('click', addWifiNetwork);
 $('wifi-ap-confirm-btn').addEventListener('click', async () => {
   const res = await _fetchOrToast('/api/wifi/confirm-disable-ap', {method: 'POST'}, 'Failed to disable AP');

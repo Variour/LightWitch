@@ -430,7 +430,8 @@ struct StopAudioMsg {
 // Sender identity is not embedded in the payload — MeshManager::_onRecv's mac
 // parameter plus the existing PeerRegistry/PresenceMsg name already identify
 // the sender, so consumers resolve identity from there.
-static constexpr uint8_t EVENT_TYPE_LEN = 33;  // same convention as SCENE_ID_LEN/PLAYLIST_ID_LEN
+// EVENT_TYPE_LEN lives in Config.h (like SCENE_ID_LEN) since AutomationBinding
+// (issue #439) needs to match eventType strings against it too.
 
 struct GenericEventMsg {
     MsgType type = MsgType::GenericEvent;

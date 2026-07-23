@@ -10,6 +10,7 @@ codebase for the first time. For build/flash/update instructions see
 | Module | Responsibility |
 |---|---|
 | `actions` | `ActionExecutor` turns a button press (`ButtonAction`) into a config change — brightness/color/pattern/scene — via injected callbacks, without depending on any other module directly. |
+| `automations` | `AutomationManager` matches an inbound mesh `GenericEvent` against the configured `AutomationBinding` table and fires the first matching rule's actions into `ActionExecutor` — the decentralized automation engine's seed (see `mesh`'s `GenericEventMsg`). |
 | `battery` | `BatteryMonitor` samples the battery ADC pin and derives a charge percentage plus on-battery/charging state. |
 | `buttons` | `ButtonManager` debounces GPIO/TCA9555-expander buttons (short/long press, double-click) and fires the matching action into `ActionExecutor`. |
 | `config` | Shared config types (`Color`, `LightConfig`, `GroupConfig`, `DeviceConfig`, ...) and the `Config` singleton that persists them to LittleFS/NVS. |
@@ -32,8 +33,8 @@ codebase for the first time. For build/flash/update instructions see
 module holds a direct pointer to another except where explicitly passed
 (e.g. `PeerRegistry*` into `WebServer::begin`).
 
-Every input source — `ButtonManager` (via `ActionExecutor`), `MqttManager`,
-`WebServer`, and inbound `MeshManager` config messages — funnels through a
+Every input source — `ButtonManager`/`AutomationManager` (via `ActionExecutor`),
+`MqttManager`, `WebServer`, and inbound `MeshManager` config messages — funnels through a
 shared `applyAndPropagateLightConfig()` helper: it updates `Config`, pushes
 the new config into the affected lights' `PatternRunner`s, then
 re-broadcasts over `MeshManager` and republishes to `MqttManager`.
