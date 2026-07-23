@@ -5493,7 +5493,8 @@ function _openSoundModal(s) {
       <label style="display:flex;align-items:center;gap:.5rem">
         <input type="checkbox" id="sm-paViaExpander" ${s.paViaExpander?'checked':''}>
         <span>Wire this pin through the I2C expander</span>
-      </label>` : ''}
+      </label>` : `
+      <p style="font-size:.78rem;color:#666;margin:.35rem 0">No I2C expander configured yet — this pin must be a native GPIO for now. To route it through an expander instead, configure one under Hardware &gt; I2C bus first (saving that triggers a reboot), then come back here.</p>`}
       <label id="sm-paEnablePin-label">Enable pin <small>${s.paViaExpander?'(pin index 0-15 on the expander)':'(GPIO number)'}</small></label>
       <input type="number" id="sm-paEnablePin" value="${hasPa ? s.paEnablePin : ''}" min="0" max="${s.paViaExpander?15:39}" placeholder="${s.paViaExpander?'expander pin 0-15':'GPIO'}">
       <label style="display:flex;align-items:center;gap:.5rem;margin-top:.4rem">
@@ -6161,7 +6162,8 @@ function _openButtonModal(b) {
     <label style="display:flex;align-items:center;gap:.5rem">
       <input type="checkbox" id="bm-viaExpander" ${b.viaExpander?'checked':''}>
       <span>Wire this button through the I2C expander</span>
-    </label>` : ''}
+    </label>` : `
+    <p style="font-size:.78rem;color:#666;margin:.35rem 0">No I2C expander configured yet — this button must be on a native GPIO for now. To route it through an expander instead, configure one under Hardware &gt; I2C bus first (saving that triggers a reboot), then come back here.</p>`}
     <label id="bm-pin-label">Pin <small>${b.viaExpander?'(pin index 0-15 on the expander)':'(GPIO number)'}</small></label>
     <input type="number" id="bm-pin" value="${b.pin || 0}" min="0" max="${b.viaExpander?15:39}">
     <label style="display:flex;align-items:center;gap:.5rem">
