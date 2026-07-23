@@ -22,6 +22,22 @@ function mockSelfLights() {
     ({ index, name, groupId, ledType, width, height, wrapWidth, brightnessOverrideEnabled, brightnessOverride }));
 }
 
+// Same "derive from the live hardware config, never a second static copy"
+// approach as mockSelfLights(), for the one sound output a device may have.
+function mockSelfSound() {
+  const sound = mockSounds.find(s => s.exists);
+  return sound ? { name: sound.name, audioGroupId: sound.audioGroupId,
+    volumeOverrideEnabled: sound.volumeOverrideEnabled, volume: effectiveSoundVolume(sound) } : null;
+}
+
+// Mirrors Config::effectiveSoundVolume: own override if enabled, else the
+// audio group's shared volume.
+function effectiveSoundVolume(sound) {
+  if (sound.volumeOverrideEnabled) return sound.volume;
+  const group = mockAudioGroups.find(g => g.id === sound.audioGroupId);
+  return group ? group.volume : sound.volume;
+}
+
 const MOCK_CONFIG = {
   deviceName: 'Mock Device',
   otaPort: 3232,
@@ -60,6 +76,10 @@ const MOCK_CONFIG = {
 // now — see MOCK_CONFIG.i2cSdaPin/i2cSclPin/expanderChip/expanderAddress —
 // not per-sound/per-button fields.
 const PIN_UNUSED = 255;
+// Mirrors Config.h::SOUND_VOLUME_MIN/MAX.
+const SOUND_VOLUME_MIN = 50;
+const SOUND_VOLUME_MAX = 200;
+const clampVolume = v => Math.max(SOUND_VOLUME_MIN, Math.min(SOUND_VOLUME_MAX, Number(v)));
 // paViaExpander: false = paEnablePin is a native GPIO, true = it's a pin
 // index (0-15) on the device's expander instead — mirrors
 // SoundHardwareConfig::paViaExpander.
@@ -67,8 +87,22 @@ const mockSounds = [
   { index: 0, name: 'Speaker', chip: 0, i2cAddress: 0x18,
     i2sMclkPin: PIN_UNUSED, i2sBclkPin: 15, i2sWsPin: 16, i2sDoutPin: 17,
     paEnablePin: 8, paEnableActiveHigh: true, paViaExpander: true,
-    exists: true },
+    audioGroupId: 0, volumeOverrideEnabled: false, volume: 200, exists: true },
 ];
+
+// Mirrors AudioGroupConfig from Config.h — id 0 (Default) always exists,
+// same as light groups. volume is the group's shared volume, followed by
+// every member device without its own volumeOverrideEnabled.
+const mockAudioGroups = [
+  { id: 0, name: 'Default', exists: true, volume: 200 },
+  { id: 1, name: 'Living Room Speakers', exists: true, volume: 150 },
+];
+
+// Mirrors PlaylistManager's storage shape (id/name/loop/files). files
+// reference names from mockStorage below.
+const mockPlaylists = new Map([
+  ['mockpl1', { id: 'mockpl1', name: 'Morning Mix', loop: false, files: ['doorbell.wav', 'alarm.wav'] }],
+]);
 
 // Mirrors ButtonHardwareConfig/ButtonAction shape from WebServer.h::serializeButton.
 // viaExpander mirrors SoundHardwareConfig::paViaExpander (see mockSounds
@@ -97,10 +131,10 @@ const mockButtons = [
 // selfWithLights() from the module's wifiConnected SSID-tracking state below.
 const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  hasWifiNetworks: true,  wifiConnecting: false, channel: 6, channelSearching: false, version: '2026.06.27.0', fwState: 'checking', batteryPresent: true, batteryPercent: 82, batteryCharging: false };
 const MOCK_PEERS = [
-  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 46, batteryCharging: false },
-  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 12, batteryCharging: false },
-  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: false, wifiConnecting: false, version: '2026.06.27.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 97, batteryCharging: true  },
-  { name: 'Mock Light 5', mac: '55:66:77:88:99:aa', lights: [{ index: 0, name: 'Garage', groupId: 0 }], online: true,  rssi: -70, sceneSyncEnabled: true,  wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: true,  version: '2026.01.01.0', fwState: 'idle', batteryPresent: false, batteryPercent: 0,  batteryCharging: false },
+  { name: 'Mock Light 2', mac: '22:33:44:55:66:77', lights: [{ index: 0, name: 'Kitchen', groupId: 0 }], sound: { name: 'Kitchen Speaker', audioGroupId: 0, volumeOverrideEnabled: true, volume: 180 }, online: true,  rssi: -65, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 46, batteryCharging: false },
+  { name: 'Mock Light 3', mac: '33:44:55:66:77:88', lights: [{ index: 0, name: 'Hallway', groupId: 1 }, { index: 1, name: 'Closet', groupId: 0 }], sound: null, online: true,  rssi: -80, sceneSyncEnabled: false, wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: false, version: '2026.01.01.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 12, batteryCharging: false },
+  { name: 'Mock Light 4', mac: '44:55:66:77:88:99', lights: [{ index: 0, name: '', groupId: 0 }], sound: { name: 'Living Room Speaker', audioGroupId: 1, volumeOverrideEnabled: false, volume: 150 }, online: true,  rssi: -55, sceneSyncEnabled: true,  wifiConnected: true,  hasWifiNetworks: false, wifiConnecting: false, version: '2026.06.27.0', fwState: 'idle', batteryPresent: true,  batteryPercent: 97, batteryCharging: true  },
+  { name: 'Mock Light 5', mac: '55:66:77:88:99:aa', lights: [{ index: 0, name: 'Garage', groupId: 0 }], sound: null, online: true,  rssi: -70, sceneSyncEnabled: true,  wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: true,  version: '2026.01.01.0', fwState: 'idle', batteryPresent: false, batteryPercent: 0,  batteryCharging: false },
 ];
 
 const wifiNetworks = [
@@ -145,6 +179,7 @@ function selfWithLights() {
     ip: wifiConnected !== null ? MOCK_SELF_IP : '',
     wifiAwaitingApConfirm: mockWifiAwaitingApConfirm,
     lights: mockSelfLights(),
+    sound: mockSelfSound(),
   };
 }
 
@@ -156,6 +191,11 @@ function broadcastPeers() {
     peers: MOCK_PEERS,
     wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode,
   });
+  wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
+}
+
+function broadcastAudioGroups() {
+  const msg = JSON.stringify({ t: 'audioGroups', list: mockAudioGroups });
   wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
 }
 
@@ -378,6 +418,29 @@ app.post('/api/peers/setgroup', (req, res) => {
   if (mac === MOCK_SELF.mac) {
     const light = mockLights.find(l => l.index === lightIndex);
     if (light) light.groupId = groupId;
+    broadcastPeers();
+  }
+  res.json({ ok: true });
+});
+app.post('/api/peers/setaudiogroup', (req, res) => {
+  const { mac, audioGroupId } = req.body || {};
+  // Mirrors /api/peers/setgroup: only self-mac assignments are persisted
+  // locally; remote peers would relay over the mesh on real hardware.
+  if (mac === MOCK_SELF.mac) {
+    const sound = mockSounds.find(s => s.exists);
+    if (sound && mockAudioGroups.find(g => g.id === audioGroupId)) sound.audioGroupId = audioGroupId;
+    broadcastPeers();
+  }
+  res.json({ ok: true });
+});
+app.post('/api/peers/setvolume', (req, res) => {
+  const { mac, volume, overrideEnabled } = req.body || {};
+  if (mac === MOCK_SELF.mac) {
+    const sound = mockSounds.find(s => s.exists);
+    if (sound) {
+      sound.volumeOverrideEnabled = Boolean(overrideEnabled);
+      if (overrideEnabled) sound.volume = clampVolume(volume);
+    }
     broadcastPeers();
   }
   res.json({ ok: true });
@@ -632,7 +695,10 @@ app.post('/api/sounds/update', (req, res) => {
   const sound = mockSounds.find(s => s.index === index);
   if (!sound) return res.status(404).json({ error: 'not found' });
   const candidate = { ...sound, ...fields };
-  const hwChanged = Object.keys(fields).some(k => k !== 'name');
+  // audioGroupId/volume aren't hardware config (no reboot needed) — applied
+  // live, same as WebServer.h::_updateSound. They're also settable
+  // cross-device via /api/peers/setaudiogroup and /api/peers/setvolume below.
+  const hwChanged = Object.keys(fields).some(k => k !== 'name' && k !== 'audioGroupId' && k !== 'volume');
   if (hwChanged) {
     if ([candidate.i2sBclkPin, candidate.i2sWsPin, candidate.i2sDoutPin].includes(PIN_UNUSED)) {
       return res.status(400).json({ error: 'missing required pin' });
@@ -640,7 +706,9 @@ app.post('/api/sounds/update', (req, res) => {
     const conflict = soundPinConflict(candidate, index);
     if (conflict) return res.status(400).json({ error: conflict });
   }
+  if ('volume' in fields) fields.volume = clampVolume(fields.volume);
   Object.assign(sound, fields);
+  broadcastPeers();
   res.json({ ok: true });
 });
 app.post('/api/sounds/delete', (req, res) => {
@@ -654,6 +722,87 @@ app.post('/api/sounds/test', (req, res) => {
   const { index } = req.body || {};
   const sound = mockSounds.find(s => s.index === index);
   if (!sound) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true });
+});
+
+// ── Audio groups ─────────────────────────────────────────────────────────────
+// Mirrors WebServer.h's audiogroups handlers — same shape as the light-group
+// endpoints above, minus any per-group payload (see AudioGroupConfig).
+const MAX_AUDIO_GROUPS = 8; // mirrors Config::MAX_AUDIO_GROUPS; id 0 is reserved for Default
+
+app.get('/api/audiogroups', (_req, res) => res.json({ audioGroups: mockAudioGroups }));
+app.post('/api/audiogroups/create', (req, res) => {
+  const free = Array.from({ length: MAX_AUDIO_GROUPS - 1 }, (_, i) => i + 1)
+    .find(i => !mockAudioGroups.find(g => g.id === i));
+  if (free === undefined) return res.status(400).json({ error: 'group limit reached' });
+  const { name = 'New Group' } = req.body || {};
+  mockAudioGroups.push({ id: free, name, exists: true, volume: SOUND_VOLUME_MAX });
+  res.json({ ok: true, id: free });
+  broadcastAudioGroups();
+});
+app.post('/api/audiogroups/update', (req, res) => {
+  const { id, ...fields } = req.body || {};
+  const group = mockAudioGroups.find(g => g.id === id);
+  if (!group) return res.status(404).json({ error: 'not found' });
+  if ('volume' in fields) fields.volume = clampVolume(fields.volume);
+  Object.assign(group, fields);
+  res.json({ ok: true });
+  broadcastAudioGroups();
+});
+app.post('/api/audiogroups/delete', (req, res) => {
+  const { id } = req.body || {};
+  if (id === 0) return res.status(400).json({ error: 'cannot delete Default' });
+  const idx = mockAudioGroups.findIndex(g => g.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  mockAudioGroups.splice(idx, 1);
+  for (const s of mockSounds) if (s.audioGroupId === id) s.audioGroupId = 0;
+  res.json({ ok: true });
+  broadcastAudioGroups();
+});
+
+// ── Playlists ────────────────────────────────────────────────────────────────
+// Mirrors WebServer.h's playlist handlers / PlaylistManager — id/name/loop/files.
+app.get('/api/playlists', (_req, res) => res.json({ playlists: [...mockPlaylists.values()] }));
+app.post('/api/playlists/create', (req, res) => {
+  const name = String((req.body || {}).name || 'Unnamed');
+  const id = `mockpl-${Date.now().toString(36)}`;
+  mockPlaylists.set(id, { id, name, loop: false, files: [] });
+  res.json({ ok: true, id });
+});
+app.post('/api/playlists/save', (req, res) => {
+  const { id } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'missing or invalid id' });
+  mockPlaylists.set(id, { ...req.body });
+  res.json({ ok: true });
+});
+app.post('/api/playlists/delete', (req, res) => {
+  const { id } = req.body || {};
+  if (!id || !mockPlaylists.has(id)) return res.status(404).json({ error: 'not found' });
+  mockPlaylists.delete(id);
+  res.json({ ok: true });
+});
+
+// ── Playback triggers ────────────────────────────────────────────────────────
+// Fire-and-forget, same as the real device — no state to report back (see the
+// "no cross-device playback state" design decision). Logged to the console
+// only, since this mock has no real mesh/speaker to actually play anything.
+app.post('/api/audio/play/file', (req, res) => {
+  const { audioGroupId, filename, loop } = req.body || {};
+  if (!filename) return res.status(400).json({ error: 'missing filename' });
+  if (!mockAudioGroups.find(g => g.id === audioGroupId)) return res.status(404).json({ error: 'not found' });
+  console.log(`[mock audio] play file "${filename}" on group ${audioGroupId} loop=${!!loop}`);
+  res.json({ ok: true });
+});
+app.post('/api/audio/play/playlist', (req, res) => {
+  const { audioGroupId, playlistId } = req.body || {};
+  if (!playlistId) return res.status(400).json({ error: 'missing playlistId' });
+  if (!mockAudioGroups.find(g => g.id === audioGroupId)) return res.status(404).json({ error: 'not found' });
+  console.log(`[mock audio] play playlist "${playlistId}" on group ${audioGroupId}`);
+  res.json({ ok: true });
+});
+app.post('/api/audio/stop', (req, res) => {
+  const { audioGroupId } = req.body || {};
+  console.log(`[mock audio] stop group ${audioGroupId}`);
   res.json({ ok: true });
 });
 
@@ -916,6 +1065,7 @@ wss.on('connection', ws => {
   send({ t: 'log', l: 'I', m: 'This is a development mock — no hardware attached' });
   send({ t: 'peers', self: selfWithLights(), peers: MOCK_PEERS, wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode });
   send({ t: 'groups', list: MOCK_CONFIG.groups });
+  send({ t: 'audioGroups', list: mockAudioGroups });
 });
 
 const PORT = process.env.PORT || 8080;

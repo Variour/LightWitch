@@ -335,6 +335,12 @@ struct LightHardwareConfig {
     bool exists = false;
 };
 
+// Usable range for SoundHardwareConfig::volume (raw ES8311 REG_DAC_VOLUME
+// register value, out of the register's full 0-255 range) — every path that
+// sets it (web, mesh, mqtt) clamps to this range.
+static constexpr uint8_t SOUND_VOLUME_MIN = 50;
+static constexpr uint8_t SOUND_VOLUME_MAX = 200;
+
 // Sound output chip. Only ES8311 (mono I2C-controlled I2S codec) is supported
 // today; the enum exists so a second chip can be added without reshaping the
 // config, REST API, or UI (see LedType/LightHardwareConfig for the precedent).
@@ -368,11 +374,55 @@ struct SoundHardwareConfig {
     uint8_t paEnablePin = PIN_UNUSED;
     bool paEnableActiveHigh = true;
     bool paViaExpander = false;
+    // Which AudioGroupConfig this device's sound output belongs to — a play/stop
+    // trigger targets a group, and every device whose sound output is a member
+    // (and that locally has the referenced file) participates. Also determines
+    // which group's shared volume this device follows when volumeOverrideEnabled
+    // is false. See AudioGroupConfig.
+    uint8_t audioGroupId = 0;
+    // When true, this device's sound output uses `volume` instead of following
+    // its audio group's shared volume (AudioGroupConfig::volume) — mirrors
+    // LightHardwareConfig::brightnessOverride(Enabled), but (unlike that) both
+    // this flag and `volume` remain settable from any device's dashboard for
+    // any peer, not just locally; see SetVolumeMsg.
+    bool volumeOverrideEnabled = false;
+    // Output level, written directly to the codec's hardware volume register
+    // (ES8311 REG_DAC_VOLUME) when volumeOverrideEnabled is set — otherwise
+    // this device's sound output follows its audio group's shared volume
+    // instead (see AudioGroupConfig::volume). Clamped to [SOUND_VOLUME_MIN,
+    // SOUND_VOLUME_MAX] everywhere it's set, not the register's full 0-255
+    // range.
+    uint8_t volume = 200;
     bool exists = false;
 };
 
 void serializeSound(JsonObject o, const SoundHardwareConfig& s);
 void deserializeSound(JsonVariant o, SoundHardwareConfig& s);
+
+static constexpr uint8_t MAX_AUDIO_GROUPS = 8;
+
+// A named grouping of sound outputs (see SoundHardwareConfig::audioGroupId) that a
+// play/stop trigger targets together — the audio-side equivalent of a light
+// GroupConfig. Unlike GroupConfig there's no continuous phase sync (playback
+// triggers are one-shot broadcast events, see PlayAudioMsg), but `volume` is
+// genuinely shared, continuously-synced state — every member device without
+// its own volumeOverrideEnabled follows it live, mirroring LightConfig's
+// relationship to a light's brightnessOverride. Same revision+originMac
+// reconciliation pattern as GroupConfig — see
+// Config::applyAudioGroupSync/compareAudioGroupRevision — the whole group
+// (name/exists/volume together) moves and reconciles as one unit.
+struct AudioGroupConfig {
+    uint8_t id = 0;
+    char name[24] = {};
+    bool exists = false;
+    uint8_t volume =
+        200;  // clamped to [SOUND_VOLUME_MIN, SOUND_VOLUME_MAX], see SoundHardwareConfig
+    uint32_t revision = 0;
+    uint8_t originMac[6] = {};
+};
+
+void serializeAudioGroup(JsonObject o, const AudioGroupConfig& g);
+void deserializeAudioGroup(JsonVariant o, AudioGroupConfig& g);
 
 static constexpr uint8_t MAX_SOUNDS = 1;
 
@@ -390,6 +440,7 @@ struct DeviceConfig {
     char githubRepo[64] = "variour/batterylight";
     char timezone[64] = "CET-1CEST,M3.5.0,M10.5.0/3";  // POSIX TZ string; default is Europe/Berlin
     bool sceneSyncEnabled = true;
+    bool playlistSyncEnabled = true;
     bool checkUpdateOnStartup = false;
     // Mesh-wide policy (see WifiElection.h): when true, only one candidate device
     // actually joins the configured WiFi network at a time; the rest stay AP-only.
@@ -434,6 +485,7 @@ struct DeviceConfig {
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];
     SoundHardwareConfig sounds[MAX_SOUNDS];
+    AudioGroupConfig audioGroups[MAX_AUDIO_GROUPS];
 };
 
 class Config {
@@ -511,6 +563,40 @@ class Config {
         }
     }
 
+    static AudioGroupConfig* audioGroup(uint8_t id) {
+        if (id < MAX_AUDIO_GROUPS && _cfg.audioGroups[id].exists) return &_cfg.audioGroups[id];
+        return nullptr;
+    }
+
+    // Creates an audio group in the first free slot (never slot 0, the permanent
+    // Default group) — mirrors createGroup, including the revision-preservation
+    // behavior across delete/recreate of a reused slot.
+    static uint8_t createAudioGroup(const char* name);
+
+    // Bumps an audio group's revision and stamps it as originating from this
+    // device. Call before broadcasting any name/exists change — except right
+    // after createAudioGroup(), which already does this internally.
+    static void bumpAudioGroupRevision(AudioGroupConfig& g);
+
+    // Compares only the revision fields (revision, then originMac as a
+    // deterministic tie-break) of two AudioGroupConfigs for the same group id.
+    static int compareAudioGroupRevision(const AudioGroupConfig& a, const AudioGroupConfig& b);
+
+    // Merges an incoming AudioGroupSync against local state — mirrors applyGroupSync.
+    // Returns true if it was adopted (caller should persist).
+    static bool applyAudioGroupSync(const AudioGroupConfig& g);
+
+    // Resolves a sound output's currently-applicable volume: its own override
+    // when volumeOverrideEnabled, otherwise its audio group's shared volume
+    // (falling back to s.volume itself if that group doesn't exist, e.g. a
+    // stale audioGroupId). Shared by presence advertisement, the peers JSON,
+    // and the driver-applying code so all three agree.
+    static uint8_t effectiveSoundVolume(const SoundHardwareConfig& s) {
+        if (s.volumeOverrideEnabled) return s.volume;
+        AudioGroupConfig* g = audioGroup(s.audioGroupId);
+        return g ? g->volume : s.volume;
+    }
+
     // Merges an incoming GroupSync against local state. A single revision +
     // originMac now governs the whole group (see GroupConfig::revision), so
     // this either adopts the incoming group wholesale or rejects it wholesale
@@ -568,4 +654,5 @@ class Config {
     static uint8_t _wifiCount;
     static uint8_t _wifiLast;
     static void _ensureDefaultGroup();
+    static void _ensureDefaultAudioGroup();
 };

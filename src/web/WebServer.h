@@ -12,6 +12,8 @@
 #include "../mesh/PeerRegistry.h"
 #include "../scenes/SceneManager.h"
 #include "../scenes/SceneSyncManager.h"
+#include "../sound/PlaylistManager.h"
+#include "../sound/PlaylistSyncManager.h"
 #include "../storage/SdCardManager.h"
 #include "../update/Updater.h"
 #include "../version.h"
@@ -100,6 +102,25 @@ using ConfirmApDisableCb = std::function<void()>;
 // Polled to report whether this device is holding its AP open, connected,
 // waiting for the user to confirm it's safe to disable (see WifiConnectForConfirmCb).
 using WifiAwaitingApConfirmCb = std::function<bool()>;
+// Called after this device's own sound volume changes via REST, so it can be
+// applied live to the driver without a reboot (see SoundHardwareConfig::volume).
+using SoundVolumeChangeCb = std::function<void(uint8_t soundIndex, uint8_t volume)>;
+// Called after an audio group is created/updated/deleted (the full AudioGroupConfig)
+using AudioGroupSyncCb = std::function<void(const AudioGroupConfig&)>;
+// Called to start synchronized playback of a single SD-card file across an audio group
+using PlayFileCb = std::function<void(uint8_t audioGroupId, const char* filename, bool loop)>;
+// Called to start synchronized playback of a saved playlist across an audio group
+using PlayPlaylistCb = std::function<void(uint8_t audioGroupId, const char* playlistId)>;
+// Called to stop playback across an audio group
+using StopAudioCb = std::function<void(uint8_t audioGroupId)>;
+// Called after a playlist is created or deleted (not edited) — mirrors SceneListChangedCb
+using PlaylistListChangedCb = std::function<void()>;
+// Called to move a specific peer's sound output to a different audio group — mirrors
+// SetRemoteGroupCb, called only for a genuinely remote target (own-mac is applied directly).
+using SetRemoteAudioGroupCb = std::function<void(const uint8_t* mac, uint8_t audioGroupId)>;
+// Called to change a specific peer's sound output volume — mirrors SetRemoteAudioGroupCb.
+using SetRemoteVolumeCb =
+    std::function<void(const uint8_t* mac, uint8_t volume, bool overrideEnabled)>;
 
 class BatteryWebServer {
    private:
@@ -228,6 +249,16 @@ class BatteryWebServer {
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
                 _setRemoteGroup(r, d, l);
             });
+        _server.on(
+            "/api/peers/setaudiogroup", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _setRemoteAudioGroup(r, d, l);
+            });
+        _server.on(
+            "/api/peers/setvolume", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _setRemoteVolume(r, d, l);
+            });
 
         _server.on("/api/lights", HTTP_GET, [this](AsyncWebServerRequest* r) { _getLights(r); });
         _server.on(
@@ -276,6 +307,64 @@ class BatteryWebServer {
             "/api/sounds/test", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
                 _testSound(r, d, l);
+            });
+
+        // ── Audio groups ─────────────────────────────────────────────────────
+        _server.on("/api/audiogroups", HTTP_GET,
+                   [this](AsyncWebServerRequest* r) { _getAudioGroups(r); });
+        _server.on(
+            "/api/audiogroups/create", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _createAudioGroup(r, d, l);
+            });
+        _server.on(
+            "/api/audiogroups/update", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _updateAudioGroup(r, d, l);
+            });
+        _server.on(
+            "/api/audiogroups/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _deleteAudioGroup(r, d, l);
+            });
+
+        // ── Playlists ────────────────────────────────────────────────────────
+        // Specific routes registered before /api/playlists for the same
+        // prefix-matching reason as scenes above.
+        PlaylistManager::init();
+        _server.on(
+            "/api/playlists/create", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _createPlaylist(r, d, l);
+            });
+        _server.on(
+            "/api/playlists/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _deletePlaylist(r, d, l);
+            });
+        _server.on(
+            "/api/playlists/save", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _savePlaylist(r, d, l);
+            });
+        _server.on("/api/playlists", HTTP_GET,
+                   [this](AsyncWebServerRequest* r) { _getPlaylists(r); });
+
+        // ── Playback triggers ────────────────────────────────────────────────
+        _server.on(
+            "/api/audio/play/file", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _playFile(r, d, l);
+            });
+        _server.on(
+            "/api/audio/play/playlist", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _playPlaylist(r, d, l);
+            });
+        _server.on(
+            "/api/audio/stop", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _stopAudioGroup(r, d, l);
             });
 
         _server.on("/api/storage", HTTP_GET, [this](AsyncWebServerRequest* r) { _getStorage(r); });
@@ -652,6 +741,16 @@ class BatteryWebServer {
     void setWifiAwaitingApConfirmProvider(WifiAwaitingApConfirmCb cb) {
         _onWifiAwaitingApConfirm = cb;
     }
+    void setPlaylistSync(PlaylistSyncManager* ps) { _playlistSync = ps; }
+    void setOnSoundVolumeChange(SoundVolumeChangeCb cb) { _onSoundVolumeChange = cb; }
+    void setOnAudioGroupSync(AudioGroupSyncCb cb) { _onAudioGroupSync = cb; }
+    void setOnPlayFile(PlayFileCb cb) { _onPlayFile = cb; }
+    void setOnPlayPlaylist(PlayPlaylistCb cb) { _onPlayPlaylist = cb; }
+    void setOnStopAudio(StopAudioCb cb) { _onStopAudio = cb; }
+    void setOnPlaylistListChanged(PlaylistListChangedCb cb) { _onPlaylistListChanged = cb; }
+    void setOnSetRemoteAudioGroup(SetRemoteAudioGroupCb cb) { _onSetRemoteAudioGroup = cb; }
+    void setOnSetRemoteVolume(SetRemoteVolumeCb cb) { _onSetRemoteVolume = cb; }
+    void pushAudioGroups() { _pushAudioGroups(); }
 
    private:
     AsyncWebServer _server{80};
@@ -696,6 +795,15 @@ class BatteryWebServer {
     WifiConnectForConfirmCb _onWifiConnectForConfirm;
     ConfirmApDisableCb _onConfirmApDisable;
     WifiAwaitingApConfirmCb _onWifiAwaitingApConfirm;
+    PlaylistSyncManager* _playlistSync = nullptr;
+    SoundVolumeChangeCb _onSoundVolumeChange;
+    AudioGroupSyncCb _onAudioGroupSync;
+    PlayFileCb _onPlayFile;
+    PlayPlaylistCb _onPlayPlaylist;
+    StopAudioCb _onStopAudio;
+    PlaylistListChangedCb _onPlaylistListChanged;
+    SetRemoteAudioGroupCb _onSetRemoteAudioGroup;
+    SetRemoteVolumeCb _onSetRemoteVolume;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -1043,6 +1151,21 @@ class BatteryWebServer {
                 lo["brightnessOverride"] = c.lights[i].brightnessOverride;
             }
         }
+        {
+            self["sound"] = nullptr;
+            for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
+                if (!c.sounds[i].exists) continue;
+                JsonObject so = self["sound"].to<JsonObject>();
+                so["name"] = c.sounds[i].name;
+                so["audioGroupId"] = c.sounds[i].audioGroupId;
+                so["volumeOverrideEnabled"] = c.sounds[i].volumeOverrideEnabled;
+                // Effective (currently applied) volume — own override if
+                // enabled, else the audio group's shared volume. See
+                // Config::effectiveSoundVolume.
+                so["volume"] = Config::effectiveSoundVolume(c.sounds[i]);
+                break;
+            }
+        }
 
         JsonArray arr = doc["peers"].to<JsonArray>();
         if (_peers) {
@@ -1068,6 +1191,15 @@ class BatteryWebServer {
                     lo["index"] = i;
                     lo["name"] = p.lightNames[i];
                     lo["groupId"] = p.lightGroupIds[i];
+                }
+                if (p.hasSound) {
+                    JsonObject so = o["sound"].to<JsonObject>();
+                    so["name"] = p.soundName;
+                    so["audioGroupId"] = p.soundAudioGroupId;
+                    so["volumeOverrideEnabled"] = p.soundVolumeOverrideEnabled;
+                    so["volume"] = p.soundVolume;  // effective volume, see PresenceMsg::soundVolume
+                } else {
+                    o["sound"] = nullptr;
                 }
             }
         }
@@ -1224,6 +1356,77 @@ class BatteryWebServer {
         }
 
         if (_onSetRemote) _onSetRemote(mac, lightIndex, groupId);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/peers/setaudiogroup ────────────────────────────────────────
+    // Body: {mac, audioGroupId} — mirrors _setRemoteGroup for the (single, see
+    // MAX_SOUNDS) sound output a device may have.
+    void _setRemoteAudioGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t audioGroupId = doc["audioGroupId"] | (uint8_t)0;
+        const char* macStr = doc["mac"] | "";
+
+        if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
+            if (Config::audioGroup(audioGroupId)) {
+                Config::forEachSound(
+                    [&](uint8_t, SoundHardwareConfig& s) { s.audioGroupId = audioGroupId; });
+                Config::save();
+            }
+            auto ok = _makeOk();
+            _sendJson(r, 200, ok);
+            _pushPeers();
+            return;
+        }
+
+        uint8_t mac[6];
+        if (!_parseMac(macStr, mac)) {
+            auto e = _makeErr("bad mac");
+            _sendJson(r, 400, e);
+            return;
+        }
+
+        if (_onSetRemoteAudioGroup) _onSetRemoteAudioGroup(mac, audioGroupId);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/peers/setvolume ────────────────────────────────────────────
+    // Body: {mac, volume, overrideEnabled} — mirrors _setRemoteAudioGroup.
+    // overrideEnabled=false clears the override (the target reverts to
+    // following its audio group's shared volume); volume is only meaningful
+    // when overrideEnabled is true.
+    void _setRemoteVolume(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t volume = (uint8_t)constrain((int)(doc["volume"] | (uint8_t)0), SOUND_VOLUME_MIN,
+                                            SOUND_VOLUME_MAX);
+        bool overrideEnabled = doc["overrideEnabled"] | false;
+        const char* macStr = doc["mac"] | "";
+
+        if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
+            Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
+                s.volumeOverrideEnabled = overrideEnabled;
+                if (overrideEnabled) s.volume = volume;
+            });
+            Config::save();
+            if (_onSoundVolumeChange) _onSoundVolumeChange(0, volume);
+            auto ok = _makeOk();
+            _sendJson(r, 200, ok);
+            _pushPeers();
+            return;
+        }
+
+        uint8_t mac[6];
+        if (!_parseMac(macStr, mac)) {
+            auto e = _makeErr("bad mac");
+            _sendJson(r, 400, e);
+            return;
+        }
+
+        if (_onSetRemoteVolume) _onSetRemoteVolume(mac, volume, overrideEnabled);
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
     }
@@ -2088,8 +2291,27 @@ class BatteryWebServer {
         auto& existing = Config::get().sounds[idx];
         if (!doc["name"].isNull()) strlcpy(existing.name, doc["name"] | "", sizeof(existing.name));
 
-        // Every other field is hardware config — apply on top of a copy first so a
-        // rejected pin conflict leaves the saved config untouched.
+        // Group membership, volume, and its override flag aren't hardware config
+        // (no reboot needed) — applied immediately, volume live to the driver.
+        // Also settable cross-device via /api/peers/setaudiogroup and
+        // /api/peers/setvolume.
+        bool volumeChanged = false;
+        if (!doc["audioGroupId"].isNull()) {
+            existing.audioGroupId = doc["audioGroupId"];
+            volumeChanged = true;  // this sound's shared-volume source just changed
+        }
+        if (!doc["volumeOverrideEnabled"].isNull()) {
+            existing.volumeOverrideEnabled = doc["volumeOverrideEnabled"];
+            volumeChanged = true;
+        }
+        if (!doc["volume"].isNull()) {
+            existing.volume =
+                (uint8_t)constrain((int)doc["volume"], SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
+            volumeChanged = true;
+        }
+
+        // Every remaining field is hardware config — apply on top of a copy first
+        // so a rejected pin conflict leaves the saved config untouched.
         SoundHardwareConfig candidate = existing;
         bool hwChanged = false;
         if (!doc["chip"].isNull()) {
@@ -2145,6 +2367,7 @@ class BatteryWebServer {
             existing = candidate;
         }
         Config::save();
+        if (volumeChanged && _onSoundVolumeChange) _onSoundVolumeChange(idx, existing.volume);
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
         if (hwChanged) {
@@ -2186,6 +2409,250 @@ class BatteryWebServer {
         if (_onTestSound) _onTestSound(idx);
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
+    }
+
+    // ── Audio groups ─────────────────────────────────────────────────────────
+    // Mirrors the light-group handlers above (_createGroup/_updateGroup/
+    // _deleteGroup) — no LightConfig-equivalent payload, no syncEnabled, since
+    // playback triggers are one-shot events, not continuously-synced state.
+
+    void _getAudioGroups(AsyncWebServerRequest* r) {
+        JsonDocument doc;
+        JsonArray arr = doc["audioGroups"].to<JsonArray>();
+        for (uint8_t i = 0; i < MAX_AUDIO_GROUPS; i++) {
+            auto& g = Config::get().audioGroups[i];
+            if (!g.exists) continue;
+            serializeAudioGroup(arr.add<JsonObject>(), g);
+        }
+        _sendJson(r, 200, doc);
+    }
+
+    // ── POST /api/audiogroups/create ─────────────────────────────────────────
+    void _createAudioGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        const char* name = doc["name"] | "New Group";
+        uint8_t id = Config::createAudioGroup(name);
+        if (id == 0xFF) {
+            auto e = _makeErr("group limit reached");
+            _sendJson(r, 400, e);
+            return;
+        }
+        const AudioGroupConfig& g = Config::get().audioGroups[id];
+        Config::save();
+        if (_onAudioGroupSync) _onAudioGroupSync(g);
+
+        JsonDocument resp;
+        resp["ok"] = true;
+        resp["id"] = id;
+        _sendJson(r, 200, resp);
+        _pushAudioGroups();
+    }
+
+    // ── POST /api/audiogroups/update ─────────────────────────────────────────
+    // Body: {id, name?, volume?} — volume is this group's shared volume,
+    // followed live by every member device without its own volumeOverrideEnabled.
+    void _updateAudioGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t id = doc["id"] | (uint8_t)0;
+        AudioGroupConfig* g = Config::audioGroup(id);
+        if (!g) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+        if (!doc["name"].isNull()) strlcpy(g->name, doc["name"], sizeof(g->name));
+        if (!doc["volume"].isNull())
+            g->volume = (uint8_t)constrain((int)doc["volume"], SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
+        Config::bumpAudioGroupRevision(*g);
+        Config::save();
+        if (_onAudioGroupSync) _onAudioGroupSync(*g);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+        _pushAudioGroups();
+    }
+
+    // ── POST /api/audiogroups/delete ─────────────────────────────────────────
+    void _deleteAudioGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t id = doc["id"] | (uint8_t)0;
+        if (id == 0) {
+            auto e = _makeErr("cannot delete Default");
+            _sendJson(r, 400, e);
+            return;
+        }
+        AudioGroupConfig* g = Config::audioGroup(id);
+        if (!g) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+
+        Config::bumpAudioGroupRevision(*g);
+        AudioGroupConfig tombstone = *g;
+        tombstone.exists = false;
+        g->exists = false;
+
+        // Move this device's own sound output(s), if members, back to Default —
+        // mirrors _deleteGroup moving lights.
+        for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
+            auto& s = Config::get().sounds[i];
+            if (s.exists && s.audioGroupId == id) s.audioGroupId = 0;
+        }
+
+        Config::save();
+        if (_onAudioGroupSync) _onAudioGroupSync(tombstone);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+        _pushAudioGroups();
+    }
+
+    // ── Playlists ────────────────────────────────────────────────────────────
+    // Mirrors the scene handlers above; unlike scenes, playlist bodies are
+    // small (a name + a handful of filenames), so no chunked-buffering save
+    // state is needed — same simple body-callback pattern as groups/sounds.
+
+    void _getPlaylists(AsyncWebServerRequest* r) {
+        JsonDocument resp;
+        PlaylistManager::buildList(resp);
+        _sendJson(r, 200, resp);
+    }
+
+    void _createPlaylist(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len, "create")) return;
+        const char* name = doc["name"] | "Unnamed";
+        String id = PlaylistManager::create(name);
+        if (id.isEmpty()) {
+            auto e = _makeErr("create failed");
+            _sendJson(r, 500, e);
+            return;
+        }
+        if (_onPlaylistListChanged) _onPlaylistListChanged();
+        JsonDocument resp;
+        resp["ok"] = true;
+        resp["id"] = id;
+        _sendJson(r, 200, resp);
+    }
+
+    void _deletePlaylist(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len, "delete")) return;
+        const char* id = doc["id"] | "";
+        if (!id[0]) {
+            auto e = _makeErr("missing id");
+            _sendJson(r, 400, e);
+            return;
+        }
+        bool ok = _playlistSync ? _playlistSync->deletePlaylist(id) : PlaylistManager::remove(id);
+        if (ok && _onPlaylistListChanged) _onPlaylistListChanged();
+        JsonDocument resp;
+        if (ok)
+            resp["ok"] = true;
+        else
+            resp["error"] = "not found";
+        _sendJson(r, ok ? 200 : 404, resp);
+    }
+
+    // Body: full playlist JSON {id, name, loop, files:[...]} — the browser is
+    // responsible for including a valid "id" (create first, then save edits).
+    void _savePlaylist(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        String id;
+        if (!PlaylistManager::extractId((const char*)data, len, id)) {
+            Logger::e("[playlist] save: missing or invalid id");
+            auto e = _makeErr("missing or invalid id");
+            _sendJson(r, 400, e);
+            return;
+        }
+        uint32_t prevHash = PlaylistManager::crc32(id.c_str());
+        bool ok = PlaylistManager::save((const char*)data, len);
+        if (ok) {
+            Logger::i("[playlist] save ok: %s", id.c_str());
+            if (_playlistSync) _playlistSync->onPlaylistChanged(id.c_str(), prevHash);
+            if (_onPlaylistListChanged) _onPlaylistListChanged();
+            auto okResp = _makeOk();
+            _sendJson(r, 200, okResp);
+        } else {
+            Logger::e("[playlist] save failed: %s", id.c_str());
+            auto e = _makeErr("save failed");
+            _sendJson(r, 500, e);
+        }
+    }
+
+    // ── Playback triggers ────────────────────────────────────────────────────
+    // Fire-and-forget, same as every other mesh-broadcasting endpoint here —
+    // see the "no cross-device playback state" design decision: there is no
+    // status to poll afterward, these calls just start/stop synchronized
+    // playback on the target audio group.
+
+    // Body: {audioGroupId, filename, loop?}
+    void _playFile(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t groupId = doc["audioGroupId"] | (uint8_t)0;
+        const char* filename = doc["filename"] | "";
+        bool loop = doc["loop"] | false;
+        if (!filename[0]) {
+            auto e = _makeErr("missing filename");
+            _sendJson(r, 400, e);
+            return;
+        }
+        if (!Config::audioGroup(groupId)) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+        if (_onPlayFile) _onPlayFile(groupId, filename, loop);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    // Body: {audioGroupId, playlistId}
+    void _playPlaylist(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t groupId = doc["audioGroupId"] | (uint8_t)0;
+        const char* playlistId = doc["playlistId"] | "";
+        if (!playlistId[0]) {
+            auto e = _makeErr("missing playlistId");
+            _sendJson(r, 400, e);
+            return;
+        }
+        if (!Config::audioGroup(groupId)) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+        if (_onPlayPlaylist) _onPlayPlaylist(groupId, playlistId);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    // Body: {audioGroupId}
+    void _stopAudioGroup(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t groupId = doc["audioGroupId"] | (uint8_t)0;
+        if (_onStopAudio) _onStopAudio(groupId);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    void _pushAudioGroups() {
+        if (!_ws || _ws->count() == 0) return;
+        JsonDocument doc;
+        doc["t"] = "audioGroups";
+        JsonArray arr = doc["list"].to<JsonArray>();
+        for (uint8_t i = 0; i < MAX_AUDIO_GROUPS; i++) {
+            auto& g = Config::get().audioGroups[i];
+            if (!g.exists) continue;
+            serializeAudioGroup(arr.add<JsonObject>(), g);
+        }
+        String s;
+        serializeJson(doc, s);
+        _ws->textAll(s);
     }
 
     // ── Storage (SD card) ────────────────────────────────────────────────────

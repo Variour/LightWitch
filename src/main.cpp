@@ -21,6 +21,8 @@
 #include "patterns/PatternRunner.h"
 #include "scenes/SceneSyncManager.h"
 #include "sound/Es8311Driver.h"
+#include "sound/PlaylistManager.h"
+#include "sound/PlaylistSyncManager.h"
 #include "storage/SdCardManager.h"
 #include "timesync/TimeSync.h"
 #include "version.h"
@@ -38,6 +40,7 @@ static WifiElection wifiElection;
 static BatteryWebServer webServer;
 static MqttManager mqtt;
 static SceneSyncManager sceneSync;
+static PlaylistSyncManager playlistSync;
 static ActionExecutor actionExecutor;
 static ButtonManager buttonManager;
 static BatteryMonitor battery;
@@ -130,6 +133,99 @@ static void publishGroupSync(const GroupConfig& g) {
         mqtt.publishGroupState(g.id);
     else
         mqtt.clearGroupRetained(g.id);
+}
+
+// ── Audio volume ─────────────────────────────────────────────────────────────
+// Recomputes this device's sound output's effective volume (own override if
+// enabled, else its audio group's shared volume — see
+// Config::effectiveSoundVolume) and applies it live. Call after anything that
+// could change the outcome: this device's own override/value, its group
+// membership, or that group's shared volume.
+static void applyEffectiveVolume() {
+    Config::forEachSound(
+        [](uint8_t, SoundHardwareConfig& s) { _sound.setVolume(Config::effectiveSoundVolume(s)); });
+}
+
+// ── Audio playback triggers ─────────────────────────────────────────────────
+// Fixed lead time given to every scheduled PlayAudio trigger — see
+// PlayAudioMsg's contract in MeshTypes.h. Generous enough to absorb SD-card
+// open/parse latency plus ESP-NOW broadcast jitter on every participating
+// device; devices that still can't finish preparing in time skip playback
+// entirely rather than starting late (see Es8311Driver::_runPlayback).
+static constexpr uint16_t AUDIO_PLAY_START_DELAY_MS = 400;
+
+// True if this device has a sound output assigned to audioGroupId — the same
+// membership test both the local-trigger path and the mesh receive path use,
+// so a device outside the target group is never affected either way.
+static bool isAudioGroupMember(uint8_t audioGroupId) {
+    bool member = false;
+    Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
+        if (s.audioGroupId == audioGroupId) member = true;
+    });
+    return member;
+}
+
+// Applies an already-built PlayAudioMsg on this device only if it's a member
+// of the target group — used both for the originating device (which doesn't
+// get its own ESP-NOW broadcast echoed back, so must apply locally too, same
+// as applyAndPropagateLightConfig does for light edits) and for mesh.setOnPlayAudio.
+static void applyPlayAudioLocally(const PlayAudioMsg& msg) {
+    if (!isAudioGroupMember(msg.audioGroupId)) return;
+    if (msg.isPlaylist) {
+        String files[PlaylistManager::MAX_FILES_PER_PLAYLIST];
+        bool loop = false;
+        uint8_t count = PlaylistManager::readFiles(msg.id, files,
+                                                   PlaylistManager::MAX_FILES_PER_PLAYLIST, loop);
+        if (count == 0) {
+            Logger::i("[audio] playlist %s unknown/empty locally — not participating", msg.id);
+            return;
+        }
+        _sound.scheduleFiles(files, count, loop, msg.startDelayMs);
+    } else {
+        String file = msg.filename;
+        _sound.scheduleFiles(&file, 1, msg.loop != 0, msg.startDelayMs);
+    }
+}
+
+static void applyStopAudioLocally(uint8_t audioGroupId) {
+    if (!isAudioGroupMember(audioGroupId)) return;
+    _sound.stop();
+}
+
+// Starts synchronized playback of a single SD-card file across every device
+// in audioGroupId (see PlayAudioMsg). Applies locally first (ESP-NOW
+// broadcast never loops back to the sender), then broadcasts.
+static void triggerPlaySingleFile(uint8_t audioGroupId, const char* filename, bool loop) {
+    PlayAudioMsg msg{};
+    msg.type = MsgType::PlayAudio;
+    msg.audioGroupId = audioGroupId;
+    msg.isPlaylist = 0;
+    msg.loop = loop ? 1 : 0;
+    msg.startDelayMs = AUDIO_PLAY_START_DELAY_MS;
+    msg.id[0] = '\0';
+    strlcpy(msg.filename, filename, AUDIO_FILENAME_LEN);
+    applyPlayAudioLocally(msg);
+    mesh.broadcastPlayAudio(msg);
+}
+
+// Starts synchronized playback of a saved playlist (its own stored loop flag
+// applies — see PlaylistManager) across every device in audioGroupId.
+static void triggerPlayPlaylist(uint8_t audioGroupId, const char* playlistId) {
+    PlayAudioMsg msg{};
+    msg.type = MsgType::PlayAudio;
+    msg.audioGroupId = audioGroupId;
+    msg.isPlaylist = 1;
+    msg.loop = 0;  // ignored for playlists — the playlist's own loop flag wins
+    msg.startDelayMs = AUDIO_PLAY_START_DELAY_MS;
+    msg.filename[0] = '\0';
+    strlcpy(msg.id, playlistId, PLAYLIST_ID_LEN);
+    applyPlayAudioLocally(msg);
+    mesh.broadcastPlayAudio(msg);
+}
+
+static void triggerStopAudio(uint8_t audioGroupId) {
+    applyStopAudioLocally(audioGroupId);
+    mesh.broadcastStopAudio(audioGroupId);
 }
 
 // Re-applies a single light's effective config — its (possibly just
@@ -394,13 +490,14 @@ void setup() {
                   Config::get().i2cSclPin);
     }
 
-    // Initialise the sound output, if configured — hardware bring-up only for
-    // now (see SoundDriver.h), so there's no per-loop pipeline to wire up here.
+    // Initialise the sound output, if configured.
     Config::forEachSound([](uint8_t, SoundHardwareConfig& s) {
         _sound.setup(s, Config::get().i2cSdaPin, Config::get().i2cSclPin,
                      Config::get().expanderAddress);
         _sound.begin();
+        _sound.setSdCard(&_sdCard);
     });
+    applyEffectiveVolume();
 
     // Wire MQTT: every group and light gets its own topic (see MqttManager.h) —
     // funnels into the same apply/propagate + mesh-broadcast paths web/buttons use.
@@ -411,6 +508,13 @@ void setup() {
     mqtt.setOnLightOverride([](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
     mqtt.setOnSceneSyncEnabled([]() { sceneSync.onSyncEnabled(); });
     mqtt.setBatteryStatusProvider([]() { return battery.status(); });
+    mqtt.setOnPlayFile([](uint8_t audioGroupId, const char* filename, bool loop) {
+        triggerPlaySingleFile(audioGroupId, filename, loop);
+    });
+    mqtt.setOnPlayPlaylist([](uint8_t audioGroupId, const char* playlistId) {
+        triggerPlayPlaylist(audioGroupId, playlistId);
+    });
+    mqtt.setOnStopAudio([](uint8_t audioGroupId) { triggerStopAudio(audioGroupId); });
     mqtt.begin(Config::get());
 
     // Wire the action layer: buttons (and, perspectively, other future trigger
@@ -451,6 +555,16 @@ void setup() {
         [](const char* id, uint32_t prevHash) { mesh.broadcastSceneEditPush(id, prevHash); });
     sceneSync.setRequestManifestFn([]() { mesh.broadcastRequestManifest(); });
 
+    // Wire PlaylistSyncManager → MeshManager (mirrors SceneSyncManager above)
+    playlistSync.setBroadcastFns(
+        [](const char* id, uint32_t hash) { mesh.broadcastPlaylistForceSet(id, hash); },
+        [](const char* id) { mesh.broadcastPlaylistRequest(id); },
+        [](const PlaylistChunkMsg& msg) { mesh.broadcastPlaylistChunk(msg); },
+        [](const PlaylistManifestMsg& msg) { mesh.broadcastPlaylistManifest(msg); });
+    playlistSync.setEditPushFn(
+        [](const char* id, uint32_t prevHash) { mesh.broadcastPlaylistEditPush(id, prevHash); });
+    playlistSync.setRequestManifestFn([]() { mesh.broadcastRequestPlaylistManifest(); });
+
     // ── Mesh callbacks ────────────────────────────────────────────────────────
 
     mesh.setOnLightConfig([](uint8_t groupId, const LightConfig& cfg) {
@@ -461,7 +575,10 @@ void setup() {
 
     mesh.setOnPresence([](const uint8_t* mac, const char*, bool isNew) {
         publishTelemetry();
-        if (isNew) sceneSync.onNewPeer(mac);
+        if (isNew) {
+            sceneSync.onNewPeer(mac);
+            playlistSync.onNewPeer(mac);
+        }
     });
 
     mesh.setOnSceneManifest(
@@ -475,6 +592,43 @@ void setup() {
     });
     mesh.setOnRequestManifest([]() { sceneSync.onRequestManifest(); });
     mesh.setOnSetSceneSync([](bool enabled) { sceneSync.onSetSceneSync(enabled); });
+
+    mesh.setOnPlaylistManifest([](const uint8_t* mac, const PlaylistManifestMsg* msg) {
+        playlistSync.onManifest(mac, msg);
+    });
+    mesh.setOnPlaylistRequest(
+        [](const uint8_t* mac, const char* id) { playlistSync.onRequest(mac, id); });
+    mesh.setOnPlaylistChunk([](const PlaylistChunkMsg* msg) { playlistSync.onChunk(msg); });
+    mesh.setOnPlaylistForceSet(
+        [](const char* id, uint32_t hash) { playlistSync.onForceSet(id, hash); });
+    mesh.setOnPlaylistEditPush([](const uint8_t* mac, const char* id, uint32_t prevHash) {
+        playlistSync.onPlaylistEditPush(mac, id, prevHash);
+    });
+    mesh.setOnRequestPlaylistManifest([]() { playlistSync.onRequestManifest(); });
+    mesh.setOnSetPlaylistSync([](bool enabled) { playlistSync.onSetPlaylistSync(enabled); });
+
+    mesh.setOnPlayAudio([](const PlayAudioMsg& msg) { applyPlayAudioLocally(msg); });
+    mesh.setOnStopAudio([](uint8_t audioGroupId) { applyStopAudioLocally(audioGroupId); });
+
+    mesh.setOnAudioGroupSync([](const AudioGroupConfig& g) {
+        bool didApply = Config::applyAudioGroupSync(g);
+        AudioGroupConfig* applied = Config::audioGroup(g.id);
+        Config::save();
+        if (!applied) {
+            // Group deleted — move this device's sound output (if it was a member)
+            // back to Default, mirroring how light-group deletion moves lights.
+            Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
+                if (s.audioGroupId == g.id) s.audioGroupId = 0;
+            });
+            Config::save();
+            applyEffectiveVolume();
+        } else if (didApply) {
+            // Adopted (possibly changed) volume — re-apply if this device is a
+            // member and isn't overriding it.
+            applyEffectiveVolume();
+        }
+        if (didApply || !applied) webServer.pushAudioGroups();
+    });
 
     mesh.setOnTriggerUpdate(
         []() { wifiElection.requestTemporary([]() { Updater::triggerAsync(); }); });
@@ -531,6 +685,43 @@ void setup() {
             }
         }
         mesh.peers.updateLightGroup(targetMac, lightIndex, groupId);
+        publishTelemetry();
+    });
+
+    // Another device told this device (or a peer) to move its sound output to
+    // a different audio group — mirrors setOnSetGroup above.
+    mesh.setOnSetSoundGroup([](const uint8_t* targetMac, uint8_t audioGroupId) {
+        uint8_t own[6];
+        WiFi.macAddress(own);
+        if (memcmp(targetMac, own, 6) == 0 && Config::audioGroup(audioGroupId)) {
+            Config::forEachSound(
+                [&](uint8_t, SoundHardwareConfig& s) { s.audioGroupId = audioGroupId; });
+            Config::save();
+            applyEffectiveVolume();  // its shared volume comes from the new group now
+            Logger::i("[mesh] sound output moved to audio group %u", audioGroupId);
+        }
+        mesh.peers.updateSoundGroup(targetMac, audioGroupId);
+        publishTelemetry();
+    });
+
+    // Another device told this device (or a peer) to change its sound output's
+    // volume override — cross-device control from any dashboard, applied live.
+    // overrideEnabled=false clears the override (revert to following the
+    // audio group's shared volume) — see SetVolumeMsg.
+    mesh.setOnSetVolume([](const uint8_t* targetMac, uint8_t volume, bool overrideEnabled) {
+        volume = (uint8_t)constrain((int)volume, SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
+        uint8_t own[6];
+        WiFi.macAddress(own);
+        if (memcmp(targetMac, own, 6) == 0) {
+            Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
+                s.volumeOverrideEnabled = overrideEnabled;
+                if (overrideEnabled) s.volume = volume;
+            });
+            Config::save();
+            applyEffectiveVolume();
+        }
+        mesh.peers.updateSoundVolumeOverride(targetMac, overrideEnabled);
+        if (overrideEnabled) mesh.peers.updateSoundVolume(targetMac, volume);
         publishTelemetry();
     });
 
@@ -705,6 +896,32 @@ void setup() {
     });
     sceneSync.setOnSceneSaved(notifySceneUpdated);
 
+    webServer.setPlaylistSync(&playlistSync);
+    // idx/volume args no longer directly meaningful (volume now only applies
+    // when that sound's volumeOverrideEnabled is set) — just re-resolve.
+    webServer.setOnSoundVolumeChange([](uint8_t, uint8_t) { applyEffectiveVolume(); });
+    webServer.setOnAudioGroupSync([](const AudioGroupConfig& g) {
+        mesh.broadcastAudioGroupSync(g);
+        applyEffectiveVolume();  // in case this device is a member and isn't overriding
+    });
+    webServer.setOnPlayFile([](uint8_t audioGroupId, const char* filename, bool loop) {
+        triggerPlaySingleFile(audioGroupId, filename, loop);
+    });
+    webServer.setOnPlayPlaylist([](uint8_t audioGroupId, const char* playlistId) {
+        triggerPlayPlaylist(audioGroupId, playlistId);
+    });
+    webServer.setOnStopAudio([](uint8_t audioGroupId) { triggerStopAudio(audioGroupId); });
+    webServer.setOnSetRemoteAudioGroup([](const uint8_t* mac, uint8_t audioGroupId) {
+        mesh.broadcastSetSoundGroup(mac, audioGroupId);
+    });
+    webServer.setOnSetRemoteVolume([](const uint8_t* mac, uint8_t volume, bool overrideEnabled) {
+        mesh.broadcastSetVolume(mac, volume, overrideEnabled);
+    });
+    // No setOnPlaylistListChanged wiring: unlike scenes, playlists have no MQTT
+    // HA-discovery entities to resync (see MqttManager.h — audio groups are
+    // command-topic only, no state/discovery) and no PatternRunner-equivalent
+    // consumer, so there's nothing for this callback to do yet.
+
     Logger::i("[sys] ready");
     if (Config::get().checkUpdateOnStartup) {
         if (Config::get().wifiSingleClientMode) {
@@ -785,6 +1002,7 @@ void loop() {
     if (!_otaActive && backgroundTick) {
         buttonManager.tick();
         sceneSync.tick();
+        playlistSync.tick();
     }
 
     if (!_otaActive && now - _lastPatternTickMs >= PATTERN_TICK_INTERVAL_MS) {

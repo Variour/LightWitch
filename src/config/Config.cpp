@@ -131,6 +131,9 @@ void serializeSound(JsonObject o, const SoundHardwareConfig& s) {
     o["paEnablePin"] = s.paEnablePin;
     o["paEnableActiveHigh"] = s.paEnableActiveHigh;
     o["paViaExpander"] = s.paViaExpander;
+    o["audioGroupId"] = s.audioGroupId;
+    o["volumeOverrideEnabled"] = s.volumeOverrideEnabled;
+    o["volume"] = s.volume;
     o["exists"] = s.exists;
 }
 
@@ -145,7 +148,26 @@ void deserializeSound(JsonVariant o, SoundHardwareConfig& s) {
     s.paEnablePin = o["paEnablePin"] | PIN_UNUSED;
     s.paEnableActiveHigh = o["paEnableActiveHigh"] | true;
     s.paViaExpander = o["paViaExpander"] | false;
+    s.audioGroupId = o["audioGroupId"] | (uint8_t)0;
+    s.volumeOverrideEnabled = o["volumeOverrideEnabled"] | false;
+    s.volume =
+        (uint8_t)constrain((int)(o["volume"] | (uint8_t)200), SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
     s.exists = o["exists"] | false;
+}
+
+void serializeAudioGroup(JsonObject o, const AudioGroupConfig& g) {
+    o["id"] = g.id;
+    o["name"] = g.name;
+    o["exists"] = g.exists;
+    o["volume"] = g.volume;
+}
+
+void deserializeAudioGroup(JsonVariant o, AudioGroupConfig& g) {
+    g.id = o["id"] | (uint8_t)0;
+    g.exists = o["exists"] | false;
+    strlcpy(g.name, o["name"] | "Default", sizeof(g.name));
+    g.volume =
+        (uint8_t)constrain((int)(o["volume"] | (uint8_t)200), SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
 }
 
 static bool migrateDoc(JsonDocument& doc) {
@@ -170,6 +192,7 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().otaPort = doc["otaPort"] | 3232;
     Config::get().otaEnabled = doc["otaEnabled"] | true;
     Config::get().sceneSyncEnabled = doc["sceneSyncEnabled"] | true;
+    Config::get().playlistSyncEnabled = doc["playlistSyncEnabled"] | true;
     Config::get().checkUpdateOnStartup = doc["checkUpdateOnStartup"] | false;
     Config::get().wifiSingleClientMode = doc["wifiSingleClientMode"] | false;
     Config::get().batteryMonitoringEnabled = doc["batteryMonitoringEnabled"] | false;
@@ -252,6 +275,23 @@ static void applyDoc(JsonDocument& doc) {
             if (idx < MAX_SOUNDS) deserializeSound(v, Config::get().sounds[idx]);
         }
     }
+
+    if (doc["audioGroups"].is<JsonArray>()) {
+        for (JsonVariant v : doc["audioGroups"].as<JsonArray>()) {
+            uint8_t id = v["id"] | (uint8_t)0;
+            if (id < MAX_AUDIO_GROUPS) deserializeAudioGroup(v, Config::get().audioGroups[id]);
+        }
+    }
+
+    if (doc["audioGroupRevisions"].is<JsonArray>()) {
+        for (JsonVariant v : doc["audioGroupRevisions"].as<JsonArray>()) {
+            uint8_t id = v["id"] | (uint8_t)0;
+            if (id >= MAX_AUDIO_GROUPS) continue;
+            auto& g = Config::get().audioGroups[id];
+            g.revision = v["revision"] | (uint32_t)0;
+            for (uint8_t b = 0; b < 6; b++) g.originMac[b] = v["originMac"][b] | (uint8_t)0;
+        }
+    }
 }
 
 bool Config::load() {
@@ -264,6 +304,7 @@ bool Config::load() {
             if (ok && migrateDoc(doc)) {
                 applyDoc(doc);
                 _ensureDefaultGroup();
+                _ensureDefaultAudioGroup();
                 Logger::d("[cfg] loaded from LittleFS");
                 return true;
             }
@@ -279,6 +320,7 @@ bool Config::load() {
             if (!deserializeJson(doc, json) && migrateDoc(doc)) {
                 applyDoc(doc);
                 _ensureDefaultGroup();
+                _ensureDefaultAudioGroup();
                 Logger::i("[cfg] no LittleFS config — restored from NVS");
                 save();
                 return true;
@@ -288,6 +330,7 @@ bool Config::load() {
 
     Logger::w("[cfg] no saved config — using defaults");
     _ensureDefaultGroup();
+    _ensureDefaultAudioGroup();
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
     snprintf(_cfg.deviceName, sizeof(_cfg.deviceName), "light-%02x%02x%02x", mac[3], mac[4],
@@ -303,6 +346,7 @@ bool Config::save() {
     doc["otaPort"] = _cfg.otaPort;
     doc["otaEnabled"] = _cfg.otaEnabled;
     doc["sceneSyncEnabled"] = _cfg.sceneSyncEnabled;
+    doc["playlistSyncEnabled"] = _cfg.playlistSyncEnabled;
     doc["checkUpdateOnStartup"] = _cfg.checkUpdateOnStartup;
     doc["wifiSingleClientMode"] = _cfg.wifiSingleClientMode;
     doc["batteryMonitoringEnabled"] = _cfg.batteryMonitoringEnabled;
@@ -385,6 +429,22 @@ bool Config::save() {
         serializeSound(o, _cfg.sounds[i]);
     }
 
+    JsonArray audioGroupsArr = doc["audioGroups"].to<JsonArray>();
+    for (uint8_t i = 0; i < MAX_AUDIO_GROUPS; i++)
+        if (_cfg.audioGroups[i].exists)
+            serializeAudioGroup(audioGroupsArr.add<JsonObject>(), _cfg.audioGroups[i]);
+
+    // Mesh-internal only, mirrors groupRevisions above — every slot is saved
+    // regardless of exists so the revision counter survives delete + reboot.
+    JsonArray audioGroupRevArr = doc["audioGroupRevisions"].to<JsonArray>();
+    for (uint8_t i = 0; i < MAX_AUDIO_GROUPS; i++) {
+        JsonObject o = audioGroupRevArr.add<JsonObject>();
+        o["id"] = i;
+        o["revision"] = _cfg.audioGroups[i].revision;
+        JsonArray origin = o["originMac"].to<JsonArray>();
+        for (uint8_t b = 0; b < 6; b++) origin.add(_cfg.audioGroups[i].originMac[b]);
+    }
+
     bool fsOk = false;
     File f = LittleFS.open(_path, "w");
     if (f) {
@@ -460,6 +520,41 @@ bool Config::applyGroupSync(const GroupConfig& g) {
     // slot) can never be out-ranked by a stale peer's cached data for
     // whatever used to occupy that slot — light included.
     if (compareGroupRevision(g, local) <= 0) return false;
+    local = g;
+    return true;
+}
+
+uint8_t Config::createAudioGroup(const char* name) {
+    for (uint8_t i = 1; i < MAX_AUDIO_GROUPS; i++) {
+        if (!_cfg.audioGroups[i].exists) {
+            uint32_t prevRevision = _cfg.audioGroups[i].revision;
+            _cfg.audioGroups[i] = AudioGroupConfig{};
+            _cfg.audioGroups[i].id = i;
+            _cfg.audioGroups[i].exists = true;
+            _cfg.audioGroups[i].revision = prevRevision;
+            strlcpy(_cfg.audioGroups[i].name, name, sizeof(_cfg.audioGroups[i].name));
+            bumpAudioGroupRevision(_cfg.audioGroups[i]);
+            return i;
+        }
+    }
+    return 0xFF;
+}
+
+void Config::bumpAudioGroupRevision(AudioGroupConfig& g) {
+    g.revision++;
+    WiFi.macAddress(g.originMac);
+}
+
+int Config::compareAudioGroupRevision(const AudioGroupConfig& a, const AudioGroupConfig& b) {
+    if (a.revision != b.revision) return a.revision > b.revision ? 1 : -1;
+    int macCmp = memcmp(a.originMac, b.originMac, sizeof(a.originMac));
+    return macCmp > 0 ? 1 : (macCmp < 0 ? -1 : 0);
+}
+
+bool Config::applyAudioGroupSync(const AudioGroupConfig& g) {
+    if (g.id >= MAX_AUDIO_GROUPS) return false;
+    AudioGroupConfig& local = _cfg.audioGroups[g.id];
+    if (compareAudioGroupRevision(g, local) <= 0) return false;
     local = g;
     return true;
 }
@@ -734,5 +829,13 @@ void Config::_ensureDefaultGroup() {
         _cfg.groups[0].id = 0;
         _cfg.groups[0].exists = true;
         strlcpy(_cfg.groups[0].name, "Default", sizeof(_cfg.groups[0].name));
+    }
+}
+
+void Config::_ensureDefaultAudioGroup() {
+    if (!_cfg.audioGroups[0].exists) {
+        _cfg.audioGroups[0].id = 0;
+        _cfg.audioGroups[0].exists = true;
+        strlcpy(_cfg.audioGroups[0].name, "Default", sizeof(_cfg.audioGroups[0].name));
     }
 }

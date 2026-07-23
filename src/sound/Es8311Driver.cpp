@@ -6,6 +6,8 @@
 #include <esp_task_wdt.h>
 #include <math.h>
 
+#include <new>
+
 #include "../logging/Logger.h"
 
 // playTestMelody() runs synchronously on whatever task services the HTTP
@@ -225,6 +227,15 @@ void Es8311Driver::begin() {
     _i2sInstalled = true;
     Logger::i("[sound] ES8311 initialized: sda=GPIO%d scl=GPIO%d bclk=GPIO%d ws=GPIO%d dout=GPIO%d",
               _i2cSdaPin, _i2cSclPin, _cfg.i2sBclkPin, _cfg.i2sWsPin, _cfg.i2sDoutPin);
+
+    // Every I2C/I2S register access from here on (test melody, playback)
+    // happens exclusively on this one task — see the class comment.
+    _cmdQueue = xQueueCreate(4, sizeof(PlayerCommand));
+    if (!_cmdQueue) {
+        Logger::e("[sound] failed to create player command queue");
+        return;
+    }
+    xTaskCreatePinnedToCore(_playerTaskFn, "sound_player", 8192, this, 1, &_playTask, 0);
 }
 
 // Writes durationMs of a sine tone at freqHz to both I2S slots (mono content
@@ -271,14 +282,117 @@ void Es8311Driver::_writeSilenceFrames(uint32_t frames) {
     }
 }
 
+// Public playback API — every call here just posts a command to the player
+// task's queue and returns immediately; see the class comment in
+// Es8311Driver.h for why all actual I2C/I2S work happens on that one task.
+
+void Es8311Driver::playTestMelody() {
+    if (!_cmdQueue) return;
+    PlayerCommand cmd{};
+    cmd.type = PlayerCommand::Type::TestMelody;
+    xQueueSend(_cmdQueue, &cmd, 0);
+}
+
+void Es8311Driver::scheduleFiles(const String* filenames, uint8_t fileCount, bool loop,
+                                 uint32_t startDelayMs) {
+    if (!_cmdQueue || fileCount == 0) return;
+    uint8_t count = fileCount < MAX_PLAY_FILES ? fileCount : MAX_PLAY_FILES;
+    if (count < fileCount)
+        Logger::w("[sound] scheduleFiles: truncating %u files to %u", fileCount, count);
+
+    String* files = new (std::nothrow) String[count];
+    if (!files) {
+        Logger::e("[sound] scheduleFiles: OOM allocating %u filenames", count);
+        return;
+    }
+    for (uint8_t i = 0; i < count; i++) files[i] = filenames[i];
+
+    PlayerCommand cmd{};
+    cmd.type = PlayerCommand::Type::Play;
+    cmd.files = files;
+    cmd.fileCount = count;
+    cmd.loop = loop;
+    cmd.startAtMs = millis() + startDelayMs;
+    if (xQueueSend(_cmdQueue, &cmd, 0) != pdTRUE) {
+        Logger::w("[sound] scheduleFiles: command queue full, dropping trigger");
+        delete[] files;
+    }
+}
+
+void Es8311Driver::stop() {
+    if (!_cmdQueue) return;
+    PlayerCommand cmd{};
+    cmd.type = PlayerCommand::Type::Stop;
+    xQueueSend(_cmdQueue, &cmd, 0);
+}
+
+void Es8311Driver::setVolume(uint8_t volume) {
+    if (!_cmdQueue) return;
+    PlayerCommand cmd{};
+    cmd.type = PlayerCommand::Type::SetVolume;
+    cmd.volume = (uint8_t)constrain((int)volume, SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
+    xQueueSend(_cmdQueue, &cmd, 0);
+}
+
+// ── Player task ────────────────────────────────────────────────────────────
+
+void Es8311Driver::_playerTaskFn(void* arg) { ((Es8311Driver*)arg)->_playerLoop(); }
+
+void Es8311Driver::_playerLoop() {
+    for (;;) {
+        PlayerCommand cmd;
+        if (xQueueReceive(_cmdQueue, &cmd, portMAX_DELAY) != pdTRUE) continue;
+        switch (cmd.type) {
+            case PlayerCommand::Type::Play:
+                _runPlayback(cmd);  // takes ownership of cmd.files
+                break;
+            case PlayerCommand::Type::Stop:
+                break;  // idle between commands — nothing playing to stop
+            case PlayerCommand::Type::SetVolume:
+                _cfg.volume = cmd.volume;
+                _writeReg(REG_DAC_VOLUME, cmd.volume);
+                break;
+            case PlayerCommand::Type::TestMelody:
+                _runTestMelody();
+                break;
+        }
+    }
+}
+
+bool Es8311Driver::_checkForInterrupt(PlayerCommand& out, TickType_t wait) {
+    PlayerCommand cmd;
+    while (xQueueReceive(_cmdQueue, &cmd, wait) == pdTRUE) {
+        wait = 0;  // only the first receive in a call may block
+        if (cmd.type == PlayerCommand::Type::SetVolume) {
+            _cfg.volume = cmd.volume;
+            _writeReg(REG_DAC_VOLUME, cmd.volume);
+            continue;
+        }
+        out = cmd;
+        return true;
+    }
+    return false;
+}
+
+void Es8311Driver::_muteAndDisablePa() {
+    _setPaEnabled(false);
+    _writeReg(REG_DAC_VOLUME, 0x00);
+}
+
 // Short built-in jingle (ascending major arpeggio + resolving note) purely to
 // let the user confirm the wiring/pins are correct from the web UI — no
-// content/pattern system involved, see SoundDriver.h.
-void Es8311Driver::playTestMelody() {
+// content/pattern system involved, see SoundDriver.h. Always uses the
+// original fixed 16 kHz mono-duplicated-to-stereo format regardless of
+// whatever a previous file playback last configured the I2S clock to.
+void Es8311Driver::_runTestMelody() {
     if (!_i2sInstalled) {
         Logger::w("[sound] playTestMelody: I2S not installed, skipping");
         return;
     }
+
+    i2s_set_clk(I2S_PORT, I2S_SAMPLE_RATE_HZ, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO);
+    _lastI2sSampleRate = I2S_SAMPLE_RATE_HZ;
+    _lastI2sBits = 16;
 
     Logger::i("[sound] playTestMelody: start");
     _setPaEnabled(true);
@@ -330,4 +444,223 @@ void Es8311Driver::playTestMelody() {
     feedWatchdog();
     _setPaEnabled(false);
     Logger::i("[sound] playTestMelody: done");
+}
+
+// Parses a WAV file's RIFF/fmt/data chunks (walking past any other chunk —
+// e.g. LIST/fact — rather than assuming a fixed 44-byte canonical header) and
+// leaves `outFile` positioned at the start of its PCM data. Only 16-bit PCM
+// mono/stereo is supported; anything else (compressed formats, 8/24/32-bit,
+// more than 2 channels) is rejected, same as a missing file.
+bool Es8311Driver::_openWav(const String& name, File& outFile, WavInfo& outInfo) {
+    if (!_sdCard) return false;
+    File f = _sdCard->openForRead(name);
+    if (!f) {
+        Logger::w("[sound] file not found: %s", name.c_str());
+        return false;
+    }
+
+    char riff[4];
+    uint32_t riffSize;
+    char wave[4];
+    if (f.read((uint8_t*)riff, 4) != 4 || memcmp(riff, "RIFF", 4) != 0 ||
+        f.read((uint8_t*)&riffSize, 4) != 4 || f.read((uint8_t*)wave, 4) != 4 ||
+        memcmp(wave, "WAVE", 4) != 0) {
+        Logger::w("[sound] %s: not a RIFF/WAVE file", name.c_str());
+        f.close();
+        return false;
+    }
+
+    bool haveFmt = false, haveData = false;
+    WavInfo info{};
+    while (!haveData && f.available() >= 8) {
+        char id[4];
+        uint32_t size;
+        if (f.read((uint8_t*)id, 4) != 4 || f.read((uint8_t*)&size, 4) != 4) break;
+
+        if (memcmp(id, "fmt ", 4) == 0) {
+            uint8_t fmtBuf[16] = {};
+            uint32_t toRead = size < sizeof(fmtBuf) ? size : sizeof(fmtBuf);
+            f.read(fmtBuf, toRead);
+            uint16_t audioFormat = fmtBuf[0] | (fmtBuf[1] << 8);
+            info.numChannels = fmtBuf[2] | (fmtBuf[3] << 8);
+            info.sampleRate = (uint32_t)fmtBuf[4] | ((uint32_t)fmtBuf[5] << 8) |
+                              ((uint32_t)fmtBuf[6] << 16) | ((uint32_t)fmtBuf[7] << 24);
+            info.bitsPerSample = fmtBuf[14] | (fmtBuf[15] << 8);
+            if (size > toRead) f.seek(f.position() + (size - toRead));
+            if (size & 1) f.seek(f.position() + 1);
+            haveFmt = (audioFormat == 1);  // PCM only, no compressed/float formats
+        } else if (memcmp(id, "data", 4) == 0) {
+            info.dataSize = size;
+            haveData = true;  // leaves f positioned right at the PCM data start
+        } else {
+            uint32_t skip = size + (size & 1);  // chunks are word-padded
+            f.seek(f.position() + skip);
+        }
+    }
+
+    if (!haveFmt || !haveData || info.bitsPerSample != 16 ||
+        (info.numChannels != 1 && info.numChannels != 2) || info.sampleRate == 0) {
+        Logger::w("[sound] %s: unsupported WAV (need 16-bit PCM mono/stereo)", name.c_str());
+        f.close();
+        return false;
+    }
+
+    outFile = f;
+    outInfo = info;
+    return true;
+}
+
+bool Es8311Driver::_openNextPlayable(const PlayerCommand& cmd, uint8_t& index, File& outFile,
+                                     WavInfo& outInfo) {
+    uint8_t maxTries = cmd.loop ? cmd.fileCount : (uint8_t)(cmd.fileCount - index);
+    for (uint8_t tries = 0; tries < maxTries; tries++) {
+        if (_openWav(cmd.files[index], outFile, outInfo)) return true;
+        Logger::w("[sound] skipping %s (missing or unsupported)", cmd.files[index].c_str());
+        index++;
+        if (index >= cmd.fileCount) {
+            if (!cmd.loop) return false;
+            index = 0;
+        }
+    }
+    return false;
+}
+
+// Reconfigures the I2S clock to match a file's sample rate, skipping the call
+// (and the brief mute/glitch it can cause) when it already matches — e.g.
+// consecutive playlist entries at the same rate, or looping the same file.
+// Output is always driven as 16-bit stereo; mono sources are duplicated to
+// both channels in software (see _streamFile), so only the rate can differ.
+void Es8311Driver::_applyI2sFormat(const WavInfo& info) {
+    if (info.sampleRate == _lastI2sSampleRate && _lastI2sBits == 16) return;
+    i2s_set_clk(I2S_PORT, info.sampleRate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO);
+    _lastI2sSampleRate = info.sampleRate;
+    _lastI2sBits = 16;
+}
+
+// Streams `info.dataSize` bytes of PCM from the current position of `f` to
+// I2S, duplicating mono source samples to both output channels. Returns true
+// if interrupted by a Stop/Play/TestMelody command (filled into
+// outInterrupt) before reaching the end of the data.
+bool Es8311Driver::_streamFile(File& f, const WavInfo& info, PlayerCommand& outInterrupt) {
+    static constexpr uint32_t CHUNK_FRAMES = 256;
+    int16_t monoBuf[CHUNK_FRAMES];
+    int16_t outBuf[CHUNK_FRAMES * 2];
+    uint32_t bytesRemaining = info.dataSize;
+
+    while (bytesRemaining > 0) {
+        if (_checkForInterrupt(outInterrupt, 0)) return true;
+
+        size_t got;
+        if (info.numChannels == 1) {
+            uint32_t wantBytes = min((uint32_t)(CHUNK_FRAMES * 2), bytesRemaining);
+            got = f.read((uint8_t*)monoBuf, wantBytes);
+            if (got == 0) break;  // short read / EOF — stop this file early
+            size_t frames = got / 2;
+            for (size_t i = 0; i < frames; i++) {
+                outBuf[i * 2] = monoBuf[i];
+                outBuf[i * 2 + 1] = monoBuf[i];
+            }
+            size_t written = 0;
+            i2s_write(I2S_PORT, outBuf, frames * 4, &written, pdMS_TO_TICKS(200));
+        } else {
+            uint32_t wantBytes = min((uint32_t)(CHUNK_FRAMES * 4), bytesRemaining);
+            got = f.read((uint8_t*)outBuf, wantBytes);
+            if (got == 0) break;
+            size_t written = 0;
+            i2s_write(I2S_PORT, outBuf, got, &written, pdMS_TO_TICKS(200));
+        }
+        bytesRemaining -= got;
+    }
+    return false;
+}
+
+// Runs one playback command end-to-end and owns cmd.files for its entire
+// duration — every exit path below frees exactly once. Order matters here:
+// per PlayAudioMsg's contract, the first file is opened/parsed *before*
+// waiting out the scheduled start, not after — the wait budget (startDelayMs)
+// exists specifically to absorb this device's own prep latency (SD card
+// open/read), so consuming it before prep even begins would defeat the
+// point. Only once the file is ready do we wait for the scheduled instant,
+// then fail closed (skip entirely) if that instant has already passed.
+void Es8311Driver::_runPlayback(PlayerCommand cmd) {
+    uint8_t index = 0;
+    File f;
+    WavInfo info;
+    if (!_openNextPlayable(cmd, index, f, info)) {
+        Logger::w("[sound] no playable files in this trigger, not participating");
+        delete[] cmd.files;
+        return;
+    }
+
+    for (;;) {
+        int32_t remaining = (int32_t)(cmd.startAtMs - millis());
+        if (remaining <= 0) break;
+        uint32_t waitMs = (uint32_t)(remaining < 20 ? remaining : 20);
+        PlayerCommand interrupt;
+        if (!_checkForInterrupt(interrupt, pdMS_TO_TICKS(waitMs))) continue;
+
+        f.close();
+        delete[] cmd.files;
+        if (interrupt.type == PlayerCommand::Type::Stop) return;
+        if (interrupt.type == PlayerCommand::Type::TestMelody) {
+            _runTestMelody();
+            return;
+        }
+        _runPlayback(interrupt);  // a newer Play supersedes this one before it even started
+        return;
+    }
+
+    if ((int32_t)(millis() - cmd.startAtMs) > 0) {
+        Logger::w("[sound] scheduled start missed by %ld ms, skipping playback (fail closed)",
+                  (long)(millis() - cmd.startAtMs));
+        f.close();
+        delete[] cmd.files;
+        return;
+    }
+
+    _applyI2sFormat(info);
+    _writeReg(REG_DAC_VOLUME, _cfg.volume);
+    _setPaEnabled(true);
+
+    for (;;) {
+        PlayerCommand streamInterrupt;
+        bool interrupted = _streamFile(f, info, streamInterrupt);
+        f.close();
+        if (interrupted) {
+            _muteAndDisablePa();
+            delete[] cmd.files;
+            if (streamInterrupt.type == PlayerCommand::Type::Stop) return;
+            if (streamInterrupt.type == PlayerCommand::Type::TestMelody) {
+                _runTestMelody();
+                return;
+            }
+            _runPlayback(streamInterrupt);
+            return;
+        }
+
+        index++;
+        if (index >= cmd.fileCount) {
+            if (!cmd.loop) break;
+            index = 0;
+        }
+
+        PlayerCommand interrupt;
+        if (_checkForInterrupt(interrupt, 0)) {
+            _muteAndDisablePa();
+            delete[] cmd.files;
+            if (interrupt.type == PlayerCommand::Type::Stop) return;
+            if (interrupt.type == PlayerCommand::Type::TestMelody) {
+                _runTestMelody();
+                return;
+            }
+            _runPlayback(interrupt);
+            return;
+        }
+
+        if (!_openNextPlayable(cmd, index, f, info)) break;
+        _applyI2sFormat(info);
+    }
+
+    _muteAndDisablePa();
+    delete[] cmd.files;
 }

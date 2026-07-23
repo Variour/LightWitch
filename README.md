@@ -154,6 +154,38 @@ One sound output per device. For known board-specific pin values, see [docs/boar
 
 **What you can manage:** `.wav` audio files only, uploaded and deleted individually from **Settings → Storage** — there are no folders, just a flat list. Any other file already on the card (e.g. left over from formatting it on a computer) is ignored and won't show up here.
 
+**Format:** 16-bit PCM WAV, mono or stereo, any sample rate — anything else (compressed formats, 8/24/32-bit, more than 2 channels) is silently skipped at playback time rather than rejected at upload.
+
+---
+
+## Audio playback
+
+Mesh-wide synchronized audio playback: start a file or playlist on one device and every other device in the same **audio group** plays it at (as close to) the same instant as possible.
+
+### Audio groups
+
+An **audio group** is the audio-side equivalent of a light group — it decides which devices a play/stop command reaches. Under **Settings → Hardware → Sound**, assign a device's sound output to a group (defaults to **Default**, same convention as light groups). Manage groups from the **Audio** card on the dashboard — create, rename, delete; **Default** cannot be deleted.
+
+### Playlists
+
+A **playlist** is a named, ordered list of `.wav` filenames plus a loop flag, created and edited from the **Audio** card (add/reorder/remove files, toggle loop, save). Playlists are synced across the mesh as metadata only, the same way scenes are — **the audio files themselves are never distributed over the mesh**. Upload the same files to every device's Storage that should be able to play them; a device missing a file a playlist (or a single-file play command) references simply doesn't play it — no error, no warning, it just stays silent for that entry.
+
+### Playing audio
+
+From the **Audio** card, pick a target group and either a single file (once or looped) or a saved playlist (its own loop flag applies). **Stop** halts playback on every device in that group immediately, regardless of what each was doing.
+
+The same triggers are available over MQTT (if configured, see **Settings → Connectivity**): publish to `<device>/audiogroup/<id>/set` with `{"action":"play","filename":"...","loop":false}`, `{"action":"play","playlistId":"..."}`, or `{"action":"stop"}`. There's no state topic for playback — these are fire-and-forget commands, not something to poll.
+
+### How the sync works, and its limits
+
+There's no shared wall clock and no per-device readiness handshake: the triggering device broadcasts once, and every device that can find the referenced file(s) locally opens and buffers them immediately, then starts output a fixed short delay later, timed from its own local clock. A device that can't finish preparing before that instant skips the trigger entirely rather than starting late.
+
+This is a **best-effort start sync, not continuous** — there's no re-sync while playing. Short clips and short loops stay tightly aligned; a long-running loop will gradually drift apart across devices (ESP32 crystal tolerances put this at roughly tens of milliseconds after half an hour), audibly so for music, less so for ambient/background loops. If that matters for your use case, keep loops short or restart them periodically yourself.
+
+### Volume
+
+Each device's own output level is a slider under **Settings → Hardware → Sound**, applied immediately — no reboot needed. It's local to that device, not part of a play command, and not synced over mesh.
+
 ---
 
 ## Firmware updates from GitHub releases (device web UI)

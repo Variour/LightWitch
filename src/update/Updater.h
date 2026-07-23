@@ -12,6 +12,7 @@
 #include "../config/Config.h"
 #include "../logging/Logger.h"
 #include "../scenes/SceneManager.h"
+#include "../sound/PlaylistManager.h"
 #include "../version.h"
 #include "CaBundle.h"
 
@@ -387,19 +388,58 @@ class Updater {
         return result;
     }
 
-    // Remount LittleFS after the new image has been flashed and write scenes back.
-    static void _restoreScenes(const std::vector<String>& scenes) {
+    // Remounts LittleFS after the new filesystem image has been flashed, so scene/
+    // playlist restoration below sees the freshly-flashed filesystem instead of a
+    // stale pre-flash mount. Shared by _restoreScenes/_restorePlaylists — call once
+    // before either, only when there's actually something to restore.
+    static bool _remountLittleFsAfterFlash() {
         LittleFS.end();
         if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) {
-            Logger::e("[upd] failed to remount LittleFS — scenes lost");
-            return;
+            Logger::e("[upd] failed to remount LittleFS — restore skipped");
+            return false;
         }
+        return true;
+    }
+
+    static void _restoreScenes(const std::vector<String>& scenes) {
         SceneManager::init();
         unsigned restored = 0;
         for (const String& json : scenes) {
             if (SceneManager::save(json.c_str(), json.length())) restored++;
         }
         Logger::i("[upd] restored %u/%u scene(s)", restored, (unsigned)scenes.size());
+    }
+
+    // Read all playlist files from LittleFS into memory before the FS image
+    // overwrites them — mirrors _backupScenes()/_restoreScenes(), see there.
+    static std::vector<String> _backupPlaylists() {
+        std::vector<String> result;
+        File dir = LittleFS.open("/pl");
+        if (!dir || !dir.isDirectory()) {
+            dir.close();
+            return result;
+        }
+        File f = dir.openNextFile();
+        while (f) {
+            if (!f.isDirectory()) {
+                String data = f.readString();
+                if (data.length() > 0) result.push_back(std::move(data));
+            }
+            f.close();
+            f = dir.openNextFile();
+        }
+        dir.close();
+        Logger::i("[upd] backed up %u playlist(s)", (unsigned)result.size());
+        return result;
+    }
+
+    static void _restorePlaylists(const std::vector<String>& playlists) {
+        PlaylistManager::init();
+        unsigned restored = 0;
+        for (const String& json : playlists) {
+            if (PlaylistManager::save(json.c_str(), json.length())) restored++;
+        }
+        Logger::i("[upd] restored %u/%u playlist(s)", restored, (unsigned)playlists.size());
     }
 
     // Flashes whatever _firmwareAssetId/_fsAssetId currently point at.
@@ -412,8 +452,12 @@ class Updater {
         if (ok && _fsAssetId) {
             _status.progress = 0;
             std::vector<String> scenes = _backupScenes();
+            std::vector<String> playlists = _backupPlaylists();
             ok = _downloadAndFlash(_fsAssetId, U_SPIFFS, "filesystem");
-            if (ok && !scenes.empty()) _restoreScenes(scenes);
+            if (ok && (!scenes.empty() || !playlists.empty()) && _remountLittleFsAfterFlash()) {
+                if (!scenes.empty()) _restoreScenes(scenes);
+                if (!playlists.empty()) _restorePlaylists(playlists);
+            }
         }
         return ok;
     }

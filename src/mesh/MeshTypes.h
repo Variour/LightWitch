@@ -32,12 +32,24 @@ enum class MsgType : uint8_t {
     MeshPolicy = 20,
     WifiRetry = 21,
     MeshSearch = 22,
+    AudioGroupSync = 23,
+    SetPlaylistSync = 24,
+    PlaylistManifest = 25,
+    PlaylistRequest = 26,
+    PlaylistChunk = 27,
+    PlaylistForceSet = 28,
+    PlaylistEditPush = 29,
+    RequestPlaylistManifest = 30,
+    PlayAudio = 31,
+    StopAudio = 32,
+    SetSoundGroup = 33,
+    SetVolume = 34,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
 
 // Reset to 1 before first real deployment.
-static constexpr uint8_t PRESENCE_MSG_VERSION = 2;
+static constexpr uint8_t PRESENCE_MSG_VERSION = 4;
 
 // lightGroupIds: groupId for each light slot; 0xFF means that slot is empty.
 // Receivers require an exact sizeof(PresenceMsg) frame for this schema.
@@ -64,6 +76,20 @@ struct PresenceMsg {
     uint8_t batteryPresent;
     uint8_t batteryPercent;
     uint8_t batteryCharging;
+    // Sound output advertisement — mirrors lightGroupIds/lightNames but for the
+    // one sound output a device may have (see MAX_SOUNDS), so peers can render
+    // a "Connected Devices" dashboard table and offer cross-device audio-group
+    // assignment/volume control the same way they do for lights (see
+    // SetSoundGroupMsg/SetVolumeMsg below). soundAudioGroupId/soundVolume/
+    // soundVolumeOverrideEnabled are only meaningful when hasSound is set.
+    // soundVolume is the *effective* (currently applied) volume — the sound
+    // output's own override when soundVolumeOverrideEnabled, otherwise its
+    // audio group's shared volume (see AudioGroupConfig::volume).
+    uint8_t hasSound;
+    uint8_t soundAudioGroupId;
+    uint8_t soundVolume;
+    uint8_t soundVolumeOverrideEnabled;
+    char soundName[20];
 };
 
 struct LightConfigMsg {
@@ -78,6 +104,30 @@ struct SetGroupMsg {
     uint8_t targetMac[6];
     uint8_t lightIndex;
     uint8_t groupId;
+};
+
+// Broadcast to move a specific peer's sound output to a different audio group
+// — mirrors SetGroupMsg for lights (no light index equivalent since MAX_SOUNDS
+// is 1). Every receiving device applies it if targeted and updates its own
+// peer-registry cache of the target's group either way, same pattern as
+// SetGroupMsg (see MeshManager::setOnSetSoundGroup).
+struct SetSoundGroupMsg {
+    MsgType type = MsgType::SetSoundGroup;
+    uint8_t targetMac[6];
+    uint8_t audioGroupId;
+};
+
+// Broadcast to change a specific peer's sound output volume override from any
+// device's dashboard — cross-device control, unlike a light's
+// brightnessOverride being local-only. overrideEnabled=false clears the
+// override (the target reverts to following its audio group's shared
+// volume, see AudioGroupConfig::volume); volume is only meaningful when
+// overrideEnabled is true. Mirrors SetSoundGroupMsg.
+struct SetVolumeMsg {
+    MsgType type = MsgType::SetVolume;
+    uint8_t targetMac[6];
+    uint8_t volume;
+    uint8_t overrideEnabled;
 };
 
 // Sent when a group is created, renamed, deleted, syncEnabled toggled, or its
@@ -248,4 +298,124 @@ struct WifiRetryMsg {
 // ChannelManager::beginSearch.
 struct MeshSearchMsg {
     MsgType type = MsgType::MeshSearch;
+};
+
+// ── Audio group sync ──────────────────────────────────────────────────────────
+// Mirrors GroupSyncMsg for AudioGroupConfig: sent when an audio group is
+// created, renamed, or deleted; replayed to newly-seen peers and periodically
+// re-advertised (see MeshManager::tick) so an already-known peer that missed
+// an update self-heals. exists=false acts as a tombstone (delete). Unlike
+// GroupSyncMsg there is no per-group payload beyond identity — see
+// AudioGroupConfig.
+struct AudioGroupSyncMsg {
+    MsgType type = MsgType::AudioGroupSync;
+    AudioGroupConfig group;
+};
+
+// ── Playlist sync messages ────────────────────────────────────────────────────
+// Playlists are small named metadata (an ordered list of SD-card filenames + a
+// loop flag) synced over mesh the same way scenes are — see SceneManifestMsg/
+// SceneRequestMsg/SceneChunkMsg/SceneForceSetMsg/SceneEditPushMsg/
+// RequestManifestMsg/SetSceneSyncMsg for the mirrored pattern. Unlike scenes,
+// only this metadata travels over the mesh — the audio files a playlist
+// references are never distributed this way (manual per-device upload only,
+// see docs/audio-playback.md); a device missing a referenced file simply
+// doesn't participate when that playlist is played.
+
+// Playlist id buffer size, incl. null terminator — same convention as SCENE_ID_LEN.
+static constexpr uint8_t PLAYLIST_ID_LEN = 33;
+
+struct PlaylistManifestEntry {
+    char id[PLAYLIST_ID_LEN];
+    uint32_t hash;
+};
+
+static constexpr uint8_t PLAYLIST_MANIFEST_ENTRIES_PER_MSG = 6;
+
+struct PlaylistManifestMsg {
+    MsgType type = MsgType::PlaylistManifest;
+    uint8_t page;
+    uint8_t totalPages;
+    uint8_t count;
+    PlaylistManifestEntry entries[PLAYLIST_MANIFEST_ENTRIES_PER_MSG];
+};
+
+struct PlaylistRequestMsg {
+    MsgType type = MsgType::PlaylistRequest;
+    char id[PLAYLIST_ID_LEN];
+};
+
+static constexpr uint16_t PLAYLIST_CHUNK_DATA_SIZE = 208;
+
+struct PlaylistChunkMsg {
+    MsgType type = MsgType::PlaylistChunk;
+    uint8_t _pad = 0;
+    uint16_t chunkIndex;
+    uint16_t totalChunks;
+    uint16_t dataLen;
+    char id[PLAYLIST_ID_LEN];
+    uint8_t data[PLAYLIST_CHUNK_DATA_SIZE];
+};
+
+struct PlaylistForceSetMsg {
+    MsgType type = MsgType::PlaylistForceSet;
+    char id[PLAYLIST_ID_LEN];
+    uint32_t hash;
+};
+
+// Broadcast before chunk stream on any playlist save (create or edit).
+// prevHash=0 means new playlist; prevHash=crc32 of playlist before save otherwise.
+struct PlaylistEditPushMsg {
+    MsgType type = MsgType::PlaylistEditPush;
+    char id[PLAYLIST_ID_LEN];
+    uint32_t prevHash;
+};
+
+// Broadcast to ask all playlist-sync-enabled peers to send their manifest.
+struct RequestPlaylistManifestMsg {
+    MsgType type = MsgType::RequestPlaylistManifest;
+};
+
+struct SetPlaylistSyncMsg {
+    MsgType type = MsgType::SetPlaylistSync;
+    uint8_t targetMac[6];
+    uint8_t enabled;
+};
+
+// ── Playback triggers ─────────────────────────────────────────────────────────
+// Broadcast once to (re)start or stop synchronized playback across an audio
+// group — a one-shot event, not replicated/reconciled state (see
+// docs/audio-playback.md: "no continuous resync" and "no cross-device
+// playback state" design decisions). Every device whose
+// SoundHardwareConfig::audioGroupId == audioGroupId independently decides
+// whether to participate: it must locally have a file (isPlaylist=0,
+// `filename` on its SD card) or a playlist (isPlaylist=1, `id`, whose entries
+// it must all locally have) — no readiness handshake, no distribution; a
+// device missing what it needs silently doesn't participate.
+//
+// Participating devices open/buffer the content immediately on receipt, then
+// start output exactly startDelayMs after their own local receipt time — not
+// a shared wall clock, since ESP-NOW's broadcast is single-hop with low,
+// roughly-symmetric latency, so devices' receipt times differ by only a few
+// ms. A device that can't finish preparing before its scheduled start skips
+// the trigger rather than starting late (fail closed, not fail late). There
+// is no periodic re-sync afterward — long loops are expected to drift, see
+// docs/audio-playback.md.
+static constexpr uint8_t AUDIO_FILENAME_LEN = 64;
+
+struct PlayAudioMsg {
+    MsgType type = MsgType::PlayAudio;
+    uint8_t audioGroupId;
+    uint8_t isPlaylist;  // 0 = single file (filename below), 1 = playlist (id below)
+    uint8_t loop;
+    uint16_t startDelayMs;
+    char id[PLAYLIST_ID_LEN];           // playlist id, meaningful when isPlaylist
+    char filename[AUDIO_FILENAME_LEN];  // SD filename, meaningful when !isPlaylist
+};
+
+// Broadcast once to stop playback on every device in the target audio group,
+// regardless of what each is currently doing (idempotent no-op if not playing).
+struct StopAudioMsg {
+    MsgType type = MsgType::StopAudio;
+    uint8_t audioGroupId;
 };

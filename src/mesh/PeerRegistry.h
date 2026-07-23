@@ -12,6 +12,11 @@ struct PeerInfo {
     uint8_t lightCount = 0;
     uint8_t lightGroupIds[MAX_LIGHTS] = {0xFF, 0xFF, 0xFF, 0xFF};
     char lightNames[MAX_LIGHTS][20] = {};
+    bool hasSound = false;
+    uint8_t soundAudioGroupId = 0;
+    uint8_t soundVolume = 0;
+    bool soundVolumeOverrideEnabled = false;
+    char soundName[20] = {};
     uint32_t lastSeen = 0;
     bool active = false;
     int8_t rssi = -90;
@@ -48,7 +53,9 @@ class PeerRegistry {
                 bool wifiConnected = false, const char* fwVersion = "",
                 FwState fwState = FwState::Idle, bool hasWifiNetworks = false,
                 bool wifiConnecting = false, bool batteryPresent = false,
-                uint8_t batteryPercent = 0, bool batteryCharging = false) {
+                uint8_t batteryPercent = 0, bool batteryCharging = false, bool hasSound = false,
+                uint8_t soundAudioGroupId = 0, uint8_t soundVolume = 0,
+                bool soundVolumeOverrideEnabled = false, const char* soundName = "") {
         PeerInfo* p = _find(mac);
         bool isNew = (p == nullptr || !p->active);
         if (!p) p = _slot();
@@ -85,6 +92,11 @@ class PeerRegistry {
         p->batteryPresent = batteryPresent;
         p->batteryPercent = batteryPercent;
         p->batteryCharging = batteryCharging;
+        p->hasSound = hasSound;
+        p->soundAudioGroupId = soundAudioGroupId;
+        p->soundVolume = soundVolume;
+        p->soundVolumeOverrideEnabled = soundVolumeOverrideEnabled;
+        strlcpy(p->soundName, soundName, sizeof(p->soundName));
         p->lastSeen = millis();
         p->active = true;
         if (isNew)
@@ -108,6 +120,34 @@ class PeerRegistry {
             if (p->lightGroupIds[lightIndex] != groupId) {
                 Logger::i("[mesh] peer %s light %u → group %u", p->name, lightIndex, groupId);
                 p->lightGroupIds[lightIndex] = groupId;
+                if (_onChange) _onChange();
+            }
+        }
+    }
+
+    void updateSoundGroup(const uint8_t* mac, uint8_t audioGroupId) {
+        if (auto* p = _find(mac)) {
+            if (p->soundAudioGroupId != audioGroupId) {
+                Logger::i("[mesh] peer %s sound → audio group %u", p->name, audioGroupId);
+                p->soundAudioGroupId = audioGroupId;
+                if (_onChange) _onChange();
+            }
+        }
+    }
+
+    void updateSoundVolume(const uint8_t* mac, uint8_t volume) {
+        if (auto* p = _find(mac)) {
+            if (p->soundVolume != volume) {
+                p->soundVolume = volume;
+                if (_onChange) _onChange();
+            }
+        }
+    }
+
+    void updateSoundVolumeOverride(const uint8_t* mac, bool enabled) {
+        if (auto* p = _find(mac)) {
+            if (p->soundVolumeOverrideEnabled != enabled) {
+                p->soundVolumeOverrideEnabled = enabled;
                 if (_onChange) _onChange();
             }
         }
