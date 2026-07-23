@@ -121,6 +121,9 @@ enum class SceneStringMode : uint8_t {
 // instead of LightConfig. The LightBrightnessOverride* actions are a second
 // exception: they target a specific physical light (ButtonAction::lightIndex)
 // and mutate LightHardwareConfig::brightnessOverride(Enabled) instead.
+// PlaySound is a third exception: it targets neither a group nor a light,
+// playing ActionParams.stringValue as an SD-card filename on this device's
+// own sound output only (see ActionExecutor).
 enum class ActionId : uint8_t {
     None = 0,
     BrightnessStep,
@@ -150,6 +153,7 @@ enum class ActionId : uint8_t {
     LightBrightnessOverrideStep,
     LightBrightnessOverrideSet,
     LightBrightnessOverrideClear,
+    PlaySound,
 };
 
 struct Color {

@@ -6091,6 +6091,7 @@ const ACTION_CATALOG = [
   {id:25, label:'Light brightness override step',  cat:'Light', param:'number', hint:'± step, e.g. 20 or -20', target:'light'},
   {id:26, label:'Light brightness override set',   cat:'Light', param:'number', hint:'0–255',                  target:'light'},
   {id:27, label:'Light brightness override clear', cat:'Light', param:'none',                                  target:'light'},
+  {id:28, label:'Play sound',                      cat:'Sound', param:'sound',                                 target:'none'},
 ];
 
 function _actionMeta(id) { return ACTION_CATALOG.find(a => a.id === id); }
@@ -6124,6 +6125,13 @@ function _buildParamHtml(prefix, action, existing) {
       _sceneOptions.map(s => `<option value="${esc(s.id)}"${sel === String(s.id) ? ' selected' : ''}>${esc(s.name)}</option>`).join('')
     }</select>`;
   }
+  if (meta.param === 'sound') {
+    const sel = existing ? existing.stringValue : '';
+    return `<label>Sound file</label><select id="${prefix}-param-sound">${
+      _storageFiles.map(f => `<option value="${esc(f.name)}"${sel === f.name ? ' selected' : ''}>${esc(f.name)}</option>`).join('')
+      || '<option value="">(no files uploaded)</option>'
+    }</select>`;
+  }
   if (meta.param === 'enum') {
     const sel = existing ? existing.numberValue : 0;
     return `<label>${esc(meta.hint || 'Value')}</label><select id="${prefix}-param-enum">${
@@ -6138,11 +6146,12 @@ function _buildParamHtml(prefix, action, existing) {
 }
 
 // Builds the target-picker for one action slot: most actions target a group
-// (existing behavior), but the light-scoped actions (see ACTION_CATALOG's
-// target:'light') target a specific physical light instead.
+// (existing behavior), the light-scoped actions (see ACTION_CATALOG's
+// target:'light') target a specific physical light instead, and target:'none'
+// actions (e.g. PlaySound) target neither.
 function _renderTargetHtml(prefix, action, existing) {
   const meta = _actionMeta(action);
-  if (!meta) return '';
+  if (!meta || meta.target === 'none') return '';
   if (meta.target === 'light') {
     if (!_lights.length) return '<p style="color:#c84;font-size:.78rem">No lights configured</p>';
     const sel = existing ? existing.lightIndex : 0;
@@ -6157,7 +6166,7 @@ function _renderTargetHtml(prefix, action, existing) {
 // user changes its action dropdown (existing = null → blank defaults).
 function _updateActionParamVisibility(prefix, action, existing) {
   const meta = _actionMeta(action);
-  $(prefix + '-target-wrap').style.display = meta ? '' : 'none';
+  $(prefix + '-target-wrap').style.display = (meta && meta.target !== 'none') ? '' : 'none';
   $(prefix + '-target-wrap').innerHTML = _renderTargetHtml(prefix, action, existing);
   $(prefix + '-param-wrap').innerHTML = _buildParamHtml(prefix, action, existing);
 }
@@ -6172,7 +6181,7 @@ function _renderActionSlot(prefix, label, a) {
       <option value="0"${!a.action ? ' selected' : ''}>— none —</option>
       ${_renderActionOptions(a.action)}
     </select>
-    <div id="${prefix}-target-wrap" style="${meta ? '' : 'display:none'}">${_renderTargetHtml(prefix, a.action, a)}</div>
+    <div id="${prefix}-target-wrap" style="${(meta && meta.target !== 'none') ? '' : 'display:none'}">${_renderTargetHtml(prefix, a.action, a)}</div>
     <div id="${prefix}-param-wrap">${_buildParamHtml(prefix, a.action, a)}</div>
   </div>`;
 }
@@ -6189,6 +6198,7 @@ function _readActionSlot(prefix) {
   else if (meta.param === 'enum') out.numberValue = parseInt($(prefix + '-param-enum').value) || 0;
   else if (meta.param === 'string') out.stringValue = $(prefix + '-param-string').value;
   else if (meta.param === 'scene') out.stringValue = $(prefix + '-param-scene').value || '';
+  else if (meta.param === 'sound') out.stringValue = $(prefix + '-param-sound').value || '';
   else if (meta.param === 'color') {
     const [r, g, b] = hexToRgb($(prefix + '-param-color').value);
     out.r = r; out.g = g; out.b = b;
