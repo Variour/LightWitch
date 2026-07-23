@@ -1,0 +1,50 @@
+name: "Pages: deploy config page"
+
+# Publishes data/index.html to GitHub Pages so it's reachable without any
+# device serving it — the standalone entry point for USB-serial config
+# (#355), when the device has no WiFi and isn't reachable over its own AP.
+# The identical file is also baked into the firmware's LittleFS image
+# (see data/); the page detects at runtime which context it's running in
+# (see the startup probe in data/index.html) and behaves the same either way.
+#
+# Requires the repository's Pages source to be set to "GitHub Actions"
+# (Settings > Pages) — a one-time manual step, not something this workflow
+# can configure itself.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'data/index.html'
+      - '.github/workflows/pages-deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Prepare Pages content
+        run: |
+          mkdir -p _site
+          cp data/index.html _site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
