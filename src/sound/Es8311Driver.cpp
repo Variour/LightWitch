@@ -3,9 +3,17 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <driver/i2s.h>
+#include <esp_task_wdt.h>
 #include <math.h>
 
 #include "../logging/Logger.h"
+
+// playTestMelody() runs synchronously on whatever task services the HTTP
+// request that triggered it (confirmed to be subject to the task watchdog),
+// and can block for several seconds across its settle delays and chunked
+// I2S writes. Feed the watchdog at each natural checkpoint so a long test
+// sequence can't trip it — a no-op if the calling task isn't subscribed.
+static void feedWatchdog() { esp_task_wdt_reset(); }
 
 // ES8311 register addresses (Everest Semiconductor datasheet register map).
 static constexpr uint8_t REG_RESET = 0x00;         // soft reset / power-state control
@@ -54,12 +62,26 @@ static constexpr int I2S_DMA_BUF_LEN_FRAMES = 256;
 static constexpr uint32_t I2S_DMA_RING_FRAMES =
     (uint32_t)I2S_DMA_BUF_COUNT * I2S_DMA_BUF_LEN_FRAMES;
 
-// Settle time between muting and disabling the PA, so the amp's own analog
-// stage has fully quieted down before its enable pin is toggled.
-static constexpr uint32_t PA_DISABLE_SETTLE_MS = 500;
+// Settle time between muting and disabling the PA.
+//
+// Confirmed on hardware this isn't needed on top of the volume ramp-down and
+// silence flush that already happen beforehand — those were apparently what
+// actually fixed the original pop-at-end, not this delay. Kept at 0 (named,
+// rather than removed) so it's easy to bump back up if a different amp/board
+// ever needs real settle time here.
+static constexpr uint32_t PA_DISABLE_SETTLE_MS = 0;
 
-// Step size/delay for ramping REG_DAC_VOLUME down to 0 instead of writing
-// 0x00 directly — an instant full-scale gain step is audible as a click.
+// Settle time after enabling the PA and before any signal reaches it.
+//
+// Confirmed on hardware this isn't needed: 250ms vs 500ms made no difference
+// to a swallowed first tone (that's the primer's job — see
+// PRIMER_TOTAL_WAIT_MS in playTestMelody()), and dropping this to 0 produced
+// no new pop either. Kept at 0 (named, rather than removed) so it's easy to
+// bump back up if a different amp/board ever needs real settle time here.
+static constexpr uint32_t PA_ENABLE_SETTLE_MS = 0;
+
+// Step size/delay for ramping REG_DAC_VOLUME up/down instead of writing it in
+// a single step — an instant full-scale gain step is audible as a click.
 static constexpr int16_t DAC_VOLUME_RAMP_STEP = 8;
 static constexpr uint32_t DAC_VOLUME_RAMP_STEP_MS = 4;
 
@@ -229,6 +251,7 @@ void Es8311Driver::_writeToneBlock(float freqHz, uint32_t durationMs, float gain
         }
         size_t written = 0;
         i2s_write(I2S_PORT, chunk, framesThisChunk * 2 * sizeof(int16_t), &written, portMAX_DELAY);
+        feedWatchdog();
     }
 }
 
@@ -246,6 +269,7 @@ void Es8311Driver::_writeSilenceFrames(uint32_t frames) {
         i2s_write(I2S_PORT, silence, framesThisChunk * 2 * sizeof(int16_t), &written,
                   portMAX_DELAY);
         frames -= framesThisChunk;
+        feedWatchdog();
     }
 }
 
@@ -259,8 +283,23 @@ void Es8311Driver::playTestMelody() {
     }
 
     Logger::i("[sound] playTestMelody: start");
-    _writeReg(REG_DAC_VOLUME, DAC_VOLUME_TEST);
     _setPaEnabled(true);
+    delay(PA_ENABLE_SETTLE_MS);
+    feedWatchdog();
+
+    _writeReg(REG_DAC_VOLUME, DAC_VOLUME_TEST);
+
+    // The amp has its own onset ramp, triggered once by the first real
+    // signal it sees after being enabled, that otherwise swallows the start
+    // of whatever plays first - confirmed on hardware to run for a roughly
+    // fixed duration regardless of what plays during it, tone or silence.
+    // A short trigger blip followed by silence absorbs it (580ms total,
+    // narrowed down via a blind-tested hardware sweep) so the melody's own
+    // first note starts clean.
+    constexpr uint32_t PRIMER_BLIP_MS = 50;
+    constexpr uint32_t PRIMER_TOTAL_WAIT_MS = 580;
+    _writeToneBlock(523.25f, PRIMER_BLIP_MS, 0.6f);
+    _writeSilenceFrames(I2S_SAMPLE_RATE_HZ * (PRIMER_TOTAL_WAIT_MS - PRIMER_BLIP_MS) / 1000);
 
     struct Note {
         float freqHz;
@@ -287,8 +326,10 @@ void Es8311Driver::playTestMelody() {
         delay(DAC_VOLUME_RAMP_STEP_MS);
     }
     _writeReg(REG_DAC_VOLUME, 0x00);
+    feedWatchdog();
 
     delay(PA_DISABLE_SETTLE_MS);
+    feedWatchdog();
     _setPaEnabled(false);
     Logger::i("[sound] playTestMelody: done");
 }
