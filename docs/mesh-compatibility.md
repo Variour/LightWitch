@@ -85,6 +85,7 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `RequestPlaylistManifest` | `RequestPlaylistManifestMsg` fixed-size | exact `sizeof(RequestPlaylistManifestMsg)` | No payload beyond message type. Mirrors `RequestManifest`. |
 | `PlayAudio` | `PlayAudioMsg` fixed-size | `len >= sizeof(PlayAudioMsg)` | Raw fixed struct. One-shot playback trigger — see `PlayAudioMsg`'s comment for the start-sync/participation contract. |
 | `StopAudio` | `StopAudioMsg` fixed-size | `len >= sizeof(StopAudioMsg)` | Raw fixed struct. |
+| `GenericEvent` | `GenericEventMsg` fixed-size | `len >= sizeof(GenericEventMsg)` | Raw fixed struct. `eventType` is opaque to the mesh layer; no versioning. |
 
 ## Audit conclusions
 

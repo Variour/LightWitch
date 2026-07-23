@@ -81,6 +81,11 @@ class MeshManager {
     using MeshSearchCb = std::function<void()>;
     // Polled once per heartbeat to fill PresenceMsg's battery fields.
     using BatteryStatusCb = std::function<BatteryMonitor::Status()>;
+    // Called when a peer (or this device, echoed back) broadcasts a generic
+    // event (see GenericEventMsg, issue #438). eventType is opaque to the mesh
+    // layer; consumers match on it themselves.
+    using GenericEventCb =
+        std::function<void(const uint8_t* mac, const char* eventType, uint16_t payload)>;
 
     void setOnPeerHeard(PeerHeardCb cb) { _onPeerHeard = cb; }
     void setOnLightConfig(LightConfigCb cb) { _onLightConfig = cb; }
@@ -120,6 +125,7 @@ class MeshManager {
     void setOnWifiRetry(WifiRetryCb cb) { _onWifiRetry = cb; }
     void setOnMeshSearch(MeshSearchCb cb) { _onMeshSearch = cb; }
     void setBatteryStatusProvider(BatteryStatusCb cb) { _batteryStatusProvider = cb; }
+    void setOnGenericEvent(GenericEventCb cb) { _onGenericEvent = cb; }
 
     void begin() {
         _instance = this;
@@ -483,6 +489,16 @@ class MeshManager {
         _send(&msg, sizeof(msg));
     }
 
+    // Broadcasts a generic "event X happened on this device" (see
+    // GenericEventMsg, issue #438). eventType is opaque to the mesh layer.
+    void broadcastGenericEvent(const char* eventType, uint16_t payload) {
+        if (!_ready) return;
+        GenericEventMsg msg;
+        strlcpy(msg.eventType, eventType, EVENT_TYPE_LEN);
+        msg.payload = payload;
+        _send(&msg, sizeof(msg));
+    }
+
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
             if (Config::get().groups[i].exists) broadcastGroupSync(Config::get().groups[i]);
@@ -536,6 +552,7 @@ class MeshManager {
     WifiAttemptingCb _wifiAttemptingProvider;
     WifiConnectedCb _wifiConnectedProvider;
     BatteryStatusCb _batteryStatusProvider;
+    GenericEventCb _onGenericEvent;
     WifiRetryCb _onWifiRetry;
     MeshSearchCb _onMeshSearch;
 
@@ -1137,6 +1154,13 @@ class MeshManager {
                 if (len < (int)sizeof(StopAudioMsg)) return;
                 auto* m = (StopAudioMsg*)data;
                 if (_instance->_onStopAudio) _instance->_onStopAudio(m->audioGroupId);
+                break;
+            }
+            case MsgType::GenericEvent: {
+                if (len < (int)sizeof(GenericEventMsg)) return;
+                auto* m = (GenericEventMsg*)data;
+                if (_instance->_onGenericEvent)
+                    _instance->_onGenericEvent(mac, m->eventType, m->payload);
                 break;
             }
             default:
