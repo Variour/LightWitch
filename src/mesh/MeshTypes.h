@@ -44,6 +44,7 @@ enum class MsgType : uint8_t {
     StopAudio = 32,
     SetSoundGroup = 33,
     SetVolume = 34,
+    GenericEvent = 35,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -418,4 +419,21 @@ struct PlayAudioMsg {
 struct StopAudioMsg {
     MsgType type = MsgType::StopAudio;
     uint8_t audioGroupId;
+};
+
+// ── Generic mesh event (issue #438) ───────────────────────────────────────────
+// A broadcast primitive for "event X happened on this device," with no meaning
+// baked into the mesh layer — the meaning is entirely defined by whatever
+// feature uses it (e.g. buzzer press/reset events, see #437). Broadcast only
+// (no targetMac): every device decides locally whether to act on a received
+// event. No ACK/sequence number, consistent with WifiRetryMsg/MeshSearchMsg.
+// Sender identity is not embedded in the payload — MeshManager::_onRecv's mac
+// parameter plus the existing PeerRegistry/PresenceMsg name already identify
+// the sender, so consumers resolve identity from there.
+static constexpr uint8_t EVENT_TYPE_LEN = 33;  // same convention as SCENE_ID_LEN/PLAYLIST_ID_LEN
+
+struct GenericEventMsg {
+    MsgType type = MsgType::GenericEvent;
+    char eventType[EVENT_TYPE_LEN];  // e.g. "buzz.press", "buzz.reset" — opaque to the mesh layer
+    uint16_t payload;
 };
