@@ -75,6 +75,7 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `MeshPolicy` | `MeshPolicyMsg` fixed-size | `len >= sizeof(MeshPolicyMsg)` | Raw fixed struct representing replicated state. |
 | `WifiRetry` | `WifiRetryMsg` fixed-size | exact `sizeof(WifiRetryMsg)` | No payload beyond message type. |
 | `MeshSearch` | `MeshSearchMsg` fixed-size | exact `sizeof(MeshSearchMsg)` | No payload beyond message type. |
+| `GenericEvent` | `GenericEventMsg` fixed-size | `len >= sizeof(GenericEventMsg)` | Raw fixed struct; `eventType` string meaning is defined entirely by the consuming feature, not the mesh layer. |
 
 ## Audit conclusions
 

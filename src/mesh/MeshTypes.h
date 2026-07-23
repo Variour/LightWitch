@@ -32,6 +32,7 @@ enum class MsgType : uint8_t {
     MeshPolicy = 20,
     WifiRetry = 21,
     MeshSearch = 22,
+    GenericEvent = 23,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -248,4 +249,19 @@ struct WifiRetryMsg {
 // ChannelManager::beginSearch.
 struct MeshSearchMsg {
     MsgType type = MsgType::MeshSearch;
+};
+
+// Broadcast primitive for "event X happened on this device" — no meaning is
+// baked into the mesh layer, the meaning is entirely defined by whichever
+// feature uses it (e.g. buzzer press/reset events). Broadcast only, no
+// ACK/sequence number, consistent with WifiRetryMsg/MeshSearchMsg above.
+// Sender identity is not embedded in the payload: consumers resolve it via
+// the mac passed to the recv callback plus the existing PeerRegistry/
+// PresenceMsg name.
+static constexpr uint8_t EVENT_TYPE_LEN = 33;  // same convention as SCENE_ID_LEN
+
+struct GenericEventMsg {
+    MsgType type = MsgType::GenericEvent;
+    char eventType[EVENT_TYPE_LEN];  // e.g. "buzz.press", "buzz.reset" — opaque to the mesh layer
+    uint16_t payload;
 };

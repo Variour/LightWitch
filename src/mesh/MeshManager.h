@@ -67,6 +67,11 @@ class MeshManager {
     using MeshSearchCb = std::function<void()>;
     // Polled once per heartbeat to fill PresenceMsg's battery fields.
     using BatteryStatusCb = std::function<BatteryMonitor::Status()>;
+    // Called when a peer (or this device, echoed back) broadcasts a generic
+    // mesh event. eventType is opaque to the mesh layer; consumers resolve
+    // sender identity via mac plus PeerRegistry/PresenceMsg.
+    using GenericEventCb = std::function<void(const uint8_t* mac, const char* eventType,
+                                               uint16_t payload)>;
 
     void setOnPeerHeard(PeerHeardCb cb) { _onPeerHeard = cb; }
     void setOnLightConfig(LightConfigCb cb) { _onLightConfig = cb; }
@@ -92,6 +97,7 @@ class MeshManager {
     void setOnWifiRetry(WifiRetryCb cb) { _onWifiRetry = cb; }
     void setOnMeshSearch(MeshSearchCb cb) { _onMeshSearch = cb; }
     void setBatteryStatusProvider(BatteryStatusCb cb) { _batteryStatusProvider = cb; }
+    void setOnGenericEvent(GenericEventCb cb) { _onGenericEvent = cb; }
 
     void begin() {
         _instance = this;
@@ -358,6 +364,15 @@ class MeshManager {
         _send(&msg, sizeof(msg));
     }
 
+    // Broadcasts a generic mesh event (see GenericEventMsg in MeshTypes.h).
+    void broadcastGenericEvent(const char* eventType, uint16_t payload) {
+        if (!_ready) return;
+        GenericEventMsg msg;
+        strlcpy(msg.eventType, eventType, EVENT_TYPE_LEN);
+        msg.payload = payload;
+        _send(&msg, sizeof(msg));
+    }
+
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
             if (Config::get().groups[i].exists) broadcastGroupSync(Config::get().groups[i]);
@@ -400,6 +415,7 @@ class MeshManager {
     BatteryStatusCb _batteryStatusProvider;
     WifiRetryCb _onWifiRetry;
     MeshSearchCb _onMeshSearch;
+    GenericEventCb _onGenericEvent;
 
     // ── Config push encryption (issue #252) ───────────────────────────────────
     static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 3000;
@@ -887,6 +903,13 @@ class MeshManager {
             case MsgType::MeshSearch: {
                 if (!_hasExactLen<MeshSearchMsg>(len)) return;
                 if (_instance->_onMeshSearch) _instance->_onMeshSearch();
+                break;
+            }
+            case MsgType::GenericEvent: {
+                if (len < (int)sizeof(GenericEventMsg)) return;
+                auto* m = (GenericEventMsg*)data;
+                if (_instance->_onGenericEvent)
+                    _instance->_onGenericEvent(mac, m->eventType, m->payload);
                 break;
             }
             default:
