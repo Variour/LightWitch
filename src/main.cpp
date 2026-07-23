@@ -526,6 +526,10 @@ void setup() {
     actionExecutor.setBroadcastGroupSyncFn([](const GroupConfig& g) { publishGroupSync(g); });
     actionExecutor.setApplyLightBrightnessFn(
         [](uint8_t lightIndex) { applyLightBrightnessOverride(lightIndex); });
+    actionExecutor.setPlaySoundFn([](const char* filename) {
+        String file = filename;
+        _sound.scheduleFiles(&file, /*fileCount=*/1, /*loop=*/false, /*startDelayMs=*/0);
+    });
     buttonManager.setExecutor(&actionExecutor);
     buttonManager.begin();
 

@@ -19,6 +19,7 @@ class ActionExecutor {
     using ApplyFn = std::function<void(uint8_t groupId, const LightConfig&)>;
     using BroadcastGroupSyncFn = std::function<void(const GroupConfig&)>;
     using ApplyLightBrightnessFn = std::function<void(uint8_t lightIndex)>;
+    using PlaySoundFn = std::function<void(const char* filename)>;
 
     // Applies + propagates a LightConfig change for a group (e.g. main.cpp's
     // applyAndPropagateLightConfig — save, runners, mesh broadcast, mqtt publish).
@@ -30,6 +31,10 @@ class ActionExecutor {
     // override, if enabled) to its runner and pushes it to the dashboard.
     // Used only by the LightBrightnessOverride* actions.
     void setApplyLightBrightnessFn(ApplyLightBrightnessFn fn) { _applyLightBrightness = fn; }
+    // Plays an SD-card filename on this device's local sound output only —
+    // used only by PlaySound. No mesh-wide audio-group sync, unlike the
+    // PlayAudioMsg mesh trigger.
+    void setPlaySoundFn(PlaySoundFn fn) { _playSound = fn; }
 
     void execute(const ButtonAction& action) {
         if (action.action == ActionId::None) return;
@@ -38,6 +43,11 @@ class ActionExecutor {
             action.action == ActionId::LightBrightnessOverrideSet ||
             action.action == ActionId::LightBrightnessOverrideClear) {
             _executeLightBrightnessOverride(action);
+            return;
+        }
+
+        if (action.action == ActionId::PlaySound) {
+            if (_playSound) _playSound(action.params.stringValue);
             return;
         }
 
@@ -129,6 +139,7 @@ class ActionExecutor {
     ApplyFn _apply;
     BroadcastGroupSyncFn _broadcastGroupSync;
     ApplyLightBrightnessFn _applyLightBrightness;
+    PlaySoundFn _playSound;
 
     // Mutates a light's own brightness override (not its group's LightConfig)
     // per ActionId::LightBrightnessOverride{Step,Set,Clear}. Step/Set enable
