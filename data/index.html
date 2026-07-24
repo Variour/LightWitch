@@ -519,6 +519,13 @@ input[type=radio]:active { background-color: #1a5; }
 <!-- ══════════════ DASHBOARD ══════════════ -->
 <div id="tab-dashboard">
 
+  <!-- DISCOVERED DEVICES (different/incompatible firmware — see docs/mesh-compatibility.md) -->
+  <div class="card" id="discovered-devices-card" style="display:none">
+    <h2 style="margin:0 0 .5rem">Devices found (setup required)</h2>
+    <p style="margin:0 0 .5rem;font-size:.82rem;color:#888">Seen on the mesh, but running firmware this device can't fully talk to yet — push WiFi/config or trigger an update to bring it in sync.</p>
+    <div id="discovered-devices-list"></div>
+  </div>
+
   <!-- CONNECTED LIGHTS -->
   <div class="card">
     <h2 style="margin:0 0 .5rem;display:flex;align-items:center;gap:.4rem">Connected Devices
@@ -560,13 +567,6 @@ input[type=radio]:active { background-color: #1a5; }
       </table>
     </div>
     <div class="lights-mobile-list" id="lights-mobile-list"><div style="color:#444">Loading…</div></div>
-  </div>
-
-  <!-- DISCOVERED DEVICES (different/incompatible firmware — see docs/mesh-compatibility.md) -->
-  <div class="card" id="discovered-devices-card" style="display:none">
-    <h2 style="margin:0 0 .5rem">Devices found (setup required)</h2>
-    <p style="margin:0 0 .5rem;font-size:.82rem;color:#888">Seen on the mesh, but running firmware this device can't fully talk to yet — push WiFi/config or trigger an update to bring it in sync.</p>
-    <div id="discovered-devices-list"></div>
   </div>
 
   <!-- GROUPS -->
