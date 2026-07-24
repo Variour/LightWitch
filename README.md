@@ -1,6 +1,10 @@
 ![ESP Devices, smart Mesh](lightwitch.jpg)
 # LightWitch
+[![Latest release](https://img.shields.io/github/v/release/Variour/batteryLight)](https://github.com/Variour/batteryLight/releases/latest)
+[![License](https://img.shields.io/github/license/Variour/batteryLight)](https://github.com/Variour/batteryLight/blob/main/LICENSE)
+
 *Open source technical witchcraft for light, sound and other cool stuff.*
+***Enabling ESP32-based devices with web interface, OTA updates, and mesh sync***
 
 LightWitch is a platform for building your own light, sound, sensor and switching devices. You design the object, we handle the awkward parts. Lamps, lanterns, torches, glowing orbs, candles, wearables, buttons, remotes, speakers, whatever you have in mind.
 
@@ -12,11 +16,6 @@ Nothing says a device may only have one job. A row of bed lamps lights the path 
 Rig your table lamp as an egg timer in two minutes, build a doorbell that rings or blinks in whichever room currently has a light on, or make fire that you actually light, blow out and jumps over to the device standing next to it, finally enabling realistic torches for an indoor event.
 
 Hardware, wiring and configs are meant to be shared. Publish yours, borrow someone else's, change everything about it. Firmware, editor and design files are open. Nothing to subscribe to.
-
-[![Latest release](https://img.shields.io/github/v/release/Variour/batteryLight)](https://github.com/Variour/batteryLight/releases/latest)
-[![License](https://img.shields.io/github/license/Variour/batteryLight)](https://github.com/Variour/batteryLight/blob/main/LICENSE)
-
-ESP32-based addressable RGB light with web interface, OTA updates, and mesh sync.
 
 ---
 
