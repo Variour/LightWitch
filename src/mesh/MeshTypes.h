@@ -46,6 +46,7 @@ enum class MsgType : uint8_t {
     SetVolume = 34,
     GenericEvent = 35,
     Hello = 36,
+    LightOverride = 37,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -438,6 +439,26 @@ struct GenericEventMsg {
     MsgType type = MsgType::GenericEvent;
     char eventType[EVENT_TYPE_LEN];  // e.g. "buzz.press", "buzz.reset" — opaque to the mesh layer
     uint16_t payload;
+};
+
+// ── Per-light override (issue #458, LightWitch M1) ────────────────────────────
+// Broadcast to command a single light on a specific device: the target stores
+// the full LightConfig snapshot as that light's override (see LightOverrides.h)
+// and renders it instead of its group state, arbitrated by recency — the next
+// real group change takes the light back. Addressing mirrors SetGroupMsg
+// (targetMac + lightIndex, target filtering after parse); non-targets update
+// nothing. clear=1 drops the target's override without supplying a snapshot,
+// so any device (or, later, a graph node) can return a light to its group.
+// durationMs mirrors the REST surface: 0 = stays until displaced, otherwise
+// the receiver expires it on its own. With multiple senders, receive order
+// decides — last one wins, same as every other direct command.
+struct LightOverrideMsg {
+    MsgType type = MsgType::LightOverride;
+    uint8_t targetMac[6];
+    uint8_t lightIndex;
+    uint8_t clear;  // 1 = drop the override; config/durationMs are then meaningless
+    uint32_t durationMs;
+    LightConfig config;
 };
 
 // ── Onboarding discovery (frozen, cross-firmware) ─────────────────────────────

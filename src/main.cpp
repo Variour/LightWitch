@@ -716,6 +716,24 @@ void setup() {
         }
     });
 
+    // Another device commanded a single light on this device: store (or clear)
+    // its override and render it — same arbitration as the local REST surface,
+    // so with multiple senders receive order decides (issue #458). Non-targets
+    // ignore the message entirely.
+    mesh.setOnLightOverride([](const LightOverrideMsg* msg) {
+        uint8_t own[6];
+        WiFi.macAddress(own);
+        if (memcmp(msg->targetMac, own, 6) != 0) return;
+        uint8_t idx = msg->lightIndex;
+        if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) return;
+        if (msg->clear)
+            LightOverrides::clear(idx);
+        else
+            LightOverrides::set(idx, msg->config, msg->durationMs);
+        applyEffectiveLight(idx);
+        publishTelemetry();
+    });
+
     // Another device told this device (or a peer) to change a light's group
     mesh.setOnSetGroup([](const uint8_t* targetMac, uint8_t lightIndex, uint8_t groupId) {
         uint8_t own[6];
