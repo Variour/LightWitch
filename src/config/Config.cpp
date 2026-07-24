@@ -232,6 +232,7 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().sceneSyncEnabled = doc["sceneSyncEnabled"] | true;
     Config::get().playlistSyncEnabled = doc["playlistSyncEnabled"] | true;
     Config::get().checkUpdateOnStartup = doc["checkUpdateOnStartup"] | false;
+    Config::get().eventLogLimit = doc["eventLogLimit"] | (uint8_t)10;
     Config::get().wifiSingleClientMode = doc["wifiSingleClientMode"] | false;
     Config::get().batteryMonitoringEnabled = doc["batteryMonitoringEnabled"] | false;
     Config::get().prOtaEnabled = doc["prOtaEnabled"] | false;
@@ -394,6 +395,7 @@ bool Config::save() {
     doc["sceneSyncEnabled"] = _cfg.sceneSyncEnabled;
     doc["playlistSyncEnabled"] = _cfg.playlistSyncEnabled;
     doc["checkUpdateOnStartup"] = _cfg.checkUpdateOnStartup;
+    doc["eventLogLimit"] = _cfg.eventLogLimit;
     doc["wifiSingleClientMode"] = _cfg.wifiSingleClientMode;
     doc["batteryMonitoringEnabled"] = _cfg.batteryMonitoringEnabled;
     doc["prOtaEnabled"] = _cfg.prOtaEnabled;

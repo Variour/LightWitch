@@ -168,6 +168,14 @@ class PeerRegistry {
     PeerInfo* begin() { return _peers; }
     PeerInfo* end() { return _peers + MAX_PEERS; }
 
+    // Resolves an active peer's name by mac, or nullptr if not (or no longer)
+    // known. Used by EventLog (issue #442) to label GenericEvent senders.
+    const char* nameFor(const uint8_t* mac) const {
+        for (auto& p : _peers)
+            if (p.active && memcmp(p.mac, mac, 6) == 0) return p.name;
+        return nullptr;
+    }
+
    private:
     PeerInfo _peers[MAX_PEERS];
     ChangeCb _onChange;

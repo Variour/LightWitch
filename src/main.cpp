@@ -12,6 +12,7 @@
 #include "battery/BatteryMonitor.h"
 #include "buttons/ButtonManager.h"
 #include "config/Config.h"
+#include "events/EventLog.h"
 #include "led/Ws2801Driver.h"
 #include "led/Ws2812bDriver.h"
 #include "logging/Logger.h"
@@ -45,6 +46,7 @@ static PlaylistSyncManager playlistSync;
 static ActionExecutor actionExecutor;
 static ButtonManager buttonManager;
 static AutomationManager automationManager;
+static EventLog eventLog;
 static BatteryMonitor battery;
 static bool _otaActive = false;
 
@@ -555,6 +557,11 @@ void setup() {
     mesh.setOnMeshSearch([]() { channelMgr.beginSearch(); });
     mesh.setOnGenericEvent([](const uint8_t* mac, const char* eventType, uint16_t payload) {
         automationManager.onGenericEvent(mac, eventType, payload);
+
+        // ESP-NOW broadcasts aren't echoed back to their own sender (see
+        // applyPlayAudioLocally above), so mac here always identifies a peer.
+        const char* name = mesh.peers.nameFor(mac);
+        eventLog.record(name ? name : "unknown", eventType, payload);
     });
     mesh.setBatteryStatusProvider([]() { return battery.status(); });
 
@@ -908,6 +915,10 @@ void setup() {
         if (idx < MAX_SOUNDS && Config::get().sounds[idx].exists) _sound.playTestMelody();
     });
     sceneSync.setOnSceneSaved(notifySceneUpdated);
+
+    webServer.setEventLog(&eventLog);
+    eventLog.setOnAppend([](const EventLogEntry& e) { webServer.pushEvent(e); });
+    eventLog.setOnClear([]() { webServer.pushEventsCleared(); });
 
     webServer.setPlaylistSync(&playlistSync);
     // idx/volume args no longer directly meaningful (volume now only applies
