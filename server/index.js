@@ -127,6 +127,31 @@ const mockButtons = [
   },
 ];
 
+// Mirrors AutomationBinding/AutomationRule shape from WebServer.h::serializeAutomationBinding
+// (issue #439). triggerType 0 = GenericEvent (the only trigger type today).
+const MAX_AUTOMATION_BINDINGS = 8;
+const MAX_RULES_PER_BINDING = 4;
+const MAX_ACTIONS_PER_RULE = 3;
+const blankAutomationAction = () => ({ action: 0, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 });
+const blankAutomationRule = () => ({ valueMin: 0, valueMax: 65535, exists: false, actions: Array.from({ length: MAX_ACTIONS_PER_RULE }, blankAutomationAction) });
+
+const mockAutomations = [
+  { index: 0, triggerType: 0, eventType: 'buzz.press', exists: true,
+    rules: [
+      { valueMin: 0, valueMax: 1, exists: true, actions: [
+          { action: 1, groupId: 0, lightIndex: 0, numberValue: -20, stringValue: '', r: 255, g: 255, b: 255 }, // BrightnessStep down
+          blankAutomationAction(), blankAutomationAction(),
+        ] },
+      { valueMin: 2, valueMax: 65535, exists: true, actions: [
+          { action: 9, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 }, // SceneNext
+          blankAutomationAction(), blankAutomationAction(),
+        ] },
+      blankAutomationRule(),
+      blankAutomationRule(),
+    ],
+  },
+];
+
 // wifiConnected/ip/wifiAwaitingApConfirm are derived at request time in
 // selfWithLights() from the module's wifiConnected SSID-tracking state below.
 const MOCK_SELF  = { name: 'Mock Device',   mac: '11:22:33:44:55:66', online: true,  sceneSyncEnabled: true,  hasWifiNetworks: true,  wifiConnecting: false, channel: 6, channelSearching: false, version: '2026.06.27.0', fwState: 'checking', batteryPresent: true, batteryPercent: 82, batteryCharging: false };
@@ -840,6 +865,37 @@ app.post('/api/buttons/delete', (req, res) => {
   const idx = mockButtons.findIndex(b => b.index === index);
   if (idx === -1) return res.status(404).json({ error: 'not found' });
   mockButtons.splice(idx, 1);
+  res.json({ ok: true });
+});
+
+app.get('/api/automations', (_req, res) => res.json({
+  automations: mockAutomations,
+  maxAutomations: MAX_AUTOMATION_BINDINGS,
+  maxRulesPerBinding: MAX_RULES_PER_BINDING,
+  maxActionsPerRule: MAX_ACTIONS_PER_RULE,
+}));
+app.post('/api/automations/add', (req, res) => {
+  const free = Array.from({ length: MAX_AUTOMATION_BINDINGS }, (_, i) => i).find(i => !mockAutomations.find(a => a.index === i));
+  if (free === undefined) return res.status(400).json({ error: 'automation limit reached' });
+  const { triggerType = 0, eventType = '', rules } = req.body || {};
+  if (!eventType) return res.status(400).json({ error: 'eventType required' });
+  const filledRules = Array.from({ length: MAX_RULES_PER_BINDING }, (_, i) => (rules && rules[i]) || blankAutomationRule());
+  mockAutomations.push({ index: free, triggerType, eventType, exists: true, rules: filledRules });
+  res.json({ ok: true, index: free });
+});
+app.post('/api/automations/update', (req, res) => {
+  const { index, ...fields } = req.body || {};
+  const automation = mockAutomations.find(a => a.index === index);
+  if (!automation) return res.status(404).json({ error: 'not found' });
+  if (fields.eventType !== undefined && !fields.eventType) return res.status(400).json({ error: 'eventType required' });
+  Object.assign(automation, fields);
+  res.json({ ok: true });
+});
+app.post('/api/automations/delete', (req, res) => {
+  const { index } = req.body || {};
+  const idx = mockAutomations.findIndex(a => a.index === index);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  mockAutomations.splice(idx, 1);
   res.json({ ok: true });
 });
 

@@ -397,6 +397,24 @@ class BatteryWebServer {
                 _deleteButton(r, d, l);
             });
 
+        _server.on("/api/automations", HTTP_GET,
+                   [this](AsyncWebServerRequest* r) { _getAutomations(r); });
+        _server.on(
+            "/api/automations/add", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _addAutomation(r, d, l);
+            });
+        _server.on(
+            "/api/automations/update", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _updateAutomation(r, d, l);
+            });
+        _server.on(
+            "/api/automations/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _deleteAutomation(r, d, l);
+            });
+
         // ── Scene API ─────────────────────────────────────────────────────────
         // Specific routes must be registered before /api/scenes because
         // ESPAsyncWebServer prefix-matches: /api/scenes would otherwise
@@ -2916,6 +2934,105 @@ class BatteryWebServer {
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
         if (_onButtonsChanged) _onButtonsChanged();
+    }
+
+    // ── GET /api/automations ──────────────────────────────────────────────────
+    void _getAutomations(AsyncWebServerRequest* r) {
+        JsonDocument doc;
+        doc["maxAutomations"] = MAX_AUTOMATION_BINDINGS;
+        doc["maxRulesPerBinding"] = MAX_RULES_PER_BINDING;
+        doc["maxActionsPerRule"] = MAX_ACTIONS_PER_RULE;
+        JsonArray arr = doc["automations"].to<JsonArray>();
+        for (uint8_t i = 0; i < MAX_AUTOMATION_BINDINGS; i++) {
+            auto& b = Config::get().automations[i];
+            if (!b.exists) continue;
+            JsonObject o = arr.add<JsonObject>();
+            o["index"] = i;
+            serializeAutomationBinding(o, b);
+        }
+        _sendJson(r, 200, doc);
+    }
+
+    // ── POST /api/automations/add ─────────────────────────────────────────────
+    // Body: {triggerType?, eventType, rules?}
+    void _addAutomation(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        const char* eventType = doc["eventType"] | "";
+        if (!eventType[0]) {
+            auto e = _makeErr("eventType required");
+            _sendJson(r, 400, e);
+            return;
+        }
+        uint8_t idx = 0xFF;
+        for (uint8_t i = 0; i < MAX_AUTOMATION_BINDINGS; i++) {
+            if (!Config::get().automations[i].exists) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx == 0xFF) {
+            auto e = _makeErr("automation limit reached");
+            _sendJson(r, 400, e);
+            return;
+        }
+        AutomationBinding b;
+        deserializeAutomationBinding(doc, b);
+        b.exists = true;  // deserializeAutomationBinding defaults "exists" to false when absent
+        Config::get().automations[idx] = b;
+        Config::save();
+        JsonDocument resp;
+        resp["ok"] = true;
+        resp["index"] = idx;
+        _sendJson(r, 200, resp);
+    }
+
+    // ── POST /api/automations/update ──────────────────────────────────────────
+    // Body: {index, triggerType?, eventType?, rules?}
+    void _updateAutomation(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_AUTOMATION_BINDINGS || !Config::get().automations[idx].exists) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+        if (!doc["eventType"].isNull() && !(doc["eventType"] | "")[0]) {
+            auto e = _makeErr("eventType required");
+            _sendJson(r, 400, e);
+            return;
+        }
+        auto& existing = Config::get().automations[idx];
+        if (!doc["triggerType"].isNull())
+            existing.triggerType = (TriggerType)(uint8_t)(doc["triggerType"] | (uint8_t)0);
+        if (!doc["eventType"].isNull())
+            strlcpy(existing.eventType, doc["eventType"] | "", sizeof(existing.eventType));
+        if (!doc["rules"].isNull()) {
+            JsonArray arr = doc["rules"].as<JsonArray>();
+            for (uint8_t i = 0; i < MAX_RULES_PER_BINDING; i++)
+                existing.rules[i] = deserializeAutomationRule(arr[i], AutomationRule{});
+        }
+        Config::save();
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/automations/delete ──────────────────────────────────────────
+    // Body: {index}
+    void _deleteAutomation(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_AUTOMATION_BINDINGS || !Config::get().automations[idx].exists) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+        Config::get().automations[idx].exists = false;
+        Config::save();
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
     }
 
     static String _jsonStr(const char* s) {
