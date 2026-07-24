@@ -30,6 +30,12 @@ limit, …) drive the scene.
 **Recommendation: (a)**, with a declared long-term direction toward (b): new
 capabilities are built in the graph world only, and the legacy path is frozen.
 
+**Resolution (2026-07-24):** groups stay permanently — they are a smart-home
+feature, not a legacy path. Devices and groups must be addressable
+independently, and the arbitration rule is **last command wins**: a command
+targeted at a single light overrides that light's group state; a newer group
+command takes the light back. See the rework plan, "Command arbitration".
+
 ### D2 · Fate of the automation engine (#447/#439) ✅
 
 The freshly built `AutomationBinding` table (trigger → rules → actions) is
@@ -41,6 +47,12 @@ features); graphs subsume them; migrating existing bindings to graphs is a
 later step. `ActionExecutor` stays — not as a user-facing concept but as an
 internal sink of the engine (it cleanly encapsulates config mutation plus
 propagation over mesh/MQTT).
+
+**Resolution (2026-07-24):** confirmed. Automations are frozen now; the graph
+engine takes over. Requirements on the takeover: it must be gapless (every
+existing binding expressible as a graph before migration), and the web GUI must
+represent graphs well enough that a migrated binding is directly recognizable
+and fixable.
 
 ### D3 · Hardware-free engine core + native test environment ✅
 
@@ -56,6 +68,15 @@ This is less an option than a discipline commitment — without it, §3 (queue,
 scheduler, topological sort, joints) is not reliably developable. The one
 thing to decide: does the team accept native tests as a PR gate in CI?
 
+**Resolution (2026-07-24):** deprioritized. No native environment and no
+desktop tooling for now — development happens in the final ecosystem (ESP +
+browser). What is kept from the concept: the engine's efficiency rules (int32,
+fixed-size queue, no heap in the hot path) and a clean module boundary so a
+native test env can be added later without rework. What is cut for now: the
+probe/measurement suite (concept §12), unit-test infrastructure, and anything
+that bloats the firmware without shipping a feature. Development visibility
+comes from the existing log sink plus a small graph-state debug endpoint.
+
 ### D4 · Roles/device profile vs. existing hardware config ✅
 
 Concept §4.2 calls for `/profil.json` (role → pin/segment plus calibration).
@@ -68,6 +89,15 @@ existing hardware entries (e.g. `role: "stage:ring"` on a light slot), and
 calibration becomes an extra block on those entries. The "profile" is then a
 view over `DeviceConfig`, not a separate file. Role matching ("a graph runs on
 every device whose profile fits") works against these entries.
+
+**Resolution (2026-07-24):** confirmed, and extended into a participation
+policy. Per device it must be possible to opt out of kinds of interaction
+(e.g. a candle stays a candle — and a mesh repeater — but never joins a buzzer
+game). Mechanism: (1) roles on hardware entries can be individually offered or
+withheld, so a graph requiring a withheld role simply doesn't match; (2) a
+device-level graph acceptance mode — `auto` (default: adopt every matching
+graph, easiest for testing), `ask` (new graphs arrive but stay inactive until
+the user enables them), `off` (ignore graphs from mesh/group entirely).
 
 ### D5 · Canonical graph schema: language & v1 scope ☑️
 
@@ -115,6 +145,14 @@ mesh-send/mesh-receive nodes need on top is purely additive:
 Optional and droppable: sequence numbers on the `GenericEvent` class, only
 useful for the loss-rate measurement in concept §12.4.
 
+**Resolution (2026-07-24):** minimally invasive, confirmed. Stay on the
+current mesh layer as long as possible. Only guaranteed addition: the graph
+mesh-send node ships with a built-in throttle (send-on-change + minimum
+interval) so a graph cannot flood the mesh. Sequence numbers are dropped.
+Proximity plumbing and graph distribution arrive only with their milestones.
+Should genuinely high-rate ("flooding") graph designs ever be wanted, the
+question becomes where such a graph should run at all — revisit then, not now.
+
 ---
 
 ## Part 2 · Non-blocking — recommendation as working assumption
@@ -136,11 +174,10 @@ useful for the loss-rate measurement in concept §12.4.
 
 ---
 
-## What the rework plan needs as input
+## Status
 
-**D1–D4** must be decided — they determine the module boundaries and the file
-format. **D5–D6 are already decided** (English keys; no master role, WiFi
-untouched), and **D7** is additive-only and needs no debate beyond confirming
-the optional sequence numbers. For **N1–N12** it is enough to adopt the
-recommendation as an assumption or override individual items; none of them
-changes the shape of the first milestones (§10, stages 1–4).
+All structural decisions **D1–D7 are resolved** (see the resolution notes
+above). The rework plan is derived from them: see
+[lightwitch-rework-plan.md](lightwitch-rework-plan.md). For **N1–N12** the
+recommendations stand as working assumptions; N11 (measurement suite) is
+additionally deferred by the D3 resolution.
