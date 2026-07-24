@@ -449,12 +449,21 @@ struct GenericEventMsg {
 // all of which key off a MAC address, not PeerRegistry contents) — even when
 // it runs firmware whose PresenceMsg schema doesn't match this device's.
 //
-// This struct must never change: no new fields, no version bump, ever. If
-// onboarding ever needs more information, add a new MsgType instead of
-// touching this one — that's what keeps the exact-size check below safe
-// forever instead of turning into another PresenceMsg-style version gate.
+// Freeze this struct's shape before it first ships (mirrors PresenceMsg's own
+// "reset before first real deployment" convention) — once a released firmware
+// is broadcasting a given layout, it must never change again: no new fields,
+// no version bump, ever. If onboarding ever needs more information after
+// that point, add a new MsgType instead of touching this one — that's what
+// keeps the exact-size check below safe forever instead of turning into
+// another PresenceMsg-style version gate.
 struct HelloMsg {
     MsgType type = MsgType::Hello;
     char name[32];
     char fwVersion[16];
+    // Same meaning as PresenceMsg's fields of the same name — needed here so
+    // a device that can't yet exchange PresenceMsg (incompatible schema) can
+    // still tell an operator whether "Check for update" has any chance of
+    // succeeding right now, or whether a WiFi-config push must happen first.
+    uint8_t wifiConnected;
+    uint8_t hasWifiNetworks;
 };

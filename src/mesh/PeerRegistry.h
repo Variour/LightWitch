@@ -119,11 +119,13 @@ class PeerRegistry {
 
     // Records a peer seen only via HelloMsg (see MeshTypes.h) — a device this
     // firmware can't yet fully interoperate with (different PresenceMsg
-    // schema), but whose MAC/name/fwVersion are enough to offer it a WiFi
-    // config push or a firmware-update nudge. Never downgrades a peer already
-    // known via a full update() — that peer just gets its lastSeen refreshed,
-    // since it's expected to send HelloMsg too (every device does).
-    bool updateHello(const uint8_t* mac, const char* name, const char* fwVersion) {
+    // schema), but whose MAC/name/fwVersion/WiFi status are enough to offer
+    // it a WiFi config push or a firmware-update nudge — and to tell which of
+    // those is the right next step. Never downgrades a peer already known via
+    // a full update() — that peer just gets its lastSeen refreshed, since
+    // it's expected to send HelloMsg too (every device does).
+    bool updateHello(const uint8_t* mac, const char* name, const char* fwVersion,
+                     bool wifiConnected, bool hasWifiNetworks) {
         PeerInfo* p = _find(mac);
         if (p && !p->helloOnly) {
             p->lastSeen = millis();
@@ -135,6 +137,8 @@ class PeerRegistry {
         memcpy(p->mac, mac, 6);
         strlcpy(p->name, name, sizeof(p->name));
         strlcpy(p->fwVersion, fwVersion, sizeof(p->fwVersion));
+        p->wifiConnected = wifiConnected;
+        p->hasWifiNetworks = hasWifiNetworks;
         p->helloOnly = true;
         p->lastSeen = millis();
         p->active = true;

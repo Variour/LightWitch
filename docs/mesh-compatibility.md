@@ -94,8 +94,8 @@ Every message above is same-firmware-only, by design. `HelloMsg` is the single d
 
 This does not reopen the "no compatibility code" rule for the rest of the protocol:
 
-- `HelloMsg` carries only `name` + `fwVersion` — enough to show a device in the dashboard and target it by MAC. It never carries state that needs merging or interpreting.
-- It has **no version field** and must **never change** — no new fields, ever. If onboarding needs more information later, that's a new `MsgType`, not a change to this struct. That's what keeps its exact-size check safe permanently, instead of becoming another `PRESENCE_MSG_VERSION`-style gate that itself needs versioning.
+- `HelloMsg` carries only `name` + `fwVersion` + `wifiConnected` + `hasWifiNetworks` — enough to show a device in the dashboard, target it by MAC, and tell whether a WiFi-config push or an update check is the right next step. It never carries state that needs merging or interpreting.
+- It has **no version field**. Its shape may still move during this feature's own development (mirrors `PresenceMsg`'s "reset before first real deployment" convention — see above), but once a released firmware is broadcasting a given layout, it must **never change again** — no new fields, ever, from that point on. If onboarding needs more information after that, that's a new `MsgType`, not a change to this struct. That's what keeps its exact-size check safe permanently, instead of becoming another `PRESENCE_MSG_VERSION`-style gate that itself needs versioning.
 - Every device broadcasts it unconditionally (same 5 s cadence as `PresenceMsg`), regardless of onboarding state — so discovery is symmetric and doesn't depend on either side knowing it's "new".
 - Receiving a `Hello` also counts as "peer heard" for `ChannelManager`'s channel-lock logic, the same as a valid `PresenceMsg` did before — so channel convergence no longer depends on the two devices' `PresenceMsg` schemas matching either.
 - Once a device starts sending a `PresenceMsg` this receiver accepts, it's treated as a full peer; `Hello` only ever represents "seen, but not yet interoperable with the full protocol."

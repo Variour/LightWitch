@@ -2286,10 +2286,20 @@ function renderDiscoveredPeers(list) {
     const online = p.online !== false;
     const dot = `<span class="dot ${online?'dot-on':'dot-off'}" aria-label="${online?'Online':'Offline'}"></span>`;
     const ver = p.version ? `v${esc(p.version)}` : '';
+    // Tells the operator whether "Check for update" has any chance of
+    // succeeding right now, or whether a WiFi-config push is the needed step
+    // first — a hello-only device can't report this via PresenceMsg (see
+    // MeshTypes.h), so HelloMsg carries just enough to make that call.
+    const wifiOn = p.wifiConnected === true;
+    const hasWifi = p.hasWifiNetworks === true;
+    const wifiColor = wifiOn ? '#4c4' : hasWifi ? '#c84' : '#777';
+    const wifiText = wifiOn ? 'WiFi connected' : hasWifi ? 'WiFi configured, not connected' : 'No WiFi configured';
+    const wifiBadge = `<span style="font-size:.72rem;color:${wifiColor};white-space:nowrap">${esc(wifiText)}</span>`;
     return `<div style="display:flex;align-items:center;gap:.5rem;padding:.4rem 0;border-bottom:1px solid #222;flex-wrap:wrap">
       ${dot}
       <span style="flex:1;min-width:8rem">${esc(p.name)} <span style="color:#666;font-size:.78rem">${ver}</span></span>
       <span style="color:#555;font-size:.75rem">${esc(mac)}</span>
+      ${wifiBadge}
       <button class="btn-ghost btn-sm" data-action="openPushModal" data-mac="${mac}" data-name="${esc(p.name)}">Push config</button>
       <button class="btn-ghost btn-sm" data-action="checkPeerUpdate" data-mac="${mac}">Check for update</button>
     </div>`;

@@ -180,9 +180,13 @@ const mockLiveEvent = { name: 'Mock Light 3', eventType: 'buzz.press', payload: 
 // Devices seen only via HelloMsg (different/incompatible firmware — see
 // docs/mesh-compatibility.md and WebServer.h::_buildPeersJson's
 // discoveredPeers array). Mirrors just what a real device's PeerInfo carries
-// for a helloOnly entry: mac/name/version/online, nothing else.
+// for a helloOnly entry: mac/name/version/online/wifiConnected/
+// hasWifiNetworks, nothing else. Two entries so the dashboard's WiFi-status
+// badge exercises both the "needs a config push first" and "could check for
+// an update right now" cases.
 const MOCK_DISCOVERED_PEERS = [
-  { name: 'New Device', mac: '66:77:88:99:aa:bb', version: '2026.07.01.0', online: true },
+  { name: 'New Device', mac: '66:77:88:99:aa:bb', version: '2026.07.01.0', online: true, wifiConnected: false, hasWifiNetworks: false },
+  { name: 'Almost Set Up', mac: '77:88:99:aa:bb:cc', version: '2026.06.15.0', online: true, wifiConnected: true, hasWifiNetworks: true },
 ];
 
 const wifiNetworks = [

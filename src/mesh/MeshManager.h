@@ -859,6 +859,11 @@ class MeshManager {
         HelloMsg msg;
         strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
         strlcpy(msg.fwVersion, FW_VERSION, sizeof(msg.fwVersion));
+        msg.wifiConnected =
+            (_wifiConnectedProvider ? _wifiConnectedProvider() : (WiFi.status() == WL_CONNECTED))
+                ? 1
+                : 0;
+        msg.hasWifiNetworks = (Config::wifiCount() > 0) ? 1 : 0;
         _send(&msg, sizeof(msg));
     }
 
@@ -947,7 +952,8 @@ class MeshManager {
                 // here since this struct is never allowed to change.
                 if (!_hasExactLen<HelloMsg>(len)) return;
                 auto* m = (HelloMsg*)data;
-                bool isNew = _instance->peers.updateHello(mac, m->name, m->fwVersion);
+                bool isNew = _instance->peers.updateHello(
+                    mac, m->name, m->fwVersion, m->wifiConnected != 0, m->hasWifiNetworks != 0);
                 // Counts as "peer heard" for channel-lock purposes the same
                 // as a valid Presence did (see ChannelManager::onPeerHeard) —
                 // unlike Presence, this isn't gated on schema compatibility,

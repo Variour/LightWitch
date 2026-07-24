@@ -1238,6 +1238,8 @@ class BatteryWebServer {
                     d["name"] = p.name;
                     d["version"] = p.fwVersion;
                     d["online"] = p.online();
+                    d["wifiConnected"] = p.wifiConnected;
+                    d["hasWifiNetworks"] = p.hasWifiNetworks;
                     continue;
                 }
                 auto o = arr.add<JsonObject>();
