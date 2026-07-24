@@ -1,138 +1,146 @@
-# LightWitch × batteryLight — Entscheidungsvorlage
+# LightWitch × batteryLight — decision sheet
 
-Grundlage: LightWitch-Systemkonzept v1.0 (24.07.2026) und der aktuelle Stand von
-`main`. Die Punkte in Teil 1 sind strukturell: sie bestimmen den Zuschnitt des
-Rework-Plans und sollten vor Planungsbeginn im Team entschieden werden. Teil 2
-sammelt die übrigen offenen Fragen (Konzept §11 u. a.) mit einer Empfehlung als
-Arbeitsannahme — sie können den Plan mit dieser Annahme passieren und später
-revidiert werden.
+Based on the LightWitch system concept v1.0 (2026-07-24) and the current state
+of `main`. Part 1 lists the structural decisions: they shape the rework plan
+(module boundaries, file format, mesh integration) and should be settled by the
+team before planning starts. Part 2 collects the remaining open questions
+(concept §11 and related) with a recommendation as a working assumption — the
+plan can proceed on these assumptions, and they can be revisited later.
 
-Legende Empfehlung: ✅ klare Tendenz · ⚖️ echte Abwägung, Teamentscheid nötig.
+Recommendation legend: ✅ clear preference · ⚖️ genuine trade-off, team call
+needed · ☑️ already decided.
 
 ---
 
-## Teil 1 · Blockierende Strukturentscheidungen
+## Part 1 · Structural decisions
 
-### E1 · Wer besitzt die LEDs — Graph-Welt vs. Gruppen-Welt ⚖️
+### D1 · Who owns the LEDs — graph world vs. group world ⚖️
 
-**Heute:** Eine Gruppe hält `LightConfig` (Pattern/Szene/Farbe), mesh-synchron;
-`PatternRunner` rendert. **Konzept:** Graphen laufen lokal, der Bühnen-Stein ist
-die geräteweite Instanz des Lichts, Kanäle (Intensität, Reiz, Limit, …) steuern
-die Szene.
+**Today:** a group holds `LightConfig` (pattern/scene/color), synced across the
+mesh; `PatternRunner` renders it. **Concept:** graphs run locally, the stage
+node is the device-wide instance of a light, and channels (intensity, stimulus,
+limit, …) drive the scene.
 
-| Option | Abwägung |
+| Option | Trade-off |
 |---|---|
-| **(a) Graph als neuer Modus** — `GroupMode::Graph`; steht ein Licht in diesem Modus, rendert der Bühnen-Stein statt des bisherigen Pattern-Pfads. Bestehende Patterns bleiben als prozedurale Szenen aufrufbar. | Inkrementell, Flotte bleibt während der Umstellung lauffähig, Gruppen-/Mesh-Sync unangetastet. Kostet: zwei Rendering-Pfade parallel pflegen, Übergangsregeln (was passiert bei Moduswechsel). |
-| (b) Big-Bang — Graphen ersetzen Gruppen/Patterns vollständig | Konzeptionell sauber („Firmware rendert nur Pixel"), aber monatelang keine lauffähige Flotte; Verlust erprobter Features (MQTT, Sync, Overrides) bis zur Parität. |
-| (c) Graph nur als Aktions-Quelle — Graphen schreiben ausschließlich über `ActionExecutor` Configs | Billigster Einstieg, aber die Kanal-Bühne (§6.3) ist damit unerreichbar; das Konzept degeneriert zur besseren Automation. |
+| **(a) Graph as a new mode** — `GroupMode::Graph`; while a light is in this mode, the stage node renders instead of the existing pattern path. Existing patterns remain callable as procedural scenes. | Incremental; the fleet stays operational throughout; group/mesh sync untouched. Cost: two rendering paths to maintain in parallel, plus transition rules on mode change. |
+| (b) Big bang — graphs fully replace groups/patterns | Conceptually clean ("firmware renders only pixels"), but no working fleet for months and loss of proven features (MQTT, sync, overrides) until parity is rebuilt. |
+| (c) Graph as action source only — graphs write configs via `ActionExecutor` and nothing else | Cheapest entry, but the channel-based stage (§6.3) is unreachable; the concept degenerates into a nicer automation table. |
 
-**Empfehlung: (a)**, mit erklärtem Langfristziel Richtung (b): neue Fähigkeiten
-entstehen nur noch in der Graph-Welt, der Legacy-Pfad wird eingefroren.
+**Recommendation: (a)**, with a declared long-term direction toward (b): new
+capabilities are built in the graph world only, and the legacy path is frozen.
 
-### E2 · Schicksal der Automation-Engine (#447/#439) ✅
+### D2 · Fate of the automation engine (#447/#439) ✅
 
-Die gerade gebaute `AutomationBinding`-Tabelle (Trigger → Regeln → Aktionen) ist
-funktional eine entartete Graph-Stufe. Beide Systeme parallel weiterzuentwickeln
-schafft doppelte Wahrheit für „Event X → Wirkung Y".
+The freshly built `AutomationBinding` table (trigger → rules → actions) is
+functionally a degenerate graph stage. Evolving both systems in parallel
+creates two sources of truth for "event X → effect Y".
 
-**Empfehlung:** Automations sofort **einfrieren** (keine neuen Trigger-Typen,
-keine neuen Features), Graphen subsumieren sie; Migration Bestand → Graph als
-späterer Schritt. `ActionExecutor` bleibt erhalten — nicht als Nutzer-Konzept,
-sondern als interne Senke der Engine (er kapselt sauber Config-Mutation +
-Propagation über Mesh/MQTT).
+**Recommendation:** freeze automations now (no new trigger types, no new
+features); graphs subsume them; migrating existing bindings to graphs is a
+later step. `ActionExecutor` stays — not as a user-facing concept but as an
+internal sink of the engine (it cleanly encapsulates config mutation plus
+propagation over mesh/MQTT).
 
-### E3 · Engine hardwarefrei + natives Test-Env ✅
+### D3 · Hardware-free engine core + native test environment ✅
 
-Konzept §1.8 verlangt eine Engine ohne Hardwarebezug mit Desktop-Tests. Das Repo
-hat **kein** `[env:native]` und null C++-Unit-Tests; fast jeder Header zieht
-`Arduino.h`, Basistypen (`Color`, `LightConfig`) leben in `Config.h`.
+Concept §1.8 requires an engine with no hardware dependency, testable on the
+desktop. The repo has **no** `[env:native]` and zero C++ unit tests; nearly
+every header includes `Arduino.h`, and base types (`Color`, `LightConfig`) live
+in `Config.h`.
 
-**Empfehlung:** Engine als eigenes Modul mit **eigenen minimalen Typen** (kein
-Include aus `src/config`), Adapter übersetzen an der Grenze; `[env:native]` +
-Unit-Tests ab dem ersten Engine-Commit. Das ist weniger eine Option als eine
-Disziplin-Zusage — ohne sie ist §3 (Queue, Scheduler, Topo-Sort, Gelenke)
-praktisch nicht verlässlich entwickelbar. Zu entscheiden ist nur, ob das Team
-die CI-Pflicht (native Tests als PR-Gate) mitträgt.
+**Recommendation:** build the engine as a standalone module with **its own
+minimal types** (no includes from `src/config`); adapters translate at the
+boundary. Add `[env:native]` plus unit tests with the first engine commit.
+This is less an option than a discipline commitment — without it, §3 (queue,
+scheduler, topological sort, joints) is not reliably developable. The one
+thing to decide: does the team accept native tests as a PR gate in CI?
 
-### E4 · Rollen/Geräteprofil vs. bestehende Hardware-Config ✅
+### D4 · Roles/device profile vs. existing hardware config ✅
 
-Konzept §4.2 will `/profil.json` (Rolle → Pin/Segment + Eichung). Das Gerät hat
-aber schon eine Hardware-Config (`LightHardwareConfig`, `ButtonHardwareConfig`,
-`SoundHardwareConfig` in `DeviceConfig`, NVS/LittleFS-persistiert, Web-UI-Pflege,
-Config-Push übers Mesh).
+Concept §4.2 calls for `/profil.json` (role → pin/segment plus calibration).
+The device already has a hardware config (`LightHardwareConfig`,
+`ButtonHardwareConfig`, `SoundHardwareConfig` inside `DeviceConfig`,
+NVS/LittleFS-persisted, web-UI-managed, mesh config push).
 
-**Empfehlung:** **Keine zweite Quelle der Wahrheit.** Rollen werden Namen auf den
-bestehenden Hardware-Einträgen (z. B. `role: "buehne:ring"` am Light-Slot), die
-Eichung ein Zusatzblock daran. „Profil" ist dann eine Sicht auf `DeviceConfig`,
-kein eigenes File. Das Rollen-Matching („Graph läuft auf jedem Gerät, dessen
-Profil passt") arbeitet gegen diese Einträge.
+**Recommendation:** **no second source of truth.** Roles become names on the
+existing hardware entries (e.g. `role: "stage:ring"` on a light slot), and
+calibration becomes an extra block on those entries. The "profile" is then a
+view over `DeviceConfig`, not a separate file. Role matching ("a graph runs on
+every device whose profile fits") works against these entries.
 
-### E5 · Kanonisches Graph-Schema: Sprache & v1-Umfang ⚖️
+### D5 · Canonical graph schema: language & v1 scope ☑️
 
-Das Konzept skizziert deutsche JSON-Keys (`steine`, `kanten`, `braucht`).
-CLAUDE.md legt Englisch für GitHub-Inhalte fest, der gesamte Code ist englisch;
-Contributor-Reibung wäre real. Das Konzept trennt in §5.5 bereits Anzeige-
-von Speichersprache („Feuer-Leute lesen Hitze, gespeichert wird Reiz").
+**Decided: English canonical keys** (`nodes`, `edges`, `requires`), matching
+the rest of the repo; German terms appear only as editor labels. This mirrors
+the concept's own §5.5 split between display language and stored form. The v1
+scope additionally includes: the edge list as sketched, the `v` field, the
+role declaration, and `col`/`row` as editor-only metadata.
 
-**Empfehlung:** dieselbe Logik auf die Keys anwenden — **englische kanonische
-Keys** (`nodes`, `edges`, `requires`), deutsche Begriffe ausschließlich als
-Editor-Labels. Alternative (deutsche Keys als Produkt-Identität) ist legitim,
-dann aber bewusst und dauerhaft — Umbenennen nach Release kostet eine
-Schema-Migration. Zum v1-Umfang gehört außerdem: Kantenliste wie skizziert,
-`v`-Feld, Rollen-Deklaration; `col/row` als reine Editor-Metadaten.
+### D6 · Master role — resolved: no change to WiFi or election ☑️
 
-### E6 · Master-Rolle: feste Konfiguration (Konzept) vs. vorhandene Election ✅
+Constraint set by the project owner: no structural changes to WiFi handling or
+the existing setup unless functionally unavoidable. Reviewing the concept's
+master role (§2: UI access, distribution, log collection) against the repo
+shows nothing forces one in v1:
 
-Konzept §11.2 tendiert zu „v1 fest konfiguriert". Das Repo **hat** aber bereits
-eine dynamische WiFi-Election (`WifiElection`): ein Peer hält die
-WLAN-Verbindung, inkl. Retry-/GaveUp-Handling und mesh-weiter Policy.
+- Every device already serves the full web UI — any device is an equal UI
+  entry point; no dedicated master needed for access.
+- Distribution can mirror the existing **masterless** scene-sync pattern
+  (manifest/request/chunk between peers) for graphs — no coordinator needed.
+- A central live log is the only master-shaped feature left; it is deferred
+  (each device's own log view exists today).
 
-**Empfehlung:** Konzeptpunkt zugunsten des Bestands auflösen — **Master =
-gewählter WiFi-Halter**. Geräteliste, Log-Senke und Graph-Verteilung docken an
-diese Rolle an. Damit ist offene Frage §11.2 ohne Neubau beantwortet; ein
-explizites Wahlverfahren mit Ausfall-Übernahme bleibt v2.
+**Resolution:** v1 has no master role at all; concept §11.2 is closed without
+touching `WifiElection` or anything in the WiFi stack.
 
-### E7 · Mesh-Facade: kapseln + gezielt erweitern ✅
+### D7 · Mesh interface — additive only, existing behavior untouched ✅
 
-Konzept §7 verlangt `senden(…, ziel, bei-Änderung, Ratenlimit)` und
-`empfangen(…) → {payload, absender, nähe}`. Vorhanden: Broadcast mit
-targetMac-Filter, Chunk-Transfer (Scene/Playlist/Config als Kopiervorlage),
-RSSI pro Peer im `PeerRegistry`, `GenericEventMsg` als Kommando-Primitiv.
-Fehlend: Ratenbegrenzung, „bei Änderung", Teilnehmer-Nr-Adressierung,
-Antwort-an-Absender, Sequenznummern (§12.4 — steht im Widerspruch zur heutigen
-bewussten „kein ACK/keine Seq"-Linie bei `GenericEvent`).
+No existing message type or behavior changes. What the graph engine's
+mesh-send/mesh-receive nodes need on top is purely additive:
 
-**Empfehlung:** ESP-NOW-Schicht behalten, dünne Facade nach §7 darüber;
-Nähe aus dem `PeerRegistry` in den Empfangs-Callback durchreichen.
-Sequenznummern der `GenericEvent`-Klasse hinzufügen (Wire-Policy erlaubt
-Breaking Changes, da ohnehin nur gleiche Firmware kompatibel ist) — billig und
-liefert die Verlustrate aus §12 gratis. Teilnehmer-Nr erst mit dem
-Gruppe-Stein (Meilenstein 9).
+- **Proximity in the receive path:** RSSI per peer is already tracked in
+  `PeerRegistry`; it only needs to be handed into the receive callback so
+  "stimulus = sent strength × proximity" works. Data exists, one plumbing step.
+- **Rate limiting / send-on-change for graph sends:** today's `GenericEvent`
+  senders are one-shot (button, automation). A graph can emit a value at the
+  30 Hz tick — an unthrottled node would flood the mesh, so the *new* send
+  path needs a throttle. Existing senders are unaffected.
+- **New message types for graph distribution**, copied from the scene-sync
+  trio (manifest/request/chunk) — the same additive pattern every feature so
+  far has used.
+- A thin facade wraps `MeshManager` for the engine so the engine core stays
+  hardware-free (ties into D3). The facade is a wrapper, not a rework.
+
+Optional and droppable: sequence numbers on the `GenericEvent` class, only
+useful for the loss-rate measurement in concept §12.4.
 
 ---
 
-## Teil 2 · Nicht-blockierend — Empfehlung als Arbeitsannahme
+## Part 2 · Non-blocking — recommendation as working assumption
 
-| # | Frage (Konzept-Ref) | Empfehlung | Begründung / Anmerkung |
+| # | Question (concept ref) | Recommendation | Rationale / note |
 |---|---|---|---|
-| N1 | Zeitsync für Buzzer-Fairness (§11.3) | v1 „erste Nachricht beim Master gewinnt" | Vorhandener `TimeSync` liefert nur Sekunden; ms-Mesh-Zeit ist Neubau → v2, erst nach Messung des tatsächlichen Druckabstands (§12.5). |
-| N2 | Laufzeitzustand über Neustart (§11.4) | flüchtig; „merken"-Flag später | Deckt sich mit Flash-Verschleiß-Argument (§12.4); Bestand schreibt Config ohnehin nur auf explizite Änderungen. |
-| N3 | Farb-Interna / RGBW (§11.5) | HSV innerhalb Engine + Bühne, Wandlung nach RGB an der `LedDriver`-Grenze; RGBW vertagen | Bestand ist durchgehend RGB; Wandlung an einer Stelle hält den Umbau klein. Es gibt heute keine unterstützte RGBW-Hardware. |
-| N4 | LED-Map-Erstellung (§11.6) | Presets je Bauform (Strip/Ring/Matrix → generierte Richtungsvektoren); Kamera-Wizard später | `MatrixLayout` liefert die Matrix-Geometrie schon; Map-**Format** gehört trotzdem ins Schema v1, sonst Migration. |
-| N5 | Kugel-Maleditor (§11.7) | nach Meilenstein 5, wie im Konzept | Bestehender Szenen-Editor (flache w×h-Frames) bleibt bis dahin das Mal-Werkzeug. |
-| N6 | Klang-Pipeline (§11.8) | v1 = Töne + kurze Samples auf Bestand aufsetzen | WAV-von-SD, Playlists und synchronisierter Start existieren (`PlayAudioMsg`); neu ist nur ein kleiner Ton-Generator. Mischen/Formate vertagen. |
-| N7 | Web-Schreibschutz (§11.9) | PIN für schreibende Endpunkte, spätestens vor Graph-Push-Features | Geräte-API ist heute offen; mit Graph-Verteilung wächst die Angriffsfläche deutlich (beliebige Abläufe pushbar). |
-| N8 | Graph-Migration (§11.10) | bestehender Schema-Migrations-Konvention des Repos folgen | Ist dokumentiert (Commit d05e7ca); kein neues Verfahren erfinden. |
-| N9 | Dock-Feinheiten: Elbow-Toleranz, Zoom (§11.11) | nach ersten Editor-Tests | Editor v1 ist ohnehin REST + JSON-Textfeld (§5.6). |
-| N10 | OTA übers Mesh (§11.12) | **streichen** | GitHub-OTA + Mesh-Nudges (`CheckUpdate`/`TriggerUpdate`) existieren und funktionieren; Mesh-Chunk-Verteilung bleibt Graphen/Szenen vorbehalten. |
-| N11 | Abnahme-Zielwerte (§11.13) | erst messen, dann festzurren — wie im Konzept | Sonden-Infrastruktur (§12.1) früh einbauen, Ziele nach Meilenstein 2 setzen. |
-| N12 | Mikrofon / Lagesensor | Hardware-Auswahl bis Meilenstein 6 treffen | Keinerlei Treiber-Grundlage im Repo; einzige Quelle mit Bestand ist `BatteryMonitor`. Betrifft Meilenstein 7, nicht den Planstart. |
+| N1 | Time sync for buzzer fairness (§11.3) | v1: "first message wins" | Existing `TimeSync` is second-granularity; ms-level mesh time is new work → v2, and only after measuring real press spacing (§12.5). |
+| N2 | Runtime state across reboot (§11.4) | volatile; optional "retain" flag later | Matches the flash-wear argument (§12.4); the codebase already writes config only on explicit changes. |
+| N3 | Color internals / RGBW (§11.5) | HSV inside engine + stage, convert to RGB at the `LedDriver` boundary; defer RGBW | Codebase is RGB throughout; converting at a single boundary keeps the change small. No supported RGBW hardware exists today. |
+| N4 | LED map authoring (§11.6) | presets per form factor (strip/ring/matrix → generated direction vectors); camera wizard later | `MatrixLayout` already provides matrix geometry; the map **format** still belongs in schema v1 to avoid a migration. |
+| N5 | Sphere paint editor (§11.7) | after milestone 5, as per concept | The existing scene editor (flat w×h frames) remains the painting tool until then. |
+| N6 | Sound pipeline (§11.8) | v1 = tones + short samples on top of what exists | WAV-from-SD, playlists, and synchronized start exist (`PlayAudioMsg`); only a small tone generator is new. Defer mixing/formats. |
+| N7 | Web write protection (§11.9) | PIN for writing endpoints, at latest before graph-push ships | The device API is open today; graph distribution raises the stakes considerably (arbitrary behavior becomes pushable). |
+| N8 | Graph migration (§11.10) | follow the repo's existing schema-migration convention | Already documented (commit d05e7ca); don't invent a new mechanism. |
+| N9 | Dock editor details: elbow tolerance, zoom (§11.11) | after first editor tests | Editor v1 is REST + a JSON text field anyway (§5.6). |
+| N10 | OTA over mesh (§11.12) | **drop** | GitHub OTA + mesh nudges (`CheckUpdate`/`TriggerUpdate`) exist and work; mesh chunk transfer stays reserved for graphs/scenes. |
+| N11 | Acceptance target values (§11.13) | measure first, then fix — as per concept | Build the probe infrastructure (§12.1) early; set targets after milestone 2. |
+| N12 | Microphone / IMU | pick hardware by milestone 6 | No driver foundation in the repo; the only existing source is `BatteryMonitor`. Affects milestone 7, not plan start. |
 
 ---
 
-## Was der Rework-Plan als Input braucht
+## What the rework plan needs as input
 
-Entschieden sein müssen **E1–E7** — sie bestimmen Modulschnitt (E1–E4),
-Dateiformat (E5) und Mesh-/Master-Anbindung (E6–E7). Für **N1–N12** reicht es,
-die Empfehlung als Annahme zu übernehmen oder einzeln zu überstimmen; keiner
-dieser Punkte ändert den Zuschnitt der ersten Meilensteine (§10, Stufen 1–4).
+**D1–D4** must be decided — they determine the module boundaries and the file
+format. **D5–D6 are already decided** (English keys; no master role, WiFi
+untouched), and **D7** is additive-only and needs no debate beyond confirming
+the optional sequence numbers. For **N1–N12** it is enough to adopt the
+recommendation as an assumption or override individual items; none of them
+changes the shape of the first milestones (§10, stages 1–4).
