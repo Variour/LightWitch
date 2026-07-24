@@ -221,9 +221,10 @@ existing binding so migration is verifiable rule by rule.
 Graphs card in the web UI: list with per-graph active toggle, acceptance-mode
 setting, JSON text editor with validation feedback, "convert binding to
 graph" button using the M2 converter, live log filter per graph. No visual
-editor yet (that is M8) — but the GUI must make migrated automations
-recognizable and fixable (D2 requirement). Automations UI gets a "frozen —
-superseded by graphs" notice.
+editor yet (that is M8; a mock-only shell prototype is pulled forward — see
+there) — but the GUI must make migrated automations recognizable and fixable
+(D2 requirement). Automations UI gets a "frozen — superseded by graphs"
+notice.
 
 *Touches:* `data/index.html`, `server/` mock + Playwright flows.
 
@@ -278,6 +279,17 @@ The concept's dock UI (columns, docking, joints, chain view) on top of the
 by-then-proven schema. Explicitly last: the JSON editor (M3) carries all
 functionality until here, and dock details (elbow tolerance, zoom) are decided
 after first editor tests.
+
+**Pulled forward — editor shell, mock-only (#464):** the shell — canvas with
+the column/dock layout, placing/moving/connecting building blocks, save/load
+of schema-v1 documents (`col`/`row` as editor metadata, `notes`) — is built
+early on its own page/bundle against the mock server's in-memory
+`/api/graphs`, with a fixed minimal palette from the M2 parity node set and
+deliberately thin node-config panels. Purpose: play through flows in the
+browser and derive follow-up issues before the engine exists — the "first
+editor tests" this milestone's open dock details wait on. Engine wiring,
+authoritative validation, the full palette, and the remaining dock feature
+set stay here in M8; nothing runs a saved graph until M2.
 
 *Touches:* `data/index.html` (likely split into a second page/bundle —
 decide when sizing it).
