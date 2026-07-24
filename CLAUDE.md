@@ -27,13 +27,3 @@ If a commit spans multiple scopes, use a more general scope, list both separated
 - When starting work and the worktree is clean, automatically switch to `main` and fast-forward from `origin/main` without asking. Only stop to ask if the worktree is dirty or the switch/update cannot be done safely.
 - In docs, comments, and commit messages: state what to do, not what happens if you don't. Avoid spelling out failure modes, error messages, or negative-case explanations unless the user asked for troubleshooting info.
 
-## Config schema migrations
-
-`CONFIG_SCHEMA_VERSION` (`src/config/Config.h`) bumps are for breaking changes to `DeviceConfig`'s on-disk layout (a field renamed, moved, or repurposed). Additive changes — a new field with a sensible `| default` fallback in `applyDoc()` — need no version bump and no migration.
-
-For a breaking change:
-- Write one migration function per version step (`vN` -> `vN+1`), operating on the raw `JsonDocument`, touching only the fields that changed and passing everything else through untouched.
-- Chain migrations sequentially in `migrateDoc()`: loop from the saved `ver` to `CONFIG_SCHEMA_VERSION - 1`, applying each step's function in order. Don't write a migration per version *pair* — that's combinatorial where the step chain is linear.
-- Treat a written migration function as frozen history once merged: don't edit it for later schema changes, add a new step instead.
-- Full reset-to-defaults (the current fallback for `ver < CONFIG_SCHEMA_VERSION`) stays reserved for versions older than the oldest supported migration step.
-
