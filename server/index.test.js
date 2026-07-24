@@ -204,9 +204,11 @@ describe('/api/graphs (mock-only, issue #464)', () => {
     assert.equal(res.status, 200);
     const doc = await res.json();
     assert.equal(doc.v, 1);
-    assert.equal(doc.nodes.length, 3);
+    assert.equal(doc.nodes.length, 4);
     assert.deepEqual(doc.edges[0], [1, 'pressed', 2, 'start']);
     assert.equal(doc.notes[0].text, 'registration');
+    // The seeded multi-row input carries two sources (MULTI-01).
+    assert.equal(doc.edges.filter(e => e[2] === 3 && e[3] === 'trigger').length, 2);
   });
 
   test('404 for an unknown graph', async () => {

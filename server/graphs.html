@@ -3,167 +3,243 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Battery Light — Graph Editor</title>
+<title>LightWitch — Graph Editor</title>
 <style>
+/* Design tokens (interaction concept §2) — all geometry derives from these. */
+:root {
+  --row: 28px;
+  --colw: 168px;
+  --gut: 16px;
+  --pin: 16px;
+  --hit: 44px;
+  --c-event: #e6b45a;
+  --c-switch: #5ac8e6;
+  --c-value: #7ee65a;
+  --c-color: #d67ee6;
+}
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
 body { font-family: system-ui, sans-serif; background: #111; color: #eee;
-       max-width: 1100px; margin: 0 auto; padding: 1rem; }
-h1   { font-size: 1.2rem; margin-bottom: .75rem; color: #aaa;
-       display: flex; align-items: baseline; gap: .6rem; }
-h1 .beta { font-size: .7rem; color: #a84; border: 1px solid #543; border-radius: 5px;
-           padding: .1rem .4rem; text-transform: uppercase; letter-spacing: .05em; }
-h1 a { margin-left: auto; font-size: .8rem; color: #4af; text-decoration: none; }
-.card { background: #1c1c1c; border-radius: 10px; padding: 1rem; margin-bottom: .75rem; }
-button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer;
-         font-size: .88rem; font-weight: 600; }
-.btn-primary { background: #2a6; color: #fff; }
+       display: flex; flex-direction: column; overflow: hidden; }
+button { border: none; border-radius: 6px; cursor: pointer; font-weight: 600;
+         font-size: .82rem; padding: .4rem .7rem; }
+.btn-primary { background: #2a6; color: #fff; position: relative; }
 .btn-danger  { background: #933; color: #fff; }
 .btn-ghost   { background: #2a2a2a; color: #aaa; }
-.btn-sm      { padding: .3rem .6rem; font-size: .78rem; }
+button:disabled { opacity: .4; cursor: default; }
 input[type=text], select {
-  padding: .45rem .65rem; border-radius: 6px; border: 1px solid #2a2a2a;
-  background: #111; color: #eee; font-size: .9rem; }
-input[type=checkbox] {
-  appearance: none; -webkit-appearance: none;
-  width: 1.3rem; height: 1.3rem; margin: 0; flex-shrink: 0;
-  border-radius: 6px; border: none; background: #2a2a2a; cursor: pointer; }
-input[type=checkbox]:checked {
-  background: #2a6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' d='M3 8.5l3.2 3.2L13 4.5'/%3E%3C/svg%3E") no-repeat center / 65%; }
+  padding: .35rem .55rem; border-radius: 6px; border: 1px solid #2a2a2a;
+  background: #111; color: #eee; font-size: .85rem; }
 
-.toolbar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .6rem; }
-.toolbar .spacer { flex: 1; }
-#dirty { font-size: .75rem; color: #fa4; }
-.meta-row { display: flex; gap: .8rem; align-items: center; margin-bottom: .6rem;
-            font-size: .8rem; color: #888; }
-.meta-row label { display: flex; align-items: center; gap: .35rem; }
-.meta-row input[type=text] { flex: 1; font-size: .8rem; padding: .3rem .5rem; }
+/* ── Toolbar (VIEW-01) ── */
+.toolbar { display: flex; gap: .45rem; align-items: center; padding: .5rem .6rem;
+           background: #171717; border-bottom: 1px solid #222; flex-wrap: wrap; }
+.toolbar a { color: #4af; text-decoration: none; font-size: .82rem; white-space: nowrap; }
+.toolbar .grow { flex: 1; }
+#dirty-dot { display: none; position: absolute; top: -3px; right: -3px; width: 10px;
+             height: 10px; border-radius: 50%; background: #fa4; border: 2px solid #171717; }
+#btn-apply.dirty #dirty-dot { display: block; }
 
-.editor { display: flex; gap: .75rem; align-items: flex-start; }
-.palette { width: 130px; flex-shrink: 0; }
-.palette h2 { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
-              color: #555; margin: .2rem 0 .4rem; }
-.palette-item { background: #1c1c1c; border: 1px solid #2a2a2a; border-radius: 7px;
-                padding: .35rem .5rem; margin-bottom: .3rem; font-size: .78rem;
-                color: #ccc; cursor: pointer; }
-.palette-item:hover { border-color: #2a6; }
-.palette-item.placing { border-color: #2a6; background: #1a2f22; color: #fff; }
-.hint { font-size: .72rem; color: #555; margin-top: .5rem; line-height: 1.4; }
+/* ── Board (GRID) ── */
+#board-wrap { flex: 1; overflow: auto; position: relative; background: #141414;
+              touch-action: none; overscroll-behavior: none; }
+#board { position: relative; }
+#board .gridbg { position: absolute; inset: 0;
+  background-image: linear-gradient(to right, #1b1b1b 1px, transparent 1px);
+  background-size: calc(var(--colw) + var(--gut)) 100%;
+  background-position: calc(-1 * var(--gut)) 0; pointer-events: none; }
 
-.board-wrap { position: relative; flex: 1; overflow-x: auto; background: #161616;
-              border-radius: 10px; padding: .5rem; }
-.board { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr));
-         grid-auto-rows: 64px; gap: .35rem; position: relative; }
-.cell { border: 1px dashed #242424; border-radius: 8px; min-height: 0; position: relative; }
-.cell.placeable:hover { border-color: #2a6; cursor: copy; }
-.node { position: absolute; inset: 0; background: #1f2937; border: 1px solid #33415a;
-        border-radius: 8px; display: flex; flex-direction: column; cursor: pointer;
-        overflow: hidden; }
-.node.selected { border-color: #4af; box-shadow: 0 0 0 1px #4af; }
-.node-head { font-size: .74rem; font-weight: 600; color: #dde; text-align: center;
-             padding: .18rem .2rem 0; }
-.node-id { font-size: .6rem; color: #567; }
-.node-ports { flex: 1; display: flex; justify-content: space-between; align-items: stretch; }
-.ports-in, .ports-out { display: flex; flex-direction: column; justify-content: space-evenly; }
-.port { font-size: .6rem; color: #9ab; padding: .06rem .3rem; cursor: crosshair;
-        white-space: nowrap; }
-.ports-in .port { border-radius: 0 6px 6px 0; }
-.ports-out .port { text-align: right; border-radius: 6px 0 0 6px; }
-.port:hover { background: #2a6; color: #fff; }
-.port.pending { background: #a84; color: #fff; }
-.note { position: absolute; inset: 0; background: #2b2620; border: 1px solid #4a4030;
-        border-radius: 8px; font-size: .68rem; color: #cb9; padding: .3rem .4rem;
-        cursor: pointer; overflow: hidden; }
-.note.selected { border-color: #fa4; box-shadow: 0 0 0 1px #fa4; }
-#edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-#edges path.edge-hit { stroke: transparent; stroke-width: 12; fill: none; pointer-events: stroke;
-                       cursor: pointer; }
-#edges path.edge-line { stroke: #2a6; stroke-width: 2; fill: none; }
-#edges g:hover path.edge-line { stroke: #c55; }
+/* ── Stones (PIN-01) ── */
+.stone { position: absolute; width: var(--colw); background: #1f2430;
+         border: 1px solid #333d52; border-radius: 9px; cursor: grab;
+         user-select: none; -webkit-user-select: none; touch-action: none; }
+.stone.selected { border-color: #4af; box-shadow: 0 0 0 1px #4af; }
+.stone.ghost { opacity: .75; transform: rotate(-2deg); z-index: 30; cursor: grabbing;
+               box-shadow: 0 6px 18px rgba(0,0,0,.5); }
+.stone.reject { border-color: #c44; box-shadow: 0 0 0 1px #c44; }
+.stone-head { height: var(--row); display: flex; align-items: center; gap: .35rem;
+              padding: 0 .5rem; font-size: .74rem; font-weight: 600; color: #dde;
+              border-bottom: 1px solid #2a3040; cursor: pointer; }
+.stone-head .cat { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.cat-in { background: #e6b45a; } .cat-logic { background: #5ac8e6; } .cat-out { background: #7ee65a; }
+.stone-head .sid { margin-left: auto; font-size: .62rem; color: #567; font-weight: 400; }
+.stone-row { height: var(--row); position: relative; display: flex; align-items: center;
+             justify-content: space-between; font-size: .64rem; color: #9ab; }
+.stone-row .lbl-in  { padding-left: .55rem; display: flex; align-items: center; gap: .3rem; }
+.stone-row .lbl-out { padding-right: .55rem; margin-left: auto; }
+.stone-row .rep-mark { color: #567; }
 
-.inspector { font-size: .8rem; color: #aaa; margin-top: .75rem; }
-.inspector textarea { width: 100%; min-height: 3.5rem; background: #111; color: #eee;
-                      border: 1px solid #2a2a2a; border-radius: 6px; padding: .4rem .55rem;
-                      font-family: ui-monospace, monospace; font-size: .78rem; margin: .3rem 0; }
-.inspector textarea.invalid { border-color: #933; }
-.inspector .row { display: flex; gap: .5rem; align-items: center; }
+/* ── Pins (PIN-02) — protrude 9px into the 16px gutter ── */
+.pin { position: absolute; width: var(--pin); height: var(--pin); top: 50%;
+       transform: translateY(-50%); z-index: 5; }
+.pin.in  { left: -9px; }
+.pin.out { right: -9px; }
+.pin::after { content: ''; position: absolute; inset: 0; display: block; }
+.pin[data-t=event]::after  { background: var(--c-event);
+  clip-path: polygon(15% 0, 100% 50%, 15% 100%); }
+.pin[data-t=switch]::after { background: var(--c-switch); border-radius: 2px; inset: 2px; }
+.pin[data-t=value]::after  { background: var(--c-value); border-radius: 50%; inset: 1px; }
+.pin[data-t=color]::after  { border: 4px solid var(--c-color); border-radius: 50%;
+  inset: 1px; background: none; }
+.pin.free::after { opacity: .35; }
+.pin.linked::after { opacity: 1; filter: drop-shadow(0 0 4px currentColor); }
+.pin.joint::after { background: linear-gradient(135deg, var(--c-value) 50%, var(--c-switch) 50%);
+  border-radius: 3px; inset: 1px; clip-path: none; border: none; }
+.pin.cand::after { opacity: .7; outline: 2px solid #2a64; }
+.pin.cand-best::after { opacity: 1; outline: 2px solid #2a6; animation: pulse .7s infinite; }
+@keyframes pulse { 50% { filter: drop-shadow(0 0 8px #2a6); } }
+/* Invisible hit area (PIN-05): 44px wide, but capped to the row height
+   vertically — at 28px rows a full 44px square would overlap the neighbor
+   row's pin on the same stone and steal its taps (audit note: deviation
+   from the blanket ≥44px; the gutter direction keeps the full width).
+   Docked counterparts still overlap in the gutter — both resolve to the
+   same connection, so either pin opens the same popover. */
+.pin::before { content: ''; position: absolute; width: var(--hit); height: var(--row);
+               left: 50%; top: 50%; transform: translate(-50%, -50%); }
 
-.toast { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
-         background: #222; color: #eee; padding: .6rem 1rem; border-radius: 8px;
-         font-size: .82rem; box-shadow: 0 2px 10px rgba(0,0,0,.4); z-index: 999;
-         display: none; max-width: 90%; text-align: center; }
+/* ── Chips (PIN-03, MULTI-02) ── */
+.chip, .rulechip { background: #2a2f3d; color: #cde; font-size: .6rem; border-radius: 8px;
+        padding: .1rem .35rem; cursor: pointer; position: relative; z-index: 4; }
+.rulechip { background: #33305a; color: #cbe; }
+.chip::before, .rulechip::before { content: ''; position: absolute; width: var(--hit);
+  height: var(--hit); left: 50%; top: 50%; transform: translate(-50%, -50%); }
+
+/* ── ±1 bows (GRID-03) — the only "line segments" in the system ── */
+.bow { position: absolute; width: var(--gut); pointer-events: none; z-index: 3; }
+.bow i { position: absolute; inset: 0; display: block; border: 2px solid #6a7;
+         border-left: none; border-radius: 0 8px 8px 0; }
+.bow.up i { transform: scaleY(-1); }
+
+/* ── Notes (VIEW-06) ── */
+.note-card { position: absolute; width: var(--colw); background: #2b2620;
+             border: 1px solid #4a4030; border-radius: 9px; color: #cb9;
+             font-size: .66rem; padding: .3rem .45rem; overflow: hidden;
+             cursor: grab; touch-action: none; user-select: none; }
+.note-card.ghost { opacity: .75; transform: rotate(-2deg); z-index: 30; }
+.note-card.selected { border-color: #fa4; }
+
+/* ── Palette (VIEW-02, bottom, collapsible) ── */
+#palette { background: #171717; border-top: 1px solid #222; flex-shrink: 0; }
+#palette-grip { height: 20px; display: flex; align-items: center; justify-content: center;
+                cursor: pointer; }
+#palette-grip::after { content: ''; width: 42px; height: 4px; border-radius: 2px;
+                       background: #333; }
+#palette-cats { display: flex; gap: .35rem; padding: 0 .6rem .35rem; }
+.pal-cat { font-size: .68rem; padding: .18rem .55rem; border-radius: 10px;
+           background: #222; color: #888; cursor: pointer; }
+.pal-cat.active { background: #2a6; color: #fff; }
+#palette-items { display: flex; gap: .4rem; overflow-x: auto; padding: 0 .6rem .55rem;
+                 scrollbar-width: thin; }
+.pal-item { flex-shrink: 0; background: #1f2430; border: 1px solid #333d52;
+            border-radius: 8px; padding: .3rem .6rem; font-size: .72rem; color: #ccd;
+            cursor: grab; touch-action: none; user-select: none;
+            -webkit-user-select: none; display: flex; align-items: center; gap: .3rem; }
+.pal-item.armed { border-color: #2a6; background: #1a2f22; }
+#palette.collapsed #palette-cats, #palette.collapsed #palette-items { display: none; }
+
+/* ── Trash zone (DOCK-08) — replaces the palette while dragging ── */
+#trash { display: none; height: 56px; background: #3a1515; border-top: 2px dashed #933;
+         color: #e88; font-size: .8rem; align-items: center; justify-content: center;
+         gap: .4rem; flex-shrink: 0; }
+#trash.over { background: #5a1a1a; color: #fcc; }
+body.dragging #palette { display: none; }
+body.dragging #trash { display: flex; }
+
+/* ── Popover & sheet (VIEW-03) ── */
+#popover { position: fixed; z-index: 60; background: #222; border: 1px solid #333;
+           border-radius: 9px; padding: .55rem .65rem; display: none; min-width: 170px;
+           box-shadow: 0 6px 20px rgba(0,0,0,.5); font-size: .78rem; }
+#popover .rule { color: #a9c; font-size: .7rem; margin-bottom: .35rem; }
+#popover input[type=range] { width: 100%; accent-color: #2a6; }
+#popover .row { display: flex; align-items: center; gap: .4rem; margin-top: .3rem; }
+#sheet-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.45);
+                  display: none; }
+#sheet { position: fixed; z-index: 55; background: #1c1c1c; display: none;
+         padding: .8rem; overflow-y: auto; font-size: .82rem; }
+@media (max-width: 767px) {
+  #sheet { left: 0; right: 0; bottom: 0; max-height: 60%; border-radius: 14px 14px 0 0; }
+  #sheet::before { content: ''; display: block; width: 42px; height: 4px;
+                   border-radius: 2px; background: #333; margin: 0 auto .6rem; }
+}
+@media (min-width: 768px) {
+  #sheet { top: 0; right: 0; bottom: 0; width: 320px; border-left: 1px solid #222; }
+}
+#sheet h2 { font-size: .8rem; color: #dde; margin-bottom: .5rem; display: flex;
+            align-items: center; gap: .4rem; }
+#sheet .pinrow { display: flex; align-items: center; gap: .45rem; padding: .3rem 0;
+                 border-bottom: 1px solid #242424; font-size: .76rem; color: #9ab; }
+#sheet .pinrow .shape { width: 1.1em; text-align: center; }
+#sheet .pinrow .grow { flex: 1; }
+#sheet .pinrow button { padding: .15rem .5rem; font-size: .78rem; }
+#sheet textarea { width: 100%; min-height: 4rem; background: #111; color: #eee;
+                  border: 1px solid #2a2a2a; border-radius: 6px; padding: .4rem;
+                  font-size: .8rem; }
+#sheet .actions { margin-top: .7rem; display: flex; gap: .5rem; }
+
+.toast { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+         background: #222; color: #eee; padding: .55rem 1rem; border-radius: 8px;
+         font-size: .8rem; z-index: 99; display: none; max-width: 92%; text-align: center;
+         box-shadow: 0 2px 10px rgba(0,0,0,.4); }
 .toast-error { background: #522; color: #fbb; border: 1px solid #833; }
+#swipe-hint { position: fixed; top: 55px; right: 12px; z-index: 40; background: #222c;
+              color: #adf; padding: .35rem .6rem; border-radius: 8px; font-size: .74rem;
+              display: none; }
+
+/* A11Y-01 */
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
 </style>
 </head>
 <body>
 
-<h1>Graph editor <span class="beta">mock-only shell</span> <a href="/">← Dashboard</a></h1>
-
 <div class="toolbar">
+  <a href="/">←</a>
   <select id="graph-select" aria-label="Graph"></select>
-  <input type="text" id="new-name" placeholder="new graph name" size="14"
-         aria-label="New graph name">
-  <button class="btn-ghost btn-sm" id="btn-create">Create</button>
-  <span class="spacer"></span>
-  <span id="dirty"></span>
-  <button class="btn-primary btn-sm" id="btn-save">Save</button>
-  <button class="btn-danger btn-sm" id="btn-delete">Delete</button>
+  <label style="display:flex;align-items:center;gap:.25rem;font-size:.72rem;color:#888">
+    <input type="checkbox" id="meta-active" style="width:1rem;height:1rem"> active</label>
+  <span class="grow"></span>
+  <button class="btn-ghost" id="btn-undo" aria-label="Undo" disabled>↶</button>
+  <button class="btn-ghost" id="btn-redo" aria-label="Redo" disabled>↷</button>
+  <button class="btn-primary" id="btn-apply">Apply<span id="dirty-dot"></span></button>
+  <button class="btn-ghost" id="btn-more" aria-label="More">⋯</button>
 </div>
 
-<div class="meta-row" id="meta-row">
-  <label><input type="checkbox" id="meta-active"> active</label>
-  <label style="flex:1">requires
-    <input type="text" id="meta-requires" placeholder="button:main, stage:main"
-           aria-label="Required roles, comma-separated">
-  </label>
+<div id="board-wrap"><div id="board"><div class="gridbg"></div></div></div>
+
+<div id="trash">🗑 Drop here to delete</div>
+<div id="palette">
+  <div id="palette-grip" aria-label="Toggle palette"></div>
+  <div id="palette-cats"></div>
+  <div id="palette-items"></div>
 </div>
 
-<div class="editor">
-  <div class="palette">
-    <h2>Building blocks</h2>
-    <div id="palette"></div>
-    <div class="hint">Click a block, then an empty cell to place it.<br>
-      Click a node to select it; click an empty cell to move it there.<br>
-      Connect: click an out-port, then an in-port. Click an edge to remove it.</div>
-  </div>
-  <div class="board-wrap">
-    <div class="board" id="board"></div>
-    <svg id="edges"></svg>
-  </div>
-</div>
-
-<div class="inspector card" id="inspector">Nothing selected.</div>
-
+<div id="popover"></div>
+<div id="sheet-backdrop"></div>
+<div id="sheet"></div>
+<div id="swipe-hint">→ swipe to see more columns</div>
 <div class="toast" id="toast"></div>
 
-<script>
-(function() {
+<script type="module">
+import {
+  NODE_TYPES, CATEGORIES, PIN_SHAPES, MULTI_RULES, defaultChip, stoneHeight,
+  pinsOf, placementFree, dockCandidates, hasRejectedDock, settleEdges,
+  edgeRule, validateDoc, portLoad, portCapacity, setPortRows, multiRule,
+} from '/graphs-core.js';
+
 const $ = id => document.getElementById(id);
+const css = name => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
+const ROW = css('--row'), COLW = css('--colw'), GUT = css('--gut');
+const CELLW = COLW + GUT;
+const NOTE_ROWS = 2;
 
-// Editor grid dimensions — schema col/row are 1-based (see the rework plan's
-// schema v1 summary); the board simply shows a fixed working area.
-const COLS = 6, ROWS = 10;
+let doc = null;
+let selected = null;      // node id or {note: index}
+let armedType = null;     // palette tap fallback: type (or 'note') to place on next board tap
+const undoStack = [], redoStack = [];
+const UNDO_MAX = 50;
 
-// Shell palette: the M2 parity node set with guessed port shapes. Deliberately
-// speculative — pinning these down is part of what this prototype exists to
-// pressure-test; the authoritative registry arrives with the M2 engine.
-const NODE_TYPES = {
-  'button':       { ins: [],                outs: ['pressed'] },
-  'timer':        { ins: ['start', 'stop'], outs: ['elapsed'] },
-  'mesh-receive': { ins: [],                outs: ['payload'] },
-  'compare':      { ins: ['value'],         outs: ['true', 'false'] },
-  'range':        { ins: ['value'],         outs: ['inRange', 'outOfRange'] },
-  'constant':     { ins: [],                outs: ['value'] },
-  'gate':         { ins: ['value', 'open'], outs: ['value'] },
-  'wait':         { ins: ['start'],         outs: ['done'] },
-  'action':       { ins: ['trigger'],       outs: [] },
-  'mesh-send':    { ins: ['value'],         outs: [] },
-  'log':          { ins: ['value'],         outs: [] },
-};
-
-let doc = null;          // current schema-v1 document
-let placing = null;      // node type or 'note' armed from the palette
-let selected = null;     // {kind:'node', id} | {kind:'note', index}
-let pendingPort = null;  // {nodeId, port} — out-port waiting for an in-port
+const vibrate = pattern => { if (navigator.vibrate) navigator.vibrate(pattern); };
 
 function showToast(msg, isError) {
   const t = $('toast');
@@ -171,343 +247,845 @@ function showToast(msg, isError) {
   t.className = 'toast' + (isError ? ' toast-error' : '');
   t.style.display = 'block';
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => { t.style.display = 'none'; }, 2500);
+  showToast._t = setTimeout(() => { t.style.display = 'none'; }, 2600);
 }
 
+// ── Dirty / draft (SAVE-01) ──────────────────────────────────────────────────
+let draftTimer = null;
+const draftKey = () => `bl-graph-draft:${doc ? doc.name : ''}`;
+
 function markDirty() {
-  $('dirty').textContent = 'unsaved changes';
+  $('btn-apply').classList.add('dirty');
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    if (doc) localStorage.setItem(draftKey(), JSON.stringify(doc));
+  }, 500);
 }
 
 function clearDirty() {
-  $('dirty').textContent = '';
+  $('btn-apply').classList.remove('dirty');
+  clearTimeout(draftTimer);
+  localStorage.removeItem(draftKey());
 }
 
-// ── Graph list / load / save ─────────────────────────────────────────────────
+// ── Undo (UNDO-01; snapshot-based — a deviation from the command pattern,
+//    behaviorally equivalent at this document size) ─────────────────────────
+function pushUndo() {
+  undoStack.push(JSON.stringify(doc));
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+  redoStack.length = 0;
+  updateUndoButtons();
+}
 
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(JSON.stringify(doc));
+  doc = JSON.parse(undoStack.pop());
+  selected = null;
+  updateUndoButtons();
+  markDirty();
+  renderAll();
+}
+
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(JSON.stringify(doc));
+  doc = JSON.parse(redoStack.pop());
+  selected = null;
+  updateUndoButtons();
+  markDirty();
+  renderAll();
+}
+
+function updateUndoButtons() {
+  $('btn-undo').disabled = !undoStack.length;
+  $('btn-redo').disabled = !redoStack.length;
+}
+
+// ── Load / apply ─────────────────────────────────────────────────────────────
 async function refreshList(selectName) {
-  const res = await fetch('/api/graphs');
-  const d = await res.json();
-  const sel = $('graph-select');
-  sel.innerHTML = (d.graphs || []).map(g =>
-    `<option value="${g.name}"${g.name === selectName ? ' selected' : ''}>${g.name}</option>`
-  ).join('');
+  const d = await (await fetch('/api/graphs')).json();
+  $('graph-select').innerHTML = (d.graphs || []).map(g =>
+    `<option value="${g.name}"${g.name === selectName ? ' selected' : ''}>${g.name}</option>`).join('');
   return d.graphs || [];
 }
 
 async function loadGraph(name) {
   const res = await fetch(`/api/graphs/${encodeURIComponent(name)}`);
   if (!res.ok) { showToast('Failed to load graph', true); return; }
-  doc = await res.json();
-  doc.nodes = doc.nodes || [];
-  doc.edges = doc.edges || [];
-  doc.notes = doc.notes || [];
-  doc.requires = doc.requires || [];
+  const server = await res.json();
+  server.nodes = server.nodes || [];
+  server.edges = server.edges || [];
+  server.notes = server.notes || [];
+  const draftRaw = localStorage.getItem(`bl-graph-draft:${name}`);
+  if (draftRaw && draftRaw !== JSON.stringify(server)) {
+    doc = JSON.parse(draftRaw);
+    showToast('Draft restored — Apply to push it to the device');
+    $('btn-apply').classList.add('dirty');
+  } else {
+    doc = server;
+    clearDirty();
+  }
   selected = null;
-  pendingPort = null;
-  clearDirty();
+  undoStack.length = 0;
+  redoStack.length = 0;
+  updateUndoButtons();
   renderAll();
 }
 
-async function saveGraph() {
+async function applyGraph() {
   if (!doc) return;
-  doc.requires = $('meta-requires').value.split(',').map(s => s.trim()).filter(Boolean);
   doc.active = $('meta-active').checked;
+  const errors = validateDoc(doc);
+  if (errors.length) { showToast(`Not applied: ${errors[0]}`, true); return; }
   const res = await fetch(`/api/graphs/${encodeURIComponent(doc.name)}`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(doc),
   });
   if (!res.ok) {
     const d = await res.json().catch(() => ({}));
-    showToast(`Save failed: ${d.error || res.status}`, true);
+    showToast(`Apply failed: ${d.error || res.status}`, true);
     return;
   }
   clearDirty();
-  showToast('Saved');
+  showToast('Applied');
 }
 
-async function createGraph() {
-  const name = $('new-name').value.trim();
-  if (!/^[a-z0-9-]{1,32}$/i.test(name)) {
-    showToast('Name: 1-32 letters, digits, dashes', true);
-    return;
-  }
-  const fresh = { v: 1, name, active: false, requires: [], nodes: [], edges: [], notes: [] };
-  const res = await fetch(`/api/graphs/${encodeURIComponent(name)}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(fresh),
-  });
-  if (!res.ok) { showToast('Create failed', true); return; }
-  $('new-name').value = '';
-  await refreshList(name);
-  await loadGraph(name);
-}
-
-async function deleteGraph() {
-  if (!doc) return;
-  if (!confirm(`Delete graph "${doc.name}"?`)) return;
-  await fetch(`/api/graphs/${encodeURIComponent(doc.name)}`, { method: 'DELETE' });
-  const graphs = await refreshList();
-  if (graphs.length) await loadGraph(graphs[0].name);
-  else { doc = null; renderAll(); }
+// ── Edge → pin-instance assignment ───────────────────────────────────────────
+// Edges reference ports; repeatable ports have several instance rows. Assign
+// each edge one instance per side (in stored order) so pins, bows, and
+// disconnect all agree on which row an edge occupies.
+function edgeView() {
+  if (!doc) return [];
+  const pinCache = new Map(doc.nodes.map(n => [n.id, pinsOf(n)]));
+  const counter = new Map();
+  const next = key => {
+    const v = counter.get(key) || 0;
+    counter.set(key, v + 1);
+    return v;
+  };
+  return doc.edges.map((e, idx) => {
+    const outs = (pinCache.get(e[0]) || []).filter(p => p.dir === 'out' && p.id === e[1]);
+    const ins = (pinCache.get(e[2]) || []).filter(p => p.dir === 'in' && p.id === e[3]);
+    if (!outs.length || !ins.length) return null;
+    const o = outs[Math.min(next(`${e[0]}:out:${e[1]}`), outs.length - 1)];
+    const i = ins[Math.min(next(`${e[2]}:in:${e[3]}`), ins.length - 1)];
+    return {
+      idx,
+      rule: edgeRule(doc, e),
+      outKey: `${e[0]}:out:${e[1]}:${o.inst}`,
+      inKey: `${e[2]}:in:${e[3]}:${i.inst}`,
+      outCol: doc.nodes.find(n => n.id === e[0]).col,
+      outRow: o.row, inRow: i.row,
+    };
+  }).filter(Boolean);
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────────
-
-function renderAll() {
-  renderMeta();
-  renderBoard();
-  renderInspector();
-  requestAnimationFrame(renderEdges);
-}
-
-function renderMeta() {
-  $('meta-active').checked = !!(doc && doc.active);
-  $('meta-requires').value = doc ? doc.requires.join(', ') : '';
-  $('meta-row').style.display = doc ? '' : 'none';
-}
-
-function nodeById(id) { return doc.nodes.find(n => n.id === id); }
-
-function renderBoard() {
-  const board = $('board');
-  let html = '';
-  for (let row = 1; row <= ROWS; row++) {
-    for (let col = 1; col <= COLS; col++) {
-      html += `<div class="cell${placing || selected ? ' placeable' : ''}"
-        data-col="${col}" data-row="${row}" style="grid-column:${col};grid-row:${row}"></div>`;
+function boardSize() {
+  let maxCol = 5, maxRow = 11;
+  if (doc) {
+    for (const n of doc.nodes) {
+      maxCol = Math.max(maxCol, n.col);
+      maxRow = Math.max(maxRow, n.row + stoneHeight(n) - 1);
+    }
+    for (const nt of doc.notes) {
+      maxCol = Math.max(maxCol, nt.col);
+      maxRow = Math.max(maxRow, nt.row + NOTE_ROWS - 1);
     }
   }
-  board.innerHTML = html;
+  return { cols: maxCol + 2, rows: maxRow + 4 };  // GRID-04 margin
+}
+
+function renderAll() {
+  const board = $('board');
+  const { cols, rows } = boardSize();
+  board.style.width = `${cols * CELLW}px`;
+  board.style.height = `${rows * ROW}px`;
+  board.querySelectorAll('.stone, .note-card, .bow').forEach(el => el.remove());
+  $('meta-active').checked = !!(doc && doc.active);
   if (!doc) return;
 
-  for (const n of doc.nodes) {
-    const cell = board.querySelector(`.cell[data-col="${n.col}"][data-row="${n.row}"]`);
-    if (!cell) continue;
-    const t = NODE_TYPES[n.type] || { ins: [], outs: [] };
-    const sel = selected && selected.kind === 'node' && selected.id === n.id;
-    const ports = (list, dir) => list.map(p => {
-      const pending = pendingPort && dir === 'out' && pendingPort.nodeId === n.id && pendingPort.port === p;
-      return `<span class="port${pending ? ' pending' : ''}" data-node="${n.id}" data-dir="${dir}"
-        data-port="${p}" data-port-key="${n.id}:${dir}:${p}">${p}</span>`;
-    }).join('');
-    cell.innerHTML = `<div class="node${sel ? ' selected' : ''}" data-node-id="${n.id}">
-      <div class="node-head">${n.type} <span class="node-id">#${n.id}</span></div>
-      <div class="node-ports">
-        <div class="ports-in">${ports(t.ins, 'in')}</div>
-        <div class="ports-out">${ports(t.outs, 'out')}</div>
-      </div></div>`;
+  const view = edgeView();
+  const stateByKey = new Map();
+  for (const v of view) {
+    stateByKey.set(v.outKey, v.rule === 'direct' ? 'linked' : 'joint');
+    stateByKey.set(v.inKey, v.rule === 'direct' ? 'linked' : 'joint');
+  }
+  for (const n of doc.nodes) board.appendChild(stoneEl(n, stateByKey));
+  doc.notes.forEach((nt, i) => board.appendChild(noteEl(nt, i)));
+  for (const v of view) {
+    if (v.outRow === v.inRow) continue;  // touching pins render the contact
+    const el = document.createElement('div');
+    el.className = 'bow' + (v.inRow < v.outRow ? ' up' : '');
+    el.style.left = `${v.outCol * CELLW - GUT}px`;
+    el.style.top = `${(Math.min(v.outRow, v.inRow) - 1) * ROW + ROW / 2}px`;
+    el.style.height = `${ROW}px`;
+    el.innerHTML = '<i></i>';
+    board.appendChild(el);
+  }
+  renderSheetIfOpen();
+}
+
+function chipValue(n, portId, type) {
+  const stored = n.cfg && n.cfg.defaults && n.cfg.defaults[portId];
+  return stored !== undefined ? stored : defaultChip(type);
+}
+
+function chipLabel(type, v) { return type === 'switch' ? (v ? 'on' : 'off') : `${v}%`; }
+
+function stoneEl(n, stateByKey) {
+  const t = NODE_TYPES[n.type];
+  const el = document.createElement('div');
+  el.className = 'stone' + (selected === n.id ? ' selected' : '');
+  el.dataset.id = n.id;
+  el.style.left = `${(n.col - 1) * CELLW}px`;
+  el.style.top = `${(n.row - 1) * ROW}px`;
+  el.setAttribute('role', 'group');
+  el.setAttribute('aria-label', `${n.type} stone ${n.id}, column ${n.col}, row ${n.row}`);
+
+  // Group pin instances by their relative row.
+  const rows = new Map();
+  for (const p of pinsOf(n)) {
+    const rel = p.row - n.row - 1;
+    if (!rows.has(rel)) rows.set(rel, []);
+    rows.get(rel).push(p);
   }
 
-  doc.notes.forEach((note, i) => {
-    const cell = board.querySelector(`.cell[data-col="${note.col}"][data-row="${note.row}"]`);
-    if (!cell || cell.firstChild) return;
-    const sel = selected && selected.kind === 'note' && selected.index === i;
-    const div = document.createElement('div');
-    div.className = 'note' + (sel ? ' selected' : '');
-    div.dataset.noteIndex = i;
-    div.textContent = note.text;
-    cell.appendChild(div);
-  });
+  let html = `<div class="stone-head" data-head="1">
+    <span class="cat cat-${t.cat}"></span>${n.type}<span class="sid">#${n.id}</span></div>`;
+  const rowCount = stoneHeight(n) - 1;
+  for (let rel = 0; rel < rowCount; rel++) {
+    html += '<div class="stone-row">';
+    for (const p of rows.get(rel) || []) {
+      const key = `${n.id}:${p.dir}:${p.id}:${p.inst}`;
+      const state = stateByKey.get(key) || 'free';
+      const pin = `<span class="pin ${p.dir} ${state}" data-t="${p.type}" data-key="${key}"
+        data-node="${n.id}" data-dir="${p.dir}" data-port="${p.id}" data-inst="${p.inst}"
+        role="button" aria-label="${p.id} ${p.dir === 'in' ? 'input' : 'output'} ${p.inst + 1}, ${p.type}, ${state}"></span>`;
+      if (p.dir === 'in') {
+        html += pin;
+        let extras = '';
+        if (p.inst === 0 && portLoad(doc, n.id, 'in', p.id) === 0 && defaultChip(p.type) !== null) {
+          extras += `<span class="chip" data-node="${n.id}" data-port="${p.id}"
+            data-pt="${p.type}">${chipLabel(p.type, chipValue(n, p.id, p.type))}</span>`;
+        }
+        if (p.inst === 0 && p.repeat && p.type === 'value' && portCapacity(n, 'in', p.id) > 1) {
+          extras += `<span class="rulechip" data-node="${n.id}" data-port="${p.id}">${multiRule(n, p.id)}</span>`;
+        }
+        html += `<span class="lbl-in">${p.inst > 0 ? '<span class="rep-mark">↳</span>' : ''}${p.id}${extras}</span>`;
+      } else {
+        html += `<span class="lbl-out">${p.inst > 0 ? '<span class="rep-mark">↳</span> ' : ''}${p.id}</span>${pin}`;
+      }
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html;
+  return el;
 }
 
-function renderEdges() {
-  const svg = $('edges');
-  if (!doc) { svg.innerHTML = ''; return; }
-  const wrap = svg.parentElement.getBoundingClientRect();
-  let html = '';
-  doc.edges.forEach((e, i) => {
-    const from = document.querySelector(`[data-port-key="${e[0]}:out:${e[1]}"]`);
-    const to = document.querySelector(`[data-port-key="${e[2]}:in:${e[3]}"]`);
-    if (!from || !to) return;
-    const f = from.getBoundingClientRect(), t = to.getBoundingClientRect();
-    const x1 = f.right - wrap.left, y1 = f.top + f.height / 2 - wrap.top;
-    const x2 = t.left - wrap.left, y2 = t.top + t.height / 2 - wrap.top;
-    const d = `M ${x1} ${y1} C ${x1 + 40} ${y1}, ${x2 - 40} ${y2}, ${x2} ${y2}`;
-    html += `<g data-edge-index="${i}"><path class="edge-line" d="${d}"/>
-      <path class="edge-hit" d="${d}"/></g>`;
-  });
-  svg.innerHTML = html;
+function noteEl(nt, i) {
+  const el = document.createElement('div');
+  el.className = 'note-card' + (selected && selected.note === i ? ' selected' : '');
+  el.dataset.noteIndex = i;
+  el.style.left = `${(nt.col - 1) * CELLW}px`;
+  el.style.top = `${(nt.row - 1) * ROW}px`;
+  el.style.height = `${NOTE_ROWS * ROW}px`;
+  el.textContent = nt.text;
+  return el;
 }
+
+// ── Palette (VIEW-02) ────────────────────────────────────────────────────────
+let palCat = 'in';
 
 function renderPalette() {
-  $('palette').innerHTML = Object.keys(NODE_TYPES).map(t =>
-    `<div class="palette-item${placing === t ? ' placing' : ''}" data-type="${t}">${t}</div>`
-  ).join('') +
-  `<div class="palette-item${placing === 'note' ? ' placing' : ''}" data-type="note">📝 note</div>`;
+  $('palette-cats').innerHTML = Object.entries(CATEGORIES).map(([k, label]) =>
+    `<span class="pal-cat${k === palCat ? ' active' : ''}" data-cat="${k}">${label}</span>`).join('') +
+    `<span class="pal-cat${palCat === 'note' ? ' active' : ''}" data-cat="note">Notes</span>`;
+  const items = palCat === 'note'
+    ? [`<span class="pal-item${armedType === 'note' ? ' armed' : ''}" data-type="note">📝 note</span>`]
+    : Object.entries(NODE_TYPES).filter(([, t]) => t.cat === palCat).map(([name]) =>
+      `<span class="pal-item${armedType === name ? ' armed' : ''}" data-type="${name}">${name}</span>`);
+  $('palette-items').innerHTML = items.join('');
 }
 
-function renderInspector() {
-  const box = $('inspector');
-  if (!doc) { box.textContent = 'No graph loaded.'; return; }
-  if (!selected) { box.textContent = 'Nothing selected.'; return; }
-  if (selected.kind === 'node') {
-    const n = nodeById(selected.id);
-    if (!n) { box.textContent = 'Nothing selected.'; return; }
-    box.innerHTML = `<div class="row">
-        <strong style="color:#dde">${n.type} #${n.id}</strong>
-        <span style="color:#567">col ${n.col} · row ${n.row}</span>
-        <span style="flex:1"></span>
-        <button class="btn-danger btn-sm" id="insp-remove">Remove</button>
-      </div>
-      <label style="display:block;margin-top:.3rem">cfg (JSON — placeholder until the M2 node
-        registry defines real fields)</label>
-      <textarea id="insp-cfg" spellcheck="false">${JSON.stringify(n.cfg || {}, null, 1)}</textarea>`;
-    $('insp-cfg').addEventListener('change', ev => {
-      try {
-        n.cfg = JSON.parse(ev.target.value || '{}');
-        ev.target.classList.remove('invalid');
-        markDirty();
-      } catch {
-        ev.target.classList.add('invalid');
+$('palette-cats').addEventListener('click', e => {
+  const c = e.target.closest('.pal-cat');
+  if (!c) return;
+  palCat = c.dataset.cat;
+  renderPalette();
+});
+$('palette-grip').addEventListener('click', () => $('palette').classList.toggle('collapsed'));
+
+// ── Drag controller (DOCK-01..09) — one pointer-event code path ─────────────
+const drag = { state: 'idle' };  // idle | pressed | dragging | panning
+
+function cellFromPoint(clientX, clientY) {
+  const rect = $('board').getBoundingClientRect();
+  return {
+    col: Math.max(1, Math.floor((clientX - rect.left) / CELLW) + 1),
+    row: Math.max(1, Math.floor((clientY - rect.top) / ROW) + 1),
+  };
+}
+
+function ghostCell() {
+  const rect = $('board').getBoundingClientRect();
+  const x = drag.lastX - drag.offX - rect.left;
+  const y = drag.lastY - drag.offY - rect.top;
+  return { col: Math.max(1, Math.round(x / CELLW) + 1), row: Math.max(1, Math.round(y / ROW) + 1) };
+}
+
+function clearDragHighlights() {
+  document.querySelectorAll('.pin.cand, .pin.cand-best')
+    .forEach(p => p.classList.remove('cand', 'cand-best'));
+}
+
+function updateDragPreview() {
+  if (drag.state !== 'dragging') return;
+  const rect = $('board').getBoundingClientRect();
+  drag.el.style.left = `${drag.lastX - drag.offX - rect.left}px`;
+  drag.el.style.top = `${drag.lastY - drag.offY - rect.top}px`;
+  const overTrash = isOverTrash();
+  $('trash').classList.toggle('over', overTrash);
+  clearDragHighlights();
+  drag.el.classList.remove('reject');
+  if (drag.kind === 'note' || overTrash) return;
+  const { col, row } = ghostCell();
+  const cands = dockCandidates(doc, drag.node, col, row);
+  cands.forEach((c, i) => {
+    const p = c.theirPin;
+    const key = `${c.other.id}:${p.dir}:${p.id}:${p.inst}`;
+    const el = document.querySelector(`.pin[data-key="${key}"]`);
+    if (el) el.classList.add(i === 0 ? 'cand-best' : 'cand');
+  });
+  if (!cands.length && hasRejectedDock(doc, drag.node, col, row)) {
+    drag.el.classList.add('reject');
+    if (!drag.rejected) { vibrate([15, 40, 15]); drag.rejected = true; }
+  } else {
+    drag.rejected = false;
+  }
+}
+
+function isOverTrash() {
+  const r = $('trash').getBoundingClientRect();
+  return drag.lastY >= r.top && drag.lastY <= r.bottom;
+}
+
+function startDragExisting(el, kind, ref, ev) {
+  drag.state = 'pressed';
+  drag.kind = kind;              // 'stone' | 'note'
+  drag.el = el;
+  drag.ref = ref;                // node object | note index
+  drag.node = kind === 'stone' ? ref : null;
+  drag.startX = ev.clientX;
+  drag.startY = ev.clientY;
+  const r = el.getBoundingClientRect();
+  drag.offX = ev.clientX - r.left;
+  drag.offY = ev.clientY - r.top;
+  drag.fromPalette = false;
+  // No setPointerCapture: capture retargets the derived click event to the
+  // stone root, which would swallow head/pin taps. The document-level
+  // pointermove/up listeners track the drag; touch-action: none on stones
+  // keeps touch gestures from turning into scrolls.
+}
+
+function startDragFromPalette(type, ev) {
+  drag.state = 'pressed';
+  drag.kind = type === 'note' ? 'note' : 'stone';
+  drag.fromPalette = true;
+  drag.type = type;
+  drag.startX = ev.clientX;
+  drag.startY = ev.clientY;
+  drag.offX = COLW / 2;
+  drag.offY = ROW / 2;
+  drag.el = null;
+  drag.node = null;
+}
+
+function beginDragging() {
+  drag.state = 'dragging';
+  document.body.classList.add('dragging');
+  if (drag.fromPalette) {
+    if (drag.kind === 'stone') {
+      const id = doc.nodes.reduce((m, n) => Math.max(m, n.id), 0) + 1;
+      drag.node = { id, type: drag.type, col: 1, row: 1, cfg: {} };
+      drag.el = stoneEl(drag.node, new Map());
+    } else {
+      drag.el = noteEl({ col: 1, row: 1, text: 'note' }, -1);
+    }
+    $('board').appendChild(drag.el);
+  } else if (drag.kind === 'stone') {
+    drag.origin = { col: drag.node.col, row: drag.node.row };
+  } else {
+    drag.origin = { ...doc.notes[drag.ref] };
+  }
+  drag.el.classList.add('ghost');
+}
+
+// DOCK-05: free placement lands on the nearest raster cell; occupied cells
+// nudge downwards to the next free row.
+function nearestFree(node, col, row) {
+  for (let r = row; r < row + 30; r++)
+    if (placementFree(doc, node, col, r)) return { col, row: r };
+  return { col, row };
+}
+
+function endDrag(commit) {
+  const wasDragging = drag.state === 'dragging';
+  // Read the trash hit box before the dragging class hides the zone again.
+  const overTrash = wasDragging && isOverTrash();
+  document.body.classList.remove('dragging');
+  $('trash').classList.remove('over');
+  clearDragHighlights();
+  if (!wasDragging) { drag.state = 'idle'; return false; }
+  const { col, row } = ghostCell();
+  drag.el.classList.remove('ghost', 'reject');
+
+  if (!commit) {
+    renderAll();
+    drag.state = 'idle';
+    return true;
+  }
+
+  if (drag.fromPalette) {
+    if (!overTrash) {
+      pushUndo();
+      if (drag.kind === 'stone') {
+        const n = drag.node;
+        ({ col: n.col, row: n.row } = nearestFree(n, col, row));
+        doc.nodes.push(n);
+        if (settleEdges(doc, n.id).added) vibrate(10);
+        selected = n.id;
+      } else {
+        doc.notes.push({ col, row, text: 'note' });
+        selected = { note: doc.notes.length - 1 };
       }
-    });
-    $('insp-remove').addEventListener('click', () => {
+      markDirty();
+    }
+  } else if (drag.kind === 'stone') {
+    const n = drag.node;
+    if (overTrash) {
+      pushUndo();
       doc.edges = doc.edges.filter(e => e[0] !== n.id && e[2] !== n.id);
       doc.nodes = doc.nodes.filter(x => x.id !== n.id);
       selected = null;
       markDirty();
-      renderAll();
-    });
-  } else {
-    const note = doc.notes[selected.index];
-    if (!note) { box.textContent = 'Nothing selected.'; return; }
-    box.innerHTML = `<div class="row">
-        <strong style="color:#cb9">Note</strong>
-        <span style="color:#567">col ${note.col} · row ${note.row}</span>
-        <span style="flex:1"></span>
-        <button class="btn-danger btn-sm" id="insp-remove">Remove</button>
-      </div>
-      <textarea id="insp-note" spellcheck="false">${note.text}</textarea>`;
-    $('insp-note').addEventListener('change', ev => {
-      note.text = ev.target.value;
-      markDirty();
-      renderAll();
-    });
-    $('insp-remove').addEventListener('click', () => {
-      doc.notes.splice(selected.index, 1);
-      selected = null;
-      markDirty();
-      renderAll();
-    });
-  }
-}
-
-// ── Interactions ─────────────────────────────────────────────────────────────
-
-$('palette').addEventListener('click', e => {
-  const item = e.target.closest('.palette-item');
-  if (!item || !doc) return;
-  placing = placing === item.dataset.type ? null : item.dataset.type;
-  renderPalette();
-  renderBoard();
-  requestAnimationFrame(renderEdges);
-});
-
-$('board').addEventListener('click', e => {
-  if (!doc) return;
-
-  const port = e.target.closest('.port');
-  if (port) {
-    const nodeId = Number(port.dataset.node);
-    if (port.dataset.dir === 'out') {
-      pendingPort = pendingPort && pendingPort.nodeId === nodeId && pendingPort.port === port.dataset.port
-        ? null : { nodeId, port: port.dataset.port };
-    } else if (pendingPort) {
-      const edge = [pendingPort.nodeId, pendingPort.port, nodeId, port.dataset.port];
-      if (!doc.edges.some(x => x.join(' ') === edge.join(' '))) {
-        doc.edges.push(edge);
+    } else {
+      const target = nearestFree(n, col, row);
+      if (target.col !== drag.origin.col || target.row !== drag.origin.row) {
+        pushUndo();
+        n.col = target.col;
+        n.row = target.row;
+        if (settleEdges(doc, n.id).added) vibrate(10);
         markDirty();
       }
-      pendingPort = null;
     }
-    renderBoard();
-    requestAnimationFrame(renderEdges);
-    return;
-  }
-
-  const nodeEl = e.target.closest('.node');
-  if (nodeEl) {
-    const id = Number(nodeEl.dataset.nodeId);
-    selected = selected && selected.kind === 'node' && selected.id === id
-      ? null : { kind: 'node', id };
-    placing = null;
-    renderPalette();
-    renderAll();
-    return;
-  }
-
-  const noteEl = e.target.closest('.note');
-  if (noteEl) {
-    const index = Number(noteEl.dataset.noteIndex);
-    selected = selected && selected.kind === 'note' && selected.index === index
-      ? null : { kind: 'note', index };
-    placing = null;
-    renderPalette();
-    renderAll();
-    return;
-  }
-
-  const cell = e.target.closest('.cell');
-  if (!cell) return;
-  const col = Number(cell.dataset.col), row = Number(cell.dataset.row);
-
-  if (placing === 'note') {
-    doc.notes.push({ col, row, text: 'note' });
-    selected = { kind: 'note', index: doc.notes.length - 1 };
-    placing = null;
-    markDirty();
-  } else if (placing) {
-    const id = doc.nodes.reduce((m, n) => Math.max(m, n.id), 0) + 1;
-    doc.nodes.push({ id, type: placing, col, row, cfg: {} });
-    selected = { kind: 'node', id };
-    placing = null;
-    markDirty();
-  } else if (selected) {
-    // Move the selected node/note into the clicked empty cell.
-    if (selected.kind === 'node') {
-      const n = nodeById(selected.id);
-      if (n) { n.col = col; n.row = row; markDirty(); }
-    } else {
-      const note = doc.notes[selected.index];
-      if (note) { note.col = col; note.row = row; markDirty(); }
+  } else {
+    const nt = doc.notes[drag.ref];
+    if (overTrash) {
+      pushUndo();
+      doc.notes.splice(drag.ref, 1);
+      selected = null;
+      markDirty();
+    } else if (col !== drag.origin.col || row !== drag.origin.row) {
+      pushUndo();
+      nt.col = col;
+      nt.row = row;
+      markDirty();
     }
   }
-  renderPalette();
   renderAll();
+  drag.state = 'idle';
+  return true;
+}
+
+document.addEventListener('pointermove', e => {
+  if (drag.state === 'pressed') {
+    if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 8) beginDragging();
+    else return;
+  }
+  if (drag.state === 'dragging') {
+    drag.lastX = e.clientX;
+    drag.lastY = e.clientY;
+    if (!drag.raf) drag.raf = requestAnimationFrame(() => { drag.raf = null; updateDragPreview(); });
+    e.preventDefault();
+  } else if (drag.state === 'panning') {
+    const w = $('board-wrap');
+    w.scrollLeft -= e.clientX - drag.lastX;
+    w.scrollTop -= e.clientY - drag.lastY;
+    drag.lastX = e.clientX;
+    drag.lastY = e.clientY;
+  }
 });
 
-$('edges').addEventListener('click', e => {
-  const g = e.target.closest('g[data-edge-index]');
-  if (!g || !doc) return;
-  doc.edges.splice(Number(g.dataset.edgeIndex), 1);
-  markDirty();
-  renderAll();
+document.addEventListener('pointerup', e => {
+  if (drag.state === 'dragging') {
+    drag.lastX = e.clientX;
+    drag.lastY = e.clientY;
+    drag.wasDrag = endDrag(true);
+  } else {
+    drag.state = 'idle';
+    drag.wasDrag = false;
+  }
 });
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    placing = null;
-    pendingPort = null;
+    if (drag.state === 'dragging') { endDrag(false); return; }
+    closePopover();
+    closeSheet();
+    armedType = null;
     selected = null;
     renderPalette();
     renderAll();
   }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    if (e.shiftKey) redo(); else undo();
+  }
+  if (e.key === 'Delete' && typeof selected === 'number') {
+    pushUndo();
+    doc.edges = doc.edges.filter(x => x[0] !== selected && x[2] !== selected);
+    doc.nodes = doc.nodes.filter(x => x.id !== selected);
+    selected = null;
+    markDirty();
+    renderAll();
+  }
 });
 
+// Board: stone drag / pan / tap dispatch.
+$('board-wrap').addEventListener('pointerdown', e => {
+  if (e.target.closest('.pin') || e.target.closest('.chip') || e.target.closest('.rulechip')) return;
+  const stone = e.target.closest('.stone');
+  const note = e.target.closest('.note-card');
+  if (stone) {
+    const n = doc.nodes.find(x => x.id === Number(stone.dataset.id));
+    if (n) startDragExisting(stone, 'stone', n, e);
+  } else if (note) {
+    startDragExisting(note, 'note', Number(note.dataset.noteIndex), e);
+  } else {
+    drag.state = 'panning';
+    drag.lastX = e.clientX;
+    drag.lastY = e.clientY;
+  }
+});
+
+$('palette-items').addEventListener('pointerdown', e => {
+  const item = e.target.closest('.pal-item');
+  if (item) startDragFromPalette(item.dataset.type, e);
+});
+
+// Tap dispatch (click fires only when no drag happened).
+$('board-wrap').addEventListener('click', e => {
+  if (drag.wasDrag) { drag.wasDrag = false; return; }
+  const pin = e.target.closest('.pin');
+  if (pin) { openPinPopover(pin, e); return; }
+  const rulechip = e.target.closest('.rulechip');
+  if (rulechip) { openRulePopover(rulechip, e); return; }
+  const chip = e.target.closest('.chip');
+  if (chip) { openChipPopover(chip, e); return; }
+  const head = e.target.closest('.stone-head');
+  if (head) {
+    const id = Number(head.closest('.stone').dataset.id);
+    selected = id;
+    renderAll();
+    openSheet(id);
+    return;
+  }
+  const stone = e.target.closest('.stone');
+  if (stone) {
+    selected = Number(stone.dataset.id);
+    renderAll();
+    return;
+  }
+  const note = e.target.closest('.note-card');
+  if (note) {
+    selected = { note: Number(note.dataset.noteIndex) };
+    renderAll();
+    openSheet(selected);
+    return;
+  }
+  if (armedType) {
+    const { col, row } = cellFromPoint(e.clientX, e.clientY);
+    pushUndo();
+    if (armedType === 'note') {
+      doc.notes.push({ col, row, text: 'note' });
+    } else {
+      const id = doc.nodes.reduce((m, n) => Math.max(m, n.id), 0) + 1;
+      const n = { id, type: armedType, col, row, cfg: {} };
+      const t = nearestFree(n, col, row);
+      n.col = t.col;
+      n.row = t.row;
+      doc.nodes.push(n);
+      settleEdges(doc, id);
+    }
+    armedType = null;
+    markDirty();
+    renderPalette();
+    renderAll();
+    return;
+  }
+  selected = null;
+  renderAll();
+});
+
+$('palette-items').addEventListener('click', e => {
+  if (drag.wasDrag) { drag.wasDrag = false; return; }
+  const item = e.target.closest('.pal-item');
+  if (!item) return;
+  armedType = armedType === item.dataset.type ? null : item.dataset.type;
+  renderPalette();
+});
+
+// ── Popovers (PIN-03, MULTI-02, DOCK-06/07) ──────────────────────────────────
+function openPopoverAt(x, y, html) {
+  const p = $('popover');
+  p.innerHTML = html;
+  p.style.display = 'block';
+  const w = p.offsetWidth, h = p.offsetHeight;
+  p.style.left = `${Math.max(6, Math.min(window.innerWidth - w - 6, x - w / 2))}px`;
+  p.style.top = `${Math.max(6, y - h - 12)}px`;
+}
+
+function closePopover() { $('popover').style.display = 'none'; }
+
+document.addEventListener('pointerdown', e => {
+  if (!e.target.closest('#popover') && !e.target.closest('.pin') &&
+      !e.target.closest('.chip') && !e.target.closest('.rulechip')) closePopover();
+}, true);
+
+function openPinPopover(pinEl, ev) {
+  const key = pinEl.dataset.key;
+  const v = edgeView().find(x => x.outKey === key || x.inKey === key);
+  if (!v) {
+    openPopoverAt(ev.clientX, ev.clientY,
+      `<div class="rule">${PIN_SHAPES[pinEl.dataset.t]} ${pinEl.dataset.port} · ${pinEl.dataset.t} · free</div>
+       <div style="font-size:.68rem;color:#789">Dock by moving a stone next to this pin.</div>`);
+    return;
+  }
+  openPopoverAt(ev.clientX, ev.clientY,
+    `<div class="rule">${v.rule === 'direct' ? 'direct connection' : `joint · ${v.rule}`}</div>
+     <button class="btn-danger" id="pop-disconnect">Disconnect</button>`);
+  $('pop-disconnect').addEventListener('click', () => {
+    pushUndo();
+    doc.edges.splice(v.idx, 1);
+    closePopover();
+    markDirty();
+    renderAll();
+  });
+}
+
+function openChipPopover(chipEl, ev) {
+  const n = doc.nodes.find(x => x.id === Number(chipEl.dataset.node));
+  const portId = chipEl.dataset.port;
+  const type = chipEl.dataset.pt;
+  const value = chipValue(n, portId, type);
+  const setVal = v => {
+    n.cfg = n.cfg || {};
+    n.cfg.defaults = n.cfg.defaults || {};
+    n.cfg.defaults[portId] = v;
+    markDirty();
+    chipEl.textContent = chipLabel(type, v);
+  };
+  if (type === 'switch') {
+    openPopoverAt(ev.clientX, ev.clientY,
+      `<div class="rule">${portId} · default</div>
+       <button class="btn-ghost" id="pop-toggle">${value ? 'on → off' : 'off → on'}</button>`);
+    $('pop-toggle').addEventListener('click', () => {
+      pushUndo();
+      setVal(value ? 0 : 1);
+      closePopover();
+      renderAll();
+    });
+  } else {
+    openPopoverAt(ev.clientX, ev.clientY,
+      `<div class="rule">${portId} · default</div>
+       <input type="range" id="pop-range" min="0" max="100" value="${value}">
+       <div class="row"><span id="pop-val" style="min-width:2.6rem">${value}%</span></div>`);
+    let pushed = false;
+    $('pop-range').addEventListener('input', e2 => {
+      if (!pushed) { pushUndo(); pushed = true; }
+      const v2 = Number(e2.target.value);
+      $('pop-val').textContent = `${v2}%`;
+      setVal(v2);
+    });
+  }
+}
+
+// MULTI-02: the merge rule of a multi-row value input — tap cycles the rule.
+function openRulePopover(chipEl, ev) {
+  const n = doc.nodes.find(x => x.id === Number(chipEl.dataset.node));
+  const portId = chipEl.dataset.port;
+  const current = multiRule(n, portId);
+  openPopoverAt(ev.clientX, ev.clientY,
+    `<div class="rule">merge rule for ${portId} rows</div>
+     <div class="row">${MULTI_RULES.map(r =>
+       `<button class="${r === current ? 'btn-primary' : 'btn-ghost'}" data-rule="${r}">${r}</button>`).join('')}</div>`);
+  $('popover').querySelectorAll('[data-rule]').forEach(b => b.addEventListener('click', () => {
+    pushUndo();
+    n.cfg = n.cfg || {};
+    n.cfg.rules = n.cfg.rules || {};
+    n.cfg.rules[portId] = b.dataset.rule;
+    closePopover();
+    markDirty();
+    renderAll();
+  }));
+}
+
+// ── Settings sheet (PIN-01, MULTI-01, VIEW-03) ───────────────────────────────
+let sheetTarget = null;
+
+function openSheet(target) {
+  sheetTarget = target;
+  renderSheetIfOpen();
+  $('sheet').style.display = 'block';
+  $('sheet-backdrop').style.display = 'block';
+}
+
+function closeSheet() {
+  sheetTarget = null;
+  $('sheet').style.display = 'none';
+  $('sheet-backdrop').style.display = 'none';
+}
+
+$('sheet-backdrop').addEventListener('click', closeSheet);
+
+function renderSheetIfOpen() {
+  if (sheetTarget === null || !doc) return;
+  const sheet = $('sheet');
+  if (typeof sheetTarget === 'object' && sheetTarget.note !== undefined) {
+    const i = sheetTarget.note;
+    const nt = doc.notes[i];
+    if (!nt) { closeSheet(); return; }
+    sheet.innerHTML = `<h2>📝 Note</h2>
+      <textarea id="sheet-note">${nt.text}</textarea>
+      <div class="actions">
+        <button class="btn-danger" id="sheet-remove">Remove</button>
+        <button class="btn-ghost" id="sheet-close">Close</button></div>`;
+    $('sheet-note').addEventListener('change', e => {
+      pushUndo();
+      nt.text = e.target.value;
+      markDirty();
+      renderAll();
+    });
+    $('sheet-remove').addEventListener('click', () => {
+      pushUndo();
+      doc.notes.splice(i, 1);
+      selected = null;
+      markDirty();
+      closeSheet();
+      renderAll();
+    });
+    $('sheet-close').addEventListener('click', closeSheet);
+    return;
+  }
+  const n = doc.nodes.find(x => x.id === sheetTarget);
+  if (!n) { closeSheet(); return; }
+  const t = NODE_TYPES[n.type];
+  const seen = new Set();
+  const pinRows = pinsOf(n).filter(p => {
+    const k = `${p.dir}:${p.id}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).map(p => {
+    const load = portLoad(doc, n.id, p.dir, p.id);
+    const cap = portCapacity(n, p.dir, p.id);
+    const grow = p.repeat
+      ? `<button class="btn-ghost" data-grow="${p.dir}:${p.id}" aria-label="Add row">＋</button>
+         <button class="btn-ghost" data-shrink="${p.dir}:${p.id}" aria-label="Remove row">−</button>`
+      : '';
+    return `<div class="pinrow"><span class="shape">${PIN_SHAPES[p.type]}</span>
+      ${p.dir === 'in' ? '←' : '→'} ${p.id} · ${p.type}
+      <span class="grow"></span>${p.repeat ? `${load}/${cap} rows` : (load ? 'connected' : 'free')} ${grow}</div>`;
+  }).join('');
+  sheet.innerHTML = `<h2><span class="cat cat-${t.cat}" style="width:8px;height:8px;border-radius:50%"></span>
+      ${n.type} <span style="color:#567">#${n.id} · col ${n.col} · row ${n.row}</span></h2>
+    ${pinRows}
+    <div class="actions">
+      <button class="btn-danger" id="sheet-remove">Remove stone</button>
+      <button class="btn-ghost" id="sheet-close">Close</button></div>`;
+  sheet.querySelectorAll('[data-grow]').forEach(b => b.addEventListener('click', () => {
+    const [dir, portId] = b.dataset.grow.split(':');
+    pushUndo();
+    if (setPortRows(doc, n, dir, portId, +1)) {
+      settleEdges(doc, n.id);
+      markDirty();
+      renderAll();
+    } else { undoStack.pop(); updateUndoButtons(); }
+  }));
+  sheet.querySelectorAll('[data-shrink]').forEach(b => b.addEventListener('click', () => {
+    const [dir, portId] = b.dataset.shrink.split(':');
+    pushUndo();
+    if (setPortRows(doc, n, dir, portId, -1)) {
+      settleEdges(doc, n.id);
+      markDirty();
+      renderAll();
+    } else {
+      undoStack.pop();
+      updateUndoButtons();
+      showToast('Disconnect first — rows in use', true);
+    }
+  }));
+  $('sheet-remove').addEventListener('click', () => {
+    pushUndo();
+    doc.edges = doc.edges.filter(x => x[0] !== n.id && x[2] !== n.id);
+    doc.nodes = doc.nodes.filter(x => x.id !== n.id);
+    selected = null;
+    markDirty();
+    closeSheet();
+    renderAll();
+  });
+  $('sheet-close').addEventListener('click', closeSheet);
+}
+
+// ── Toolbar wiring ───────────────────────────────────────────────────────────
 $('graph-select').addEventListener('change', e => loadGraph(e.target.value));
-$('btn-create').addEventListener('click', createGraph);
-$('btn-save').addEventListener('click', saveGraph);
-$('btn-delete').addEventListener('click', deleteGraph);
+$('btn-apply').addEventListener('click', applyGraph);
+$('btn-undo').addEventListener('click', undo);
+$('btn-redo').addEventListener('click', redo);
 $('meta-active').addEventListener('change', markDirty);
-$('meta-requires').addEventListener('change', markDirty);
-window.addEventListener('resize', () => requestAnimationFrame(renderEdges));
+
+// "More" menu: create / delete graph without crowding the toolbar (VIEW-01).
+$('btn-more').addEventListener('click', ev => {
+  openPopoverAt(ev.clientX, ev.clientY + 160,
+    `<div class="rule">Graphs</div>
+     <div class="row"><input type="text" id="pop-newname" placeholder="new name" size="12"></div>
+     <div class="row"><button class="btn-ghost" id="pop-create">Create</button>
+     <button class="btn-danger" id="pop-delete">Delete current</button></div>`);
+  $('pop-create').addEventListener('click', async () => {
+    const name = $('pop-newname').value.trim();
+    if (!/^[a-z0-9-]{1,32}$/i.test(name)) { showToast('Name: 1-32 letters, digits, dashes', true); return; }
+    const fresh = { v: 1, name, active: false, requires: [], nodes: [], edges: [], notes: [] };
+    const res = await fetch(`/api/graphs/${encodeURIComponent(name)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fresh),
+    });
+    if (!res.ok) { showToast('Create failed', true); return; }
+    closePopover();
+    await refreshList(name);
+    await loadGraph(name);
+  });
+  $('pop-delete').addEventListener('click', async () => {
+    if (!doc || !confirm(`Delete graph "${doc.name}"?`)) return;
+    await fetch(`/api/graphs/${encodeURIComponent(doc.name)}`, { method: 'DELETE' });
+    localStorage.removeItem(draftKey());
+    closePopover();
+    const graphs = await refreshList();
+    if (graphs.length) await loadGraph(graphs[0].name);
+    else { doc = null; renderAll(); }
+  });
+});
+
+// RESP-02: one-time swipe hint on narrow screens.
+if (window.innerWidth < 768 && !localStorage.getItem('bl-graph-swipehint')) {
+  $('swipe-hint').style.display = 'block';
+  localStorage.setItem('bl-graph-swipehint', '1');
+  setTimeout(() => { $('swipe-hint').style.display = 'none'; }, 4000);
+}
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 renderPalette();
-refreshList().then(graphs => {
-  if (graphs.length) loadGraph(graphs[0].name);
-});
-})();
+refreshList().then(graphs => { if (graphs.length) loadGraph(graphs[0].name); });
 </script>
 </body>
 </html>

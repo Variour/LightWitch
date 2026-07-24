@@ -19,11 +19,25 @@ export default [
     },
   },
   {
-    files: ['data/index.html', 'server/graphs.html'],
+    files: ['data/index.html'],
     plugins: { html },
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'script',
+      globals: globals.browser,
+    },
+    rules: {
+      eqeqeq: 'error',
+      'prefer-const': 'error',
+      'no-var': 'error',
+    },
+  },
+  {
+    files: ['server/graphs.html'],
+    plugins: { html },
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
       globals: globals.browser,
     },
     rules: {
