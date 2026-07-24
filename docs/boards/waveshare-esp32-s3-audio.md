@@ -87,7 +87,7 @@ data line.
 |---|---|
 | LED type | WS2812B — single wire |
 | Data pin (GPIO) | GPIO38 |
-| Colour order | GRB *(WS2812B default)* |
+| Colour order | RGB |
 | Length | 7 |
 | Rows | 1 |
 
