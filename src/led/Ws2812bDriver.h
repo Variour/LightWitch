@@ -23,20 +23,6 @@ class Ws2812bDriver : public LedDriver {
         _neo->show();
     }
 
-    void setColor(uint8_t r, uint8_t g, uint8_t b) override {
-        uint8_t a, bb, c;
-        applyColorOrder(_order, r, g, b, a, bb, c);
-        uint32_t col = _neo->Color(a, bb, c);
-        for (uint16_t i = 0; i < _numLeds; i++) _neo->setPixelColor(i, col);
-        _neo->show();
-    }
-
-    void setPixel(uint16_t idx, uint8_t r, uint8_t g, uint8_t b) override {
-        uint8_t a, bb, c;
-        applyColorOrder(_order, r, g, b, a, bb, c);
-        _neo->setPixelColor(idx, a, bb, c);
-    }
-
     void show() override { _neo->show(); }
 
     void off() override {
@@ -45,6 +31,21 @@ class Ws2812bDriver : public LedDriver {
     }
 
     void setColorOrder(ColorOrder order) override { _order = order; }
+
+   protected:
+    void writeColor(uint8_t r, uint8_t g, uint8_t b) override {
+        uint8_t a, bb, c;
+        applyColorOrder(_order, r, g, b, a, bb, c);
+        uint32_t col = _neo->Color(a, bb, c);
+        for (uint16_t i = 0; i < _numLeds; i++) _neo->setPixelColor(i, col);
+        _neo->show();
+    }
+
+    void writePixel(uint16_t idx, uint8_t r, uint8_t g, uint8_t b) override {
+        uint8_t a, bb, c;
+        applyColorOrder(_order, r, g, b, a, bb, c);
+        _neo->setPixelColor(idx, a, bb, c);
+    }
 
    private:
     uint8_t _pin = 25;

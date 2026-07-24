@@ -215,9 +215,17 @@ static bool migrateDoc(JsonDocument& doc) {
                   CONFIG_SCHEMA_VERSION);
         return false;
     }
-    if (ver < CONFIG_SCHEMA_VERSION) {
-        Logger::i("[cfg] schema v%u < v%u — resetting to defaults", ver, CONFIG_SCHEMA_VERSION);
+    // Breaking changes up to v4 predate the sequential migration-step
+    // convention (see CONFIG_SCHEMA_VERSION in Config.h) — those configs
+    // still reset to defaults.
+    if (ver < 4) {
+        Logger::i("[cfg] schema v%u < v4 — resetting to defaults", ver);
         return false;
+    }
+    if (ver < 5) {
+        // v4 -> v5: lights gained brightnessLimit/brightnessScale — additive
+        // with `| default` fallbacks in applyDoc(), nothing to rewrite.
+        Logger::i("[cfg] schema v%u -> v5", ver);
     }
     return true;
 }
@@ -280,6 +288,8 @@ static void applyDoc(JsonDocument& doc) {
             l.groupId = v["groupId"] | (uint8_t)0;
             l.brightnessOverrideEnabled = v["brightnessOverrideEnabled"] | false;
             l.brightnessOverride = v["brightnessOverride"] | (uint8_t)255;
+            l.brightnessLimit = v["brightnessLimit"] | (uint8_t)255;
+            l.brightnessScale = v["brightnessScale"] | (uint8_t)255;
             if (!v["name"].isNull()) strlcpy(l.name, v["name"] | "", sizeof(l.name));
         }
     }
@@ -441,6 +451,8 @@ bool Config::save() {
         o["groupId"] = l.groupId;
         o["brightnessOverrideEnabled"] = l.brightnessOverrideEnabled;
         o["brightnessOverride"] = l.brightnessOverride;
+        o["brightnessLimit"] = l.brightnessLimit;
+        o["brightnessScale"] = l.brightnessScale;
     }
 
     JsonArray arr = doc["groups"].to<JsonArray>();

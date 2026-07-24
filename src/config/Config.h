@@ -236,7 +236,11 @@ static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
 // SceneManager::ScenePlayback) — a saved v3 config's groups would carry
 // stale copies of fields that no longer exist here (also predates the
 // migration-step convention above).
-static constexpr uint8_t CONFIG_SCHEMA_VERSION = 4;
+// v5: lights gained brightnessLimit/brightnessScale (hardware clamp) —
+// additive with `| default` fallbacks in applyDoc(), so the v4 -> v5 step
+// in migrateDoc() rewrites nothing; first bump to use the migration-step
+// convention above instead of the reset-to-defaults fallback.
+static constexpr uint8_t CONFIG_SCHEMA_VERSION = 5;
 
 // Parameters for a ButtonAction. Which member is meaningful depends on the
 // ActionId — numberValue covers steps/fixed values/enum ordinals,
@@ -403,6 +407,14 @@ struct LightHardwareConfig {
     // following the group's brightness.
     bool brightnessOverrideEnabled = false;
     uint8_t brightnessOverride = 255;
+    // Hardware clamp for every pixel this light emits, applied at the LED
+    // driver boundary (see LedDriver::setBrightnessClamp) so it covers all
+    // render paths alike — group state, the standing brightnessOverride
+    // above, and any future per-light override/overlay. brightnessScale
+    // proportionally damps (255 = ×1.0), brightnessLimit hard-caps the
+    // result. Hardware properties of this light, local to this device.
+    uint8_t brightnessLimit = 255;
+    uint8_t brightnessScale = 255;
     bool exists = false;
 };
 
