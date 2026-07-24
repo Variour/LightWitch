@@ -1113,11 +1113,25 @@ class BatteryWebServer {
 
         auto ok = _makeOk();
         ok["rebooting"] = rebootNeeded;
-        _sendJson(r, 200, ok);
-        if (rebootNeeded) {
-            delay(200);
-            ESP.restart();
+        if (!rebootNeeded) {
+            _sendJson(r, 200, ok);
+            return;
         }
+
+        // A fixed delay() before ESP.restart() races the AsyncTCP send: over
+        // WiFi the response can still be unacked (or not even handed to the
+        // radio yet) when the reboot tears down the stack, so the browser
+        // sees a mid-flight connection reset instead of the 200 it earned.
+        // onDisconnect only fires once this client's TCP connection has
+        // actually closed, which — with "Connection: close" prompting that
+        // closure right after the response is flushed — guarantees delivery
+        // before we restart.
+        String s;
+        serializeJson(ok, s);
+        AsyncWebServerResponse* resp = r->beginResponse(200, "application/json", s.c_str());
+        resp->addHeader("Connection", "close");
+        r->onDisconnect([]() { ESP.restart(); });
+        r->send(resp);
     }
 
     // ── POST /api/mqtt/clear ─────────────────────────────────────────────────
