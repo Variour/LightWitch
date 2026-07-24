@@ -177,6 +177,14 @@ const mockEvents = [
 // path, without duplicating a row the initial GET already returned.
 const mockLiveEvent = { name: 'Mock Light 3', eventType: 'buzz.press', payload: 3, order: 3 };
 
+// Devices seen only via HelloMsg (different/incompatible firmware — see
+// docs/mesh-compatibility.md and WebServer.h::_buildPeersJson's
+// discoveredPeers array). Mirrors just what a real device's PeerInfo carries
+// for a helloOnly entry: mac/name/version/online, nothing else.
+const MOCK_DISCOVERED_PEERS = [
+  { name: 'New Device', mac: '66:77:88:99:aa:bb', version: '2026.07.01.0', online: true },
+];
+
 const wifiNetworks = [
   { ssid: 'HomeNetwork', password: 'secret1' },
   { ssid: 'WorkWifi',    password: 'secret2' },
@@ -229,6 +237,7 @@ function broadcastPeers() {
     t: 'peers',
     self: selfWithLights(),
     peers: MOCK_PEERS,
+    discoveredPeers: MOCK_DISCOVERED_PEERS,
     wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode,
   });
   wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
@@ -454,6 +463,7 @@ app.post('/api/wifi/move', (req, res) => {
 app.get('/api/peers', (_req, res) => res.json({
   self: selfWithLights(),
   peers: MOCK_PEERS,
+  discoveredPeers: MOCK_DISCOVERED_PEERS,
   wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode,
 }));
 app.get('/api/events', (req, res) => {
@@ -1150,7 +1160,7 @@ wss.on('connection', ws => {
   const send = data => ws.send(JSON.stringify(data));
   send({ t: 'log', l: 'I', m: 'Mock server connected' });
   send({ t: 'log', l: 'I', m: 'This is a development mock — no hardware attached' });
-  send({ t: 'peers', self: selfWithLights(), peers: MOCK_PEERS, wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode });
+  send({ t: 'peers', self: selfWithLights(), peers: MOCK_PEERS, discoveredPeers: MOCK_DISCOVERED_PEERS, wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode });
   send({ t: 'groups', list: MOCK_CONFIG.groups });
   send({ t: 'audioGroups', list: mockAudioGroups });
   send({ t: 'event', ...mockLiveEvent });

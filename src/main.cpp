@@ -601,6 +601,13 @@ void setup() {
         }
     });
 
+    // A device seen only via HelloMsg (incompatible firmware — see
+    // MeshTypes.h) isn't a real peer yet, just discovered: refresh the
+    // dashboard so it shows up for a WiFi-config push / update nudge, same as
+    // setOnPresence does for full peers, but without scene/playlist sync
+    // (which need a compatible peer).
+    mesh.setOnHelloPeer([](const uint8_t*, const char*, const char*) { publishTelemetry(); });
+
     mesh.setOnSceneManifest(
         [](const uint8_t* mac, const SceneManifestMsg* msg) { sceneSync.onManifest(mac, msg); });
     mesh.setOnSceneRequest(

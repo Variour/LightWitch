@@ -86,6 +86,10 @@ class MeshManager {
     // layer; consumers match on it themselves.
     using GenericEventCb =
         std::function<void(const uint8_t* mac, const char* eventType, uint16_t payload)>;
+    // Called when a device is (re-)discovered via HelloMsg — see MeshTypes.h's
+    // "Onboarding discovery" section. Purely a UI-refresh hook; the entry
+    // itself already lives in peers (PeerInfo::helloOnly).
+    using HelloCb = std::function<void(const uint8_t* mac, const char* name, const char* fwVersion)>;
 
     void setOnPeerHeard(PeerHeardCb cb) { _onPeerHeard = cb; }
     void setOnLightConfig(LightConfigCb cb) { _onLightConfig = cb; }
@@ -126,6 +130,7 @@ class MeshManager {
     void setOnMeshSearch(MeshSearchCb cb) { _onMeshSearch = cb; }
     void setBatteryStatusProvider(BatteryStatusCb cb) { _batteryStatusProvider = cb; }
     void setOnGenericEvent(GenericEventCb cb) { _onGenericEvent = cb; }
+    void setOnHelloPeer(HelloCb cb) { _onHelloPeer = cb; }
 
     void begin() {
         _instance = this;
@@ -157,6 +162,7 @@ class MeshManager {
         if (now - _lastHeartbeat >= 5000) {
             _lastHeartbeat = now;
             _sendPresence();
+            _sendHello();
         }
         if (now - _lastMeshPolicySync >= 15000) {
             _lastMeshPolicySync = now;
@@ -555,6 +561,7 @@ class MeshManager {
     GenericEventCb _onGenericEvent;
     WifiRetryCb _onWifiRetry;
     MeshSearchCb _onMeshSearch;
+    HelloCb _onHelloPeer;
 
     // ── Config push encryption (issue #252) ───────────────────────────────────
     static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 3000;
@@ -842,6 +849,18 @@ class MeshManager {
         _send(&msg, sizeof(msg));
     }
 
+    // Broadcast alongside _sendPresence() every heartbeat, unconditionally,
+    // by every device regardless of onboarding state — see HelloMsg's comment
+    // in MeshTypes.h. This is what lets a device on incompatible firmware
+    // still be discovered, channel-locked onto, and offered a config push /
+    // update nudge.
+    void _sendHello() {
+        HelloMsg msg;
+        strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
+        strlcpy(msg.fwVersion, FW_VERSION, sizeof(msg.fwVersion));
+        _send(&msg, sizeof(msg));
+    }
+
     // Returns true if this device has the lowest MAC among online peers that also
     // have a light in groupId. The lowest-MAC device acts as the phase-sync master.
     bool _isSyncMaster(uint8_t groupId) {
@@ -892,7 +911,19 @@ class MeshManager {
             case MsgType::Presence: {
                 if (!_hasExactLen<PresenceMsg>(len)) return;
                 auto* m = (PresenceMsg*)data;
-                if (m->version != PRESENCE_MSG_VERSION) return;
+                if (m->version != PRESENCE_MSG_VERSION) {
+                    // Mismatched firmware — same-firmware-only policy (see
+                    // docs/mesh-compatibility.md), so this frame is rejected.
+                    // The sender is still discoverable via HelloMsg; this is
+                    // purely a diagnostic so a mismatch like this is visible
+                    // in the log instead of just "peers don't see each other".
+                    Logger::w(
+                        "[mesh] presence from %02x:%02x:%02x:%02x:%02x:%02x rejected: version %u "
+                        "!= %u (mismatched firmware — see docs/mesh-compatibility.md)",
+                        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], m->version,
+                        PRESENCE_MSG_VERSION);
+                    return;
+                }
                 bool isNew = _instance->peers.update(
                     mac, m->name, m->lightCount, m->lightGroupIds, m->lightNames,
                     m->sceneSyncEnabled != 0, m->wifiConnected != 0, m->fwVersion,
@@ -907,6 +938,22 @@ class MeshManager {
                     _instance->broadcastAllAudioGroups();
                     _instance->broadcastMeshPolicy(_instance->_currentMeshPolicyState());
                 }
+                break;
+            }
+            case MsgType::Hello: {
+                // Frozen, cross-firmware discovery frame — see HelloMsg's
+                // comment in MeshTypes.h. Exact-size check is safe forever
+                // here since this struct is never allowed to change.
+                if (!_hasExactLen<HelloMsg>(len)) return;
+                auto* m = (HelloMsg*)data;
+                bool isNew = _instance->peers.updateHello(mac, m->name, m->fwVersion);
+                // Counts as "peer heard" for channel-lock purposes the same
+                // as a valid Presence did (see ChannelManager::onPeerHeard) —
+                // unlike Presence, this isn't gated on schema compatibility,
+                // so channel convergence no longer depends on it either.
+                if (_instance->_onPeerHeard) _instance->_onPeerHeard(mac);
+                if (isNew && _instance->_onHelloPeer)
+                    _instance->_onHelloPeer(mac, m->name, m->fwVersion);
                 break;
             }
             case MsgType::LightConfig: {

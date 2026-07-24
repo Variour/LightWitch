@@ -45,6 +45,7 @@ enum class MsgType : uint8_t {
     SetSoundGroup = 33,
     SetVolume = 34,
     GenericEvent = 35,
+    Hello = 36,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -437,4 +438,23 @@ struct GenericEventMsg {
     MsgType type = MsgType::GenericEvent;
     char eventType[EVENT_TYPE_LEN];  // e.g. "buzz.press", "buzz.reset" — opaque to the mesh layer
     uint16_t payload;
+};
+
+// ── Onboarding discovery (frozen, cross-firmware) ─────────────────────────────
+// Every other message in this file follows the same-firmware-only policy in
+// docs/mesh-compatibility.md: exact struct layout, no version tolerance.
+// HelloMsg is the one deliberate exception, because a brand-new device must be
+// discoverable — and reachable for a WiFi-config push and a firmware-update
+// nudge (see ConfigChunkMsg/KeyExchange*Msg, CheckUpdateMsg/TriggerUpdateMsg,
+// all of which key off a MAC address, not PeerRegistry contents) — even when
+// it runs firmware whose PresenceMsg schema doesn't match this device's.
+//
+// This struct must never change: no new fields, no version bump, ever. If
+// onboarding ever needs more information, add a new MsgType instead of
+// touching this one — that's what keeps the exact-size check below safe
+// forever instead of turning into another PresenceMsg-style version gate.
+struct HelloMsg {
+    MsgType type = MsgType::Hello;
+    char name[32];
+    char fwVersion[16];
 };
