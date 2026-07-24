@@ -50,10 +50,43 @@ This generalizes the existing brightness-override pattern; the old
 brightness override is absorbed into it (a brightness-only direct command)
 rather than maintained in parallel.
 
+### Temporary commands
+
+A direct command may carry an optional `durationMs`. When it expires, the
+override is dropped and the light reverts to whatever it would otherwise show
+(normally its group state) — no restore command needed, and a crash/reboot on
+the sender can't leave a light stuck. Example: "blink for 2 s, then back to
+the group scene." Expiry runs through the same arbitration as everything else;
+a newer command arriving mid-duration replaces the temporary one immediately.
+
+### Overlay layer (planned; implemented with M4)
+
+Overrides *replace* a light's state. Some effects instead need to sit **on
+top of** whatever is currently rendering: dim one light in a group, tint it,
+or flicker it while its scene keeps running underneath — e.g. a "broken bulb"
+magic effect: the light keeps its group scene but flickers.
+
+Design (documented now, built in M4 when the render path is touched anyway):
+
+- Per light, one **overlay slot** applied as a post-processing step after the
+  pattern renders and before pixels reach the `LedDriver`. The base state —
+  group scene, override, or stage claim — keeps running untouched underneath.
+- Overlay types v1: `dim` (scalar), `tint` (color blend with strength),
+  `flicker` (procedural modulation with intensity/rate).
+- Overlays carry the same optional `durationMs` and follow the same rules as
+  overrides: newest overlay wins the slot, an explicit clear removes it, and
+  it is independent of the base-state arbitration — changing the group scene
+  does *not* clear an overlay, since the two answer different questions
+  ("what plays" vs. "what disturbs it").
+- Transport: `LightOverlayMsg` (additive MsgType, same `targetMac` +
+  `lightIndex` addressing as `LightOverrideMsg`); later also drivable from a
+  graph node for scripted magic effects.
+
 ### What it takes
 
-- `LightOverrideMsg` (new MsgType): `targetMac`, `lightIndex`, `LightConfig` —
-  addressing mirrors `SetGroupMsg`. Additive, no existing message changes.
+- `LightOverrideMsg` (new MsgType): `targetMac`, `lightIndex`, `LightConfig`,
+  optional `durationMs` — addressing mirrors `SetGroupMsg`. Additive, no
+  existing message changes.
 - Override slot + arbitration in the light state path
   (`applyAndPropagateLightConfig` / `PatternRunner` wiring in `main.cpp`).
 - `ActionExecutor`: new action target kind "light on device" (by device name +
@@ -124,10 +157,12 @@ Each milestone ends demonstrable and leaves `main` shippable.
 
 ### M1 · Last command wins (no graph involvement yet)
 
-Per-light override + arbitration + `LightOverrideMsg` + "light on device"
-button action + UI indicator, as specified above. Absorbs the brightness
-override. **Demo:** press a button on device A, one light on device B leaves
-its group scene and turns green; changing the group scene takes it back.
+Per-light override + arbitration + `LightOverrideMsg` (incl. `durationMs`
+expiry) + "light on device" button action + UI indicator, as specified above.
+Absorbs the brightness override. The overlay layer is designed here but not
+built yet. **Demo:** press a button on device A, one light on device B leaves
+its group scene and turns green — or blinks for 2 s and returns on its own;
+changing the group scene takes it back.
 
 *Touches:* `config`, `actions`, `mesh` (additive msg), `web`, `main.cpp`.
 
@@ -164,10 +199,15 @@ adapters on edges per concept §5.3) and the **stage node**: binds to a light
 role, claims the light through the M1 arbitration, drives its `PatternRunner`
 with a channel-driven pattern (intensity, stimulus, movement, limit, color —
 scenes read the channels they know). Existing patterns stay available as
-procedural scenes. **Demo:** breathing lamp whose speed follows an LFO;
-group/user commands still take the light back at any time.
+procedural scenes. This milestone also builds the **overlay layer** from core
+design 1 (post-render `dim`/`tint`/`flicker` slot with `durationMs`,
+`LightOverlayMsg`, overlay graph node), since it touches the same render
+path. **Demo:** breathing lamp whose speed follows an LFO; group/user
+commands still take the light back at any time — and the "broken bulb":
+one light in a group flickers while its scene keeps running underneath.
 
-*Touches:* `graph`, `patterns` (one new channel-driven pattern), `config`.
+*Touches:* `graph`, `patterns` (one new channel-driven pattern + overlay
+post-processing in `PatternRunner`), `mesh` (additive msg), `config`.
 
 ### M5 · Roles & participation policy
 
