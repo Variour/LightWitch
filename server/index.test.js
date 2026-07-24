@@ -184,6 +184,80 @@ describe('POST /api/lights/update', () => {
   });
 });
 
+describe('POST /api/lights/override', () => {
+  const postJson = (path, body) => fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const overridden = async index =>
+    (await (await fetch(`${baseUrl}/api/lights`)).json()).lights.find(l => l.index === index).overridden;
+
+  test('marks the seeded Patio override in /api/lights and self.lights', async () => {
+    assert.equal(await overridden(2), true);
+    assert.equal(await overridden(0), false);
+    const { self } = await (await fetch(`${baseUrl}/api/peers`)).json();
+    assert.equal(self.lights.find(l => l.index === 2).overridden, true);
+  });
+
+  test('returns 404 for an unknown light index', async () => {
+    const res = await postJson('/api/lights/override', { index: 99, r: 0, g: 255, b: 0 });
+    assert.equal(res.status, 404);
+  });
+
+  test('sets an override on a light', async () => {
+    const res = await postJson('/api/lights/override', { index: 0, r: 0, g: 255, b: 0 });
+    assert.equal(res.status, 200);
+    assert.equal(await overridden(0), true);
+  });
+
+  test('a real group change displaces the override, a name-only edit does not', async () => {
+    await postJson('/api/lights/override', { index: 0, r: 0, g: 255, b: 0 });
+    let res = await postJson('/api/groups/update', { id: 0, name: 'Default' });
+    assert.equal(res.status, 200);
+    assert.equal(await overridden(0), true);
+    res = await postJson('/api/groups/update', { id: 0, brightness: 123 });
+    assert.equal(res.status, 200);
+    assert.equal(await overridden(0), false);
+  });
+
+  test('reassigning the light to another group displaces the override', async () => {
+    await postJson('/api/lights/override', { index: 0, r: 0, g: 255, b: 0 });
+    await postJson('/api/lights/update', { index: 0, groupId: 1 });
+    assert.equal(await overridden(0), false);
+    await postJson('/api/lights/update', { index: 0, groupId: 0 });
+  });
+
+  test('a durationMs override expires on its own', async () => {
+    await postJson('/api/lights/override', { index: 0, r: 0, g: 255, b: 0, durationMs: 40 });
+    assert.equal(await overridden(0), true);
+    await new Promise(resolve => setTimeout(resolve, 120));
+    assert.equal(await overridden(0), false);
+  });
+});
+
+describe('POST /api/lights/override/clear', () => {
+  test('returns 404 for an unknown light index', async () => {
+    const res = await fetch(`${baseUrl}/api/lights/override/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: 99 }),
+    });
+    assert.equal(res.status, 404);
+  });
+
+  test('clears the seeded override — the light follows its group again', async () => {
+    const res = await fetch(`${baseUrl}/api/lights/override/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: 2 }),
+    });
+    assert.equal(res.status, 200);
+    const { lights } = await (await fetch(`${baseUrl}/api/lights`)).json();
+    assert.equal(lights.find(l => l.index === 2).overridden, false);
+  });
+});
+
 describe('GET /api/sounds', () => {
   test('returns the configured sound outputs', async () => {
     const res = await fetch(`${baseUrl}/api/sounds`);

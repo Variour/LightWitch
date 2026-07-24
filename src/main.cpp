@@ -15,6 +15,7 @@
 #include "events/EventLog.h"
 #include "led/Ws2801Driver.h"
 #include "led/Ws2812bDriver.h"
+#include "lights/LightOverrides.h"
 #include "logging/Logger.h"
 #include "mesh/ChannelManager.h"
 #include "mesh/MeshManager.h"
@@ -115,17 +116,38 @@ static LightConfig withBrightnessOverride(const LightConfig& cfg, const LightHar
     return c;
 }
 
-// Apply each light's group config to its runner
-static void applyAllLights() {
-    Config::forEachLight([](uint8_t i, LightHardwareConfig& l) {
-        if (!_leds[i]) return;
-        auto* g = Config::group(l.groupId);
-        if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
-    });
-}
-
 // Pushes mesh peers over the dashboard WebSocket.
 static void publishTelemetry() { webServer.pushPeers(); }
+
+// Resolves and applies what light i renders right now — the single funnel
+// every path that (re)applies a light's config must go through, so command
+// arbitration (issue #457) stays consistent regardless of origin:
+// - an override displaced by a newer group command (seq advanced past its
+//   baseSeq, or the light reassigned) is dropped here, rejoining the group;
+// - an active override renders its snapshot, bypassing the standing
+//   brightness adjustment;
+// - otherwise the group's state applies, with the standing adjustment on top.
+static void applyEffectiveLight(uint8_t i) {
+    if (i >= MAX_LIGHTS || !_leds[i]) return;
+    auto& l = Config::get().lights[i];
+    if (!l.exists) return;
+    if (LightOverrides::displaced(i)) {
+        LightOverrides::clear(i);
+        Logger::i("[light] override on light %u displaced by group change — rejoining group", i);
+        publishTelemetry();
+    }
+    if (LightOverrides::active(i)) {
+        _runners[i].applyConfig(LightOverrides::config(i));
+        return;
+    }
+    GroupConfig* g = Config::group(l.groupId);
+    if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
+}
+
+// Apply each light's effective config to its runner
+static void applyAllLights() {
+    Config::forEachLight([](uint8_t i, LightHardwareConfig&) { applyEffectiveLight(i); });
+}
 
 // Broadcasts a GroupConfig change over mesh and republishes its MQTT state —
 // or, for a tombstone (g.exists == false, i.e. this group was just deleted),
@@ -240,10 +262,7 @@ static void triggerStopAudio(uint8_t audioGroupId) {
 // applyAndPropagateLightConfig/mesh broadcast.
 static void applyLightBrightnessOverride(uint8_t lightIndex) {
     if (lightIndex >= MAX_LIGHTS || !_leds[lightIndex]) return;
-    auto& l = Config::get().lights[lightIndex];
-    GroupConfig* g = Config::group(l.groupId);
-    if (!g) return;
-    _runners[lightIndex].applyConfig(withBrightnessOverride(g->light, l));
+    applyEffectiveLight(lightIndex);
     mqtt.publishLightOverride(lightIndex);
     publishTelemetry();
 }
@@ -275,8 +294,7 @@ static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg
     Config::save();
 
     Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
-        if (l.groupId == groupId && _leds[i])
-            _runners[i].applyConfig(withBrightnessOverride(cfg, l));
+        if (l.groupId == groupId) applyEffectiveLight(i);
     });
 
     mesh.broadcastLightConfig(groupId, cfg);
@@ -480,8 +498,7 @@ void setup() {
         _runners[i].setWrap(l.wrapWidth, l.wrapHeight);
         _runners[i].setPeerRegistry(&mesh.peers);
         _runners[i].setGroupId(l.groupId);
-        auto* g = Config::group(l.groupId);
-        if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
+        applyEffectiveLight(i);
     });
 
     // Bring up the device-wide I2C bus, if configured — shared by the sound
@@ -709,10 +726,7 @@ void setup() {
                 Config::save();
                 if (_leds[lightIndex]) {
                     _runners[lightIndex].setGroupId(groupId);
-                    auto* g = Config::group(groupId);
-                    if (g)
-                        _runners[lightIndex].applyConfig(
-                            withBrightnessOverride(g->light, Config::get().lights[lightIndex]));
+                    applyEffectiveLight(lightIndex);
                 }
                 Logger::i("[mesh] light %u moved to group %u", lightIndex, groupId);
             }
@@ -778,8 +792,7 @@ void setup() {
             // reapplying is cheap and name/exists/light always move together
             // now, so there's no cheaper way to tell them apart here.
             Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
-                if (l.groupId == g.id && _leds[i])
-                    _runners[i].applyConfig(withBrightnessOverride(applied->light, l));
+                if (l.groupId == g.id) applyEffectiveLight(i);
             });
         }
         if (applied) mqtt.publishGroupState(applied->id);
@@ -789,6 +802,10 @@ void setup() {
     mesh.setOnPhaseSync([](uint8_t groupId, float phase) {
         Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
             if (l.groupId != groupId) return;
+            // An overridden light renders its own snapshot, not the group's
+            // pattern — snapping it to the group's phase would visibly
+            // disrupt the override without making it any more in sync.
+            if (LightOverrides::active(i)) return;
             GroupConfig* g = Config::group(l.groupId);
             if (!g || !g->syncEnabled) return;
             _runners[i].snapPhase(phase);
@@ -888,6 +905,16 @@ void setup() {
         }
     });
     webServer.setOnLightBrightnessChange([](uint8_t idx) { applyLightBrightnessOverride(idx); });
+    webServer.setOnLightOverrideSet([](uint8_t idx, const LightConfig& cfg, uint32_t durationMs) {
+        LightOverrides::set(idx, cfg, durationMs);
+        applyEffectiveLight(idx);
+        publishTelemetry();
+    });
+    webServer.setOnLightOverrideClear([](uint8_t idx) {
+        LightOverrides::clear(idx);
+        applyEffectiveLight(idx);
+        publishTelemetry();
+    });
     webServer.setOnLightClampChange([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx]) {
             auto& l = Config::get().lights[idx];
@@ -1046,6 +1073,19 @@ void loop() {
         buttonManager.tick();
         sceneSync.tick();
         playlistSync.tick();
+    }
+
+    // Receiver-side expiry of temporary overrides (durationMs, issue #457):
+    // revert the light to its group and tell the dashboard. 50 ms granularity
+    // comfortably covers the shortest sensible durations.
+    if (!_otaActive && slowTick) {
+        Config::forEachLight([&](uint8_t i, LightHardwareConfig&) {
+            if (!LightOverrides::expired(i, now)) return;
+            LightOverrides::clear(i);
+            Logger::i("[light] override on light %u expired — rejoining group", i);
+            applyEffectiveLight(i);
+            publishTelemetry();
+        });
     }
 
     if (!_otaActive && now - _lastPatternTickMs >= PATTERN_TICK_INTERVAL_MS) {
