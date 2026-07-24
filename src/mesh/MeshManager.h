@@ -89,7 +89,8 @@ class MeshManager {
     // Called when a device is (re-)discovered via HelloMsg — see MeshTypes.h's
     // "Onboarding discovery" section. Purely a UI-refresh hook; the entry
     // itself already lives in peers (PeerInfo::helloOnly).
-    using HelloCb = std::function<void(const uint8_t* mac, const char* name, const char* fwVersion)>;
+    using HelloCb =
+        std::function<void(const uint8_t* mac, const char* name, const char* fwVersion)>;
 
     void setOnPeerHeard(PeerHeardCb cb) { _onPeerHeard = cb; }
     void setOnLightConfig(LightConfigCb cb) { _onLightConfig = cb; }
