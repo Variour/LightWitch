@@ -516,7 +516,43 @@ app.post('/api/peers/setvolume', (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/peers/setscenesync', (_req, res) => res.json({ ok: true }));
-app.post('/api/peers/pushconfig',      (_req, res) => res.json({ ok: true }));
+
+// Simulates a discovered (hello-only) device reconnecting to WiFi some time
+// after receiving a config push, so the single-button "Set up device" flow
+// (data/index.html's setupDiscoveredDevice) can be exercised end to end
+// against the mock server without real hardware.
+function simulateDiscoveredWifiConnect(peer) {
+  setTimeout(() => {
+    peer.wifiConnected = true;
+    broadcastPeers();
+  }, 2000);
+}
+
+// Simulates a discovered device successfully installing an update and
+// rejoining as a full compatible peer — mirrors what a real device does
+// once Updater::triggerAsync() finds+installs an update and reboots onto
+// firmware whose PresenceMsg this mesh accepts again.
+function simulateDiscoveredGraduate(peer) {
+  setTimeout(() => {
+    const idx = MOCK_DISCOVERED_PEERS.indexOf(peer);
+    if (idx === -1) return;
+    MOCK_DISCOVERED_PEERS.splice(idx, 1);
+    MOCK_PEERS.push({
+      name: peer.name, mac: peer.mac, lights: [], sound: null, online: true, rssi: -60,
+      sceneSyncEnabled: true, wifiConnected: true, hasWifiNetworks: true, wifiConnecting: false,
+      version: MOCK_SELF.version, fwState: 'idle',
+      batteryPresent: false, batteryPercent: 0, batteryCharging: false,
+    });
+    broadcastPeers();
+  }, 3000);
+}
+
+app.post('/api/peers/pushconfig', (req, res) => {
+  res.json({ ok: true });
+  const { mac } = req.body || {};
+  const discovered = MOCK_DISCOVERED_PEERS.find(p => p.mac === mac);
+  if (discovered) simulateDiscoveredWifiConnect(discovered);
+});
 // Mirrors WebServer.h::_peerUpdateRequest: an online standby candidate
 // (single-client mode + hasWifiNetworks) can still connect on demand, but an
 // offline peer must still be rejected even if it would otherwise qualify.
@@ -535,6 +571,8 @@ app.post('/api/peers/triggerupdate', (req, res) => {
   if (error) return res.status(409).json({ error });
   res.json({ ok: true });
   if (peer) simulatePeerUpdateCycle(peer);
+  const discovered = MOCK_DISCOVERED_PEERS.find(p => p.mac === mac);
+  if (discovered) simulateDiscoveredGraduate(discovered);
 });
 app.post('/api/peers/checkupdate', (req, res) => {
   const { mac } = req.body || {};

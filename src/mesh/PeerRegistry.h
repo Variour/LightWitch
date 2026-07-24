@@ -67,6 +67,12 @@ class PeerRegistry {
         if (!p) p = _slot();
         if (!p) return false;
         bool nameChanged = !isNew && strncmp(p->name, name, 32) != 0;
+        // A device graduating from hello-only (different/incompatible firmware,
+        // see updateHello()) to a full peer is itself a dashboard-relevant
+        // change even when its name/lights happen to be unchanged — without
+        // this, a graduation with no other diff would never fire _onChange()
+        // below and the dashboard wouldn't notice it left discoveredPeers.
+        bool graduated = !isNew && p->helloOnly;
         bool lightsChanged = false;
         if (!isNew) {
             if (p->lightCount != lightCount) {
@@ -112,7 +118,7 @@ class PeerRegistry {
             Logger::i("[mesh] peer renamed: %s", name);
         else if (lightsChanged)
             Logger::i("[mesh] peer %s lights updated", name);
-        bool changed = isNew || nameChanged || lightsChanged;
+        bool changed = isNew || nameChanged || lightsChanged || graduated;
         if (changed && _onChange) _onChange();
         return isNew;
     }
@@ -134,6 +140,12 @@ class PeerRegistry {
         bool isNew = (p == nullptr);
         if (!p) p = _slot();
         if (!p) return false;
+        // A later Hello for an already-known entry can still carry
+        // dashboard-relevant news — most importantly wifiConnected flipping
+        // true after a WiFi-config push — so this must fire _onChange() on
+        // its own, not just when the entry is brand new.
+        bool wifiChanged =
+            !isNew && (p->wifiConnected != wifiConnected || p->hasWifiNetworks != hasWifiNetworks);
         memcpy(p->mac, mac, 6);
         strlcpy(p->name, name, sizeof(p->name));
         strlcpy(p->fwVersion, fwVersion, sizeof(p->fwVersion));
@@ -142,10 +154,8 @@ class PeerRegistry {
         p->helloOnly = true;
         p->lastSeen = millis();
         p->active = true;
-        if (isNew) {
-            Logger::i("[mesh] device discovered (hello): %s (fw %s)", name, fwVersion);
-            if (_onChange) _onChange();
-        }
+        if (isNew) Logger::i("[mesh] device discovered (hello): %s (fw %s)", name, fwVersion);
+        if ((isNew || wifiChanged) && _onChange) _onChange();
         return isNew;
     }
 
