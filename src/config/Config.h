@@ -353,7 +353,8 @@ struct AutomationBinding {
 };
 
 void serializeAutomationRule(JsonObject o, const AutomationRule& r);
-AutomationRule deserializeAutomationRule(JsonVariant j, const AutomationRule& def = AutomationRule{});
+AutomationRule deserializeAutomationRule(JsonVariant j,
+                                         const AutomationRule& def = AutomationRule{});
 void serializeAutomationBinding(JsonObject o, const AutomationBinding& b);
 void deserializeAutomationBinding(JsonVariant o, AutomationBinding& b);
 
