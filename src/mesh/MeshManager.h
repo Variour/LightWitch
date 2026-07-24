@@ -952,6 +952,16 @@ class MeshManager {
                 // here since this struct is never allowed to change.
                 if (!_hasExactLen<HelloMsg>(len)) return;
                 auto* m = (HelloMsg*)data;
+                // name/fwVersion have no guaranteed wire-level null
+                // terminator — an unauthenticated, crafted frame with no
+                // zero byte in either field would make the strlcpy() calls
+                // inside updateHello() scan past this buffer looking for
+                // one. Reject rather than trust the sender; this is the one
+                // place that matters since HelloMsg's wire format can never
+                // change again.
+                if (!memchr(m->name, 0, sizeof(m->name)) ||
+                    !memchr(m->fwVersion, 0, sizeof(m->fwVersion)))
+                    return;
                 bool isNew = _instance->peers.updateHello(
                     mac, m->name, m->fwVersion, m->wifiConnected != 0, m->hasWifiNetworks != 0);
                 // Counts as "peer heard" for channel-lock purposes the same

@@ -2374,7 +2374,14 @@ function renderDiscoveredPeers(list) {
       } else if (phase === 'update-stalled') {
         statusText = 'No confirmation the update finished yet. It may already be up to date, or the check/install may have failed.';
         btnLabel = 'Try again';
-        mdnsLink = ` <a class="light-device-link" href="http://${esc(p.name)}.local" target="_blank" rel="noopener">Open device</a>`;
+        // p.name is attacker-controlled (unauthenticated broadcast, see
+        // HelloMsg) — only build the link for names that actually look like
+        // a plain hostname label; encodeURIComponent as defense in depth on
+        // top of that, so nothing in it can escape the .local suffix and
+        // redirect this link to an attacker-chosen host.
+        mdnsLink = /^[A-Za-z0-9-]+$/.test(p.name)
+          ? ` <a class="light-device-link" href="http://${encodeURIComponent(p.name)}.local" target="_blank" rel="noopener">Open device</a>`
+          : '';
       }
 
       return `<div style="display:flex;align-items:center;gap:.5rem;padding:.4rem 0;border-bottom:1px solid #222;flex-wrap:wrap">

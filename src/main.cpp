@@ -551,6 +551,11 @@ void setup() {
     mesh.setWifiConnectedProvider([]() { return wifiElection.isAdvertisableConnected(); });
     wifiElection.setOnAttemptingChanged([]() { publishTelemetry(); });
     mesh.setOnPeerHeard([](const uint8_t* mac) { channelMgr.onPeerHeard(mac); });
+    // Without this, PeerRegistry's own change-detection (see update()'s
+    // graduated/wifiChanged, updateHello()'s wifiChanged) has nowhere to go —
+    // the dashboard would only ever learn about those transitions via its
+    // REST poll fallback, never promptly over the WebSocket.
+    mesh.peers.setOnChange([]() { publishTelemetry(); });
     mesh.setOnMeshPolicy(
         [](const MeshManager::MeshPolicyState& state) { applyWifiPolicyState(state, "mesh"); });
     mesh.setOnWifiRetry([]() { wifiElection.retryNow(); });

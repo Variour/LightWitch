@@ -467,3 +467,8 @@ struct HelloMsg {
     uint8_t wifiConnected;
     uint8_t hasWifiNetworks;
 };
+// Turns "please don't change this struct" into "won't compile" — update the
+// expected size only if you're deliberately shipping HelloMsg's very first
+// released layout; never after that (see the comment above).
+static_assert(sizeof(HelloMsg) == 51,
+              "HelloMsg is frozen forever — see comment above; add a new MsgType instead");
