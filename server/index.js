@@ -1192,6 +1192,70 @@ app.post('/api/update/apply-pr', (req, res) => {
   _simulateFlash(newVersion, () => { MOCK_CONFIG.prTrack = tag; });
 });
 
+// ── Graphs (mock-only, issue #464) ──────────────────────────────────────────
+// The dock-editor shell and its /api/graphs storage exist only in this mock
+// for now — the real endpoints, validation, and execution arrive with the M2
+// graph engine (GraphManager, SceneManager-style). Schema v1 per the rework
+// plan; col/row on nodes and the notes array are editor-only metadata. The
+// editor page lives in server/ (not data/) so it never ships to devices —
+// LittleFS is nearly full (#377); it moves into the device UI with M8.
+const GRAPH_NAME_RE = /^[a-z0-9-]{1,32}$/i;
+
+const mockGraphs = new Map([
+  ['buzzergame', {
+    v: 1, name: 'buzzergame', active: true, requires: ['button:main', 'stage:main'],
+    nodes: [
+      { id: 1, type: 'button', role: 'button:main', col: 1, row: 1, cfg: {} },
+      { id: 2, type: 'wait', col: 2, row: 1, cfg: { ms: 2000 } },
+      { id: 3, type: 'action', col: 3, row: 1, cfg: { action: 'SceneNext' } },
+    ],
+    edges: [[1, 'pressed', 2, 'start'], [2, 'done', 3, 'trigger']],
+    notes: [{ col: 1, row: 5, text: 'registration' }],
+  }],
+  ['nightlight', {
+    v: 1, name: 'nightlight', active: false, requires: [],
+    nodes: [
+      { id: 1, type: 'mesh-receive', col: 1, row: 2, cfg: { eventType: 'buzz.press' } },
+      { id: 2, type: 'range', col: 2, row: 2, cfg: { min: 1, max: 3 } },
+      { id: 3, type: 'log', col: 3, row: 1, cfg: {} },
+      { id: 4, type: 'action', col: 3, row: 3, cfg: { action: 'ColorSet' } },
+    ],
+    edges: [[1, 'payload', 2, 'value'], [2, 'inRange', 4, 'trigger'], [2, 'outOfRange', 3, 'value']],
+    notes: [],
+  }],
+]);
+
+app.get('/graphs.html', (_req, res) =>
+  res.sendFile(join(dirname(fileURLToPath(import.meta.url)), 'graphs.html')));
+
+app.get('/api/graphs', (_req, res) => res.json({
+  graphs: [...mockGraphs.values()].map(({ name, active }) => ({ name, active })),
+}));
+
+app.get('/api/graphs/:name', (req, res) => {
+  const graph = mockGraphs.get(req.params.name);
+  if (!graph) return res.status(404).json({ error: 'not found' });
+  res.json(graph);
+});
+
+// Structural stub validation only — the authoritative validate lives in the
+// M2 engine's load/validate/compile.
+app.put('/api/graphs/:name', (req, res) => {
+  const name = req.params.name;
+  if (!GRAPH_NAME_RE.test(name)) return res.status(400).json({ error: 'invalid name' });
+  const doc = req.body || {};
+  if (doc.v !== 1 || doc.name !== name || !Array.isArray(doc.nodes) || !Array.isArray(doc.edges)) {
+    return res.status(400).json({ error: 'invalid graph document' });
+  }
+  mockGraphs.set(name, doc);
+  res.json({ ok: true });
+});
+
+app.delete('/api/graphs/:name', (req, res) => {
+  if (!mockGraphs.delete(req.params.name)) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true });
+});
+
 app.get('/*path', (_req, res) => res.sendFile(join(DATA_DIR, 'index.html')));
 
 const server = http.createServer(app);

@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battery Light — Graph Editor</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #111; color: #eee;
+       max-width: 1100px; margin: 0 auto; padding: 1rem; }
+h1   { font-size: 1.2rem; margin-bottom: .75rem; color: #aaa;
+       display: flex; align-items: baseline; gap: .6rem; }
+h1 .beta { font-size: .7rem; color: #a84; border: 1px solid #543; border-radius: 5px;
+           padding: .1rem .4rem; text-transform: uppercase; letter-spacing: .05em; }
+h1 a { margin-left: auto; font-size: .8rem; color: #4af; text-decoration: none; }
+.card { background: #1c1c1c; border-radius: 10px; padding: 1rem; margin-bottom: .75rem; }
+button { padding: .5rem .9rem; border-radius: 6px; border: none; cursor: pointer;
+         font-size: .88rem; font-weight: 600; }
+.btn-primary { background: #2a6; color: #fff; }
+.btn-danger  { background: #933; color: #fff; }
+.btn-ghost   { background: #2a2a2a; color: #aaa; }
+.btn-sm      { padding: .3rem .6rem; font-size: .78rem; }
+input[type=text], select {
+  padding: .45rem .65rem; border-radius: 6px; border: 1px solid #2a2a2a;
+  background: #111; color: #eee; font-size: .9rem; }
+input[type=checkbox] {
+  appearance: none; -webkit-appearance: none;
+  width: 1.3rem; height: 1.3rem; margin: 0; flex-shrink: 0;
+  border-radius: 6px; border: none; background: #2a2a2a; cursor: pointer; }
+input[type=checkbox]:checked {
+  background: #2a6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' d='M3 8.5l3.2 3.2L13 4.5'/%3E%3C/svg%3E") no-repeat center / 65%; }
+
+.toolbar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .6rem; }
+.toolbar .spacer { flex: 1; }
+#dirty { font-size: .75rem; color: #fa4; }
+.meta-row { display: flex; gap: .8rem; align-items: center; margin-bottom: .6rem;
+            font-size: .8rem; color: #888; }
+.meta-row label { display: flex; align-items: center; gap: .35rem; }
+.meta-row input[type=text] { flex: 1; font-size: .8rem; padding: .3rem .5rem; }
+
+.editor { display: flex; gap: .75rem; align-items: flex-start; }
+.palette { width: 130px; flex-shrink: 0; }
+.palette h2 { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
+              color: #555; margin: .2rem 0 .4rem; }
+.palette-item { background: #1c1c1c; border: 1px solid #2a2a2a; border-radius: 7px;
+                padding: .35rem .5rem; margin-bottom: .3rem; font-size: .78rem;
+                color: #ccc; cursor: pointer; }
+.palette-item:hover { border-color: #2a6; }
+.palette-item.placing { border-color: #2a6; background: #1a2f22; color: #fff; }
+.hint { font-size: .72rem; color: #555; margin-top: .5rem; line-height: 1.4; }
+
+.board-wrap { position: relative; flex: 1; overflow-x: auto; background: #161616;
+              border-radius: 10px; padding: .5rem; }
+.board { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr));
+         grid-auto-rows: 64px; gap: .35rem; position: relative; }
+.cell { border: 1px dashed #242424; border-radius: 8px; min-height: 0; position: relative; }
+.cell.placeable:hover { border-color: #2a6; cursor: copy; }
+.node { position: absolute; inset: 0; background: #1f2937; border: 1px solid #33415a;
+        border-radius: 8px; display: flex; flex-direction: column; cursor: pointer;
+        overflow: hidden; }
+.node.selected { border-color: #4af; box-shadow: 0 0 0 1px #4af; }
+.node-head { font-size: .74rem; font-weight: 600; color: #dde; text-align: center;
+             padding: .18rem .2rem 0; }
+.node-id { font-size: .6rem; color: #567; }
+.node-ports { flex: 1; display: flex; justify-content: space-between; align-items: stretch; }
+.ports-in, .ports-out { display: flex; flex-direction: column; justify-content: space-evenly; }
+.port { font-size: .6rem; color: #9ab; padding: .06rem .3rem; cursor: crosshair;
+        white-space: nowrap; }
+.ports-in .port { border-radius: 0 6px 6px 0; }
+.ports-out .port { text-align: right; border-radius: 6px 0 0 6px; }
+.port:hover { background: #2a6; color: #fff; }
+.port.pending { background: #a84; color: #fff; }
+.note { position: absolute; inset: 0; background: #2b2620; border: 1px solid #4a4030;
+        border-radius: 8px; font-size: .68rem; color: #cb9; padding: .3rem .4rem;
+        cursor: pointer; overflow: hidden; }
+.note.selected { border-color: #fa4; box-shadow: 0 0 0 1px #fa4; }
+#edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#edges path.edge-hit { stroke: transparent; stroke-width: 12; fill: none; pointer-events: stroke;
+                       cursor: pointer; }
+#edges path.edge-line { stroke: #2a6; stroke-width: 2; fill: none; }
+#edges g:hover path.edge-line { stroke: #c55; }
+
+.inspector { font-size: .8rem; color: #aaa; margin-top: .75rem; }
+.inspector textarea { width: 100%; min-height: 3.5rem; background: #111; color: #eee;
+                      border: 1px solid #2a2a2a; border-radius: 6px; padding: .4rem .55rem;
+                      font-family: ui-monospace, monospace; font-size: .78rem; margin: .3rem 0; }
+.inspector textarea.invalid { border-color: #933; }
+.inspector .row { display: flex; gap: .5rem; align-items: center; }
+
+.toast { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
+         background: #222; color: #eee; padding: .6rem 1rem; border-radius: 8px;
+         font-size: .82rem; box-shadow: 0 2px 10px rgba(0,0,0,.4); z-index: 999;
+         display: none; max-width: 90%; text-align: center; }
+.toast-error { background: #522; color: #fbb; border: 1px solid #833; }
+</style>
+</head>
+<body>
+
+<h1>Graph editor <span class="beta">mock-only shell</span> <a href="/">← Dashboard</a></h1>
+
+<div class="toolbar">
+  <select id="graph-select" aria-label="Graph"></select>
+  <input type="text" id="new-name" placeholder="new graph name" size="14"
+         aria-label="New graph name">
+  <button class="btn-ghost btn-sm" id="btn-create">Create</button>
+  <span class="spacer"></span>
+  <span id="dirty"></span>
+  <button class="btn-primary btn-sm" id="btn-save">Save</button>
+  <button class="btn-danger btn-sm" id="btn-delete">Delete</button>
+</div>
+
+<div class="meta-row" id="meta-row">
+  <label><input type="checkbox" id="meta-active"> active</label>
+  <label style="flex:1">requires
+    <input type="text" id="meta-requires" placeholder="button:main, stage:main"
+           aria-label="Required roles, comma-separated">
+  </label>
+</div>
+
+<div class="editor">
+  <div class="palette">
+    <h2>Building blocks</h2>
+    <div id="palette"></div>
+    <div class="hint">Click a block, then an empty cell to place it.<br>
+      Click a node to select it; click an empty cell to move it there.<br>
+      Connect: click an out-port, then an in-port. Click an edge to remove it.</div>
+  </div>
+  <div class="board-wrap">
+    <div class="board" id="board"></div>
+    <svg id="edges"></svg>
+  </div>
+</div>
+
+<div class="inspector card" id="inspector">Nothing selected.</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+const $ = id => document.getElementById(id);
+
+// Editor grid dimensions — schema col/row are 1-based (see the rework plan's
+// schema v1 summary); the board simply shows a fixed working area.
+const COLS = 6, ROWS = 10;
+
+// Shell palette: the M2 parity node set with guessed port shapes. Deliberately
+// speculative — pinning these down is part of what this prototype exists to
+// pressure-test; the authoritative registry arrives with the M2 engine.
+const NODE_TYPES = {
+  'button':       { ins: [],                outs: ['pressed'] },
+  'timer':        { ins: ['start', 'stop'], outs: ['elapsed'] },
+  'mesh-receive': { ins: [],                outs: ['payload'] },
+  'compare':      { ins: ['value'],         outs: ['true', 'false'] },
+  'range':        { ins: ['value'],         outs: ['inRange', 'outOfRange'] },
+  'constant':     { ins: [],                outs: ['value'] },
+  'gate':         { ins: ['value', 'open'], outs: ['value'] },
+  'wait':         { ins: ['start'],         outs: ['done'] },
+  'action':       { ins: ['trigger'],       outs: [] },
+  'mesh-send':    { ins: ['value'],         outs: [] },
+  'log':          { ins: ['value'],         outs: [] },
+};
+
+let doc = null;          // current schema-v1 document
+let placing = null;      // node type or 'note' armed from the palette
+let selected = null;     // {kind:'node', id} | {kind:'note', index}
+let pendingPort = null;  // {nodeId, port} — out-port waiting for an in-port
+
+function showToast(msg, isError) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (isError ? ' toast-error' : '');
+  t.style.display = 'block';
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => { t.style.display = 'none'; }, 2500);
+}
+
+function markDirty() {
+  $('dirty').textContent = 'unsaved changes';
+}
+
+function clearDirty() {
+  $('dirty').textContent = '';
+}
+
+// ── Graph list / load / save ─────────────────────────────────────────────────
+
+async function refreshList(selectName) {
+  const res = await fetch('/api/graphs');
+  const d = await res.json();
+  const sel = $('graph-select');
+  sel.innerHTML = (d.graphs || []).map(g =>
+    `<option value="${g.name}"${g.name === selectName ? ' selected' : ''}>${g.name}</option>`
+  ).join('');
+  return d.graphs || [];
+}
+
+async function loadGraph(name) {
+  const res = await fetch(`/api/graphs/${encodeURIComponent(name)}`);
+  if (!res.ok) { showToast('Failed to load graph', true); return; }
+  doc = await res.json();
+  doc.nodes = doc.nodes || [];
+  doc.edges = doc.edges || [];
+  doc.notes = doc.notes || [];
+  doc.requires = doc.requires || [];
+  selected = null;
+  pendingPort = null;
+  clearDirty();
+  renderAll();
+}
+
+async function saveGraph() {
+  if (!doc) return;
+  doc.requires = $('meta-requires').value.split(',').map(s => s.trim()).filter(Boolean);
+  doc.active = $('meta-active').checked;
+  const res = await fetch(`/api/graphs/${encodeURIComponent(doc.name)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(doc),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    showToast(`Save failed: ${d.error || res.status}`, true);
+    return;
+  }
+  clearDirty();
+  showToast('Saved');
+}
+
+async function createGraph() {
+  const name = $('new-name').value.trim();
+  if (!/^[a-z0-9-]{1,32}$/i.test(name)) {
+    showToast('Name: 1-32 letters, digits, dashes', true);
+    return;
+  }
+  const fresh = { v: 1, name, active: false, requires: [], nodes: [], edges: [], notes: [] };
+  const res = await fetch(`/api/graphs/${encodeURIComponent(name)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fresh),
+  });
+  if (!res.ok) { showToast('Create failed', true); return; }
+  $('new-name').value = '';
+  await refreshList(name);
+  await loadGraph(name);
+}
+
+async function deleteGraph() {
+  if (!doc) return;
+  if (!confirm(`Delete graph "${doc.name}"?`)) return;
+  await fetch(`/api/graphs/${encodeURIComponent(doc.name)}`, { method: 'DELETE' });
+  const graphs = await refreshList();
+  if (graphs.length) await loadGraph(graphs[0].name);
+  else { doc = null; renderAll(); }
+}
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+
+function renderAll() {
+  renderMeta();
+  renderBoard();
+  renderInspector();
+  requestAnimationFrame(renderEdges);
+}
+
+function renderMeta() {
+  $('meta-active').checked = !!(doc && doc.active);
+  $('meta-requires').value = doc ? doc.requires.join(', ') : '';
+  $('meta-row').style.display = doc ? '' : 'none';
+}
+
+function nodeById(id) { return doc.nodes.find(n => n.id === id); }
+
+function renderBoard() {
+  const board = $('board');
+  let html = '';
+  for (let row = 1; row <= ROWS; row++) {
+    for (let col = 1; col <= COLS; col++) {
+      html += `<div class="cell${placing || selected ? ' placeable' : ''}"
+        data-col="${col}" data-row="${row}" style="grid-column:${col};grid-row:${row}"></div>`;
+    }
+  }
+  board.innerHTML = html;
+  if (!doc) return;
+
+  for (const n of doc.nodes) {
+    const cell = board.querySelector(`.cell[data-col="${n.col}"][data-row="${n.row}"]`);
+    if (!cell) continue;
+    const t = NODE_TYPES[n.type] || { ins: [], outs: [] };
+    const sel = selected && selected.kind === 'node' && selected.id === n.id;
+    const ports = (list, dir) => list.map(p => {
+      const pending = pendingPort && dir === 'out' && pendingPort.nodeId === n.id && pendingPort.port === p;
+      return `<span class="port${pending ? ' pending' : ''}" data-node="${n.id}" data-dir="${dir}"
+        data-port="${p}" data-port-key="${n.id}:${dir}:${p}">${p}</span>`;
+    }).join('');
+    cell.innerHTML = `<div class="node${sel ? ' selected' : ''}" data-node-id="${n.id}">
+      <div class="node-head">${n.type} <span class="node-id">#${n.id}</span></div>
+      <div class="node-ports">
+        <div class="ports-in">${ports(t.ins, 'in')}</div>
+        <div class="ports-out">${ports(t.outs, 'out')}</div>
+      </div></div>`;
+  }
+
+  doc.notes.forEach((note, i) => {
+    const cell = board.querySelector(`.cell[data-col="${note.col}"][data-row="${note.row}"]`);
+    if (!cell || cell.firstChild) return;
+    const sel = selected && selected.kind === 'note' && selected.index === i;
+    const div = document.createElement('div');
+    div.className = 'note' + (sel ? ' selected' : '');
+    div.dataset.noteIndex = i;
+    div.textContent = note.text;
+    cell.appendChild(div);
+  });
+}
+
+function renderEdges() {
+  const svg = $('edges');
+  if (!doc) { svg.innerHTML = ''; return; }
+  const wrap = svg.parentElement.getBoundingClientRect();
+  let html = '';
+  doc.edges.forEach((e, i) => {
+    const from = document.querySelector(`[data-port-key="${e[0]}:out:${e[1]}"]`);
+    const to = document.querySelector(`[data-port-key="${e[2]}:in:${e[3]}"]`);
+    if (!from || !to) return;
+    const f = from.getBoundingClientRect(), t = to.getBoundingClientRect();
+    const x1 = f.right - wrap.left, y1 = f.top + f.height / 2 - wrap.top;
+    const x2 = t.left - wrap.left, y2 = t.top + t.height / 2 - wrap.top;
+    const d = `M ${x1} ${y1} C ${x1 + 40} ${y1}, ${x2 - 40} ${y2}, ${x2} ${y2}`;
+    html += `<g data-edge-index="${i}"><path class="edge-line" d="${d}"/>
+      <path class="edge-hit" d="${d}"/></g>`;
+  });
+  svg.innerHTML = html;
+}
+
+function renderPalette() {
+  $('palette').innerHTML = Object.keys(NODE_TYPES).map(t =>
+    `<div class="palette-item${placing === t ? ' placing' : ''}" data-type="${t}">${t}</div>`
+  ).join('') +
+  `<div class="palette-item${placing === 'note' ? ' placing' : ''}" data-type="note">📝 note</div>`;
+}
+
+function renderInspector() {
+  const box = $('inspector');
+  if (!doc) { box.textContent = 'No graph loaded.'; return; }
+  if (!selected) { box.textContent = 'Nothing selected.'; return; }
+  if (selected.kind === 'node') {
+    const n = nodeById(selected.id);
+    if (!n) { box.textContent = 'Nothing selected.'; return; }
+    box.innerHTML = `<div class="row">
+        <strong style="color:#dde">${n.type} #${n.id}</strong>
+        <span style="color:#567">col ${n.col} · row ${n.row}</span>
+        <span style="flex:1"></span>
+        <button class="btn-danger btn-sm" id="insp-remove">Remove</button>
+      </div>
+      <label style="display:block;margin-top:.3rem">cfg (JSON — placeholder until the M2 node
+        registry defines real fields)</label>
+      <textarea id="insp-cfg" spellcheck="false">${JSON.stringify(n.cfg || {}, null, 1)}</textarea>`;
+    $('insp-cfg').addEventListener('change', ev => {
+      try {
+        n.cfg = JSON.parse(ev.target.value || '{}');
+        ev.target.classList.remove('invalid');
+        markDirty();
+      } catch {
+        ev.target.classList.add('invalid');
+      }
+    });
+    $('insp-remove').addEventListener('click', () => {
+      doc.edges = doc.edges.filter(e => e[0] !== n.id && e[2] !== n.id);
+      doc.nodes = doc.nodes.filter(x => x.id !== n.id);
+      selected = null;
+      markDirty();
+      renderAll();
+    });
+  } else {
+    const note = doc.notes[selected.index];
+    if (!note) { box.textContent = 'Nothing selected.'; return; }
+    box.innerHTML = `<div class="row">
+        <strong style="color:#cb9">Note</strong>
+        <span style="color:#567">col ${note.col} · row ${note.row}</span>
+        <span style="flex:1"></span>
+        <button class="btn-danger btn-sm" id="insp-remove">Remove</button>
+      </div>
+      <textarea id="insp-note" spellcheck="false">${note.text}</textarea>`;
+    $('insp-note').addEventListener('change', ev => {
+      note.text = ev.target.value;
+      markDirty();
+      renderAll();
+    });
+    $('insp-remove').addEventListener('click', () => {
+      doc.notes.splice(selected.index, 1);
+      selected = null;
+      markDirty();
+      renderAll();
+    });
+  }
+}
+
+// ── Interactions ─────────────────────────────────────────────────────────────
+
+$('palette').addEventListener('click', e => {
+  const item = e.target.closest('.palette-item');
+  if (!item || !doc) return;
+  placing = placing === item.dataset.type ? null : item.dataset.type;
+  renderPalette();
+  renderBoard();
+  requestAnimationFrame(renderEdges);
+});
+
+$('board').addEventListener('click', e => {
+  if (!doc) return;
+
+  const port = e.target.closest('.port');
+  if (port) {
+    const nodeId = Number(port.dataset.node);
+    if (port.dataset.dir === 'out') {
+      pendingPort = pendingPort && pendingPort.nodeId === nodeId && pendingPort.port === port.dataset.port
+        ? null : { nodeId, port: port.dataset.port };
+    } else if (pendingPort) {
+      const edge = [pendingPort.nodeId, pendingPort.port, nodeId, port.dataset.port];
+      if (!doc.edges.some(x => x.join(' ') === edge.join(' '))) {
+        doc.edges.push(edge);
+        markDirty();
+      }
+      pendingPort = null;
+    }
+    renderBoard();
+    requestAnimationFrame(renderEdges);
+    return;
+  }
+
+  const nodeEl = e.target.closest('.node');
+  if (nodeEl) {
+    const id = Number(nodeEl.dataset.nodeId);
+    selected = selected && selected.kind === 'node' && selected.id === id
+      ? null : { kind: 'node', id };
+    placing = null;
+    renderPalette();
+    renderAll();
+    return;
+  }
+
+  const noteEl = e.target.closest('.note');
+  if (noteEl) {
+    const index = Number(noteEl.dataset.noteIndex);
+    selected = selected && selected.kind === 'note' && selected.index === index
+      ? null : { kind: 'note', index };
+    placing = null;
+    renderPalette();
+    renderAll();
+    return;
+  }
+
+  const cell = e.target.closest('.cell');
+  if (!cell) return;
+  const col = Number(cell.dataset.col), row = Number(cell.dataset.row);
+
+  if (placing === 'note') {
+    doc.notes.push({ col, row, text: 'note' });
+    selected = { kind: 'note', index: doc.notes.length - 1 };
+    placing = null;
+    markDirty();
+  } else if (placing) {
+    const id = doc.nodes.reduce((m, n) => Math.max(m, n.id), 0) + 1;
+    doc.nodes.push({ id, type: placing, col, row, cfg: {} });
+    selected = { kind: 'node', id };
+    placing = null;
+    markDirty();
+  } else if (selected) {
+    // Move the selected node/note into the clicked empty cell.
+    if (selected.kind === 'node') {
+      const n = nodeById(selected.id);
+      if (n) { n.col = col; n.row = row; markDirty(); }
+    } else {
+      const note = doc.notes[selected.index];
+      if (note) { note.col = col; note.row = row; markDirty(); }
+    }
+  }
+  renderPalette();
+  renderAll();
+});
+
+$('edges').addEventListener('click', e => {
+  const g = e.target.closest('g[data-edge-index]');
+  if (!g || !doc) return;
+  doc.edges.splice(Number(g.dataset.edgeIndex), 1);
+  markDirty();
+  renderAll();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    placing = null;
+    pendingPort = null;
+    selected = null;
+    renderPalette();
+    renderAll();
+  }
+});
+
+$('graph-select').addEventListener('change', e => loadGraph(e.target.value));
+$('btn-create').addEventListener('click', createGraph);
+$('btn-save').addEventListener('click', saveGraph);
+$('btn-delete').addEventListener('click', deleteGraph);
+$('meta-active').addEventListener('change', markDirty);
+$('meta-requires').addEventListener('change', markDirty);
+window.addEventListener('resize', () => requestAnimationFrame(renderEdges));
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+renderPalette();
+refreshList().then(graphs => {
+  if (graphs.length) loadGraph(graphs[0].name);
+});
+})();
+</script>
+</body>
+</html>

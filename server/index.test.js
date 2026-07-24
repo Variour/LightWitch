@@ -184,6 +184,60 @@ describe('POST /api/lights/update', () => {
   });
 });
 
+describe('/api/graphs (mock-only, issue #464)', () => {
+  const putGraph = (name, doc) => fetch(`${baseUrl}/api/graphs/${name}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(doc),
+  });
+
+  test('lists the seeded graphs', async () => {
+    const res = await fetch(`${baseUrl}/api/graphs`);
+    assert.equal(res.status, 200);
+    const { graphs } = await res.json();
+    assert.ok(graphs.some(g => g.name === 'buzzergame' && g.active === true));
+    assert.ok(graphs.some(g => g.name === 'nightlight'));
+  });
+
+  test('returns a full schema-v1 document', async () => {
+    const res = await fetch(`${baseUrl}/api/graphs/buzzergame`);
+    assert.equal(res.status, 200);
+    const doc = await res.json();
+    assert.equal(doc.v, 1);
+    assert.equal(doc.nodes.length, 3);
+    assert.deepEqual(doc.edges[0], [1, 'pressed', 2, 'start']);
+    assert.equal(doc.notes[0].text, 'registration');
+  });
+
+  test('404 for an unknown graph', async () => {
+    assert.equal((await fetch(`${baseUrl}/api/graphs/nope`)).status, 404);
+  });
+
+  test('PUT stores a document and it round-trips', async () => {
+    const doc = {
+      v: 1, name: 'testgraph', active: false, requires: [],
+      nodes: [{ id: 1, type: 'button', col: 2, row: 3, cfg: {} }],
+      edges: [], notes: [{ col: 1, row: 1, text: 'hi' }],
+    };
+    assert.equal((await putGraph('testgraph', doc)).status, 200);
+    const stored = await (await fetch(`${baseUrl}/api/graphs/testgraph`)).json();
+    assert.deepEqual(stored, doc);
+  });
+
+  test('PUT rejects an invalid name and a structurally invalid document', async () => {
+    const ok = { v: 1, name: 'bad name', nodes: [], edges: [] };
+    assert.equal((await putGraph('bad%20name', { ...ok })).status, 400);
+    assert.equal((await putGraph('valid', { name: 'valid', nodes: [], edges: [] })).status, 400);
+    assert.equal((await putGraph('valid', { v: 1, name: 'other', nodes: [], edges: [] })).status, 400);
+  });
+
+  test('DELETE removes a graph', async () => {
+    await putGraph('doomed', { v: 1, name: 'doomed', nodes: [], edges: [], notes: [] });
+    assert.equal((await fetch(`${baseUrl}/api/graphs/doomed`, { method: 'DELETE' })).status, 200);
+    assert.equal((await fetch(`${baseUrl}/api/graphs/doomed`)).status, 404);
+  });
+});
+
 describe('GET /api/sounds', () => {
   test('returns the configured sound outputs', async () => {
     const res = await fetch(`${baseUrl}/api/sounds`);

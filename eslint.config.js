@@ -19,7 +19,7 @@ export default [
     },
   },
   {
-    files: ['data/index.html'],
+    files: ['data/index.html', 'server/graphs.html'],
     plugins: { html },
     languageOptions: {
       ecmaVersion: 2022,
