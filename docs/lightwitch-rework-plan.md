@@ -46,9 +46,30 @@ Arbitration rule: **the newest command owns the light.**
 - A stage claim participates identically (claiming = a command; a newer group
   or direct command takes the light back and deactivates the claim).
 
-This generalizes the existing brightness-override pattern; the old
-brightness override is absorbed into it (a brightness-only direct command)
-rather than maintained in parallel.
+A direct command always carries a **full `LightConfig` snapshot** — the
+sender builds it (target group state is mesh-synced, so any sender can copy
+it and change fields) and the receiver replaces, never merges. Relative
+effects ("20 % brighter") are explicitly *not* overrides — they are overlays
+(below), because only the target device knows its own effective value.
+
+### Brightness layering
+
+Brightness passes through fixed layers, applied in order:
+
+1. **Group state** — what plays (scene/pattern incl. brightness).
+2. **Standing adjustment** — the existing `brightnessOverrideEnabled`/
+   `brightnessOverride` on `LightHardwareConfig`: applies while the light
+   follows its group, and applies again whenever it returns to the group.
+   Untouched by this rework.
+3. **Override / stage claim** — absolute: while active it replaces layers
+   1–2 entirely.
+4. **Overlay** — relative modulation on whatever layers 1–3 produce.
+5. **Hardware clamp** (new in M1): `brightnessLimit` (hard cap, peaks are
+   clipped) and `brightnessScale` (proportional damping) on
+   `LightHardwareConfig`, applied at the LED driver boundary to *everything*
+   — overrides and overlays included. This is where "this LED must never
+   exceed X" and "this LED generally runs dimmer" live; they are hardware
+   properties, not commands.
 
 ### Temporary commands
 
@@ -71,8 +92,10 @@ Design (documented now, built in M4 when the render path is touched anyway):
 - Per light, one **overlay slot** applied as a post-processing step after the
   pattern renders and before pixels reach the `LedDriver`. The base state —
   group scene, override, or stage claim — keeps running untouched underneath.
-- Overlay types v1: `dim` (scalar), `tint` (color blend with strength),
-  `flicker` (procedural modulation with intensity/rate).
+- Overlay types v1: `gain` (brightness factor — < 1 dims, > 1 brightens,
+  so "+20 % blink" is gain 1.2 + flicker; result clamped by the hardware
+  layer), `tint` (color blend with strength), `flicker` (procedural
+  modulation with intensity/rate).
 - Overlays carry the same optional `durationMs` and follow the same rules as
   overrides: newest overlay wins the slot, an explicit clear removes it, and
   it is independent of the base-state arbitration — changing the group scene
@@ -84,17 +107,28 @@ Design (documented now, built in M4 when the render path is touched anyway):
 
 ### What it takes
 
-- `LightOverrideMsg` (new MsgType): `targetMac`, `lightIndex`, `LightConfig`,
-  optional `durationMs` — addressing mirrors `SetGroupMsg`. Additive, no
-  existing message changes.
+- `LightOverrideMsg` (new MsgType): `targetMac`, `lightIndex`, full
+  `LightConfig` snapshot, optional `durationMs`, `clear` flag — addressing
+  mirrors `SetGroupMsg`. Additive, no existing message changes. Expiry and
+  clear are handled receiver-side; the override is volatile across reboot;
+  with multiple senders, receive order decides (last wins).
 - Override slot + arbitration in the light state path
   (`applyAndPropagateLightConfig` / `PatternRunner` wiring in `main.cpp`).
-- `ActionExecutor`: new action target kind "light on device" (by device name +
-  light index) so a button on ESP 1 can command a light on ESP 5. Targeting
-  "the farthest device" needs proximity data and arrives with the proximity
-  milestone (M7) as a graph capability, not a button feature.
-- Web UI: per-light indicator "following group / overridden (by X)" plus a
-  clear-override control.
+- Hardware clamp: `brightnessLimit` + `brightnessScale` on
+  `LightHardwareConfig`, applied at the LED driver boundary (see brightness
+  layering above), editable under Settings → Lights.
+- `ActionExecutor`: new **set-light action** targeting `targetMac` +
+  `lightIndex` (the config UI shows device names from the peer registry and
+  stores the MAC, so renames never break bindings). Deliberately minimal
+  parameters: color, brightness, pattern (static or strobe for blinking),
+  optional `durationMs` — the sender fills the rest of the snapshot from the
+  target's synced group state. Full-snapshot construction stays a capability
+  of the message (and of graph nodes from M2 on), not of the button UI.
+  Targeting "the farthest device" needs proximity data and arrives with the
+  proximity milestone (M7) as a graph capability, not a button feature.
+- Web UI: per-light indicator "following group / overridden" plus a
+  clear-override control on the owning device's dashboard. MQTT exposure of
+  per-light overrides is out of scope for M1.
 
 ## Core design 2 · Graph engine placement — from D2/D3
 
@@ -158,11 +192,12 @@ Each milestone ends demonstrable and leaves `main` shippable.
 ### M1 · Last command wins (no graph involvement yet)
 
 Per-light override + arbitration + `LightOverrideMsg` (incl. `durationMs`
-expiry) + "light on device" button action + UI indicator, as specified above.
-Absorbs the brightness override. The overlay layer is designed here but not
-built yet. **Demo:** press a button on device A, one light on device B leaves
-its group scene and turns green — or blinks for 2 s and returns on its own;
-changing the group scene takes it back.
+expiry and `clear`) + hardware brightness clamp + set-light button action +
+UI indicator, as specified above. The existing standing brightness
+adjustment stays untouched; the overlay layer is designed here but not built
+yet. **Demo:** press a button on device A, one light on device B leaves its
+group scene and turns green — or blinks for 2 s and returns on its own;
+changing the group scene takes it back; the hardware clamp caps everything.
 
 *Touches:* `config`, `actions`, `mesh` (additive msg), `web`, `main.cpp`.
 
@@ -200,7 +235,7 @@ role, claims the light through the M1 arbitration, drives its `PatternRunner`
 with a channel-driven pattern (intensity, stimulus, movement, limit, color —
 scenes read the channels they know). Existing patterns stay available as
 procedural scenes. This milestone also builds the **overlay layer** from core
-design 1 (post-render `dim`/`tint`/`flicker` slot with `durationMs`,
+design 1 (post-render `gain`/`tint`/`flicker` slot with `durationMs`,
 `LightOverlayMsg`, overlay graph node), since it touches the same render
 path. **Demo:** breathing lamp whose speed follows an LFO; group/user
 commands still take the light back at any time — and the "broken bulb":
