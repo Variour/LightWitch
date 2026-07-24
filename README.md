@@ -102,7 +102,7 @@ Log level, OTA port, and buttons can be left at their defaults unless you have a
 
 ## Adding more devices to the mesh
 
-Devices discover each other automatically over ESP-NOW and form a mesh (scene sync, pattern sync, etc.) — this only requires sharing the same 2.4 GHz WiFi channel, not the same WiFi network or credentials. To set up additional devices without re-entering every field by hand:
+Devices discover each other automatically over ESP-NOW and form a mesh (scene sync, pattern sync, etc.) — this only requires sharing the same 2.4 GHz WiFi channel, not the same WiFi network or credentials. Each device tracks up to 16 other devices at once (`PeerRegistry::MAX_PEERS`); beyond that, additional devices won't be discovered until an existing entry drops off the mesh. To set up additional devices without re-entering every field by hand:
 
 1. Flash and boot the new device as described above; it appears in the first device's **Connected Lights** table once discovered.
 2. Click **Push config to all** (or the per-device push button next to a specific peer) to send WiFi networks, AP password, MQTT settings, GitHub repo/token, and OTA-enabled to the target(s) in one step.
