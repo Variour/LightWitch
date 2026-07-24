@@ -223,9 +223,9 @@ static bool migrateDoc(JsonDocument& doc) {
 }
 
 static void applyDoc(JsonDocument& doc) {
-    strlcpy(Config::get().deviceName, doc["deviceName"] | "batterylight",
+    strlcpy(Config::get().deviceName, doc["deviceName"] | "lightwitch",
             sizeof(Config::get().deviceName));
-    strlcpy(Config::get().apPassword, doc["apPassword"] | "batterylight",
+    strlcpy(Config::get().apPassword, doc["apPassword"] | "lightwitch",
             sizeof(Config::get().apPassword));
     Config::get().otaPort = doc["otaPort"] | 3232;
     Config::get().otaEnabled = doc["otaEnabled"] | true;
@@ -253,7 +253,7 @@ static void applyDoc(JsonDocument& doc) {
     strlcpy(Config::get().mqttPassword, doc["mqttPassword"] | "",
             sizeof(Config::get().mqttPassword));
     strlcpy(Config::get().githubToken, doc["githubToken"] | "", sizeof(Config::get().githubToken));
-    strlcpy(Config::get().githubRepo, doc["githubRepo"] | "variour/batterylight",
+    strlcpy(Config::get().githubRepo, doc["githubRepo"] | "variour/lightwitch",
             sizeof(Config::get().githubRepo));
     strlcpy(Config::get().timezone, doc["timezone"] | "UTC0", sizeof(Config::get().timezone));
 

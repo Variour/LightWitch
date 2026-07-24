@@ -499,7 +499,7 @@ static constexpr uint8_t MAX_SOUNDS = 1;
 
 struct DeviceConfig {
     char deviceName[32] = "light";
-    char apPassword[64] = "batterylight";
+    char apPassword[64] = "lightwitch";
     uint16_t otaPort = 3232;
     bool otaEnabled = true;
     uint8_t logLevel = (uint8_t)LogLevel::DEBUG;
@@ -508,7 +508,7 @@ struct DeviceConfig {
     char mqttUser[32] = "";
     char mqttPassword[64] = "";
     char githubToken[128] = "";
-    char githubRepo[64] = "variour/batterylight";
+    char githubRepo[64] = "variour/lightwitch";
     char timezone[64] = "CET-1CEST,M3.5.0,M10.5.0/3";  // POSIX TZ string; default is Europe/Berlin
     bool sceneSyncEnabled = true;
     bool playlistSyncEnabled = true;

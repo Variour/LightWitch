@@ -80,7 +80,7 @@ class MqttManager {
         snprintf(_uniqueId, sizeof(_uniqueId), "bl_%02x%02x%02x", mac[3], mac[4], mac[5]);
 
         char base[96];
-        snprintf(base, sizeof(base), "batterylight/%s", _deviceName);
+        snprintf(base, sizeof(base), "lightwitch/%s", _deviceName);
         snprintf(_groupPrefix, sizeof(_groupPrefix), "%s/group/", base);
         snprintf(_lightPrefix, sizeof(_lightPrefix), "%s/light/", base);
         snprintf(_updateSetTopic, sizeof(_updateSetTopic), "%s/update/set", base);
@@ -300,12 +300,12 @@ class MqttManager {
     char _user[32] = {};
     char _pass[64] = {};
 
-    char _groupPrefix[80] = {};            // "batterylight/<dev>/group/"
-    char _lightPrefix[80] = {};            // "batterylight/<dev>/light/"
-    char _groupSubWildcard[96] = {};       // "batterylight/<dev>/group/+/set"
-    char _lightSubWildcard[96] = {};       // "batterylight/<dev>/light/+/set"
-    char _audioGroupPrefix[80] = {};       // "batterylight/<dev>/audiogroup/"
-    char _audioGroupSubWildcard[96] = {};  // "batterylight/<dev>/audiogroup/+/set"
+    char _groupPrefix[80] = {};            // "lightwitch/<dev>/group/"
+    char _lightPrefix[80] = {};            // "lightwitch/<dev>/light/"
+    char _groupSubWildcard[96] = {};       // "lightwitch/<dev>/group/+/set"
+    char _lightSubWildcard[96] = {};       // "lightwitch/<dev>/light/+/set"
+    char _audioGroupPrefix[80] = {};       // "lightwitch/<dev>/audiogroup/"
+    char _audioGroupSubWildcard[96] = {};  // "lightwitch/<dev>/audiogroup/+/set"
     char _updateSetTopic[112] = {};
     char _updateStateTopic[112] = {};
     char _sceneSyncSetTopic[112] = {};
@@ -426,7 +426,7 @@ class MqttManager {
         _buildEffectList(doc["effect_list"].to<JsonArray>());
         auto dev = doc["device"].to<JsonObject>();
         dev["name"] = _deviceName;
-        dev["model"] = "Battery Light";
+        dev["model"] = "LightWitch";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
@@ -460,7 +460,7 @@ class MqttManager {
         doc["command_template"] = "{\"time24h\": {{ (value == \"ON\") | lower }}}";
         auto dev = doc["device"].to<JsonObject>();
         dev["name"] = _deviceName;
-        dev["model"] = "Battery Light";
+        dev["model"] = "LightWitch";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
@@ -482,7 +482,7 @@ class MqttManager {
         auto dev = [&](JsonDocument& doc) {
             auto d = doc["device"].to<JsonObject>();
             d["name"] = _deviceName;
-            d["model"] = "Battery Light";
+            d["model"] = "LightWitch";
             d["manufacturer"] = "DIY";
             d["identifiers"].to<JsonArray>().add(_uniqueId);
         };
@@ -586,7 +586,7 @@ class MqttManager {
         doc["entity_category"] = "config";
         auto dev = doc["device"].to<JsonObject>();
         dev["name"] = _deviceName;
-        dev["model"] = "Battery Light";
+        dev["model"] = "LightWitch";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
@@ -612,7 +612,7 @@ class MqttManager {
         doc["entity_category"] = "config";
         auto dev = doc["device"].to<JsonObject>();
         dev["name"] = _deviceName;
-        dev["model"] = "Battery Light";
+        dev["model"] = "LightWitch";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
@@ -629,7 +629,7 @@ class MqttManager {
         auto dev = [&](JsonDocument& doc) {
             auto d = doc["device"].to<JsonObject>();
             d["name"] = _deviceName;
-            d["model"] = "Battery Light";
+            d["model"] = "LightWitch";
             d["manufacturer"] = "DIY";
             d["identifiers"].to<JsonArray>().add(_uniqueId);
         };

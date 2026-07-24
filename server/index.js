@@ -61,7 +61,7 @@ const MOCK_CONFIG = {
   mqttUser: 'lights',
   version: 'mock',
   mac: '11:22:33:44:55:66',
-  githubRepo: 'Variour/batterylight',
+  githubRepo: 'Variour/lightwitch',
   timezone: 'CET-1CEST,M3.5.0,M10.5.0/3', // Europe/Berlin
   lights: mockLights,
   groups: [
@@ -1209,6 +1209,6 @@ wss.on('connection', ws => {
 });
 
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => console.log(`Battery Light mock server: http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`LightWitch mock server: http://localhost:${PORT}`));
 
 export { app, server };
