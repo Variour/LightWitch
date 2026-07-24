@@ -1097,9 +1097,11 @@ input[type=radio]:active { background-color: #1a5; }
   <div class="card">
     <h2>Event log</h2>
     <p style="font-size:.78rem;color:#666;margin:0 0 .5rem">Order this device received mesh events in. Cleared on reboot.</p>
-    <label>Max displayed</label>
-    <input type="number" id="eventLogLimit" min="1" max="128" style="margin-bottom:.5rem">
-    <input type="text" id="events-filter" placeholder="Filter by event type (e.g. buzz.press)" style="margin-bottom:.5rem">
+    <div class="row" style="margin-bottom:.5rem">
+      <input type="text" id="events-filter" placeholder="Filter by event type (e.g. buzz.press)" style="margin-bottom:0">
+      <label style="flex:0 0 auto;margin:0;white-space:nowrap">Max</label>
+      <input type="number" id="eventLogLimit" min="1" max="128" style="flex:0 0 4.5rem;margin-bottom:0">
+    </div>
     <div id="events-list"></div>
     <button class="btn-danger btn-sm" style="width:100%;margin-top:.6rem" id="events-clear-btn">Clear event log</button>
   </div>
