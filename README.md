@@ -1,4 +1,5 @@
-# Battery Light
+![ESP Devices, smart Mesh](lightwitch.jpg)
+# LightWitch
 
 [![Latest release](https://img.shields.io/github/v/release/Variour/batteryLight)](https://github.com/Variour/batteryLight/releases/latest)
 [![License](https://img.shields.io/github/license/Variour/batteryLight)](https://github.com/Variour/batteryLight/blob/main/LICENSE)
