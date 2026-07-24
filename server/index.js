@@ -1209,6 +1209,6 @@ wss.on('connection', ws => {
 });
 
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => console.log(`LightWitch mock server: http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`lightWitch mock server: http://localhost:${PORT}`));
 
 export { app, server };

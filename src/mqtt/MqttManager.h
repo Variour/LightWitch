@@ -426,7 +426,7 @@ class MqttManager {
         _buildEffectList(doc["effect_list"].to<JsonArray>());
         auto dev = doc["device"].to<JsonObject>();
         dev["name"] = _deviceName;
-        dev["model"] = "LightWitch";
+        dev["model"] = "lightWitch";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
@@ -460,7 +460,7 @@ class MqttManager {
         doc["command_template"] = "{\"time24h\": {{ (value == \"ON\") | lower }}}";
         auto dev = doc["device"].to<JsonObject>();
         dev["name"] = _deviceName;
-        dev["model"] = "LightWitch";
+        dev["model"] = "lightWitch";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
@@ -482,7 +482,7 @@ class MqttManager {
         auto dev = [&](JsonDocument& doc) {
             auto d = doc["device"].to<JsonObject>();
             d["name"] = _deviceName;
-            d["model"] = "LightWitch";
+            d["model"] = "lightWitch";
             d["manufacturer"] = "DIY";
             d["identifiers"].to<JsonArray>().add(_uniqueId);
         };
@@ -586,7 +586,7 @@ class MqttManager {
         doc["entity_category"] = "config";
         auto dev = doc["device"].to<JsonObject>();
         dev["name"] = _deviceName;
-        dev["model"] = "LightWitch";
+        dev["model"] = "lightWitch";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
@@ -612,7 +612,7 @@ class MqttManager {
         doc["entity_category"] = "config";
         auto dev = doc["device"].to<JsonObject>();
         dev["name"] = _deviceName;
-        dev["model"] = "LightWitch";
+        dev["model"] = "lightWitch";
         dev["manufacturer"] = "DIY";
         dev["identifiers"].to<JsonArray>().add(_uniqueId);
 
@@ -629,7 +629,7 @@ class MqttManager {
         auto dev = [&](JsonDocument& doc) {
             auto d = doc["device"].to<JsonObject>();
             d["name"] = _deviceName;
-            d["model"] = "LightWitch";
+            d["model"] = "lightWitch";
             d["manufacturer"] = "DIY";
             d["identifiers"].to<JsonArray>().add(_uniqueId);
         };

@@ -4,7 +4,7 @@ This document records the current compatibility contract for ESP-NOW mesh messag
 
 ## Policy statement
 
-LightWitch currently treats the mesh wire protocol as a **same-firmware protocol**.
+lightWitch currently treats the mesh wire protocol as a **same-firmware protocol**.
 
 What is supported:
 - peers running the same firmware build

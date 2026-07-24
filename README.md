@@ -1,5 +1,5 @@
 ![ESP Devices, smart Mesh](lightwitch.jpg)
-# LightWitch
+# lightWitch
 
 [![Latest release](https://img.shields.io/github/v/release/Variour/lightWitch)](https://github.com/Variour/lightWitch/releases/latest)
 [![License](https://img.shields.io/github/license/Variour/lightWitch)](https://github.com/Variour/lightWitch/blob/main/LICENSE)

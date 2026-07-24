@@ -1,7 +1,7 @@
 {
   "name": "lightwitch",
   "private": true,
-  "description": "Dev tooling and mock server for the LightWitch web UI",
+  "description": "Dev tooling and mock server for the lightWitch web UI",
   "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",

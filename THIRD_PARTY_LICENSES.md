@@ -1,6 +1,6 @@
 # Third-Party Licenses
 
-LightWitch itself is licensed under the GNU General Public License v3.0
+lightWitch itself is licensed under the GNU General Public License v3.0
 (see [`LICENSE`](LICENSE)). The compiled firmware binaries published as
 GitHub Releases statically link the following third-party libraries, which
 remain under their own licenses.
