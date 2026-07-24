@@ -16,6 +16,13 @@ Use this after the implementation has been reviewed and the user wants to ship i
 
 2. Validate before publishing.
    - Run `/feature-checklist` for feature or API changes.
+   - If any `.cpp`/`.h` files under `src/` changed, format only those files and confirm the check CI runs would pass:
+     ```bash
+     FILES=$(git diff --name-only --diff-filter=ACMR main...HEAD -- src | grep -E '\.(cpp|h)$')
+     [ -n "$FILES" ] && clang-format -i $FILES
+     [ -n "$FILES" ] && clang-format --dry-run --Werror $FILES
+     ```
+     Do not run this across all of `src/` — only the files this change touches.
 
 3. Publish the branch.
    - Create a branch name from issue id if available and a concise description.
