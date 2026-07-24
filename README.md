@@ -4,6 +4,7 @@
 [![License](https://img.shields.io/github/license/Variour/batteryLight)](https://github.com/Variour/batteryLight/blob/main/LICENSE)
 
 *Open source technical witchcraft for light, sound and other cool stuff.*
+
 ***Enabling ESP32-based devices with web interface, OTA updates, and mesh sync***
 
 LightWitch is a platform for building your own light, sound, sensor and switching devices. You design the object, we handle the awkward parts. Lamps, lanterns, torches, glowing orbs, candles, wearables, buttons, remotes, speakers, whatever you have in mind.
