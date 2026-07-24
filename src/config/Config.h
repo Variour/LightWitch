@@ -501,6 +501,10 @@ struct DeviceConfig {
     bool sceneSyncEnabled = true;
     bool playlistSyncEnabled = true;
     bool checkUpdateOnStartup = false;
+    // Max entries the web UI's Event log view shows/fetches at once (see
+    // EventLog.h, issue #442) — a display preference, not a mesh-pushable
+    // setting (not part of applyConfigSync). Clamped to [1, EventLog::CAPACITY].
+    uint8_t eventLogLimit = 10;
     // Mesh-wide policy (see WifiElection.h): when true, only one candidate device
     // actually joins the configured WiFi network at a time; the rest stay AP-only.
     // This is synchronized as mesh state, not a one-shot event: revision + origin

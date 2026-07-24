@@ -1097,8 +1097,11 @@ input[type=radio]:active { background-color: #1a5; }
   <div class="card">
     <h2>Event log</h2>
     <p style="font-size:.78rem;color:#666;margin:0 0 .5rem">Order this device received mesh events in. Cleared on reboot.</p>
+    <label>Max displayed</label>
+    <input type="number" id="eventLogLimit" min="1" max="128" style="margin-bottom:.5rem">
     <input type="text" id="events-filter" placeholder="Filter by event type (e.g. buzz.press)" style="margin-bottom:.5rem">
     <div id="events-list"></div>
+    <button class="btn-danger btn-sm" style="width:100%;margin-top:.6rem" id="events-clear-btn">Clear event log</button>
   </div>
 
   <!-- UPDATES -->
@@ -2586,7 +2589,7 @@ const SETTINGS_FIELD_IDS = [
   'deviceName', 'logLevel', 'timezone', 'apPassword', 'otaPort', 'otaEnabled',
   'mqttHost', 'mqttPort', 'mqttUser', 'mqttPassword',
   'githubRepo', 'githubToken', 'checkUpdateOnStartup', 'prOtaEnabled', 'batteryMonitoringEnabled',
-  'hasI2cBus', 'i2cSdaPin', 'i2cSclPin', 'hasExpander', 'expanderAddress',
+  'hasI2cBus', 'i2cSdaPin', 'i2cSclPin', 'hasExpander', 'expanderAddress', 'eventLogLimit',
 ];
 // Subset of SETTINGS_FIELD_IDS that actually triggers a device reboot (see
 // _postConfig in WebServer.h) — the button label reflects whether any of
@@ -2662,6 +2665,7 @@ async function saveSettings() {
   if (mqttPw) body.mqttPassword  = mqttPw;
   body.githubRepo = $('githubRepo').value;
   body.checkUpdateOnStartup = $('checkUpdateOnStartup').checked;
+  body.eventLogLimit = parseInt($('eventLogLimit').value) || 10;
   body.prOtaEnabled = $('prOtaEnabled').checked;
   if ($('battery-section').style.display !== 'none')
     body.batteryMonitoringEnabled = $('batteryMonitoringEnabled').checked;
@@ -3087,6 +3091,8 @@ async function loadConfig() {
   $('otaPort').value    = d.otaPort    || 3232;
   $('otaEnabled').checked = d.otaEnabled !== false;
   if (d.logLevel !== undefined) $('logLevel').value = d.logLevel;
+  _eventsLimit = d.eventLogLimit || 10;
+  $('eventLogLimit').value = _eventsLimit;
   if (d.lights) renderLightsHw(d.lights);
   loadButtons().catch(() => {});
   loadAutomations().catch(() => {});
@@ -3191,6 +3197,7 @@ function connectWs() {
       if (d.t === 'groups') renderGroups(d.list || []);
       if (d.t === 'audioGroups') renderAudioGroupsList(d.list || []);
       if (d.t === 'event') _onEventPush(d);
+      if (d.t === 'eventsCleared') { _events = []; renderEventsList(); }
     } catch { /* ignore malformed/unexpected WS messages */ }
   };
 }
@@ -6574,11 +6581,12 @@ async function loadAutomations() {
 // ── Event log ─────────────────────────────────────────────────────────────────
 // Read-only view of EventLog (issue #442): the order GenericEvent broadcasts
 // (e.g. buzzer presses) arrived at this device. Server-side ring buffer is
-// the source of truth (see EventLog::CAPACITY) — mirror its cap here so a
+// the source of truth for what GET /api/events returns (already capped to
+// eventLogLimit) — _eventsLimit mirrors that same cap client-side so a
 // long-open page doesn't grow the table unbounded from live 't':'event' pushes.
-const EVENTS_CAPACITY = 128;
 let _events = [];
 let _eventsFilter = '';
+let _eventsLimit = 10;
 
 async function loadEvents() {
   const filterAtRequest = _eventsFilter;
@@ -6615,14 +6623,24 @@ function renderEventsList() {
 function _onEventPush(e) {
   if (_eventsFilter && e.eventType !== _eventsFilter) return;
   _events.push(e);
-  if (_events.length > EVENTS_CAPACITY) _events.shift();
+  if (_events.length > _eventsLimit) _events.shift();
   renderEventsList();
+}
+
+async function clearEvents() {
+  await _confirmAction('Clear the recorded event history on this device?', async () => {
+    const res = await _fetchOrAlert('/api/events/clear', {method: 'POST'});
+    if (!res) return;
+    _events = [];
+    renderEventsList();
+  });
 }
 
 $('events-filter').addEventListener('input', e => {
   _eventsFilter = e.target.value.trim();
   loadEvents();
 });
+$('events-clear-btn').addEventListener('click', clearEvents);
 
 // ── Static event wiring ───────────────────────────────────────────────────────
 // Elements present in the initial DOM (never rebuilt via innerHTML); dynamically

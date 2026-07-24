@@ -918,6 +918,7 @@ void setup() {
 
     webServer.setEventLog(&eventLog);
     eventLog.setOnAppend([](const EventLogEntry& e) { webServer.pushEvent(e); });
+    eventLog.setOnClear([]() { webServer.pushEventsCleared(); });
 
     webServer.setPlaylistSync(&playlistSync);
     // idx/volume args no longer directly meaningful (volume now only applies

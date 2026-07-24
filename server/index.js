@@ -45,6 +45,7 @@ const MOCK_CONFIG = {
   logLevel: 2, // Info
   sceneSyncEnabled: true,
   checkUpdateOnStartup: false,
+  eventLogLimit: 10,
   wifiSingleClientMode: false,
   batteryHwSupported: true,
   batteryMonitoringEnabled: true,
@@ -235,6 +236,11 @@ function broadcastPeers() {
 
 function broadcastAudioGroups() {
   const msg = JSON.stringify({ t: 'audioGroups', list: mockAudioGroups });
+  wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
+}
+
+function broadcastEventsCleared() {
+  const msg = JSON.stringify({ t: 'eventsCleared' });
   wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
 }
 
@@ -452,8 +458,14 @@ app.get('/api/peers', (_req, res) => res.json({
 }));
 app.get('/api/events', (req, res) => {
   const eventType = (req.query.eventType || '').toString();
-  const events = eventType ? mockEvents.filter(e => e.eventType === eventType) : mockEvents;
-  res.json({ events });
+  const filtered = eventType ? mockEvents.filter(e => e.eventType === eventType) : mockEvents;
+  const limit = MOCK_CONFIG.eventLogLimit || 10;
+  res.json({ events: filtered.slice(-limit) });
+});
+app.post('/api/events/clear', (_req, res) => {
+  mockEvents.length = 0;
+  res.json({ ok: true });
+  broadcastEventsCleared();
 });
 app.post('/api/peers/setgroup', (req, res) => {
   const { mac, lightIndex, groupId } = req.body || {};

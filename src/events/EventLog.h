@@ -28,6 +28,9 @@ class EventLog {
     using AppendCb = std::function<void(const EventLogEntry&)>;
     void setOnAppend(AppendCb cb) { _onAppend = cb; }
 
+    using ClearCb = std::function<void()>;
+    void setOnClear(ClearCb cb) { _onClear = cb; }
+
     void record(const char* peerName, const char* eventType, uint16_t payload) {
         EventLogEntry& e = _entries[_head];
         strlcpy(e.peerName, peerName, sizeof(e.peerName));
@@ -39,15 +42,34 @@ class EventLog {
         if (_onAppend) _onAppend(e);
     }
 
-    // Visits stored entries oldest-first, optionally restricted to a single
+    // Wipes all stored entries (device-side "clear events" action) and
+    // restarts arrival order at 0 — a fresh start, same as after a reboot.
+    void clear() {
+        _head = 0;
+        _count = 0;
+        _nextOrder = 0;
+        if (_onClear) _onClear();
+    }
+
+    // Visits at most `limit` (0 = unlimited) of the most-recently recorded
+    // matching entries, oldest-first, optionally restricted to a single
     // eventType ("" = no filter).
-    void forEach(const char* eventTypeFilter,
+    void forEach(const char* eventTypeFilter, uint16_t limit,
                  const std::function<void(const EventLogEntry&)>& fn) const {
         uint16_t start = (_count < CAPACITY) ? 0 : _head;
+        auto matches = [&](const EventLogEntry& e) {
+            return !eventTypeFilter || !eventTypeFilter[0] ||
+                   strcmp(e.eventType, eventTypeFilter) == 0;
+        };
+        uint16_t total = 0;
+        for (uint16_t i = 0; i < _count; i++)
+            if (matches(_entries[(start + i) % CAPACITY])) total++;
+        uint16_t skip = (limit > 0 && total > limit) ? total - limit : 0;
+        uint16_t seen = 0;
         for (uint16_t i = 0; i < _count; i++) {
             const EventLogEntry& e = _entries[(start + i) % CAPACITY];
-            if (eventTypeFilter && eventTypeFilter[0] && strcmp(e.eventType, eventTypeFilter) != 0)
-                continue;
+            if (!matches(e)) continue;
+            if (seen++ < skip) continue;
             fn(e);
         }
     }
@@ -58,4 +80,5 @@ class EventLog {
     uint16_t _count = 0;
     uint32_t _nextOrder = 0;
     AppendCb _onAppend;
+    ClearCb _onClear;
 };

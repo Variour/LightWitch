@@ -229,6 +229,8 @@ class BatteryWebServer {
 
         _server.on("/api/peers", HTTP_GET, [this](AsyncWebServerRequest* r) { _getPeers(r); });
         _server.on("/api/events", HTTP_GET, [this](AsyncWebServerRequest* r) { _getEvents(r); });
+        _server.on("/api/events/clear", HTTP_POST,
+                   [this](AsyncWebServerRequest* r) { _clearEvents(r); });
 
         _server.on(
             "/api/groups/create", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
@@ -773,6 +775,7 @@ class BatteryWebServer {
     void pushAudioGroups() { _pushAudioGroups(); }
     void setEventLog(EventLog* log) { _eventLog = log; }
     void pushEvent(const EventLogEntry& e) { _pushEvent(e); }
+    void pushEventsCleared() { _pushEventsCleared(); }
 
    private:
     AsyncWebServer _server{80};
@@ -891,6 +894,7 @@ class BatteryWebServer {
         doc["logLevel"] = c.logLevel;
         doc["sceneSyncEnabled"] = c.sceneSyncEnabled;
         doc["checkUpdateOnStartup"] = c.checkUpdateOnStartup;
+        doc["eventLogLimit"] = c.eventLogLimit;
         doc["wifiSingleClientMode"] = c.wifiSingleClientMode;
         doc["batteryHwSupported"] = BatteryMonitor::kHwSupported;
         doc["batteryMonitoringEnabled"] = c.batteryMonitoringEnabled;
@@ -985,6 +989,9 @@ class BatteryWebServer {
         }
         if (!doc["checkUpdateOnStartup"].isNull())
             c.checkUpdateOnStartup = (bool)doc["checkUpdateOnStartup"];
+        if (!doc["eventLogLimit"].isNull())
+            c.eventLogLimit =
+                (uint8_t)constrain((int)doc["eventLogLimit"], 1, (int)EventLog::CAPACITY);
 
         bool batteryChanged = false;
         if (!doc["batteryMonitoringEnabled"].isNull()) {
@@ -1131,15 +1138,23 @@ class BatteryWebServer {
         JsonDocument doc;
         JsonArray arr = doc["events"].to<JsonArray>();
         if (_eventLog) {
-            _eventLog->forEach(filter.c_str(), [&](const EventLogEntry& e) {
-                JsonObject o = arr.add<JsonObject>();
-                o["name"] = e.peerName;
-                o["eventType"] = e.eventType;
-                o["payload"] = e.payload;
-                o["order"] = e.order;
-            });
+            _eventLog->forEach(filter.c_str(), Config::get().eventLogLimit,
+                               [&](const EventLogEntry& e) {
+                                   JsonObject o = arr.add<JsonObject>();
+                                   o["name"] = e.peerName;
+                                   o["eventType"] = e.eventType;
+                                   o["payload"] = e.payload;
+                                   o["order"] = e.order;
+                               });
         }
         _sendJson(r, 200, doc);
+    }
+
+    // ── POST /api/events/clear ───────────────────────────────────────────────
+    void _clearEvents(AsyncWebServerRequest* r) {
+        if (_eventLog) _eventLog->clear();
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
     }
 
     // ── GET /api/peers ───────────────────────────────────────────────────────
@@ -1509,6 +1524,11 @@ class BatteryWebServer {
         String s;
         serializeJson(doc, s);
         _ws->textAll(s);
+    }
+
+    void _pushEventsCleared() {
+        if (!_ws || _ws->count() == 0) return;
+        _ws->textAll("{\"t\":\"eventsCleared\"}");
     }
 
     void _pushLog(LogLevel level, const char* msg) {
