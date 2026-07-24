@@ -1093,6 +1093,14 @@ input[type=radio]:active { background-color: #1a5; }
     <button class="btn-ghost" style="width:100%" id="add-automation-btn">Add automation</button>
   </div>
 
+  <!-- EVENT LOG -->
+  <div class="card">
+    <h2>Event log</h2>
+    <p style="font-size:.78rem;color:#666;margin:0 0 .5rem">Order this device received mesh events in. Cleared on reboot.</p>
+    <input type="text" id="events-filter" placeholder="Filter by event type (e.g. buzz.press)" style="margin-bottom:.5rem">
+    <div id="events-list"></div>
+  </div>
+
   <!-- UPDATES -->
   <div class="card">
     <h2>Updates</h2>
@@ -3082,6 +3090,7 @@ async function loadConfig() {
   if (d.lights) renderLightsHw(d.lights);
   loadButtons().catch(() => {});
   loadAutomations().catch(() => {});
+  loadEvents().catch(() => {});
   await loadAudioGroups().catch(() => {});
   loadSounds().catch(() => {});
   loadStorage().catch(() => {});
@@ -3181,6 +3190,7 @@ function connectWs() {
       if (d.t === 'peers') { renderLights(d.self, d.peers || [], d.wifiSingleClientMode === true); _refreshSceneOptionViews(); }
       if (d.t === 'groups') renderGroups(d.list || []);
       if (d.t === 'audioGroups') renderAudioGroupsList(d.list || []);
+      if (d.t === 'event') _onEventPush(d);
     } catch { /* ignore malformed/unexpected WS messages */ }
   };
 }
@@ -6560,6 +6570,59 @@ async function loadAutomations() {
   _automationsMaxActions = d.maxActionsPerRule || 3;
   renderAutomationsList(d.automations || []);
 }
+
+// ── Event log ─────────────────────────────────────────────────────────────────
+// Read-only view of EventLog (issue #442): the order GenericEvent broadcasts
+// (e.g. buzzer presses) arrived at this device. Server-side ring buffer is
+// the source of truth (see EventLog::CAPACITY) — mirror its cap here so a
+// long-open page doesn't grow the table unbounded from live 't':'event' pushes.
+const EVENTS_CAPACITY = 128;
+let _events = [];
+let _eventsFilter = '';
+
+async function loadEvents() {
+  const filterAtRequest = _eventsFilter;
+  const q = filterAtRequest ? ('?eventType=' + encodeURIComponent(filterAtRequest)) : '';
+  const res = await fetch('/api/events' + q);
+  if (!res.ok) return;
+  const d = await res.json();
+  const fresh = d.events || [];
+  // A live 't':'event' WS push can land between this request and its
+  // response; keep any such already-appended entries newer than what this
+  // snapshot covers (and still matching the current filter) instead of the
+  // fetch silently dropping them.
+  const maxOrder = fresh.length ? fresh[fresh.length - 1].order : -1;
+  const late = _eventsFilter === filterAtRequest
+    ? _events.filter(e => e.order > maxOrder && (!_eventsFilter || e.eventType === _eventsFilter))
+    : [];
+  _events = fresh.concat(late);
+  renderEventsList();
+}
+
+function renderEventsList() {
+  const el = $('events-list');
+  if (!el) return;
+  if (!_events.length) {
+    el.innerHTML = '<p style="color:#555;font-size:.85rem">No events recorded yet.</p>';
+    return;
+  }
+  el.innerHTML = `<div class="lights-table-wrap"><table class="lights-table">
+    <thead><tr><th>#</th><th>Name</th><th>Event type</th><th>Payload</th></tr></thead>
+    <tbody>${_events.map(e => `<tr><td>${e.order}</td><td>${esc(e.name)}</td><td>${esc(e.eventType)}</td><td>${e.payload}</td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function _onEventPush(e) {
+  if (_eventsFilter && e.eventType !== _eventsFilter) return;
+  _events.push(e);
+  if (_events.length > EVENTS_CAPACITY) _events.shift();
+  renderEventsList();
+}
+
+$('events-filter').addEventListener('input', e => {
+  _eventsFilter = e.target.value.trim();
+  loadEvents();
+});
 
 // ── Static event wiring ───────────────────────────────────────────────────────
 // Elements present in the initial DOM (never rebuilt via innerHTML); dynamically

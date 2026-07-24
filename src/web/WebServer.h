@@ -7,6 +7,7 @@
 
 #include "../battery/BatteryMonitor.h"
 #include "../config/Config.h"
+#include "../events/EventLog.h"
 #include "../logging/Logger.h"
 #include "../mesh/ChannelManager.h"
 #include "../mesh/PeerRegistry.h"
@@ -227,6 +228,7 @@ class BatteryWebServer {
         });
 
         _server.on("/api/peers", HTTP_GET, [this](AsyncWebServerRequest* r) { _getPeers(r); });
+        _server.on("/api/events", HTTP_GET, [this](AsyncWebServerRequest* r) { _getEvents(r); });
 
         _server.on(
             "/api/groups/create", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
@@ -769,6 +771,8 @@ class BatteryWebServer {
     void setOnSetRemoteAudioGroup(SetRemoteAudioGroupCb cb) { _onSetRemoteAudioGroup = cb; }
     void setOnSetRemoteVolume(SetRemoteVolumeCb cb) { _onSetRemoteVolume = cb; }
     void pushAudioGroups() { _pushAudioGroups(); }
+    void setEventLog(EventLog* log) { _eventLog = log; }
+    void pushEvent(const EventLogEntry& e) { _pushEvent(e); }
 
    private:
     AsyncWebServer _server{80};
@@ -777,6 +781,7 @@ class BatteryWebServer {
     PeerRegistry* _peers = nullptr;
     ChannelManager* _channelMgr = nullptr;
     SdCardManager* _sdCard = nullptr;
+    EventLog* _eventLog = nullptr;
 
     GroupChangeCb _onGroupChange;
     GroupLightCb _onGroupLight;
@@ -1118,6 +1123,23 @@ class BatteryWebServer {
         Config::save();
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
+    }
+
+    // ── GET /api/events ──────────────────────────────────────────────────────
+    void _getEvents(AsyncWebServerRequest* r) {
+        String filter = r->hasParam("eventType") ? r->getParam("eventType")->value() : "";
+        JsonDocument doc;
+        JsonArray arr = doc["events"].to<JsonArray>();
+        if (_eventLog) {
+            _eventLog->forEach(filter.c_str(), [&](const EventLogEntry& e) {
+                JsonObject o = arr.add<JsonObject>();
+                o["name"] = e.peerName;
+                o["eventType"] = e.eventType;
+                o["payload"] = e.payload;
+                o["order"] = e.order;
+            });
+        }
+        _sendJson(r, 200, doc);
     }
 
     // ── GET /api/peers ───────────────────────────────────────────────────────
@@ -1471,6 +1493,19 @@ class BatteryWebServer {
             if (!g.exists) continue;
             serializeGroup(arr.add<JsonObject>(), g);
         }
+        String s;
+        serializeJson(doc, s);
+        _ws->textAll(s);
+    }
+
+    void _pushEvent(const EventLogEntry& e) {
+        if (!_ws || _ws->count() == 0) return;
+        JsonDocument doc;
+        doc["t"] = "event";
+        doc["name"] = e.peerName;
+        doc["eventType"] = e.eventType;
+        doc["payload"] = e.payload;
+        doc["order"] = e.order;
         String s;
         serializeJson(doc, s);
         _ws->textAll(s);

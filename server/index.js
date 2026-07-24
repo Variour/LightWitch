@@ -162,6 +162,20 @@ const MOCK_PEERS = [
   { name: 'Mock Light 5', mac: '55:66:77:88:99:aa', lights: [{ index: 0, name: 'Garage', groupId: 0 }], sound: null, online: true,  rssi: -70, sceneSyncEnabled: true,  wifiConnected: false, hasWifiNetworks: true,  wifiConnecting: true,  version: '2026.01.01.0', fwState: 'idle', batteryPresent: false, batteryPercent: 0,  batteryCharging: false },
 ];
 
+// Mirrors EventLog's ring buffer (src/events/EventLog.h, issue #442): the
+// order GenericEvent broadcasts (matching mockAutomations' 'buzz.press'/
+// 'buzz.reset' eventTypes) arrived at this device. Static sample data since
+// nothing in the mock server generates live mesh traffic.
+const mockEvents = [
+  { name: 'Mock Light 2', eventType: 'buzz.press', payload: 1, order: 0 },
+  { name: 'Mock Light 4', eventType: 'buzz.press', payload: 2, order: 1 },
+  { name: 'Mock Device',  eventType: 'buzz.reset', payload: 0, order: 2 },
+];
+// Sent as a live 't':'event' WS push on connect (not part of mockEvents/
+// GET /api/events) so a freshly loaded page also demonstrates the live-append
+// path, without duplicating a row the initial GET already returned.
+const mockLiveEvent = { name: 'Mock Light 3', eventType: 'buzz.press', payload: 3, order: 3 };
+
 const wifiNetworks = [
   { ssid: 'HomeNetwork', password: 'secret1' },
   { ssid: 'WorkWifi',    password: 'secret2' },
@@ -436,6 +450,11 @@ app.get('/api/peers', (_req, res) => res.json({
   peers: MOCK_PEERS,
   wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode,
 }));
+app.get('/api/events', (req, res) => {
+  const eventType = (req.query.eventType || '').toString();
+  const events = eventType ? mockEvents.filter(e => e.eventType === eventType) : mockEvents;
+  res.json({ events });
+});
 app.post('/api/peers/setgroup', (req, res) => {
   const { mac, lightIndex, groupId } = req.body || {};
   // Mirrors WebServer.h::_setRemoteGroup: only self-mac assignments are
@@ -1122,6 +1141,7 @@ wss.on('connection', ws => {
   send({ t: 'peers', self: selfWithLights(), peers: MOCK_PEERS, wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode });
   send({ t: 'groups', list: MOCK_CONFIG.groups });
   send({ t: 'audioGroups', list: mockAudioGroups });
+  send({ t: 'event', ...mockLiveEvent });
 });
 
 const PORT = process.env.PORT || 8080;
