@@ -86,6 +86,19 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `PlayAudio` | `PlayAudioMsg` fixed-size | `len >= sizeof(PlayAudioMsg)` | Raw fixed struct. One-shot playback trigger — see `PlayAudioMsg`'s comment for the start-sync/participation contract. |
 | `StopAudio` | `StopAudioMsg` fixed-size | `len >= sizeof(StopAudioMsg)` | Raw fixed struct. |
 | `GenericEvent` | `GenericEventMsg` fixed-size | `len >= sizeof(GenericEventMsg)` | Raw fixed struct. `eventType` is opaque to the mesh layer; no versioning. |
+| `Hello` | `HelloMsg` fixed-size | exact `sizeof(HelloMsg)` | **The one deliberate cross-firmware exception** — see below. |
+
+## The `Hello` exception
+
+Every message above is same-firmware-only, by design. `HelloMsg` is the single deliberate exception, and it exists to resolve a real conflict: onboarding a brand-new device requires it to be discoverable, receive a WiFi-config push, and be nudged to check/install a firmware update — all before it's guaranteed to run firmware compatible with `PresenceMsg`. Without a discovery path that survives a version mismatch, a new device on different firmware can never be brought up to date at all.
+
+This does not reopen the "no compatibility code" rule for the rest of the protocol:
+
+- `HelloMsg` carries only `name` + `fwVersion` + `wifiConnected` + `hasWifiNetworks` — enough to show a device in the dashboard, target it by MAC, and tell whether a WiFi-config push or an update check is the right next step. It never carries state that needs merging or interpreting.
+- It has **no version field**. Its shape may still move during this feature's own development (mirrors `PresenceMsg`'s "reset before first real deployment" convention — see above), but once a released firmware is broadcasting a given layout, it must **never change again** — no new fields, ever, from that point on. If onboarding needs more information after that, that's a new `MsgType`, not a change to this struct. That's what keeps its exact-size check safe permanently, instead of becoming another `PRESENCE_MSG_VERSION`-style gate that itself needs versioning.
+- Every device broadcasts it unconditionally (same 5 s cadence as `PresenceMsg`), regardless of onboarding state — so discovery is symmetric and doesn't depend on either side knowing it's "new".
+- Receiving a `Hello` also counts as "peer heard" for `ChannelManager`'s channel-lock logic, the same as a valid `PresenceMsg` did before — so channel convergence no longer depends on the two devices' `PresenceMsg` schemas matching either.
+- Once a device starts sending a `PresenceMsg` this receiver accepts, it's treated as a full peer; `Hello` only ever represents "seen, but not yet interoperable with the full protocol."
 
 ## Audit conclusions
 

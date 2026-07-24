@@ -519,6 +519,13 @@ input[type=radio]:active { background-color: #1a5; }
 <!-- ══════════════ DASHBOARD ══════════════ -->
 <div id="tab-dashboard">
 
+  <!-- DISCOVERED DEVICES (different/incompatible firmware — see docs/mesh-compatibility.md) -->
+  <div class="card" id="discovered-devices-card" style="display:none">
+    <h2 style="margin:0 0 .5rem">Devices found (setup required)</h2>
+    <p style="margin:0 0 .5rem;font-size:.82rem;color:#888">Seen on the mesh, but running firmware this device can't fully talk to yet. Click "Set up device" to send it your WiFi and bring it up to date — it may restart a couple of times while that happens.</p>
+    <div id="discovered-devices-list"></div>
+  </div>
+
   <!-- CONNECTED LIGHTS -->
   <div class="card">
     <h2 style="margin:0 0 .5rem;display:flex;align-items:center;gap:.4rem">Connected Devices
@@ -2260,6 +2267,213 @@ function renderLights(self, peers, wifiSingleClientMode) {
   _updateSignalColumn();
 }
 
+// Devices seen only via a HelloMsg (different/incompatible firmware — see
+// docs/mesh-compatibility.md), listed separately from the main lights table
+// since they carry none of that table's data (lights/groups/sound/etc.).
+// Setup is one guided action (setupDiscoveredDevice): push this device's
+// WiFi config if the target isn't connected yet, wait for it to reconnect,
+// then trigger a check-and-install update — see _setupState's phase machine
+// below. Feedback is limited to what HelloMsg actually carries (name,
+// fwVersion, wifiConnected, hasWifiNetworks) plus whether the device is
+// still present in discoveredPeers at all; there's no ack for the update
+// check/install itself, hence the timeouts and honest "no confirmation yet"
+// stalled states rather than a fake progress bar.
+const _setupState = {};  // mac -> {phase, name, timer}
+const WIFI_WAIT_TIMEOUT_MS = 90000;    // covers setupWifi()'s up-to-3x10s-per-network retry + reboot
+const UPDATE_WAIT_TIMEOUT_MS = 180000; // check + possible download/flash + reboot
+let _discoveredPeers = [];
+
+function _clearSetup(mac) {
+  if (_setupState[mac] && _setupState[mac].timer) clearTimeout(_setupState[mac].timer);
+  delete _setupState[mac];
+}
+
+function _setPhase(mac, phase, name) {
+  const prevTimer = _setupState[mac] && _setupState[mac].timer;
+  if (prevTimer) clearTimeout(prevTimer);
+  _setupState[mac] = { phase, name: name || (_setupState[mac] && _setupState[mac].name), timer: null };
+}
+
+function _armStallTimeout(mac, ms, stalledPhase) {
+  _setupState[mac].timer = setTimeout(() => {
+    if (!_setupState[mac]) return;
+    _setupState[mac].phase = stalledPhase;
+    _setupState[mac].timer = null;
+    renderDiscoveredPeers(_discoveredPeers);
+  }, ms);
+}
+
+function renderDiscoveredPeers(list) {
+  const card = $('discovered-devices-card');
+  const container = $('discovered-devices-list');
+  if (!card || !container) return;
+  list = list || [];
+
+  // Macs mid-setup that dropped out of the list entirely — either they
+  // graduated to a full compatible peer (now in _peers, set by renderLights
+  // which always runs immediately before this) or contact was lost outright
+  // (most likely a WiFi-channel change once connected — see ChannelManager).
+  const stillPresent = new Set(list.map(p => p.mac));
+  for (const mac of Object.keys(_setupState)) {
+    if (stillPresent.has(mac)) continue;
+    const name = _setupState[mac].name;
+    _clearSetup(mac);
+    const graduated = (_peers || []).some(p => p.mac === mac);
+    showToast(graduated ? `${name} is now up to date`
+                        : `Lost contact with ${name} — it may now be on a different WiFi channel`,
+              !graduated);
+  }
+
+  _discoveredPeers = list;
+
+  // A device we're waiting on may have reconnected to WiFi since the last
+  // render — advance it. The phase is set here (before rendering below) so
+  // this same pass shows "triggering update" immediately; the network call
+  // itself is kicked off after rendering (see bottom) so it can't
+  // recursively re-enter this function mid-render.
+  const toTrigger = [];
+  for (const p of list) {
+    const state = _setupState[p.mac];
+    if (state && state.phase === 'waiting-wifi' && p.wifiConnected === true) {
+      _setPhase(p.mac, 'triggering-update', p.name);
+      toTrigger.push(p.mac);
+    }
+  }
+
+  if (!list.length) {
+    card.style.display = 'none';
+    container.innerHTML = '';
+  } else {
+    card.style.display = '';
+    container.innerHTML = list.map(p => {
+      const mac = p.mac || '';
+      const online = p.online !== false;
+      const dot = `<span class="dot ${online?'dot-on':'dot-off'}" aria-label="${online?'Online':'Offline'}"></span>`;
+      const ver = p.version ? `v${esc(p.version)}` : '';
+      const state = _setupState[mac];
+      const phase = state ? state.phase : 'idle';
+
+      let statusText, btnLabel, btnDisabled = false, mdnsLink = '';
+      if (phase === 'idle') {
+        statusText = p.wifiConnected === true ? 'Connected to WiFi — ready to update.'
+                   : p.hasWifiNetworks === true ? 'Has WiFi credentials, but isn’t connected.'
+                   : 'Not yet on your WiFi network.';
+        btnLabel = 'Set up device';
+      } else if (phase === 'pushing-wifi') {
+        statusText = 'Sending your WiFi credentials…';
+        btnLabel = 'Setting up…'; btnDisabled = true;
+      } else if (phase === 'waiting-wifi') {
+        statusText = 'WiFi sent — waiting for the device to restart and reconnect (up to about a minute)…';
+        btnLabel = 'Setting up…'; btnDisabled = true;
+      } else if (phase === 'wifi-stalled') {
+        statusText = 'Couldn’t confirm it reconnected yet. It may have failed, or may just need more time.';
+        btnLabel = 'Try again';
+      } else if (phase === 'triggering-update' || phase === 'waiting-update') {
+        statusText = 'Connected — checking for an update and installing it if found. It will restart again when done (may take a few minutes)…';
+        btnLabel = 'Setting up…'; btnDisabled = true;
+      } else if (phase === 'update-stalled') {
+        statusText = 'No confirmation the update finished yet. It may already be up to date, or the check/install may have failed.';
+        btnLabel = 'Try again';
+        // p.name is attacker-controlled (unauthenticated broadcast, see
+        // HelloMsg) — only build the link for names that actually look like
+        // a plain hostname label; encodeURIComponent as defense in depth on
+        // top of that, so nothing in it can escape the .local suffix and
+        // redirect this link to an attacker-chosen host.
+        mdnsLink = /^[A-Za-z0-9-]+$/.test(p.name)
+          ? ` <a class="light-device-link" href="http://${encodeURIComponent(p.name)}.local" target="_blank" rel="noopener">Open device</a>`
+          : '';
+      }
+
+      return `<div style="display:flex;align-items:center;gap:.5rem;padding:.4rem 0;border-bottom:1px solid #222;flex-wrap:wrap">
+        ${dot}
+        <span style="flex:1;min-width:8rem">${esc(p.name)} <span style="color:#666;font-size:.78rem">${ver}</span></span>
+        <span style="color:#555;font-size:.75rem">${esc(mac)}</span>
+        <button class="btn-ghost btn-sm" data-action="setupDiscoveredDevice" data-mac="${mac}" ${btnDisabled?'disabled':''}>${btnLabel}</button>
+        <span style="font-size:.72rem;color:#888;flex-basis:100%">${esc(statusText)}${mdnsLink}</span>
+      </div>`;
+    }).join('');
+  }
+
+  for (const mac of toTrigger) _runUpdateTrigger(mac);
+}
+
+// Local dev (mock server) never opens the dashboard WebSocket (see
+// isLocalDev below), so a discovered device's wifiConnected/graduation
+// changes triggered by setupDiscoveredDevice need a REST fallback too —
+// mirrors _wifiConnectPoll() above for the same reason, including catching
+// a dropped WS message on real hardware.
+let _setupPollTimer = null;
+let _setupPollTries = 0;
+
+function _pollWhileSettingUp() {
+  clearTimeout(_setupPollTimer);
+  const anyWaiting = Object.values(_setupState).some(
+    s => s.phase === 'waiting-wifi' || s.phase === 'waiting-update');
+  if (!anyWaiting) { _setupPollTries = 0; return; }
+  _setupPollTimer = setTimeout(async () => {
+    try {
+      const res = await fetch('/api/peers');
+      const d = await res.json();
+      renderLights(d.self, d.peers || [], d.wifiSingleClientMode === true);
+      renderDiscoveredPeers(d.discoveredPeers || []);
+    } catch { /* keep polling through transient network errors */ }
+    _setupPollTries++;
+    // Bounded generously (~5 min at 1.5s/poll) — well past both stall
+    // timeouts above, which will themselves stop anyWaiting from being true
+    // long before this cap matters; this is just a defense-in-depth backstop.
+    if (_setupPollTries < 200) _pollWhileSettingUp();
+  }, 1500);
+}
+
+_delegate('discovered-devices-list', 'click', {
+  setupDiscoveredDevice: el => setupDiscoveredDevice(el.dataset.mac),
+});
+
+// The single guided action: push WiFi config (unless already connected),
+// wait for reconnect, then trigger a check-and-install update. Re-entrant by
+// design — clicking "Try again" from a stalled state just re-evaluates
+// current wifiConnected instead of needing separate retry logic per phase.
+async function setupDiscoveredDevice(mac) {
+  const p = _discoveredPeers.find(x => x.mac === mac);
+  if (!p) return;
+
+  if (p.wifiConnected === true) {
+    _setPhase(mac, 'triggering-update', p.name);
+    renderDiscoveredPeers(_discoveredPeers);
+    await _runUpdateTrigger(mac);
+    return;
+  }
+
+  _setPhase(mac, 'pushing-wifi', p.name);
+  renderDiscoveredPeers(_discoveredPeers);
+  const res = await _fetchOrToast('/api/peers/pushconfig', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({mac, useLocal: ['wifiNetworks']})
+  }, 'Failed to push WiFi config');
+  if (!_discoveredPeers.some(x => x.mac === mac)) return;  // disappeared while we waited
+  if (!res) { _clearSetup(mac); renderDiscoveredPeers(_discoveredPeers); return; }
+  _setPhase(mac, 'waiting-wifi', p.name);
+  _armStallTimeout(mac, WIFI_WAIT_TIMEOUT_MS, 'wifi-stalled');
+  renderDiscoveredPeers(_discoveredPeers);
+  _pollWhileSettingUp();
+}
+
+// Only ever called once wifiConnected is known true for mac (either already
+// true at click time, or observed on a later Hello — see renderDiscoveredPeers).
+async function _runUpdateTrigger(mac) {
+  const name = _setupState[mac] && _setupState[mac].name;
+  const res = await _fetchOrToast('/api/peers/triggerupdate', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({mac})
+  }, 'Failed to start update');
+  if (!_setupState[mac]) return;  // disappeared while we waited on the network
+  if (!res) { _clearSetup(mac); renderDiscoveredPeers(_discoveredPeers); return; }
+  _setPhase(mac, 'waiting-update', name);
+  _armStallTimeout(mac, UPDATE_WAIT_TIMEOUT_MS, 'update-stalled');
+  renderDiscoveredPeers(_discoveredPeers);
+  _pollWhileSettingUp();
+}
+
 // Updates container's children to match `items` (each `{mac, [field]: innerHtml}`),
 // keyed by data-mac, reusing existing nodes so a broadcast-triggered re-render
 // doesn't destroy unrelated DOM. The node currently holding focus is skipped
@@ -3033,6 +3247,7 @@ function _wifiConnectPoll() {
       const res = await fetch('/api/peers');
       const d = await res.json();
       renderLights(d.self, d.peers || [], d.wifiSingleClientMode === true);
+      renderDiscoveredPeers(d.discoveredPeers || []);
       // Keep polling through the connect attempt itself, and then through
       // the AwaitingConfirm hold too (see WifiConnectAttempt) — that hold
       // can end on its own via the server-side timeout, with no user click.
@@ -3062,6 +3277,7 @@ async function deleteWifiNetwork(ssid) {
     const pr = await fetch('/api/peers');
     const pd = await pr.json();
     renderLights(pd.self, pd.peers || [], pd.wifiSingleClientMode === true);
+    renderDiscoveredPeers(pd.discoveredPeers || []);
   });
 }
 
@@ -3149,6 +3365,7 @@ async function loadConfig() {
   const pr = await fetch('/api/peers');
   const pd = await pr.json();
   renderLights(pd.self, pd.peers || [], pd.wifiSingleClientMode === true);
+  renderDiscoveredPeers(pd.discoveredPeers || []);
   _refreshSceneOptionViews();  // re-render group cards now that scene options are known
   try {
     const updRes  = await fetch('/api/update/status');
@@ -3195,7 +3412,7 @@ function connectWs() {
     try {
       const d = JSON.parse(ev.data);
       if (d.t === 'log')    appendLog(d.l, d.m);
-      if (d.t === 'peers') { renderLights(d.self, d.peers || [], d.wifiSingleClientMode === true); _refreshSceneOptionViews(); }
+      if (d.t === 'peers') { renderLights(d.self, d.peers || [], d.wifiSingleClientMode === true); renderDiscoveredPeers(d.discoveredPeers || []); _refreshSceneOptionViews(); }
       if (d.t === 'groups') renderGroups(d.list || []);
       if (d.t === 'audioGroups') renderAudioGroupsList(d.list || []);
       if (d.t === 'event') _onEventPush(d);
@@ -6743,6 +6960,7 @@ $('wifi-ap-confirm-btn').addEventListener('click', async () => {
     const pr = await fetch('/api/peers');
     const pd = await pr.json();
     renderLights(pd.self, pd.peers || [], pd.wifiSingleClientMode === true);
+    renderDiscoveredPeers(pd.discoveredPeers || []);
   } catch { /* best-effort; the device may have just dropped this AP connection */ }
 });
 $('clear-mqtt-btn').addEventListener('click', clearMqtt);

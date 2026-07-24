@@ -551,6 +551,11 @@ void setup() {
     mesh.setWifiConnectedProvider([]() { return wifiElection.isAdvertisableConnected(); });
     wifiElection.setOnAttemptingChanged([]() { publishTelemetry(); });
     mesh.setOnPeerHeard([](const uint8_t* mac) { channelMgr.onPeerHeard(mac); });
+    // Without this, PeerRegistry's own change-detection (see update()'s
+    // graduated/wifiChanged, updateHello()'s wifiChanged) has nowhere to go —
+    // the dashboard would only ever learn about those transitions via its
+    // REST poll fallback, never promptly over the WebSocket.
+    mesh.peers.setOnChange([]() { publishTelemetry(); });
     mesh.setOnMeshPolicy(
         [](const MeshManager::MeshPolicyState& state) { applyWifiPolicyState(state, "mesh"); });
     mesh.setOnWifiRetry([]() { wifiElection.retryNow(); });
@@ -600,6 +605,13 @@ void setup() {
             playlistSync.onNewPeer(mac);
         }
     });
+
+    // A device seen only via HelloMsg (incompatible firmware — see
+    // MeshTypes.h) isn't a real peer yet, just discovered: refresh the
+    // dashboard so it shows up for a WiFi-config push / update nudge, same as
+    // setOnPresence does for full peers, but without scene/playlist sync
+    // (which need a compatible peer).
+    mesh.setOnHelloPeer([](const uint8_t*, const char*, const char*) { publishTelemetry(); });
 
     mesh.setOnSceneManifest(
         [](const uint8_t* mac, const SceneManifestMsg* msg) { sceneSync.onManifest(mac, msg); });

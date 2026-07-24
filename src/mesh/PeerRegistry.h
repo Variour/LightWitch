@@ -30,6 +30,12 @@ struct PeerInfo {
     uint8_t batteryPercent = 0;
     bool batteryCharging = false;
 
+    // True when this entry is only known from a HelloMsg (see MeshTypes.h) —
+    // discovered, but not (yet) running firmware whose PresenceMsg this
+    // device accepts, so none of the fields above are populated. Cleared the
+    // moment a full PresenceMsg for this MAC is accepted (see update()).
+    bool helloOnly = false;
+
     bool online() const { return active && (millis() - lastSeen < 15000); }
 
     String macStr() const {
@@ -61,6 +67,12 @@ class PeerRegistry {
         if (!p) p = _slot();
         if (!p) return false;
         bool nameChanged = !isNew && strncmp(p->name, name, 32) != 0;
+        // A device graduating from hello-only (different/incompatible firmware,
+        // see updateHello()) to a full peer is itself a dashboard-relevant
+        // change even when its name/lights happen to be unchanged — without
+        // this, a graduation with no other diff would never fire _onChange()
+        // below and the dashboard wouldn't notice it left discoveredPeers.
+        bool graduated = !isNew && p->helloOnly;
         bool lightsChanged = false;
         if (!isNew) {
             if (p->lightCount != lightCount) {
@@ -99,14 +111,51 @@ class PeerRegistry {
         strlcpy(p->soundName, soundName, sizeof(p->soundName));
         p->lastSeen = millis();
         p->active = true;
+        p->helloOnly = false;
         if (isNew)
             Logger::i("[mesh] peer online: %s (%u light(s))", name, lightCount);
         else if (nameChanged)
             Logger::i("[mesh] peer renamed: %s", name);
         else if (lightsChanged)
             Logger::i("[mesh] peer %s lights updated", name);
-        bool changed = isNew || nameChanged || lightsChanged;
+        bool changed = isNew || nameChanged || lightsChanged || graduated;
         if (changed && _onChange) _onChange();
+        return isNew;
+    }
+
+    // Records a peer seen only via HelloMsg (see MeshTypes.h) — a device this
+    // firmware can't yet fully interoperate with (different PresenceMsg
+    // schema), but whose MAC/name/fwVersion/WiFi status are enough to offer
+    // it a WiFi config push or a firmware-update nudge — and to tell which of
+    // those is the right next step. Never downgrades a peer already known via
+    // a full update() — that peer just gets its lastSeen refreshed, since
+    // it's expected to send HelloMsg too (every device does).
+    bool updateHello(const uint8_t* mac, const char* name, const char* fwVersion,
+                     bool wifiConnected, bool hasWifiNetworks) {
+        PeerInfo* p = _find(mac);
+        if (p && !p->helloOnly) {
+            p->lastSeen = millis();
+            return false;
+        }
+        bool isNew = (p == nullptr);
+        if (!p) p = _slot();
+        if (!p) return false;
+        // A later Hello for an already-known entry can still carry
+        // dashboard-relevant news — most importantly wifiConnected flipping
+        // true after a WiFi-config push — so this must fire _onChange() on
+        // its own, not just when the entry is brand new.
+        bool wifiChanged =
+            !isNew && (p->wifiConnected != wifiConnected || p->hasWifiNetworks != hasWifiNetworks);
+        memcpy(p->mac, mac, 6);
+        strlcpy(p->name, name, sizeof(p->name));
+        strlcpy(p->fwVersion, fwVersion, sizeof(p->fwVersion));
+        p->wifiConnected = wifiConnected;
+        p->hasWifiNetworks = hasWifiNetworks;
+        p->helloOnly = true;
+        p->lastSeen = millis();
+        p->active = true;
+        if (isNew) Logger::i("[mesh] device discovered (hello): %s (fw %s)", name, fwVersion);
+        if ((isNew || wifiChanged) && _onChange) _onChange();
         return isNew;
     }
 

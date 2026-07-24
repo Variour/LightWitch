@@ -45,6 +45,7 @@ enum class MsgType : uint8_t {
     SetSoundGroup = 33,
     SetVolume = 34,
     GenericEvent = 35,
+    Hello = 36,
 };
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
@@ -438,3 +439,36 @@ struct GenericEventMsg {
     char eventType[EVENT_TYPE_LEN];  // e.g. "buzz.press", "buzz.reset" — opaque to the mesh layer
     uint16_t payload;
 };
+
+// ── Onboarding discovery (frozen, cross-firmware) ─────────────────────────────
+// Every other message in this file follows the same-firmware-only policy in
+// docs/mesh-compatibility.md: exact struct layout, no version tolerance.
+// HelloMsg is the one deliberate exception, because a brand-new device must be
+// discoverable — and reachable for a WiFi-config push and a firmware-update
+// nudge (see ConfigChunkMsg/KeyExchange*Msg, CheckUpdateMsg/TriggerUpdateMsg,
+// all of which key off a MAC address, not PeerRegistry contents) — even when
+// it runs firmware whose PresenceMsg schema doesn't match this device's.
+//
+// Freeze this struct's shape before it first ships (mirrors PresenceMsg's own
+// "reset before first real deployment" convention) — once a released firmware
+// is broadcasting a given layout, it must never change again: no new fields,
+// no version bump, ever. If onboarding ever needs more information after
+// that point, add a new MsgType instead of touching this one — that's what
+// keeps the exact-size check below safe forever instead of turning into
+// another PresenceMsg-style version gate.
+struct HelloMsg {
+    MsgType type = MsgType::Hello;
+    char name[32];
+    char fwVersion[16];
+    // Same meaning as PresenceMsg's fields of the same name — needed here so
+    // a device that can't yet exchange PresenceMsg (incompatible schema) can
+    // still tell an operator whether "Check for update" has any chance of
+    // succeeding right now, or whether a WiFi-config push must happen first.
+    uint8_t wifiConnected;
+    uint8_t hasWifiNetworks;
+};
+// Turns "please don't change this struct" into "won't compile" — update the
+// expected size only if you're deliberately shipping HelloMsg's very first
+// released layout; never after that (see the comment above).
+static_assert(sizeof(HelloMsg) == 51,
+              "HelloMsg is frozen forever — see comment above; add a new MsgType instead");

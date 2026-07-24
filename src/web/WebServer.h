@@ -1223,9 +1223,25 @@ class BatteryWebServer {
         }
 
         JsonArray arr = doc["peers"].to<JsonArray>();
+        // Devices known only via HelloMsg (different/incompatible firmware —
+        // see MeshTypes.h) aren't full peers: none of the fields below beyond
+        // mac/name/version/online are populated for them. Listed separately
+        // so the dashboard can offer just a WiFi-config push and an
+        // update-check nudge instead of the full peer row.
+        JsonArray discoveredArr = doc["discoveredPeers"].to<JsonArray>();
         if (_peers) {
             for (auto& p : *_peers) {
                 if (!p.active) continue;
+                if (p.helloOnly) {
+                    auto d = discoveredArr.add<JsonObject>();
+                    d["mac"] = p.macStr();
+                    d["name"] = p.name;
+                    d["version"] = p.fwVersion;
+                    d["online"] = p.online();
+                    d["wifiConnected"] = p.wifiConnected;
+                    d["hasWifiNetworks"] = p.hasWifiNetworks;
+                    continue;
+                }
                 auto o = arr.add<JsonObject>();
                 o["mac"] = p.macStr();
                 o["name"] = p.name;

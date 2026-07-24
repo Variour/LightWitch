@@ -177,6 +177,18 @@ const mockEvents = [
 // path, without duplicating a row the initial GET already returned.
 const mockLiveEvent = { name: 'Mock Light 3', eventType: 'buzz.press', payload: 3, order: 3 };
 
+// Devices seen only via HelloMsg (different/incompatible firmware — see
+// docs/mesh-compatibility.md and WebServer.h::_buildPeersJson's
+// discoveredPeers array). Mirrors just what a real device's PeerInfo carries
+// for a helloOnly entry: mac/name/version/online/wifiConnected/
+// hasWifiNetworks, nothing else. Two entries so the dashboard's WiFi-status
+// badge exercises both the "needs a config push first" and "could check for
+// an update right now" cases.
+const MOCK_DISCOVERED_PEERS = [
+  { name: 'New Device', mac: '66:77:88:99:aa:bb', version: '2026.07.01.0', online: true, wifiConnected: false, hasWifiNetworks: false },
+  { name: 'Almost Set Up', mac: '77:88:99:aa:bb:cc', version: '2026.06.15.0', online: true, wifiConnected: true, hasWifiNetworks: true },
+];
+
 const wifiNetworks = [
   { ssid: 'HomeNetwork', password: 'secret1' },
   { ssid: 'WorkWifi',    password: 'secret2' },
@@ -229,6 +241,7 @@ function broadcastPeers() {
     t: 'peers',
     self: selfWithLights(),
     peers: MOCK_PEERS,
+    discoveredPeers: MOCK_DISCOVERED_PEERS,
     wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode,
   });
   wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
@@ -454,6 +467,7 @@ app.post('/api/wifi/move', (req, res) => {
 app.get('/api/peers', (_req, res) => res.json({
   self: selfWithLights(),
   peers: MOCK_PEERS,
+  discoveredPeers: MOCK_DISCOVERED_PEERS,
   wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode,
 }));
 app.get('/api/events', (req, res) => {
@@ -502,7 +516,43 @@ app.post('/api/peers/setvolume', (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/peers/setscenesync', (_req, res) => res.json({ ok: true }));
-app.post('/api/peers/pushconfig',      (_req, res) => res.json({ ok: true }));
+
+// Simulates a discovered (hello-only) device reconnecting to WiFi some time
+// after receiving a config push, so the single-button "Set up device" flow
+// (data/index.html's setupDiscoveredDevice) can be exercised end to end
+// against the mock server without real hardware.
+function simulateDiscoveredWifiConnect(peer) {
+  setTimeout(() => {
+    peer.wifiConnected = true;
+    broadcastPeers();
+  }, 2000);
+}
+
+// Simulates a discovered device successfully installing an update and
+// rejoining as a full compatible peer — mirrors what a real device does
+// once Updater::triggerAsync() finds+installs an update and reboots onto
+// firmware whose PresenceMsg this mesh accepts again.
+function simulateDiscoveredGraduate(peer) {
+  setTimeout(() => {
+    const idx = MOCK_DISCOVERED_PEERS.indexOf(peer);
+    if (idx === -1) return;
+    MOCK_DISCOVERED_PEERS.splice(idx, 1);
+    MOCK_PEERS.push({
+      name: peer.name, mac: peer.mac, lights: [], sound: null, online: true, rssi: -60,
+      sceneSyncEnabled: true, wifiConnected: true, hasWifiNetworks: true, wifiConnecting: false,
+      version: MOCK_SELF.version, fwState: 'idle',
+      batteryPresent: false, batteryPercent: 0, batteryCharging: false,
+    });
+    broadcastPeers();
+  }, 3000);
+}
+
+app.post('/api/peers/pushconfig', (req, res) => {
+  res.json({ ok: true });
+  const { mac } = req.body || {};
+  const discovered = MOCK_DISCOVERED_PEERS.find(p => p.mac === mac);
+  if (discovered) simulateDiscoveredWifiConnect(discovered);
+});
 // Mirrors WebServer.h::_peerUpdateRequest: an online standby candidate
 // (single-client mode + hasWifiNetworks) can still connect on demand, but an
 // offline peer must still be rejected even if it would otherwise qualify.
@@ -521,6 +571,8 @@ app.post('/api/peers/triggerupdate', (req, res) => {
   if (error) return res.status(409).json({ error });
   res.json({ ok: true });
   if (peer) simulatePeerUpdateCycle(peer);
+  const discovered = MOCK_DISCOVERED_PEERS.find(p => p.mac === mac);
+  if (discovered) simulateDiscoveredGraduate(discovered);
 });
 app.post('/api/peers/checkupdate', (req, res) => {
   const { mac } = req.body || {};
@@ -1150,7 +1202,7 @@ wss.on('connection', ws => {
   const send = data => ws.send(JSON.stringify(data));
   send({ t: 'log', l: 'I', m: 'Mock server connected' });
   send({ t: 'log', l: 'I', m: 'This is a development mock — no hardware attached' });
-  send({ t: 'peers', self: selfWithLights(), peers: MOCK_PEERS, wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode });
+  send({ t: 'peers', self: selfWithLights(), peers: MOCK_PEERS, discoveredPeers: MOCK_DISCOVERED_PEERS, wifiSingleClientMode: MOCK_CONFIG.wifiSingleClientMode });
   send({ t: 'groups', list: MOCK_CONFIG.groups });
   send({ t: 'audioGroups', list: mockAudioGroups });
   send({ t: 'event', ...mockLiveEvent });
