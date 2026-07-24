@@ -249,6 +249,50 @@ decide when sizing it).
 
 ---
 
+## Process compliance
+
+Every milestone is executed with the repo's own workflow and tooling
+([CONTRIBUTING.md](../CONTRIBUTING.md), `.claude/skills/`):
+
+- **Work packages are GitHub issues.** Each milestone is split into
+  reviewable issues (e.g. M1 → override arbitration, `LightOverrideMsg`,
+  button action target, UI indicator). Flow per issue: `/issue <id>` →
+  implement → `/validate-ui` (when `data/` or `server/` changed) →
+  `/feature-checklist` → `/open-pr` (exactly one label; milestone features
+  are `enhancement`, docs are `skip-changelog`). Scoped commit messages,
+  English everywhere.
+- **Mock-server parity is part of every feature.** Per `/feature-checklist`:
+  new/changed endpoints in `src/web/WebServer.h` get matching routes in
+  `server/index.js`; new config/group/peer fields go into `MOCK_CONFIG` /
+  `MOCK_SELF` / `MOCK_PEERS`; new WebSocket event types get a mock emitter;
+  mock data must exercise the feature. This is how the "develop in the final
+  ecosystem" resolution (D3) works in practice — the graph API and GUI are
+  fully exercisable against the mock server in a browser, no hardware needed.
+- **Config changes migrate.** Any new persisted field bumps
+  `CONFIG_SCHEMA_VERSION` and adds a sequential step to `migrateDoc()`
+  (`src/config/Config.cpp`) — never the reset-to-defaults fallback. Applies
+  to M1 (button action target), M5 (roles, `offered`, acceptance mode).
+- **New mesh messages update the inventory.** Each additive MsgType
+  (`LightOverride`, `LightOverlay`, graph sync trio) is added to the message
+  table in [mesh-compatibility.md](mesh-compatibility.md) with its framing
+  rule, following that doc's future rule: new MsgType, never a mutated
+  existing layout. The plan is additive-only, so it stays inside the
+  same-firmware policy.
+- **Formatting/linting:** `clang-format` on changed `src/` files only (CI
+  checks changed files); `npm run lint` / `npm test` for `server/` and the
+  inline UI script.
+- **Hardware testing via PR builds.** CI publishes every PR's `esp32dev`/
+  `esp32s3` firmware as a `pr-<N>` prerelease installable OTA from the device
+  web UI — milestone demos (M1's cross-device override, M7's proximity) are
+  verified on real devices from the PR before merge. `esp32c3` is excluded
+  from PR builds; C3-specific behavior is verified locally via
+  `pio run -e esp32c3` targets when relevant.
+- **UI review via PR previews.** Every PR gets an Azure-hosted mock-UI
+  preview environment (URL posted on the PR) — GUI milestones (M3, M5, M8)
+  are clickable for reviewers without any local setup.
+- **`/grill-me`** is used to stress-test each milestone's design before
+  implementation starts, beginning with M1.
+
 ## Explicitly deferred (unchanged from decision sheet)
 
 Native test env & measurement suite (D3) · LED direction map + painted sphere
