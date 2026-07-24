@@ -20,6 +20,7 @@ class ActionExecutor {
     using BroadcastGroupSyncFn = std::function<void(const GroupConfig&)>;
     using ApplyLightBrightnessFn = std::function<void(uint8_t lightIndex)>;
     using PlaySoundFn = std::function<void(const char* filename)>;
+    using SendEventFn = std::function<void(const char* eventType, uint16_t payload)>;
 
     // Applies + propagates a LightConfig change for a group (e.g. main.cpp's
     // applyAndPropagateLightConfig — save, runners, mesh broadcast, mqtt publish).
@@ -35,6 +36,10 @@ class ActionExecutor {
     // used only by PlaySound. No mesh-wide audio-group sync, unlike the
     // PlayAudioMsg mesh trigger.
     void setPlaySoundFn(PlaySoundFn fn) { _playSound = fn; }
+    // Broadcasts a mesh GenericEvent — used only by SendEvent. Mesh-agnostic
+    // wiring, same as the rest of this class; main.cpp wires it to
+    // MeshManager::broadcastGenericEvent.
+    void setSendEventFn(SendEventFn fn) { _sendEvent = fn; }
 
     void execute(const ButtonAction& action) {
         if (action.action == ActionId::None) return;
@@ -48,6 +53,12 @@ class ActionExecutor {
 
         if (action.action == ActionId::PlaySound) {
             if (_playSound) _playSound(action.params.stringValue);
+            return;
+        }
+
+        if (action.action == ActionId::SendEvent) {
+            if (_sendEvent)
+                _sendEvent(action.params.stringValue, (uint16_t)action.params.numberValue);
             return;
         }
 
@@ -140,6 +151,7 @@ class ActionExecutor {
     BroadcastGroupSyncFn _broadcastGroupSync;
     ApplyLightBrightnessFn _applyLightBrightness;
     PlaySoundFn _playSound;
+    SendEventFn _sendEvent;
 
     // Mutates a light's own brightness override (not its group's LightConfig)
     // per ActionId::LightBrightnessOverride{Step,Set,Clear}. Step/Set enable

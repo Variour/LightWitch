@@ -123,7 +123,9 @@ enum class SceneStringMode : uint8_t {
 // and mutate LightHardwareConfig::brightnessOverride(Enabled) instead.
 // PlaySound is a third exception: it targets neither a group nor a light,
 // playing ActionParams.stringValue as an SD-card filename on this device's
-// own sound output only (see ActionExecutor).
+// own sound output only (see ActionExecutor). SendEvent is a fourth: it also
+// targets neither, broadcasting ActionParams.stringValue/numberValue as a
+// mesh GenericEvent's eventType/payload instead (see ActionExecutor).
 enum class ActionId : uint8_t {
     None = 0,
     BrightnessStep,
@@ -154,6 +156,7 @@ enum class ActionId : uint8_t {
     LightBrightnessOverrideSet,
     LightBrightnessOverrideClear,
     PlaySound,
+    SendEvent,
 };
 
 // What kind of event an AutomationBinding matches against (see AutomationBinding
