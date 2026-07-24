@@ -21,19 +21,6 @@ class Ws2801Driver : public LedDriver {
         _ws->show();
     }
 
-    void setColor(uint8_t r, uint8_t g, uint8_t b) override {
-        uint8_t a, bb, c;
-        applyColorOrder(_order, r, g, b, a, bb, c);
-        for (uint16_t i = 0; i < _numLeds; i++) _ws->setPixelColor(i, a, bb, c);
-        _ws->show();
-    }
-
-    void setPixel(uint16_t idx, uint8_t r, uint8_t g, uint8_t b) override {
-        uint8_t a, bb, c;
-        applyColorOrder(_order, r, g, b, a, bb, c);
-        _ws->setPixelColor(idx, a, bb, c);
-    }
-
     void show() override { _ws->show(); }
 
     void off() override {
@@ -42,6 +29,20 @@ class Ws2801Driver : public LedDriver {
     }
 
     void setColorOrder(ColorOrder order) override { _order = order; }
+
+   protected:
+    void writeColor(uint8_t r, uint8_t g, uint8_t b) override {
+        uint8_t a, bb, c;
+        applyColorOrder(_order, r, g, b, a, bb, c);
+        for (uint16_t i = 0; i < _numLeds; i++) _ws->setPixelColor(i, a, bb, c);
+        _ws->show();
+    }
+
+    void writePixel(uint16_t idx, uint8_t r, uint8_t g, uint8_t b) override {
+        uint8_t a, bb, c;
+        applyColorOrder(_order, r, g, b, a, bb, c);
+        _ws->setPixelColor(idx, a, bb, c);
+    }
 
    private:
     uint8_t _dataPin = 25;

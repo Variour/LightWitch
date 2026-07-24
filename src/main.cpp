@@ -472,6 +472,7 @@ void setup() {
             Logger::i("[led] light %u: WS2812B data=GPIO%d leds=%u group=%u", i, l.dataPin, numLeds,
                       l.groupId);
         }
+        drv->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
         _leds[i] = drv;
         _runners[i].begin(*drv);
         _runners[i].setDimensions(l.width, l.height);
@@ -887,6 +888,12 @@ void setup() {
         }
     });
     webServer.setOnLightBrightnessChange([](uint8_t idx) { applyLightBrightnessOverride(idx); });
+    webServer.setOnLightClampChange([](uint8_t idx) {
+        if (idx < MAX_LIGHTS && _leds[idx]) {
+            auto& l = Config::get().lights[idx];
+            _leds[idx]->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
+        }
+    });
     webServer.setOnColorOrderChange([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx])
             _leds[idx]->setColorOrder(Config::get().lights[idx].colorOrder);
