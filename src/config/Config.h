@@ -213,17 +213,29 @@ static constexpr uint8_t MAX_GROUPS = 8;
 static constexpr uint8_t MAX_LIGHTS = 4;
 static constexpr uint8_t MAX_BUTTONS = 4;
 static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
+// Bump only for breaking DeviceConfig layout changes (a field renamed, moved,
+// or repurposed) — an additive field with a sensible `| default` fallback in
+// applyDoc() needs no bump. When bumping, add a sequential migration step
+// (vN -> vN+1) to migrateDoc() in Config.cpp instead of leaning on its plain
+// "older schema -> reset to defaults" fallback: one small function per
+// version step, operating on the raw JsonDocument and touching only the
+// fields that changed, chained in order rather than written per version
+// *pair*. Treat a merged step as frozen history — add a new step for the
+// next breaking change instead of editing an old one.
+//
 // v3: moved Sound's per-instance i2cSdaPin/i2cSclPin, and Sound/Button's
 // per-instance expander chip/address, to a device-wide I2C bus + single
 // expander (DeviceConfig::i2cSdaPin/i2cSclPin/expanderChip/expanderAddress,
 // with ButtonHardwareConfig::viaExpander/SoundHardwareConfig::paViaExpander
 // just saying whether a pin is on it) — a saved v2 config's sound entry
-// would silently lose its I2C pins, so this bumps to force the usual "older
-// schema -> reset to defaults" path instead of loading a half-working config.
+// would silently lose its I2C pins, so this bumped to force the "older
+// schema -> reset to defaults" path instead of loading a half-working config
+// (predates the migration-step convention above).
 // v4: moved transitionEnabled/sceneStringMode/transitionTime/frameDuration
 // off LightConfig onto the scene's own JSON file (see
 // SceneManager::ScenePlayback) — a saved v3 config's groups would carry
-// stale copies of fields that no longer exist here.
+// stale copies of fields that no longer exist here (also predates the
+// migration-step convention above).
 static constexpr uint8_t CONFIG_SCHEMA_VERSION = 4;
 
 // Parameters for a ButtonAction. Which member is meaningful depends on the
