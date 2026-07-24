@@ -6101,6 +6101,7 @@ const ACTION_CATALOG = [
   {id:26, label:'Light brightness override set',   cat:'Light', param:'number', hint:'0–255',                  target:'light'},
   {id:27, label:'Light brightness override clear', cat:'Light', param:'none',                                  target:'light'},
   {id:28, label:'Play sound',                      cat:'Sound', param:'sound',                                 target:'none'},
+  {id:29, label:'Send event',                      cat:'Event', param:'event',                                 target:'none'},
 ];
 
 function _actionMeta(id) { return ACTION_CATALOG.find(a => a.id === id); }
@@ -6140,6 +6141,12 @@ function _buildParamHtml(prefix, action, existing) {
       _storageFiles.map(f => `<option value="${esc(f.name)}"${sel === f.name ? ' selected' : ''}>${esc(f.name)}</option>`).join('')
       || '<option value="">(no files uploaded)</option>'
     }</select>`;
+  }
+  if (meta.param === 'event') {
+    const evt = existing ? existing.stringValue : '';
+    const payload = existing ? existing.numberValue : 0;
+    return `<label>Event type</label><input type="text" id="${prefix}-param-string" maxlength="32" placeholder="buzz.press" value="${esc(evt || '')}">
+      <label>Payload</label><input type="number" step="1" id="${prefix}-param-number" value="${payload || 0}">`;
   }
   if (meta.param === 'enum') {
     const sel = existing ? existing.numberValue : 0;
@@ -6208,6 +6215,10 @@ function _readActionSlot(prefix) {
   else if (meta.param === 'string') out.stringValue = $(prefix + '-param-string').value;
   else if (meta.param === 'scene') out.stringValue = $(prefix + '-param-scene').value || '';
   else if (meta.param === 'sound') out.stringValue = $(prefix + '-param-sound').value || '';
+  else if (meta.param === 'event') {
+    out.stringValue = $(prefix + '-param-string').value;
+    out.numberValue = parseInt($(prefix + '-param-number').value) || 0;
+  }
   else if (meta.param === 'color') {
     const [r, g, b] = hexToRgb($(prefix + '-param-color').value);
     out.r = r; out.g = g; out.b = b;

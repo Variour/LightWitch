@@ -532,6 +532,9 @@ void setup() {
         String file = filename;
         _sound.scheduleFiles(&file, /*fileCount=*/1, /*loop=*/false, /*startDelayMs=*/0);
     });
+    actionExecutor.setSendEventFn([](const char* eventType, uint16_t payload) {
+        mesh.broadcastGenericEvent(eventType, payload);
+    });
     buttonManager.setExecutor(&actionExecutor);
     buttonManager.begin();
     automationManager.setExecutor(&actionExecutor);
