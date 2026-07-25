@@ -1999,6 +1999,44 @@ function _renderLightBrightnessOverride(light) {
   </div>`;
 }
 
+// Per-light command-arbitration state (issue #457): while a direct command
+// overrides a light, it stops following its group until the group next
+// actually changes, the override's duration elapses, or it's cleared here.
+// Like the brightness override above, only ever rendered for this device's
+// own lights — the override lives on the owning device.
+function _renderLightOverrideState(light) {
+  const overridden = light.overridden === true;
+  const tip = overridden
+    ? 'A direct command currently overrides this light — it rejoins its group on the next group change, or when cleared here'
+    : 'This light is following its group';
+  const state = overridden
+    ? '<span style="font-size:.72rem;color:#fa4">Overridden</span>'
+    : '<span style="font-size:.72rem;color:#555">Following group</span>';
+  const clearBtn = overridden
+    ? `<button class="btn-ghost btn-sm" data-action="clearLightOverride" data-light-index="${light.index}">Clear</button>`
+    : '';
+  return `<div class="lov-row" style="display:flex;align-items:center;gap:.35rem;margin-top:.15rem" title="${esc(tip)}">${state}${clearBtn}</div>`;
+}
+
+async function clearLightOverride(btn, index) {
+  // Drop focus first: _patchKeyedChildren skips repainting the row that
+  // holds the focused element, and this row must repaint to "Following
+  // group" right after the clear.
+  btn.blur();
+  const res = await _fetchOrToast('/api/lights/override/clear', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({index})
+  }, "Failed to clear light's override");
+  if (!res) return;
+  // Local dev (mock server) never opens the dashboard WebSocket (see
+  // isLocalDev), so refresh over REST — on a real device the peers push
+  // covers it and this is just a harmless double render.
+  try {
+    const d = await (await fetch('/api/peers')).json();
+    renderLights(d.self, d.peers || [], d.wifiSingleClientMode === true);
+  } catch { /* the WS push already covers it where connected */ }
+}
+
 function onLightBrightnessOverrideToggle(checkboxEl) {
   const index = Number(checkboxEl.dataset.lightIndex);
   const slider = checkboxEl.closest('.lbr-row')?.querySelector('.lbr-value');
@@ -2194,8 +2232,10 @@ function renderLights(self, peers, wifiSingleClientMode) {
           const lightLabel = l.name ? esc(l.name) : `L${l.index}`;
           const label = `<span style="font-size:.72rem;color:#888;margin-right:.25rem">${lightLabel}</span>`;
           const override = p.isSelf ? _renderLightBrightnessOverride(l) : '';
+          const overrideState = p.isSelf ? _renderLightOverrideState(l) : '';
           return `<div style="margin-bottom:.2rem">
             <div style="display:flex;align-items:center;gap:.25rem">${label}${_renderLightGroupSelect(mac, l)}</div>
+            ${overrideState}
             ${override}
           </div>`;
         }).join('')) + soundHtml;
@@ -2205,11 +2245,13 @@ function renderLights(self, peers, wifiSingleClientMode) {
       : lights.map(l => {
           const lightLabel = l.name ? esc(l.name) : `Light ${l.index}`;
           const override = p.isSelf ? _renderLightBrightnessOverride(l) : '';
+          const overrideState = p.isSelf ? _renderLightOverrideState(l) : '';
           return `<div class="light-device-light">
             <div class="light-device-light-head">
               <span class="light-device-light-name">${lightLabel}</span>
             </div>
             ${_renderLightGroupSelect(mac, l)}
+            ${overrideState}
             ${override}
           </div>`;
         }).join('')) + soundHtml;
@@ -2602,11 +2644,12 @@ async function setSceneSync(mac, enabled) {
 // containers (see renderLights/_patchKeyedChildren), so both get delegation.
 for (const rootId of ['lights-body', 'lights-mobile-list']) {
   _delegate(rootId, 'click', {
-    openPushModal:     el => openPushModal(el.dataset.mac, el.dataset.name),
-    triggerSelfUpdate: el => triggerSelfUpdate(el, el.dataset.mac),
-    triggerPeerUpdate: el => triggerPeerUpdate(el, el.dataset.mac),
-    checkSelfUpdate:   el => checkSelfUpdate(el),
-    checkPeerUpdate:   el => checkPeerUpdate(el, el.dataset.mac),
+    openPushModal:      el => openPushModal(el.dataset.mac, el.dataset.name),
+    triggerSelfUpdate:  el => triggerSelfUpdate(el, el.dataset.mac),
+    triggerPeerUpdate:  el => triggerPeerUpdate(el, el.dataset.mac),
+    checkSelfUpdate:    el => checkSelfUpdate(el),
+    checkPeerUpdate:    el => checkPeerUpdate(el, el.dataset.mac),
+    clearLightOverride: el => clearLightOverride(el, Number(el.dataset.lightIndex)),
   });
   _delegate(rootId, 'change', {
     assignGroup:                     el => assignGroup(el.dataset.mac, Number(el.dataset.lightIndex), parseInt(el.value)),

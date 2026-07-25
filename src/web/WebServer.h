@@ -8,6 +8,7 @@
 #include "../battery/BatteryMonitor.h"
 #include "../config/Config.h"
 #include "../events/EventLog.h"
+#include "../lights/LightOverrides.h"
 #include "../logging/Logger.h"
 #include "../mesh/ChannelManager.h"
 #include "../mesh/PeerRegistry.h"
@@ -52,6 +53,12 @@ using OrientationChangeCb = std::function<void(uint8_t)>;
 using ColorOrderChangeCb = std::function<void(uint8_t)>;
 // Called when a light's own brightnessOverride(Enabled) changes without reboot
 using LightBrightnessChangeCb = std::function<void(uint8_t)>;
+// Called when a direct per-light override is set via REST (issue #457): the
+// full LightConfig snapshot to render and an optional durationMs (0 = no
+// expiry). The receiver captures the arbitration baseline and applies it live.
+using LightOverrideSetCb = std::function<void(uint8_t, const LightConfig&, uint32_t)>;
+// Called when a light's override is cleared via REST — the light rejoins its group.
+using LightOverrideClearCb = std::function<void(uint8_t)>;
 // Called when a light's brightnessLimit/brightnessScale changes without reboot,
 // so the new clamp can be applied to its LED driver live
 using LightClampChangeCb = std::function<void(uint8_t)>;
@@ -282,6 +289,16 @@ class BatteryWebServer {
             "/api/lights/delete", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
                 _deleteLight(r, d, l);
+            });
+        _server.on(
+            "/api/lights/override", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _setLightOverride(r, d, l);
+            });
+        _server.on(
+            "/api/lights/override/clear", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _clearLightOverride(r, d, l);
             });
         _server.on(
             "/api/lights/test", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
@@ -750,6 +767,8 @@ class BatteryWebServer {
     void setOnColorOrderChange(ColorOrderChangeCb cb) { _onColorOrderChange = cb; }
     void setOnLightBrightnessChange(LightBrightnessChangeCb cb) { _onLightBrightnessChange = cb; }
     void setOnLightClampChange(LightClampChangeCb cb) { _onLightClampChange = cb; }
+    void setOnLightOverrideSet(LightOverrideSetCb cb) { _onLightOverrideSet = cb; }
+    void setOnLightOverrideClear(LightOverrideClearCb cb) { _onLightOverrideClear = cb; }
     void setOnButtonsChanged(ButtonsChangedCb cb) { _onButtonsChanged = cb; }
     void setOnGroupsChanged(GroupsChangedCb cb) { _onGroupsChanged = cb; }
     void setOnSceneListChanged(SceneListChangedCb cb) { _onSceneListChanged = cb; }
@@ -814,6 +833,8 @@ class BatteryWebServer {
     ColorOrderChangeCb _onColorOrderChange;
     LightBrightnessChangeCb _onLightBrightnessChange;
     LightClampChangeCb _onLightClampChange;
+    LightOverrideSetCb _onLightOverrideSet;
+    LightOverrideClearCb _onLightOverrideClear;
     ButtonsChangedCb _onButtonsChanged;
     GroupsChangedCb _onGroupsChanged;
     SceneListChangedCb _onSceneListChanged;
@@ -1211,6 +1232,7 @@ class BatteryWebServer {
                 lo["wrapWidth"] = c.lights[i].wrapWidth;
                 lo["brightnessOverrideEnabled"] = c.lights[i].brightnessOverrideEnabled;
                 lo["brightnessOverride"] = c.lights[i].brightnessOverride;
+                lo["overridden"] = LightOverrides::active(i);
             }
         }
         {
@@ -2032,6 +2054,7 @@ class BatteryWebServer {
             o["brightnessOverride"] = l.brightnessOverride;
             o["brightnessLimit"] = l.brightnessLimit;
             o["brightnessScale"] = l.brightnessScale;
+            o["overridden"] = LightOverrides::active(i);
         }
         _sendJson(r, 200, doc);
     }
@@ -2229,6 +2252,45 @@ class BatteryWebServer {
         if (brightnessOverrideChanged && _onLightBrightnessChange) _onLightBrightnessChange(idx);
         if (clampChanged && _onLightClampChange) _onLightClampChange(idx);
         if (colorOrderChanged && _onColorOrderChange) _onColorOrderChange(idx);
+    }
+
+    // ── POST /api/lights/override ─────────────────────────────────────────────
+    // Body: {index, durationMs?, <LightConfig fields>} — sets a direct-command
+    // override on a local light (issue #457). Unspecified LightConfig fields
+    // fall back to the light's current group state, so the stored override is
+    // always a full snapshot; the receiver replaces, never merges. A
+    // durationMs > 0 auto-reverts the light to its group when it elapses.
+    void _setLightOverride(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+        GroupConfig* g = Config::group(Config::get().lights[idx].groupId);
+        LightConfig cfg = deserializeLightConfig(doc, g ? g->light : LightConfig{});
+        uint32_t durationMs = doc["durationMs"] | (uint32_t)0;
+        if (_onLightOverrideSet) _onLightOverrideSet(idx, cfg, durationMs);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    // ── POST /api/lights/override/clear ───────────────────────────────────────
+    // Body: {index} — drops the light's override; it rejoins its group.
+    void _clearLightOverride(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        uint8_t idx = doc["index"] | (uint8_t)0xFF;
+        if (idx >= MAX_LIGHTS || !Config::get().lights[idx].exists) {
+            auto e = _makeErr("not found");
+            _sendJson(r, 404, e);
+            return;
+        }
+        if (_onLightOverrideClear) _onLightOverrideClear(idx);
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
     }
 
     // ── POST /api/lights/test ─────────────────────────────────────────────────

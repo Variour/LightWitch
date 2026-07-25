@@ -14,12 +14,43 @@ const mockLights = [
   { index: 2, name: 'Patio',       ledType: 0, colorOrder: 2, dataPin: 27, clockPin: 32, width: 12, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: true,  wrapHeight: false, groupId: 2, brightnessOverrideEnabled: false, brightnessOverride: 255, brightnessLimit: 128, brightnessScale: 180 },
 ];
 
+// Per-light direct-command override slots (issue #457) — mirrors the
+// firmware's LightOverrides: a full LightConfig snapshot plus the group's seq
+// (baseSeq) and the light's group membership at capture time, keyed by light
+// index. Volatile on the real device, plain in-memory state here. Patio
+// starts overridden (a direct command turned it solid red) so the
+// dashboard's "Overridden" indicator + clear flow can be exercised without
+// crafting a REST call first.
+const mockLightOverrides = new Map([
+  [2, {
+    cfg: { mode: 0, sceneId: '', pattern: 0, r: 255, g: 40, b: 40, brightness: 255, speed: 1, proximityScale: 1.0, morphEnabled: false, gradientStopCount: 0, text: '', textAnimation: 0, time24h: true },
+    baseSeq: 0, groupId: 2, timer: null,
+  }],
+]);
+
+// Mirrors LightOverrides::displaced + main.cpp's applyEffectiveLight: an
+// override whose light was reassigned, or whose group's seq advanced past its
+// baseSeq (a real change, not a re-broadcast), is dropped — the light rejoins
+// its group. Call after anything that could displace one.
+function dropDisplacedOverrides() {
+  let dropped = false;
+  for (const [index, slot] of mockLightOverrides) {
+    const light = mockLights.find(l => l.index === index);
+    const group = light && MOCK_CONFIG.groups.find(g => g.id === light.groupId);
+    if (light && light.groupId === slot.groupId && !(group && group.seq > slot.baseSeq)) continue;
+    clearTimeout(slot.timer);
+    mockLightOverrides.delete(index);
+    dropped = true;
+  }
+  if (dropped) broadcastPeers();
+}
+
 // The real device derives self.lights in /api/peers straight from the live
 // hardware config on every request (see WebServer.h::_buildPeersJson), so it
 // can never drift. Mirror that here instead of keeping a second static copy.
 function mockSelfLights() {
   return mockLights.map(({ index, name, groupId, ledType, width, height, wrapWidth, brightnessOverrideEnabled, brightnessOverride }) =>
-    ({ index, name, groupId, ledType, width, height, wrapWidth, brightnessOverrideEnabled, brightnessOverride }));
+    ({ index, name, groupId, ledType, width, height, wrapWidth, brightnessOverrideEnabled, brightnessOverride, overridden: mockLightOverrides.has(index) }));
 }
 
 // Same "derive from the live hardware config, never a second static copy"
@@ -488,6 +519,7 @@ app.post('/api/peers/setgroup', (req, res) => {
   if (mac === MOCK_SELF.mac) {
     const light = mockLights.find(l => l.index === lightIndex);
     if (light) light.groupId = groupId;
+    dropDisplacedOverrides();
     broadcastPeers();
   }
   res.json({ ok: true });
@@ -645,7 +677,10 @@ function lightPinConflict(l, excludeIndex) {
   return null;
 }
 
-app.get('/api/lights', (_req, res) => res.json({ lights: mockLights, maxLights: 4 }));
+app.get('/api/lights', (_req, res) => res.json({
+  lights: mockLights.map(l => ({ ...l, overridden: mockLightOverrides.has(l.index) })),
+  maxLights: 4,
+}));
 app.post('/api/lights/add', (req, res) => {
   const free = [0,1,2,3].find(i => !mockLights.find(l => l.index === i));
   if (free === undefined) return res.status(400).json({ error: 'light limit reached' });
@@ -670,6 +705,9 @@ app.post('/api/lights/update', (req, res) => {
   }
   Object.assign(light, fields);
   res.json({ ok: true });
+  // A group reassignment is a newer group-level command — it displaces the
+  // light's override, same as /api/peers/setgroup (issue #457).
+  if ('groupId' in fields) dropDisplacedOverrides();
   // Mirrors WebServer.h::_updateLight: a brightness override change is a live
   // update (no reboot) that pushes to the dashboard via WS, unlike other
   // hardware-config fields on this endpoint (which trigger ESP.restart() on
@@ -681,7 +719,54 @@ app.post('/api/lights/delete', (req, res) => {
   const idx = mockLights.findIndex(l => l.index === index);
   if (idx === -1) return res.status(404).json({ error: 'not found' });
   mockLights.splice(idx, 1);
+  const slot = mockLightOverrides.get(index);
+  if (slot) {
+    clearTimeout(slot.timer);
+    mockLightOverrides.delete(index);
+  }
   res.json({ ok: true });
+});
+
+// Mirrors WebServer.h::_setLightOverride: {index, durationMs?, <LightConfig
+// fields>} — unspecified fields fall back to the light's current group state,
+// so the stored override is always a full snapshot (replace, never merge).
+// baseSeq captures the group's seq: a later real group change (seq bump)
+// displaces the override, a durationMs > 0 expires it on its own.
+app.post('/api/lights/override', (req, res) => {
+  const { index, durationMs = 0, ...fields } = req.body || {};
+  const light = mockLights.find(l => l.index === index);
+  if (!light) return res.status(404).json({ error: 'not found' });
+  const group = MOCK_CONFIG.groups.find(g => g.id === light.groupId);
+  const base = group
+    ? (({ mode, sceneId, pattern, r, g, b, brightness, speed, proximityScale, morphEnabled, gradientStopCount, text, textAnimation, time24h }) =>
+        ({ mode, sceneId, pattern, r, g, b, brightness, speed, proximityScale, morphEnabled, gradientStopCount, text, textAnimation, time24h }))(group)
+    : {};
+  const prev = mockLightOverrides.get(index);
+  if (prev) clearTimeout(prev.timer);
+  const slot = { cfg: { ...base, ...fields }, baseSeq: group ? (group.seq || 0) : 0, groupId: light.groupId, timer: null };
+  if (durationMs > 0) {
+    slot.timer = setTimeout(() => {
+      mockLightOverrides.delete(index);
+      broadcastPeers();
+    }, durationMs);
+  }
+  mockLightOverrides.set(index, slot);
+  res.json({ ok: true });
+  broadcastPeers();
+});
+
+// Mirrors WebServer.h::_clearLightOverride: {index} — the light rejoins its group.
+app.post('/api/lights/override/clear', (req, res) => {
+  const { index } = req.body || {};
+  const light = mockLights.find(l => l.index === index);
+  if (!light) return res.status(404).json({ error: 'not found' });
+  const slot = mockLightOverrides.get(index);
+  if (slot) {
+    clearTimeout(slot.timer);
+    mockLightOverrides.delete(index);
+  }
+  res.json({ ok: true });
+  broadcastPeers();
 });
 app.post('/api/lights/test', (req, res) => {
   const { index } = req.body || {};
@@ -1063,7 +1148,16 @@ app.post('/api/groups/update',  (req, res) => {
   const { id, ...fields } = req.body || {};
   const group = MOCK_CONFIG.groups.find(g => g.id === id);
   if (!group) return res.status(404).json({ error: 'not found' });
+  // Mirrors WebServer.h::_updateGroup: any key besides name/syncEnabled is a
+  // LightConfig field, and a real light change bumps the group's seq — which
+  // is what displaces per-light overrides (issue #457); name/syncEnabled
+  // edits don't and leave them alone.
+  const lightChanged = Object.keys(fields).some(k => k !== 'name' && k !== 'syncEnabled');
   Object.assign(group, fields);
+  if (lightChanged) {
+    group.seq = (group.seq || 0) + 1;
+    dropDisplacedOverrides();
+  }
   res.json({ ok: true });
 });
 app.post('/api/groups/delete',  (req, res) => {
@@ -1073,6 +1167,7 @@ app.post('/api/groups/delete',  (req, res) => {
   if (idx === -1) return res.status(404).json({ error: 'not found' });
   MOCK_CONFIG.groups.splice(idx, 1);
   for (const l of mockLights) if (l.groupId === id) l.groupId = 0;
+  dropDisplacedOverrides();
   res.json({ ok: true });
 });
 app.post('/api/reset',          (_req, res) => res.json({ ok: true }));
