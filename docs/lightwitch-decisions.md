@@ -65,7 +65,7 @@ in `Config.h`.
 minimal types** (no includes from `src/config`); adapters translate at the
 boundary. Add `[env:native]` plus unit tests with the first engine commit.
 This is less an option than a discipline commitment — without it, §3 (queue,
-scheduler, topological sort, joints) is not reliably developable. The one
+scheduler, topological sort, adapters) is not reliably developable. The one
 thing to decide: does the team accept native tests as a PR gate in CI?
 
 **Resolution (2026-07-24):** deprioritized. No native environment and no
@@ -101,7 +101,7 @@ the user enables them), `off` (ignore graphs from mesh/group entirely).
 
 ### D5 · Canonical graph schema: language & v1 scope ☑️
 
-**Decided: English canonical keys** (`nodes`, `edges`, `requires`), matching
+**Decided: English canonical keys** (`nodes`, `links`, `requires`), matching
 the rest of the repo; German terms appear only as editor labels. This mirrors
 the concept's own §5.5 split between display language and stored form. The v1
 scope additionally includes: the edge list as sketched, the `v` field, the

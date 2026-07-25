@@ -5,6 +5,7 @@ import { dirname, join } from 'path';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { authRouter, requireAuth } from './auth.js';
+import { validateDoc as validateGraphDoc } from './graphs-core.js';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
@@ -1190,6 +1191,86 @@ app.post('/api/update/apply-pr', (req, res) => {
   res.json({ ok: true });
   const newVersion = tag ? `${tag}-dev` : '9999.0.0.0';
   _simulateFlash(newVersion, () => { MOCK_CONFIG.prTrack = tag; });
+});
+
+// ── Graphs (mock-only, issue #464) ──────────────────────────────────────────
+// The dock-editor shell and its /api/graphs storage exist only in this mock
+// for now — the real endpoints and execution arrive with the M2 graph engine
+// (GraphManager, SceneManager-style). Schema v1 per the rework plan; col/row
+// on nodes and the notes array are editor-only metadata, and connections are
+// defined by adjacency (interaction concept: docking, no drawn wires) — the
+// shared core in graphs-core.js validates that geometry on PUT. The editor
+// page lives in server/ (not data/) so it never ships to devices — LittleFS
+// is nearly full (#377); it moves into the device UI with M8.
+const GRAPH_NAME_RE = /^[a-z0-9-]{1,32}$/i;
+
+// Seeds are adjacency-consistent: every link's pins sit in neighboring
+// columns within ±1 row (see graphs-core.js). buzzergame also seeds a
+// multi-row input (action.trigger with one extra row) fed by two sources.
+const mockGraphs = new Map([
+  ['buzzergame', {
+    v: 1, name: 'buzzergame', active: true, requires: ['button:main', 'stage:main'],
+    nodes: [
+      { id: 1, type: 'button', role: 'button:main', col: 1, row: 1, cfg: {} },
+      { id: 2, type: 'wait', col: 2, row: 1, cfg: { ms: 2000 } },
+      { id: 3, type: 'action', col: 3, row: 1, cfg: { action: 'SceneNext' }, rep: { 'in:trigger': 1 } },
+      { id: 4, type: 'timer', col: 2, row: 3, cfg: { ms: 10000 } },
+    ],
+    links: [[1, 'pressed', 2, 'start'], [2, 'done', 3, 'trigger'], [4, 'elapsed', 3, 'trigger']],
+    notes: [{ col: 1, row: 5, text: 'registration' }],
+  }],
+  ['nightlight', {
+    v: 1, name: 'nightlight', active: false, requires: [],
+    nodes: [
+      { id: 1, type: 'mesh-receive', col: 1, row: 2, cfg: { eventType: 'buzz.press' } },
+      { id: 2, type: 'range', col: 2, row: 2, cfg: { min: 1, max: 3 } },
+      { id: 3, type: 'gate', col: 3, row: 2, cfg: {} },
+      { id: 4, type: 'log', col: 4, row: 2, cfg: {} },
+      { id: 5, type: 'constant', col: 1, row: 6, cfg: { defaults: { value: 80 } } },
+      { id: 6, type: 'gate', col: 2, row: 5, cfg: {} },
+      { id: 7, type: 'log', col: 3, row: 5, cfg: {} },
+    ],
+    links: [
+      [1, 'payload', 2, 'value'],
+      [2, 'outOfRange', 3, 'open'],
+      [3, 'value', 4, 'value'],
+      [5, 'value', 6, 'open'],   // value>switch — docks as a adapter (threshold)
+      [6, 'value', 7, 'value'],
+    ],
+    notes: [{ col: 4, row: 5, text: 'adapter demo: value → switch' }],
+  }],
+]);
+
+const serverDir = dirname(fileURLToPath(import.meta.url));
+app.get('/graphs.html', (_req, res) => res.sendFile(join(serverDir, 'graphs.html')));
+app.get('/graphs-core.js', (_req, res) => res.sendFile(join(serverDir, 'graphs-core.js')));
+
+app.get('/api/graphs', (_req, res) => res.json({
+  graphs: [...mockGraphs.values()].map(({ name, active }) => ({ name, active })),
+}));
+
+app.get('/api/graphs/:name', (req, res) => {
+  const graph = mockGraphs.get(req.params.name);
+  if (!graph) return res.status(404).json({ error: 'not found' });
+  res.json(graph);
+});
+
+// Validation via the shared editor core (VAL-02: applying with errors is not
+// allowed) — the M2 engine's load/validate/compile stays authoritative later.
+app.put('/api/graphs/:name', (req, res) => {
+  const name = req.params.name;
+  if (!GRAPH_NAME_RE.test(name)) return res.status(400).json({ error: 'invalid name' });
+  const doc = req.body || {};
+  if (doc.name !== name) return res.status(400).json({ error: 'invalid graph document' });
+  const errors = validateGraphDoc(doc);
+  if (errors.length) return res.status(400).json({ error: errors[0] });
+  mockGraphs.set(name, doc);
+  res.json({ ok: true });
+});
+
+app.delete('/api/graphs/:name', (req, res) => {
+  if (!mockGraphs.delete(req.params.name)) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true });
 });
 
 app.get('/*path', (_req, res) => res.sendFile(join(DATA_DIR, 'index.html')));

@@ -86,7 +86,15 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:8080** in a browser. The mock server (`server/index.js`) handles all REST endpoints and WebSocket, with scenes stored in memory for the duration of the process. Auth is skipped entirely when no environment variables are configured.
+Open **http://localhost:8080** in a browser. The mock server (`server/index.js`) handles all REST endpoints and WebSocket, with scenes stored in memory for the duration of the process.
+
+`npm run dev` expects the auth environment variables (`GITHUB_CLIENT_ID`, `SESSION_SECRET`, `TOKEN_SECRET`, `ALLOWED_GITHUB_USERS`); without them every request redirects to the login. For local work without that setup use:
+
+```bash
+npm run dev:no-auth
+```
+
+The graph editor (mock-only, see the [rework plan](lightwitch-rework-plan.md)'s M8 section) is served from the same process at **http://localhost:8080/graphs.html**.
 
 > Requires Node.js.
 

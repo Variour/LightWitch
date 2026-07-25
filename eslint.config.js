@@ -32,4 +32,18 @@ export default [
       'no-var': 'error',
     },
   },
+  {
+    files: ['server/graphs.html'],
+    plugins: { html },
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: globals.browser,
+    },
+    rules: {
+      eqeqeq: 'error',
+      'prefer-const': 'error',
+      'no-var': 'error',
+    },
+  },
 ];
