@@ -57,9 +57,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
 
-      # Skipped for fork PRs: no Azure deploy for arbitrary external PRs.
+      # Skipped for fork PRs and Dependabot PRs: neither gets repository secrets.
       - uses: azure/login@v3
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -78,7 +78,7 @@ jobs:
 
       # ── PR: create or update a per-PR Container App ─────────────────────────
       - name: Deploy PR Container App
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
         id: pr_app
         run: |
           APP="batterylight-pr-${{ github.event.number }}"
@@ -132,7 +132,7 @@ jobs:
           echo "app=$APP" >> "$GITHUB_OUTPUT"
 
       - name: Post preview URL to PR
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
         uses: actions/github-script@v9
         with:
           script: |
