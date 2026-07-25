@@ -711,10 +711,6 @@ class BatteryWebServer {
             r->send(200, "application/json", "{\"ok\":true}");
         });
 
-        // Browsers always request a favicon; return 204 so the request doesn't
-        // fall through serveStatic's default-file fallback and generate log noise.
-        _server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest* r) { r->send(204); });
-
         // Client-side tab routes must serve the SPA shell so direct browser
         // navigation to /dashboard, /settings, /scenes, or /scenes/<id>
         // does not 404 before the frontend router takes over.
