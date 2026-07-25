@@ -10,7 +10,7 @@
   --row: 28px;
   --colw: 168px;
   --gut: 16px;
-  --pin: 16px;
+  --port: 16px;
   --hit: 44px;
   --c-event: #e6b45a;
   --c-switch: #5ac8e6;
@@ -49,66 +49,66 @@ input[type=text], select {
   background-size: calc(var(--colw) + var(--gut)) 100%;
   background-position: calc(-1 * var(--gut)) 0; pointer-events: none; }
 
-/* ── Stones (PIN-01) ── */
-.stone { position: absolute; width: var(--colw); background: #1f2430;
+/* ── Nodes (PORT-01) ── */
+.node { position: absolute; width: var(--colw); background: #1f2430;
          border: 1px solid #333d52; border-radius: 9px; cursor: grab;
          user-select: none; -webkit-user-select: none; touch-action: none; }
-.stone.selected { border-color: #4af; box-shadow: 0 0 0 1px #4af; }
-.stone.ghost { opacity: .75; transform: rotate(-2deg); z-index: 30; cursor: grabbing;
+.node.selected { border-color: #4af; box-shadow: 0 0 0 1px #4af; }
+.node.ghost { opacity: .75; transform: rotate(-2deg); z-index: 30; cursor: grabbing;
                box-shadow: 0 6px 18px rgba(0,0,0,.5); }
-.stone.reject { border-color: #c44; box-shadow: 0 0 0 1px #c44; }
-.stone-head { height: var(--row); display: flex; align-items: center; gap: .35rem;
+.node.reject { border-color: #c44; box-shadow: 0 0 0 1px #c44; }
+.node-head { height: var(--row); display: flex; align-items: center; gap: .35rem;
               padding: 0 .5rem; font-size: .74rem; font-weight: 600; color: #dde;
               border-bottom: 1px solid #2a3040; cursor: pointer; }
-.stone-head .cat { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.node-head .cat { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .cat-in { background: #e6b45a; } .cat-logic { background: #5ac8e6; } .cat-out { background: #7ee65a; }
-.stone-head .sid { margin-left: auto; font-size: .62rem; color: #567; font-weight: 400; }
-.stone-row { height: var(--row); position: relative; display: flex; align-items: center;
+.node-head .sid { margin-left: auto; font-size: .62rem; color: #567; font-weight: 400; }
+.node-row { height: var(--row); position: relative; display: flex; align-items: center;
              justify-content: space-between; font-size: .64rem; color: #9ab; }
-.stone-row .lbl-in  { padding-left: .55rem; display: flex; align-items: center; gap: .3rem; }
-.stone-row .lbl-out { padding-right: .55rem; margin-left: auto; }
-.stone-row .rep-mark { color: #567; }
+.node-row .lbl-in  { padding-left: .55rem; display: flex; align-items: center; gap: .3rem; }
+.node-row .lbl-out { padding-right: .55rem; margin-left: auto; }
+.node-row .rep-mark { color: #567; }
 
-/* ── Pins (PIN-02) — protrude 9px into the 16px gutter ── */
-.pin { position: absolute; width: var(--pin); height: var(--pin); top: 50%;
+/* ── Ports (PORT-02) — protrude 9px into the 16px gutter ── */
+.port { position: absolute; width: var(--port); height: var(--port); top: 50%;
        transform: translateY(-50%); z-index: 5; }
-.pin.in  { left: -9px; }
-.pin.out { right: -9px; }
-.pin::after { content: ''; position: absolute; inset: 0; display: block; }
-.pin[data-t=event]::after  { background: var(--c-event);
+.port.in  { left: -9px; }
+.port.out { right: -9px; }
+.port::after { content: ''; position: absolute; inset: 0; display: block; }
+.port[data-t=event]::after  { background: var(--c-event);
   clip-path: polygon(15% 0, 100% 50%, 15% 100%); }
-.pin[data-t=switch]::after { background: var(--c-switch); border-radius: 2px; inset: 2px; }
-.pin[data-t=value]::after  { background: var(--c-value); border-radius: 50%; inset: 1px; }
-.pin[data-t=color]::after  { border: 4px solid var(--c-color); border-radius: 50%;
+.port[data-t=switch]::after { background: var(--c-switch); border-radius: 2px; inset: 2px; }
+.port[data-t=value]::after  { background: var(--c-value); border-radius: 50%; inset: 1px; }
+.port[data-t=color]::after  { border: 4px solid var(--c-color); border-radius: 50%;
   inset: 1px; background: none; }
-.pin.free::after { opacity: .35; }
-.pin.linked::after { opacity: 1; filter: drop-shadow(0 0 4px currentColor); }
-.pin.joint::after { background: linear-gradient(135deg, var(--c-value) 50%, var(--c-switch) 50%);
+.port.free::after { opacity: .35; }
+.port.linked::after { opacity: 1; filter: drop-shadow(0 0 4px currentColor); }
+.port.joint::after { background: linear-gradient(135deg, var(--c-value) 50%, var(--c-switch) 50%);
   border-radius: 3px; inset: 1px; clip-path: none; border: none; }
-.pin.cand::after { opacity: .7; outline: 2px solid #2a64; }
-.pin.cand-best::after { opacity: 1; outline: 2px solid #2a6; animation: pulse .7s infinite; }
+.port.cand::after { opacity: .7; outline: 2px solid #2a64; }
+.port.cand-best::after { opacity: 1; outline: 2px solid #2a6; animation: pulse .7s infinite; }
 @keyframes pulse { 50% { filter: drop-shadow(0 0 8px #2a6); } }
-/* Invisible hit area (PIN-05): 44px wide, but capped to the row height
+/* Invisible hit area (PORT-05): 44px wide, but capped to the row height
    vertically — at 28px rows a full 44px square would overlap the neighbor
-   row's pin on the same stone and steal its taps (audit note: deviation
+   row's port on the same node and steal its taps (audit note: deviation
    from the blanket ≥44px; the gutter direction keeps the full width).
    Docked counterparts still overlap in the gutter — both resolve to the
-   same connection, so either pin opens the same popover. */
-.pin::before { content: ''; position: absolute; width: var(--hit); height: var(--row);
+   same connection, so either port opens the same popover. */
+.port::before { content: ''; position: absolute; width: var(--hit); height: var(--row);
                left: 50%; top: 50%; transform: translate(-50%, -50%); }
 
-/* ── Chips (PIN-03, MULTI-02) ── */
+/* ── Chips (PORT-03, MULTI-02) ── */
 .chip, .rulechip { background: #2a2f3d; color: #cde; font-size: .6rem; border-radius: 8px;
         padding: .1rem .35rem; cursor: pointer; position: relative; z-index: 4; }
 .rulechip { background: #33305a; color: #cbe; }
 .chip::before, .rulechip::before { content: ''; position: absolute; width: var(--hit);
   height: var(--hit); left: 50%; top: 50%; transform: translate(-50%, -50%); }
 
-/* ── ±1 bows (GRID-03) — the only "line segments" in the system ── */
-.bow { position: absolute; width: var(--gut); pointer-events: none; z-index: 3; }
-.bow i { position: absolute; inset: 0; display: block; border: 2px solid #6a7;
+/* ── ±1 arcs (GRID-03) — the only "line segments" in the system ── */
+.arc { position: absolute; width: var(--gut); pointer-events: none; z-index: 3; }
+.arc i { position: absolute; inset: 0; display: block; border: 2px solid #6a7;
          border-left: none; border-radius: 0 8px 8px 0; }
-.bow.up i { transform: scaleY(-1); }
+.arc.up i { transform: scaleY(-1); }
 
 /* ── Notes (VIEW-06) ── */
 .note-card { position: absolute; width: var(--colw); background: #2b2620;
@@ -124,6 +124,7 @@ input[type=text], select {
                 cursor: pointer; }
 #palette-grip::after { content: ''; width: 42px; height: 4px; border-radius: 2px;
                        background: #333; }
+#flow-hint { font-size: .68rem; color: #667; padding: 0 .6rem .35rem; line-height: 1.35; }
 #palette-cats { display: flex; gap: .35rem; padding: 0 .6rem .35rem; }
 .pal-cat { font-size: .68rem; padding: .18rem .55rem; border-radius: 10px;
            background: #222; color: #888; cursor: pointer; }
@@ -135,7 +136,8 @@ input[type=text], select {
             cursor: grab; touch-action: none; user-select: none;
             -webkit-user-select: none; display: flex; align-items: center; gap: .3rem; }
 .pal-item.armed { border-color: #2a6; background: #1a2f22; }
-#palette.collapsed #palette-cats, #palette.collapsed #palette-items { display: none; }
+#palette.collapsed #palette-cats, #palette.collapsed #palette-items,
+#palette.collapsed #flow-hint { display: none; }
 
 /* ── Trash zone (DOCK-08) — replaces the palette while dragging ── */
 #trash { display: none; height: 56px; background: #3a1515; border-top: 2px dashed #933;
@@ -210,6 +212,8 @@ body.dragging #trash { display: flex; }
 <div id="trash">🗑 Drop here to delete</div>
 <div id="palette">
   <div id="palette-grip" aria-label="Toggle palette"></div>
+  <div id="flow-hint">Flow runs left to right — inputs sit on a node's left edge,
+    outputs on its right. Drag a node next to another so their ports meet.</div>
   <div id="palette-cats"></div>
   <div id="palette-items"></div>
 </div>
@@ -222,9 +226,9 @@ body.dragging #trash { display: flex; }
 
 <script type="module">
 import {
-  NODE_TYPES, CATEGORIES, PIN_SHAPES, MULTI_RULES, defaultChip, stoneHeight,
-  pinsOf, placementFree, dockCandidates, hasRejectedDock, settleEdges,
-  edgeRule, validateDoc, portLoad, portCapacity, setPortRows, multiRule,
+  NODE_TYPES, CATEGORIES, SIGNAL_SHAPES, MULTI_RULES, defaultChip, nodeHeight,
+  portsOf, placementFree, dockCandidates, hasRejectedDock, settleLinks,
+  linkRule, validateDoc, portLoad, portCapacity, setPortRows, multiRule,
 } from '/graphs-core.js';
 
 const $ = id => document.getElementById(id);
@@ -315,7 +319,7 @@ async function loadGraph(name) {
   if (!res.ok) { showToast('Failed to load graph', true); return; }
   const server = await res.json();
   server.nodes = server.nodes || [];
-  server.edges = server.edges || [];
+  server.links = server.links || [];
   server.notes = server.notes || [];
   const draftRaw = localStorage.getItem(`bl-graph-draft:${name}`);
   if (draftRaw && draftRaw !== JSON.stringify(server)) {
@@ -351,20 +355,20 @@ async function applyGraph() {
   showToast('Applied');
 }
 
-// ── Edge → pin-instance assignment ───────────────────────────────────────────
-// Edges reference ports; repeatable ports have several instance rows. Assign
-// each edge one instance per side (in stored order) so pins, bows, and
-// disconnect all agree on which row an edge occupies.
-function edgeView() {
+// ── Link → port-instance assignment ───────────────────────────────────────────
+// Links reference ports; repeatable ports have several instance rows. Assign
+// each link one instance per side (in stored order) so ports, arcs, and
+// disconnect all agree on which row a link occupies.
+function linkView() {
   if (!doc) return [];
-  const pinCache = new Map(doc.nodes.map(n => [n.id, pinsOf(n)]));
+  const pinCache = new Map(doc.nodes.map(n => [n.id, portsOf(n)]));
   const counter = new Map();
   const next = key => {
     const v = counter.get(key) || 0;
     counter.set(key, v + 1);
     return v;
   };
-  return doc.edges.map((e, idx) => {
+  return doc.links.map((e, idx) => {
     const outs = (pinCache.get(e[0]) || []).filter(p => p.dir === 'out' && p.id === e[1]);
     const ins = (pinCache.get(e[2]) || []).filter(p => p.dir === 'in' && p.id === e[3]);
     if (!outs.length || !ins.length) return null;
@@ -372,7 +376,7 @@ function edgeView() {
     const i = ins[Math.min(next(`${e[2]}:in:${e[3]}`), ins.length - 1)];
     return {
       idx,
-      rule: edgeRule(doc, e),
+      rule: linkRule(doc, e),
       outKey: `${e[0]}:out:${e[1]}:${o.inst}`,
       inKey: `${e[2]}:in:${e[3]}:${i.inst}`,
       outCol: doc.nodes.find(n => n.id === e[0]).col,
@@ -387,7 +391,7 @@ function boardSize() {
   if (doc) {
     for (const n of doc.nodes) {
       maxCol = Math.max(maxCol, n.col);
-      maxRow = Math.max(maxRow, n.row + stoneHeight(n) - 1);
+      maxRow = Math.max(maxRow, n.row + nodeHeight(n) - 1);
     }
     for (const nt of doc.notes) {
       maxCol = Math.max(maxCol, nt.col);
@@ -402,22 +406,22 @@ function renderAll() {
   const { cols, rows } = boardSize();
   board.style.width = `${cols * CELLW}px`;
   board.style.height = `${rows * ROW}px`;
-  board.querySelectorAll('.stone, .note-card, .bow').forEach(el => el.remove());
+  board.querySelectorAll('.node, .note-card, .arc').forEach(el => el.remove());
   $('meta-active').checked = !!(doc && doc.active);
   if (!doc) return;
 
-  const view = edgeView();
+  const view = linkView();
   const stateByKey = new Map();
   for (const v of view) {
     stateByKey.set(v.outKey, v.rule === 'direct' ? 'linked' : 'joint');
     stateByKey.set(v.inKey, v.rule === 'direct' ? 'linked' : 'joint');
   }
-  for (const n of doc.nodes) board.appendChild(stoneEl(n, stateByKey));
+  for (const n of doc.nodes) board.appendChild(nodeEl(n, stateByKey));
   doc.notes.forEach((nt, i) => board.appendChild(noteEl(nt, i)));
   for (const v of view) {
-    if (v.outRow === v.inRow) continue;  // touching pins render the contact
+    if (v.outRow === v.inRow) continue;  // touching ports render the contact
     const el = document.createElement('div');
-    el.className = 'bow' + (v.inRow < v.outRow ? ' up' : '');
+    el.className = 'arc' + (v.inRow < v.outRow ? ' up' : '');
     el.style.left = `${v.outCol * CELLW - GUT}px`;
     el.style.top = `${(Math.min(v.outRow, v.inRow) - 1) * ROW + ROW / 2}px`;
     el.style.height = `${ROW}px`;
@@ -434,37 +438,37 @@ function chipValue(n, portId, type) {
 
 function chipLabel(type, v) { return type === 'switch' ? (v ? 'on' : 'off') : `${v}%`; }
 
-function stoneEl(n, stateByKey) {
+function nodeEl(n, stateByKey) {
   const t = NODE_TYPES[n.type];
   const el = document.createElement('div');
-  el.className = 'stone' + (selected === n.id ? ' selected' : '');
+  el.className = 'node' + (selected === n.id ? ' selected' : '');
   el.dataset.id = n.id;
   el.style.left = `${(n.col - 1) * CELLW}px`;
   el.style.top = `${(n.row - 1) * ROW}px`;
   el.setAttribute('role', 'group');
-  el.setAttribute('aria-label', `${n.type} stone ${n.id}, column ${n.col}, row ${n.row}`);
+  el.setAttribute('aria-label', `${n.type} node ${n.id}, column ${n.col}, row ${n.row}`);
 
-  // Group pin instances by their relative row.
+  // Group port instances by their relative row.
   const rows = new Map();
-  for (const p of pinsOf(n)) {
+  for (const p of portsOf(n)) {
     const rel = p.row - n.row - 1;
     if (!rows.has(rel)) rows.set(rel, []);
     rows.get(rel).push(p);
   }
 
-  let html = `<div class="stone-head" data-head="1">
+  let html = `<div class="node-head" data-head="1">
     <span class="cat cat-${t.cat}"></span>${n.type}<span class="sid">#${n.id}</span></div>`;
-  const rowCount = stoneHeight(n) - 1;
+  const rowCount = nodeHeight(n) - 1;
   for (let rel = 0; rel < rowCount; rel++) {
-    html += '<div class="stone-row">';
+    html += '<div class="node-row">';
     for (const p of rows.get(rel) || []) {
       const key = `${n.id}:${p.dir}:${p.id}:${p.inst}`;
       const state = stateByKey.get(key) || 'free';
-      const pin = `<span class="pin ${p.dir} ${state}" data-t="${p.type}" data-key="${key}"
+      const port = `<span class="port ${p.dir} ${state}" data-t="${p.type}" data-key="${key}"
         data-node="${n.id}" data-dir="${p.dir}" data-port="${p.id}" data-inst="${p.inst}"
         role="button" aria-label="${p.id} ${p.dir === 'in' ? 'input' : 'output'} ${p.inst + 1}, ${p.type}, ${state}"></span>`;
       if (p.dir === 'in') {
-        html += pin;
+        html += port;
         let extras = '';
         if (p.inst === 0 && portLoad(doc, n.id, 'in', p.id) === 0 && defaultChip(p.type) !== null) {
           extras += `<span class="chip" data-node="${n.id}" data-port="${p.id}"
@@ -475,7 +479,7 @@ function stoneEl(n, stateByKey) {
         }
         html += `<span class="lbl-in">${p.inst > 0 ? '<span class="rep-mark">↳</span>' : ''}${p.id}${extras}</span>`;
       } else {
-        html += `<span class="lbl-out">${p.inst > 0 ? '<span class="rep-mark">↳</span> ' : ''}${p.id}</span>${pin}`;
+        html += `<span class="lbl-out">${p.inst > 0 ? '<span class="rep-mark">↳</span> ' : ''}${p.id}</span>${port}`;
       }
     }
     html += '</div>';
@@ -536,7 +540,7 @@ function ghostCell() {
 }
 
 function clearDragHighlights() {
-  document.querySelectorAll('.pin.cand, .pin.cand-best')
+  document.querySelectorAll('.port.cand, .port.cand-best')
     .forEach(p => p.classList.remove('cand', 'cand-best'));
 }
 
@@ -553,9 +557,9 @@ function updateDragPreview() {
   const { col, row } = ghostCell();
   const cands = dockCandidates(doc, drag.node, col, row);
   cands.forEach((c, i) => {
-    const p = c.theirPin;
+    const p = c.theirPort;
     const key = `${c.other.id}:${p.dir}:${p.id}:${p.inst}`;
-    const el = document.querySelector(`.pin[data-key="${key}"]`);
+    const el = document.querySelector(`.port[data-key="${key}"]`);
     if (el) el.classList.add(i === 0 ? 'cand-best' : 'cand');
   });
   if (!cands.length && hasRejectedDock(doc, drag.node, col, row)) {
@@ -573,10 +577,10 @@ function isOverTrash() {
 
 function startDragExisting(el, kind, ref, ev) {
   drag.state = 'pressed';
-  drag.kind = kind;              // 'stone' | 'note'
+  drag.kind = kind;              // 'node' | 'note'
   drag.el = el;
   drag.ref = ref;                // node object | note index
-  drag.node = kind === 'stone' ? ref : null;
+  drag.node = kind === 'node' ? ref : null;
   drag.startX = ev.clientX;
   drag.startY = ev.clientY;
   const r = el.getBoundingClientRect();
@@ -584,14 +588,14 @@ function startDragExisting(el, kind, ref, ev) {
   drag.offY = ev.clientY - r.top;
   drag.fromPalette = false;
   // No setPointerCapture: capture retargets the derived click event to the
-  // stone root, which would swallow head/pin taps. The document-level
-  // pointermove/up listeners track the drag; touch-action: none on stones
+  // node root, which would swallow head/port taps. The document-level
+  // pointermove/up listeners track the drag; touch-action: none on nodes
   // keeps touch gestures from turning into scrolls.
 }
 
 function startDragFromPalette(type, ev) {
   drag.state = 'pressed';
-  drag.kind = type === 'note' ? 'note' : 'stone';
+  drag.kind = type === 'note' ? 'note' : 'node';
   drag.fromPalette = true;
   drag.type = type;
   drag.startX = ev.clientX;
@@ -606,15 +610,15 @@ function beginDragging() {
   drag.state = 'dragging';
   document.body.classList.add('dragging');
   if (drag.fromPalette) {
-    if (drag.kind === 'stone') {
+    if (drag.kind === 'node') {
       const id = doc.nodes.reduce((m, n) => Math.max(m, n.id), 0) + 1;
       drag.node = { id, type: drag.type, col: 1, row: 1, cfg: {} };
-      drag.el = stoneEl(drag.node, new Map());
+      drag.el = nodeEl(drag.node, new Map());
     } else {
       drag.el = noteEl({ col: 1, row: 1, text: 'note' }, -1);
     }
     $('board').appendChild(drag.el);
-  } else if (drag.kind === 'stone') {
+  } else if (drag.kind === 'node') {
     drag.origin = { col: drag.node.col, row: drag.node.row };
   } else {
     drag.origin = { ...doc.notes[drag.ref] };
@@ -650,11 +654,11 @@ function endDrag(commit) {
   if (drag.fromPalette) {
     if (!overTrash) {
       pushUndo();
-      if (drag.kind === 'stone') {
+      if (drag.kind === 'node') {
         const n = drag.node;
         ({ col: n.col, row: n.row } = nearestFree(n, col, row));
         doc.nodes.push(n);
-        if (settleEdges(doc, n.id).added) vibrate(10);
+        if (settleLinks(doc, n.id).added) vibrate(10);
         selected = n.id;
       } else {
         doc.notes.push({ col, row, text: 'note' });
@@ -662,11 +666,11 @@ function endDrag(commit) {
       }
       markDirty();
     }
-  } else if (drag.kind === 'stone') {
+  } else if (drag.kind === 'node') {
     const n = drag.node;
     if (overTrash) {
       pushUndo();
-      doc.edges = doc.edges.filter(e => e[0] !== n.id && e[2] !== n.id);
+      doc.links = doc.links.filter(e => e[0] !== n.id && e[2] !== n.id);
       doc.nodes = doc.nodes.filter(x => x.id !== n.id);
       selected = null;
       markDirty();
@@ -676,7 +680,7 @@ function endDrag(commit) {
         pushUndo();
         n.col = target.col;
         n.row = target.row;
-        if (settleEdges(doc, n.id).added) vibrate(10);
+        if (settleLinks(doc, n.id).added) vibrate(10);
         markDirty();
       }
     }
@@ -745,7 +749,7 @@ document.addEventListener('keydown', e => {
   }
   if (e.key === 'Delete' && typeof selected === 'number') {
     pushUndo();
-    doc.edges = doc.edges.filter(x => x[0] !== selected && x[2] !== selected);
+    doc.links = doc.links.filter(x => x[0] !== selected && x[2] !== selected);
     doc.nodes = doc.nodes.filter(x => x.id !== selected);
     selected = null;
     markDirty();
@@ -753,14 +757,14 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// Board: stone drag / pan / tap dispatch.
+// Board: node drag / pan / tap dispatch.
 $('board-wrap').addEventListener('pointerdown', e => {
-  if (e.target.closest('.pin') || e.target.closest('.chip') || e.target.closest('.rulechip')) return;
-  const stone = e.target.closest('.stone');
+  if (e.target.closest('.port') || e.target.closest('.chip') || e.target.closest('.rulechip')) return;
+  const node = e.target.closest('.node');
   const note = e.target.closest('.note-card');
-  if (stone) {
-    const n = doc.nodes.find(x => x.id === Number(stone.dataset.id));
-    if (n) startDragExisting(stone, 'stone', n, e);
+  if (node) {
+    const n = doc.nodes.find(x => x.id === Number(node.dataset.id));
+    if (n) startDragExisting(node, 'node', n, e);
   } else if (note) {
     startDragExisting(note, 'note', Number(note.dataset.noteIndex), e);
   } else {
@@ -778,23 +782,23 @@ $('palette-items').addEventListener('pointerdown', e => {
 // Tap dispatch (click fires only when no drag happened).
 $('board-wrap').addEventListener('click', e => {
   if (drag.wasDrag) { drag.wasDrag = false; return; }
-  const pin = e.target.closest('.pin');
-  if (pin) { openPinPopover(pin, e); return; }
+  const port = e.target.closest('.port');
+  if (port) { openPortPopover(port, e); return; }
   const rulechip = e.target.closest('.rulechip');
   if (rulechip) { openRulePopover(rulechip, e); return; }
   const chip = e.target.closest('.chip');
   if (chip) { openChipPopover(chip, e); return; }
-  const head = e.target.closest('.stone-head');
+  const head = e.target.closest('.node-head');
   if (head) {
-    const id = Number(head.closest('.stone').dataset.id);
+    const id = Number(head.closest('.node').dataset.id);
     selected = id;
     renderAll();
     openSheet(id);
     return;
   }
-  const stone = e.target.closest('.stone');
-  if (stone) {
-    selected = Number(stone.dataset.id);
+  const node = e.target.closest('.node');
+  if (node) {
+    selected = Number(node.dataset.id);
     renderAll();
     return;
   }
@@ -817,7 +821,7 @@ $('board-wrap').addEventListener('click', e => {
       n.col = t.col;
       n.row = t.row;
       doc.nodes.push(n);
-      settleEdges(doc, id);
+      settleLinks(doc, id);
     }
     armedType = null;
     markDirty();
@@ -837,7 +841,7 @@ $('palette-items').addEventListener('click', e => {
   renderPalette();
 });
 
-// ── Popovers (PIN-03, MULTI-02, DOCK-06/07) ──────────────────────────────────
+// ── Popovers (PORT-03, MULTI-02, DOCK-06/07) ──────────────────────────────────
 function openPopoverAt(x, y, html) {
   const p = $('popover');
   p.innerHTML = html;
@@ -850,17 +854,17 @@ function openPopoverAt(x, y, html) {
 function closePopover() { $('popover').style.display = 'none'; }
 
 document.addEventListener('pointerdown', e => {
-  if (!e.target.closest('#popover') && !e.target.closest('.pin') &&
+  if (!e.target.closest('#popover') && !e.target.closest('.port') &&
       !e.target.closest('.chip') && !e.target.closest('.rulechip')) closePopover();
 }, true);
 
-function openPinPopover(pinEl, ev) {
-  const key = pinEl.dataset.key;
-  const v = edgeView().find(x => x.outKey === key || x.inKey === key);
+function openPortPopover(portEl, ev) {
+  const key = portEl.dataset.key;
+  const v = linkView().find(x => x.outKey === key || x.inKey === key);
   if (!v) {
     openPopoverAt(ev.clientX, ev.clientY,
-      `<div class="rule">${PIN_SHAPES[pinEl.dataset.t]} ${pinEl.dataset.port} · ${pinEl.dataset.t} · free</div>
-       <div style="font-size:.68rem;color:#789">Dock by moving a stone next to this pin.</div>`);
+      `<div class="rule">${SIGNAL_SHAPES[portEl.dataset.t]} ${portEl.dataset.port} · ${portEl.dataset.t} · free</div>
+       <div style="font-size:.68rem;color:#789">Dock by moving a node next to this port.</div>`);
     return;
   }
   openPopoverAt(ev.clientX, ev.clientY,
@@ -868,7 +872,7 @@ function openPinPopover(pinEl, ev) {
      <button class="btn-danger" id="pop-disconnect">Disconnect</button>`);
   $('pop-disconnect').addEventListener('click', () => {
     pushUndo();
-    doc.edges.splice(v.idx, 1);
+    doc.links.splice(v.idx, 1);
     closePopover();
     markDirty();
     renderAll();
@@ -932,7 +936,7 @@ function openRulePopover(chipEl, ev) {
   }));
 }
 
-// ── Settings sheet (PIN-01, MULTI-01, VIEW-03) ───────────────────────────────
+// ── Settings sheet (PORT-01, MULTI-01, VIEW-03) ───────────────────────────────
 let sheetTarget = null;
 
 function openSheet(target) {
@@ -983,7 +987,7 @@ function renderSheetIfOpen() {
   if (!n) { closeSheet(); return; }
   const t = NODE_TYPES[n.type];
   const seen = new Set();
-  const pinRows = pinsOf(n).filter(p => {
+  const portRows = portsOf(n).filter(p => {
     const k = `${p.dir}:${p.id}`;
     if (seen.has(k)) return false;
     seen.add(k);
@@ -995,21 +999,21 @@ function renderSheetIfOpen() {
       ? `<button class="btn-ghost" data-grow="${p.dir}:${p.id}" aria-label="Add row">＋</button>
          <button class="btn-ghost" data-shrink="${p.dir}:${p.id}" aria-label="Remove row">−</button>`
       : '';
-    return `<div class="pinrow"><span class="shape">${PIN_SHAPES[p.type]}</span>
+    return `<div class="pinrow"><span class="shape">${SIGNAL_SHAPES[p.type]}</span>
       ${p.dir === 'in' ? '←' : '→'} ${p.id} · ${p.type}
       <span class="grow"></span>${p.repeat ? `${load}/${cap} rows` : (load ? 'connected' : 'free')} ${grow}</div>`;
   }).join('');
   sheet.innerHTML = `<h2><span class="cat cat-${t.cat}" style="width:8px;height:8px;border-radius:50%"></span>
       ${n.type} <span style="color:#567">#${n.id} · col ${n.col} · row ${n.row}</span></h2>
-    ${pinRows}
+    ${portRows}
     <div class="actions">
-      <button class="btn-danger" id="sheet-remove">Remove stone</button>
+      <button class="btn-danger" id="sheet-remove">Remove node</button>
       <button class="btn-ghost" id="sheet-close">Close</button></div>`;
   sheet.querySelectorAll('[data-grow]').forEach(b => b.addEventListener('click', () => {
     const [dir, portId] = b.dataset.grow.split(':');
     pushUndo();
     if (setPortRows(doc, n, dir, portId, +1)) {
-      settleEdges(doc, n.id);
+      settleLinks(doc, n.id);
       markDirty();
       renderAll();
     } else { undoStack.pop(); updateUndoButtons(); }
@@ -1018,7 +1022,7 @@ function renderSheetIfOpen() {
     const [dir, portId] = b.dataset.shrink.split(':');
     pushUndo();
     if (setPortRows(doc, n, dir, portId, -1)) {
-      settleEdges(doc, n.id);
+      settleLinks(doc, n.id);
       markDirty();
       renderAll();
     } else {
@@ -1029,7 +1033,7 @@ function renderSheetIfOpen() {
   }));
   $('sheet-remove').addEventListener('click', () => {
     pushUndo();
-    doc.edges = doc.edges.filter(x => x[0] !== n.id && x[2] !== n.id);
+    doc.links = doc.links.filter(x => x[0] !== n.id && x[2] !== n.id);
     doc.nodes = doc.nodes.filter(x => x.id !== n.id);
     selected = null;
     markDirty();
@@ -1056,7 +1060,7 @@ $('btn-more').addEventListener('click', ev => {
   $('pop-create').addEventListener('click', async () => {
     const name = $('pop-newname').value.trim();
     if (!/^[a-z0-9-]{1,32}$/i.test(name)) { showToast('Name: 1-32 letters, digits, dashes', true); return; }
-    const fresh = { v: 1, name, active: false, requires: [], nodes: [], edges: [], notes: [] };
+    const fresh = { v: 1, name, active: false, requires: [], nodes: [], links: [], notes: [] };
     const res = await fetch(`/api/graphs/${encodeURIComponent(name)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fresh),
     });

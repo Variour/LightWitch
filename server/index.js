@@ -1204,7 +1204,7 @@ app.post('/api/update/apply-pr', (req, res) => {
 // is nearly full (#377); it moves into the device UI with M8.
 const GRAPH_NAME_RE = /^[a-z0-9-]{1,32}$/i;
 
-// Seeds are adjacency-consistent: every edge's pins sit in neighboring
+// Seeds are adjacency-consistent: every link's pins sit in neighboring
 // columns within ±1 row (see graphs-core.js). buzzergame also seeds a
 // multi-row input (action.trigger with one extra row) fed by two sources.
 const mockGraphs = new Map([
@@ -1216,7 +1216,7 @@ const mockGraphs = new Map([
       { id: 3, type: 'action', col: 3, row: 1, cfg: { action: 'SceneNext' }, rep: { 'in:trigger': 1 } },
       { id: 4, type: 'timer', col: 2, row: 3, cfg: { ms: 10000 } },
     ],
-    edges: [[1, 'pressed', 2, 'start'], [2, 'done', 3, 'trigger'], [4, 'elapsed', 3, 'trigger']],
+    links: [[1, 'pressed', 2, 'start'], [2, 'done', 3, 'trigger'], [4, 'elapsed', 3, 'trigger']],
     notes: [{ col: 1, row: 5, text: 'registration' }],
   }],
   ['nightlight', {
@@ -1230,7 +1230,7 @@ const mockGraphs = new Map([
       { id: 6, type: 'gate', col: 2, row: 5, cfg: {} },
       { id: 7, type: 'log', col: 3, row: 5, cfg: {} },
     ],
-    edges: [
+    links: [
       [1, 'payload', 2, 'value'],
       [2, 'outOfRange', 3, 'open'],
       [3, 'value', 4, 'value'],

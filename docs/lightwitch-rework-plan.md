@@ -1,10 +1,28 @@
 # LightWitch rework plan
 
 Derived from the LightWitch system concept v1.0 and the resolved decisions in
-[lightwitch-decisions.md](lightwitch-decisions.md) (D1–D7). Terminology follows
-the repo: **node** (not "Stein"), **graph**, **stage node**, **role**,
-**group**. All identifiers, schema keys, docs, and UI strings are English;
-German appears only as optional editor labels later.
+[lightwitch-decisions.md](lightwitch-decisions.md) (D1–D7).
+
+## Vocabulary
+
+One word per thing, used identically in schema keys, code identifiers, docs,
+and UI strings — there is no separate user-facing vocabulary and no
+translation layer, so a term that reads well in the editor must also be the
+term in the code.
+
+| Term | Meaning |
+|---|---|
+| `graph` | One named, activatable program: nodes plus their links. Stored as one JSON file. |
+| `node` | One building block of logic — a typed unit with ports. Never "Stein"/"stone"/"block". |
+| `port` | A connection point on a node. Input ports sit on the node's left edge, output ports on its right; flow runs left to right. Say "input port"/"output port" when the direction matters. Never "pin" — that means a GPIO pin everywhere else in this project. |
+| `link` | Two ports joined. Arises from adjacency (neighboring columns, row distance ≤ 1), not from a drawn line — so never "wire", "edge", or "connection" (the latter means a network connection everywhere else). |
+| `joint` | A link between two different signal types, carrying a conversion rule. |
+| `signal type` | What flows through a port: event, switch, value, color. Shape is the primary code, not colour. |
+| `chip` | The editable default value shown on a free input port. |
+| `arc` | The small curve in the gutter drawn for a link whose two ports sit one row apart — the only line segment in the system. |
+| `rail` | A named portal that links distant nodes without adjacency. |
+| `dock` (verb) | To join two ports by placing their nodes next to each other. |
+| `stage node`, `role`, `group` | As used elsewhere in this repo. |
 
 Scope guardrails (from D3/D7): no native/desktop tooling, no measurement
 suite, no mesh protocol rework. Every milestone ships a usable feature on the
@@ -173,7 +191,7 @@ frozen as of now: bug fixes only, no new trigger types, no new features.
   "nodes": [
     {"id": 1, "type": "button", "role": "button:main", "col": 1, "row": 1, "cfg": {}}
   ],
-  "edges": [[1, "pressed", 2, "start"]],
+  "links": [[1, "pressed", 2, "start"]],
   "notes": [{"col": 1, "row": 5, "text": "registration"}]
 }
 ```
@@ -231,7 +249,7 @@ notice.
 ### M4 · Value layer + stage node
 
 Value-layer nodes (`lfo` via LUT, `math`, `hold`, `hsv-mix`, joints/type
-adapters on edges per concept §5.3) and the **stage node**: binds to a light
+adapters on links per concept §5.3) and the **stage node**: binds to a light
 role, claims the light through the M1 arbitration, drives its `PatternRunner`
 with a channel-driven pattern (intensity, stimulus, movement, limit, color —
 scenes read the channels they know). Existing patterns stay available as

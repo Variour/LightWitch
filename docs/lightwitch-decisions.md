@@ -101,7 +101,7 @@ the user enables them), `off` (ignore graphs from mesh/group entirely).
 
 ### D5 · Canonical graph schema: language & v1 scope ☑️
 
-**Decided: English canonical keys** (`nodes`, `edges`, `requires`), matching
+**Decided: English canonical keys** (`nodes`, `links`, `requires`), matching
 the rest of the repo; German terms appear only as editor labels. This mirrors
 the concept's own §5.5 split between display language and stored form. The v1
 scope additionally includes: the edge list as sketched, the `v` field, the

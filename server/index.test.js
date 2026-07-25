@@ -205,10 +205,10 @@ describe('/api/graphs (mock-only, issue #464)', () => {
     const doc = await res.json();
     assert.equal(doc.v, 1);
     assert.equal(doc.nodes.length, 4);
-    assert.deepEqual(doc.edges[0], [1, 'pressed', 2, 'start']);
+    assert.deepEqual(doc.links[0], [1, 'pressed', 2, 'start']);
     assert.equal(doc.notes[0].text, 'registration');
     // The seeded multi-row input carries two sources (MULTI-01).
-    assert.equal(doc.edges.filter(e => e[2] === 3 && e[3] === 'trigger').length, 2);
+    assert.equal(doc.links.filter(e => e[2] === 3 && e[3] === 'trigger').length, 2);
   });
 
   test('404 for an unknown graph', async () => {
@@ -219,7 +219,7 @@ describe('/api/graphs (mock-only, issue #464)', () => {
     const doc = {
       v: 1, name: 'testgraph', active: false, requires: [],
       nodes: [{ id: 1, type: 'button', col: 2, row: 3, cfg: {} }],
-      edges: [], notes: [{ col: 1, row: 1, text: 'hi' }],
+      links: [], notes: [{ col: 1, row: 1, text: 'hi' }],
     };
     assert.equal((await putGraph('testgraph', doc)).status, 200);
     const stored = await (await fetch(`${baseUrl}/api/graphs/testgraph`)).json();
@@ -227,14 +227,14 @@ describe('/api/graphs (mock-only, issue #464)', () => {
   });
 
   test('PUT rejects an invalid name and a structurally invalid document', async () => {
-    const ok = { v: 1, name: 'bad name', nodes: [], edges: [] };
+    const ok = { v: 1, name: 'bad name', nodes: [], links: [] };
     assert.equal((await putGraph('bad%20name', { ...ok })).status, 400);
-    assert.equal((await putGraph('valid', { name: 'valid', nodes: [], edges: [] })).status, 400);
-    assert.equal((await putGraph('valid', { v: 1, name: 'other', nodes: [], edges: [] })).status, 400);
+    assert.equal((await putGraph('valid', { name: 'valid', nodes: [], links: [] })).status, 400);
+    assert.equal((await putGraph('valid', { v: 1, name: 'other', nodes: [], links: [] })).status, 400);
   });
 
   test('DELETE removes a graph', async () => {
-    await putGraph('doomed', { v: 1, name: 'doomed', nodes: [], edges: [], notes: [] });
+    await putGraph('doomed', { v: 1, name: 'doomed', nodes: [], links: [], notes: [] });
     assert.equal((await fetch(`${baseUrl}/api/graphs/doomed`, { method: 'DELETE' })).status, 200);
     assert.equal((await fetch(`${baseUrl}/api/graphs/doomed`)).status, 404);
   });
