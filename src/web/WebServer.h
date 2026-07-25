@@ -52,6 +52,9 @@ using OrientationChangeCb = std::function<void(uint8_t)>;
 using ColorOrderChangeCb = std::function<void(uint8_t)>;
 // Called when a light's own brightnessOverride(Enabled) changes without reboot
 using LightBrightnessChangeCb = std::function<void(uint8_t)>;
+// Called when a light's brightnessLimit/brightnessScale changes without reboot,
+// so the new clamp can be applied to its LED driver live
+using LightClampChangeCb = std::function<void(uint8_t)>;
 // Called after a button is added/updated/deleted, so GPIO pin modes can be re-applied live
 using ButtonsChangedCb = std::function<void()>;
 // Called whenever the group list changes (create/rename/delete, local or mesh-synced) —
@@ -746,6 +749,7 @@ class BatteryWebServer {
     void setOnOrientationChange(OrientationChangeCb cb) { _onOrientationChange = cb; }
     void setOnColorOrderChange(ColorOrderChangeCb cb) { _onColorOrderChange = cb; }
     void setOnLightBrightnessChange(LightBrightnessChangeCb cb) { _onLightBrightnessChange = cb; }
+    void setOnLightClampChange(LightClampChangeCb cb) { _onLightClampChange = cb; }
     void setOnButtonsChanged(ButtonsChangedCb cb) { _onButtonsChanged = cb; }
     void setOnGroupsChanged(GroupsChangedCb cb) { _onGroupsChanged = cb; }
     void setOnSceneListChanged(SceneListChangedCb cb) { _onSceneListChanged = cb; }
@@ -809,6 +813,7 @@ class BatteryWebServer {
     OrientationChangeCb _onOrientationChange;
     ColorOrderChangeCb _onColorOrderChange;
     LightBrightnessChangeCb _onLightBrightnessChange;
+    LightClampChangeCb _onLightClampChange;
     ButtonsChangedCb _onButtonsChanged;
     GroupsChangedCb _onGroupsChanged;
     SceneListChangedCb _onSceneListChanged;
@@ -934,6 +939,8 @@ class BatteryWebServer {
             lo["groupId"] = l.groupId;
             lo["brightnessOverrideEnabled"] = l.brightnessOverrideEnabled;
             lo["brightnessOverride"] = l.brightnessOverride;
+            lo["brightnessLimit"] = l.brightnessLimit;
+            lo["brightnessScale"] = l.brightnessScale;
         }
 
         JsonArray arr = doc["groups"].to<JsonArray>();
@@ -2023,6 +2030,8 @@ class BatteryWebServer {
             o["groupId"] = l.groupId;
             o["brightnessOverrideEnabled"] = l.brightnessOverrideEnabled;
             o["brightnessOverride"] = l.brightnessOverride;
+            o["brightnessLimit"] = l.brightnessLimit;
+            o["brightnessScale"] = l.brightnessScale;
         }
         _sendJson(r, 200, doc);
     }
@@ -2045,7 +2054,7 @@ class BatteryWebServer {
 
     // ── POST /api/lights/add ──────────────────────────────────────────────────
     // Body: {ledType, colorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir,
-    // matrixSerpentine, wrapWidth, wrapHeight, groupId}
+    // matrixSerpentine, wrapWidth, wrapHeight, groupId, brightnessLimit, brightnessScale}
     void _addLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2077,6 +2086,8 @@ class BatteryWebServer {
         l.wrapWidth = doc["wrapWidth"] | false;
         l.wrapHeight = doc["wrapHeight"] | false;
         l.groupId = doc["groupId"] | (uint8_t)0;
+        l.brightnessLimit = (uint8_t)constrain((int)(doc["brightnessLimit"] | 255), 0, 255);
+        l.brightnessScale = (uint8_t)constrain((int)(doc["brightnessScale"] | 255), 0, 255);
         if (l.width == 0) l.width = 1;
         if (l.height == 0) l.height = 1;
         if (const char* conflict = _lightPinConflict(l, /*excludeLightIndex=*/idx)) {
@@ -2098,7 +2109,8 @@ class BatteryWebServer {
 
     // ── POST /api/lights/update ───────────────────────────────────────────────
     // Body: {index, ledType?, colorOrder?, dataPin?, clockPin?, width?, height?, matrixStart?,
-    // matrixDir?, matrixSerpentine?, wrapWidth?, wrapHeight?, groupId?}
+    // matrixDir?, matrixSerpentine?, wrapWidth?, wrapHeight?, groupId?, brightnessLimit?,
+    // brightnessScale?}
     void _updateLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2195,6 +2207,16 @@ class BatteryWebServer {
             l.brightnessOverride = (uint8_t)constrain((int)doc["brightnessOverride"], 0, 255);
             brightnessOverrideChanged = true;
         }
+        // hardware brightness clamp: soft config, no restart needed
+        bool clampChanged = false;
+        if (!doc["brightnessLimit"].isNull()) {
+            l.brightnessLimit = (uint8_t)constrain((int)doc["brightnessLimit"], 0, 255);
+            clampChanged = true;
+        }
+        if (!doc["brightnessScale"].isNull()) {
+            l.brightnessScale = (uint8_t)constrain((int)doc["brightnessScale"], 0, 255);
+            clampChanged = true;
+        }
         Config::save();
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
@@ -2205,6 +2227,7 @@ class BatteryWebServer {
         }
         if (orientationChanged && _onOrientationChange) _onOrientationChange(idx);
         if (brightnessOverrideChanged && _onLightBrightnessChange) _onLightBrightnessChange(idx);
+        if (clampChanged && _onLightClampChange) _onLightClampChange(idx);
         if (colorOrderChanged && _onColorOrderChange) _onColorOrderChange(idx);
     }
 

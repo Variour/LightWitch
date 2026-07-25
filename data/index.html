@@ -5557,7 +5557,7 @@ async function _checkColorOrder(light, overlay) {
 function openAddLightModal() {
   _editLightIndex = null;
   _originalLight  = null;
-  _openLightModal({index: null, ledType: 0, colorOrder: 2, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false});
+  _openLightModal({index: null, ledType: 0, colorOrder: 2, dataPin: 25, clockPin: 26, width: 1, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, brightnessLimit: 255, brightnessScale: 255});
 }
 
 function openEditLightModal(l) {
@@ -5621,6 +5621,10 @@ function _openLightModal(l) {
         <span>Wrap vertically <small>(last row connects back to the first)</small></span>
       </label>
     </div>
+    <label>Brightness limit <small>(0-255 hard cap — pixels are clipped to this value)</small></label>
+    <input type="number" id="lm-brightnessLimit" value="${l.brightnessLimit ?? 255}" min="0" max="255">
+    <label>Brightness scale <small>(0-255 proportional damping, 255 = full)</small></label>
+    <input type="number" id="lm-brightnessScale" value="${l.brightnessScale ?? 255}" min="0" max="255">
     <button id="lm-save-btn" class="btn-primary" style="width:100%;margin-top:.75rem">Save &amp; Reboot</button>
   </div></div>`;
   overlay.style.display = 'block';
@@ -5668,6 +5672,7 @@ function _openLightModal(l) {
 }
 
 async function saveLightModal() {
+  const clamp255 = v => { const n = parseInt(v); return isNaN(n) ? 255 : Math.min(255, Math.max(0, n)); };
   const body = {
     name:     $('lm-name').value.trim(),
     ledType:  parseInt($('lm-ledType').value),
@@ -5681,6 +5686,8 @@ async function saveLightModal() {
     matrixSerpentine: $('lm-matrixSerpentine').checked,
     wrapWidth:   $('lm-wrapWidth').checked,
     wrapHeight:  $('lm-wrapHeight').checked,
+    brightnessLimit: clamp255($('lm-brightnessLimit').value),
+    brightnessScale: clamp255($('lm-brightnessScale').value),
   };
   // Add always reboots; edit only reboots when a hardware field actually changed (mirrors _updateSaveBtn).
   const needsReboot = _editLightIndex === null || !_originalLight ? true :

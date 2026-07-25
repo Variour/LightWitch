@@ -1,10 +1,21 @@
 ![ESP Devices, smart Mesh](lightwitch.jpg)
 # LightWitch
+*Open source technical witchcraft for light, sound and other cool stuff.*
 
 [![Latest release](https://img.shields.io/github/v/release/Variour/LightWitch)](https://github.com/Variour/LightWitch/releases/latest)
 [![License](https://img.shields.io/github/license/Variour/LightWitch)](https://github.com/Variour/LightWitch/blob/main/LICENSE)
 
-ESP32-based addressable RGB light with web interface, OTA updates, and mesh sync.
+***Enabling ESP32-based devices with web interface, OTA updates, and mesh sync***
+
+LightWitch is a platform for building your own light, sound, sensor and input devices. You design the object, LightWitch does the magic. Lamps, lanterns, torches, glowing orbs, candles, wearables, buttons, remotes, speakers, whatever you have in mind.
+
+Any device with an ESP32 inside (a cheap microcontroller with Wi-Fi and Bluetooth on board) joins the mesh on its own. There is no router to configure, no gateway to carry along and no account anywhere. Unpack, power up, done. Works in a workshop, at a campsite, on a job site, in the middle of a party.
+
+Behaviour is built in a visual editor by docking blocks together. Wire anything, a device can notice to anything it can do. Easily distributed to every device in the mesh with matching hardware. No code required.
+
+Nothing says a device may only have one job. A row of garden lamps lights the path and watches the soil at the same time, and starts the pump when things get too dry. Actually smart stuff, everywhere you feel like putting it. Rig your table lamp as an egg timer in a minute, build a doorbell that rings or blinks in whichever room currently has a light on, or make fire that you actually light, blow out and that flickers when its windy and jumps over to the device standing next to it, if near enough. Finally enabling realistic torches for an indoor event.
+
+Hardware, wiring and configs are meant to be shared. Publish yours, borrow someone else's, change everything about it. Firmware, editor and design files are open. Nothing to subscribe to.
 
 ---
 
