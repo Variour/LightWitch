@@ -30,6 +30,9 @@ class MeshManager {
     using PresenceCb = std::function<void(const uint8_t* mac, const char* name, bool isNew)>;
     using SetGroupCb =
         std::function<void(const uint8_t* targetMac, uint8_t lightIndex, uint8_t groupId)>;
+    // Direct per-light override command (issue #458) — the receiver applies it
+    // through the same arbitration as local REST set/clear, see main.cpp.
+    using LightOverrideCb = std::function<void(const LightOverrideMsg*)>;
     using GroupSyncCb = std::function<void(const GroupConfig&)>;
     using PhaseSyncCb = std::function<void(uint8_t groupId, float phase)>;
     // Returns the current animation phase for the given light index.
@@ -96,6 +99,7 @@ class MeshManager {
     void setOnLightConfig(LightConfigCb cb) { _onLightConfig = cb; }
     void setOnPresence(PresenceCb cb) { _onPresence = cb; }
     void setOnSetGroup(SetGroupCb cb) { _onSetGroup = cb; }
+    void setOnLightOverride(LightOverrideCb cb) { _onLightOverride = cb; }
     void setOnGroupSync(GroupSyncCb cb) { _onGroupSync = cb; }
     void setOnPhaseSync(PhaseSyncCb cb) { _onPhaseSync = cb; }
     void setGetPhase(GetPhaseCb cb) { _getPhase = cb; }
@@ -226,6 +230,13 @@ class MeshManager {
         msg.lightIndex = lightIndex;
         msg.groupId = groupId;
         memcpy(msg.targetMac, targetMac, 6);
+        _send(&msg, sizeof(msg));
+    }
+
+    // Sender builds the full LightOverrideMsg (snapshot construction is the
+    // sender's job — see the rework plan's command-arbitration design).
+    void broadcastLightOverride(const LightOverrideMsg& msg) {
+        if (!_ready) return;
         _send(&msg, sizeof(msg));
     }
 
@@ -529,6 +540,7 @@ class MeshManager {
     LightConfigCb _onLightConfig;
     PresenceCb _onPresence;
     SetGroupCb _onSetGroup;
+    LightOverrideCb _onLightOverride;
     GroupSyncCb _onGroupSync;
     PhaseSyncCb _onPhaseSync;
     GetPhaseCb _getPhase;
@@ -1225,6 +1237,17 @@ class MeshManager {
                 auto* m = (GenericEventMsg*)data;
                 if (_instance->_onGenericEvent)
                     _instance->_onGenericEvent(mac, m->eventType, m->payload);
+                break;
+            }
+            case MsgType::LightOverride: {
+                if (len < (int)sizeof(LightOverrideMsg)) return;
+                auto* m = (LightOverrideMsg*)data;
+                Logger::i(
+                    "[mesh] light-override rx: target %02x:%02x:%02x:%02x:%02x:%02x light "
+                    "%u %s",
+                    m->targetMac[0], m->targetMac[1], m->targetMac[2], m->targetMac[3],
+                    m->targetMac[4], m->targetMac[5], m->lightIndex, m->clear ? "clear" : "set");
+                if (_instance->_onLightOverride) _instance->_onLightOverride(m);
                 break;
             }
             default:

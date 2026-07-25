@@ -86,6 +86,7 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `PlayAudio` | `PlayAudioMsg` fixed-size | `len >= sizeof(PlayAudioMsg)` | Raw fixed struct. One-shot playback trigger — see `PlayAudioMsg`'s comment for the start-sync/participation contract. |
 | `StopAudio` | `StopAudioMsg` fixed-size | `len >= sizeof(StopAudioMsg)` | Raw fixed struct. |
 | `GenericEvent` | `GenericEventMsg` fixed-size | `len >= sizeof(GenericEventMsg)` | Raw fixed struct. `eventType` is opaque to the mesh layer; no versioning. |
+| `LightOverride` | `LightOverrideMsg` fixed-size | `len >= sizeof(LightOverrideMsg)` | Raw nested `LightConfig` layout; no versioning. Target filtering happens after parse, mirroring `SetGroup`. |
 | `Hello` | `HelloMsg` fixed-size | exact `sizeof(HelloMsg)` | **The one deliberate cross-firmware exception** — see below. |
 
 ## The `Hello` exception
