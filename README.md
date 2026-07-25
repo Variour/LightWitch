@@ -1,8 +1,8 @@
 ![ESP Devices, smart Mesh](lightwitch.jpg)
-# lightWitch
+# LightWitch
 
-[![Latest release](https://img.shields.io/github/v/release/Variour/lightWitch)](https://github.com/Variour/lightWitch/releases/latest)
-[![License](https://img.shields.io/github/license/Variour/lightWitch)](https://github.com/Variour/lightWitch/blob/main/LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/Variour/LightWitch)](https://github.com/Variour/LightWitch/releases/latest)
+[![License](https://img.shields.io/github/license/Variour/LightWitch)](https://github.com/Variour/LightWitch/blob/main/LICENSE)
 
 ESP32-based addressable RGB light with web interface, OTA updates, and mesh sync.
 
@@ -14,7 +14,7 @@ Use this to flash a fresh device using pre-built firmware from the GitHub releas
 
 **1. Download the firmware**
 
-Go to the [latest release](https://github.com/Variour/lightWitch/releases/latest) and download the files for your board type:
+Go to the [latest release](https://github.com/Variour/LightWitch/releases/latest) and download the files for your board type:
 
 | File | What it is |
 |------|-----------|
