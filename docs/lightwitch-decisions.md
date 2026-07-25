@@ -65,7 +65,7 @@ in `Config.h`.
 minimal types** (no includes from `src/config`); adapters translate at the
 boundary. Add `[env:native]` plus unit tests with the first engine commit.
 This is less an option than a discipline commitment — without it, §3 (queue,
-scheduler, topological sort, joints) is not reliably developable. The one
+scheduler, topological sort, adapters) is not reliably developable. The one
 thing to decide: does the team accept native tests as a PR gate in CI?
 
 **Resolution (2026-07-24):** deprioritized. No native environment and no

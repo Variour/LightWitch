@@ -83,7 +83,7 @@ input[type=text], select {
   inset: 1px; background: none; }
 .port.free::after { opacity: .35; }
 .port.linked::after { opacity: 1; filter: drop-shadow(0 0 4px currentColor); }
-.port.joint::after { background: linear-gradient(135deg, var(--c-value) 50%, var(--c-switch) 50%);
+.port.adapter::after { background: linear-gradient(135deg, var(--c-value) 50%, var(--c-switch) 50%);
   border-radius: 3px; inset: 1px; clip-path: none; border: none; }
 .port.cand::after { opacity: .7; outline: 2px solid #2a64; }
 .port.cand-best::after { opacity: 1; outline: 2px solid #2a6; animation: pulse .7s infinite; }
@@ -413,8 +413,8 @@ function renderAll() {
   const view = linkView();
   const stateByKey = new Map();
   for (const v of view) {
-    stateByKey.set(v.outKey, v.rule === 'direct' ? 'linked' : 'joint');
-    stateByKey.set(v.inKey, v.rule === 'direct' ? 'linked' : 'joint');
+    stateByKey.set(v.outKey, v.rule === 'direct' ? 'linked' : 'adapter');
+    stateByKey.set(v.inKey, v.rule === 'direct' ? 'linked' : 'adapter');
   }
   for (const n of doc.nodes) board.appendChild(nodeEl(n, stateByKey));
   doc.notes.forEach((nt, i) => board.appendChild(noteEl(nt, i)));
@@ -868,7 +868,7 @@ function openPortPopover(portEl, ev) {
     return;
   }
   openPopoverAt(ev.clientX, ev.clientY,
-    `<div class="rule">${v.rule === 'direct' ? 'direct connection' : `joint · ${v.rule}`}</div>
+    `<div class="rule">${v.rule === 'direct' ? 'direct connection' : `adapter · ${v.rule}`}</div>
      <button class="btn-danger" id="pop-disconnect">Disconnect</button>`);
   $('pop-disconnect').addEventListener('click', () => {
     pushUndo();

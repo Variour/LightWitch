@@ -34,7 +34,7 @@ describe('registry & geometry', () => {
 });
 
 describe('compatibility (DOCK-04)', () => {
-  test('same shape docks directly, defined pairs dock as joint, others not', () => {
+  test('same shape docks directly, defined pairs dock as adapter, others not', () => {
     assert.equal(compat('event', 'event'), 'direct');
     assert.equal(compat('value', 'switch'), 'threshold 50%');
     assert.equal(compat('event', 'color'), null);
@@ -94,7 +94,7 @@ describe('link settling (DOCK-05/07, INV-01)', () => {
     assert.deepEqual(d.links, []);
   });
 
-  test('a joint link validates and reports its rule', () => {
+  test('an adapter link validates and reports its rule', () => {
     const d = doc([
       { id: 1, type: 'timer', col: 1, row: 1 },  // elapsed out at row 2
       { id: 2, type: 'gate', col: 2, row: 0 },   // open in at row 2

@@ -41,11 +41,10 @@ export const CATEGORIES = { in: 'Sources', logic: 'Logic', out: 'Sinks' };
 // Merge rules for multi-row value inputs (MULTI-02); event rows are always OR.
 export const MULTI_RULES = ['max', 'sum', 'mean', 'last'];
 
-// Joint matrix (DOCK-04): which type conversions dock as a two-colored joint
-// port, with which default rule. PROVISIONAL — the authoritative matrix lives
+// Adapter matrix (DOCK-04): which type conversions dock as a two-colored adapter// port, with which default rule. PROVISIONAL — the authoritative matrix lives
 // in the system concept §5.3, which is not in this repo yet; replace this
 // table when it lands. Key: `${outType}>${inType}`.
-export const JOINT_MATRIX = {
+export const ADAPTER_MATRIX = {
   'value>switch': 'threshold 50%',
   'switch>value': '0 / 100%',
   'value>color':  'color ramp',
@@ -122,10 +121,10 @@ export function placementFree(doc, node, col, row) {
 
 // ── Compatibility & candidate search (DOCK-03/04) ────────────────────────────
 
-// null = incompatible; 'direct' = same shape; otherwise the joint rule name.
+// null = incompatible; 'direct' = same shape; otherwise the adapter rule name.
 export function compat(outType, inType) {
   if (outType === inType) return 'direct';
-  return JOINT_MATRIX[`${outType}>${inType}`] || null;
+  return ADAPTER_MATRIX[`${outType}>${inType}`] || null;
 }
 
 // How many links already use a given (node, dir, port).
@@ -148,7 +147,7 @@ export function portCapacity(node, dir, portId) {
 
 // Candidate search for a node hypothetically placed at (col,row): for each
 // of its port instances, compatible counter-port instances in the adjacent
-// column with a row distance ≤ 1. Priority: exact row > ±1 · direct > joint
+// column with a row distance ≤ 1. Priority: exact row > ±1 · direct > adapter
 // (DOCK-03). Returns candidates sorted best-first.
 export function dockCandidates(doc, node, col, row) {
   const probe = { ...node, col, row };
@@ -211,7 +210,7 @@ export function linkValid(doc, link) {
   return outs.some(o => ins.some(i => Math.abs(o.row - i.row) <= 1));
 }
 
-// The joint rule a link docks with ('direct' or a JOINT_MATRIX rule).
+// The adapter rule a link docks with ('direct' or a ADAPTER_MATRIX rule).
 export function linkRule(doc, link) {
   const from = doc.nodes.find(n => n.id === link[0]);
   const to = doc.nodes.find(n => n.id === link[2]);

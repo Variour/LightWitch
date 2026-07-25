@@ -1234,10 +1234,10 @@ const mockGraphs = new Map([
       [1, 'payload', 2, 'value'],
       [2, 'outOfRange', 3, 'open'],
       [3, 'value', 4, 'value'],
-      [5, 'value', 6, 'open'],   // value>switch — docks as a joint (threshold)
+      [5, 'value', 6, 'open'],   // value>switch — docks as a adapter (threshold)
       [6, 'value', 7, 'value'],
     ],
-    notes: [{ col: 4, row: 5, text: 'joint demo: value → switch' }],
+    notes: [{ col: 4, row: 5, text: 'adapter demo: value → switch' }],
   }],
 ]);
 

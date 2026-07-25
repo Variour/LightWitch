@@ -16,7 +16,7 @@ term in the code.
 | `node` | One building block of logic — a typed unit with ports. Never "Stein"/"stone"/"block". |
 | `port` | A connection point on a node. Input ports sit on the node's left edge, output ports on its right; flow runs left to right. Say "input port"/"output port" when the direction matters. Never "pin" — that means a GPIO pin everywhere else in this project. |
 | `link` | Two ports joined. Arises from adjacency (neighboring columns, row distance ≤ 1), not from a drawn line — so never "wire", "edge", or "connection" (the latter means a network connection everywhere else). |
-| `joint` | A link between two different signal types, carrying a conversion rule. |
+| `adapter` | A link between two different signal types, carrying a conversion rule. Which conversions exist is the adapter matrix. |
 | `signal type` | What flows through a port: event, switch, value, color. Shape is the primary code, not colour. |
 | `chip` | The editable default value shown on a free input port. |
 | `arc` | The small curve in the gutter drawn for a link whose two ports sit one row apart — the only line segment in the system. |
@@ -248,7 +248,7 @@ notice.
 
 ### M4 · Value layer + stage node
 
-Value-layer nodes (`lfo` via LUT, `math`, `hold`, `hsv-mix`, joints/type
+Value-layer nodes (`lfo` via LUT, `math`, `hold`, `hsv-mix`, adapters/type
 adapters on links per concept §5.3) and the **stage node**: binds to a light
 role, claims the light through the M1 arbitration, drives its `PatternRunner`
 with a channel-driven pattern (intensity, stimulus, movement, limit, color —
@@ -293,7 +293,7 @@ ignites its fire scene.
 
 ### M8 · Dock editor (visual)
 
-The concept's dock UI (columns, docking, joints, chain view) on top of the
+The concept's dock UI (columns, docking, adapters, chain view) on top of the
 by-then-proven schema. Explicitly last: the JSON editor (M3) carries all
 functionality until here, and dock details (elbow tolerance, zoom) are decided
 after first editor tests.
@@ -308,6 +308,20 @@ browser and derive follow-up issues before the engine exists — the "first
 editor tests" this milestone's open dock details wait on. Engine wiring,
 authoritative validation, the full palette, and the remaining dock feature
 set stay here in M8; nothing runs a saved graph until M2.
+
+Two decisions settled while building it:
+
+- **Fan-out runs through rows.** An output port may feed several neighbors,
+  but only as many as it has instance rows — the same `＋` row mechanism that
+  lets an input collect several sources. The number of receivers is therefore
+  visible in the node's height, which keeps "position is the program" intact.
+  An unbounded output with no rows was the alternative and was rejected for
+  hiding that count.
+- **The adapter matrix is provisional.** The four conversions currently
+  offered (value→switch, switch→value, value→color, event→switch) are a
+  working set for the prototype, not the authoritative table — that one lives
+  in system concept §5.3, which is not in this repo yet and replaces these
+  when it lands.
 
 *Touches:* `data/index.html` (likely split into a second page/bundle —
 decide when sizing it).
