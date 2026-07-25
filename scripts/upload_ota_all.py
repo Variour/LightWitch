@@ -3,13 +3,13 @@ import gzip as gz, shutil, subprocess, sys, os, socket, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 HOSTS = [
-    "batterylight1.local",
-    "batterylight2.local",
-    "batterylight3.local",
+    "lightwitch1.local",
+    "lightwitch2.local",
+    "lightwitch3.local",
 ]
 
 # Hosts that run on ESP32-C3 (RISC-V) — need a separate firmware build
-C3_HOSTS = {"batterylight1.local"}
+C3_HOSTS = {"lightwitch1.local"}
 C3_ENV   = "esp32c3"
 
 REBOOT_WAIT   = 10

@@ -2,8 +2,8 @@
 # LightWitch
 *Open source technical witchcraft for light, sound and other cool stuff.*
 
-[![Latest release](https://img.shields.io/github/v/release/Variour/batteryLight)](https://github.com/Variour/batteryLight/releases/latest)
-[![License](https://img.shields.io/github/license/Variour/batteryLight)](https://github.com/Variour/batteryLight/blob/main/LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/Variour/LightWitch)](https://github.com/Variour/LightWitch/releases/latest)
+[![License](https://img.shields.io/github/license/Variour/LightWitch)](https://github.com/Variour/LightWitch/blob/main/LICENSE)
 
 ***Enabling ESP32-based devices with web interface, OTA updates, and mesh sync***
 
@@ -25,7 +25,7 @@ Use this to flash a fresh device using pre-built firmware from the GitHub releas
 
 **1. Download the firmware**
 
-Go to the [latest release](https://github.com/Variour/batteryLight/releases/latest) and download the files for your board type:
+Go to the [latest release](https://github.com/Variour/LightWitch/releases/latest) and download the files for your board type:
 
 | File | What it is |
 |------|-----------|
@@ -83,14 +83,14 @@ Each device starts as a WiFi access point named after its MAC address (e.g. `lig
 | Setting | Value |
 |---------|-------|
 | Network | `light-a1b2c3` (unique per device) |
-| Password | `batterylight` |
+| Password | `lightwitch` |
 | Web interface | http://192.168.4.1 |
 
 1. Connect to the device's WiFi network.
 2. Open **http://192.168.4.1** in a browser.
 3. Under **Settings -> Network**, set a memorable device name, enter your WiFi credentials, and click **Save**. Changing the device name reboots the device to apply it.
 
-After reboot the device joins your WiFi and is reachable at **http://\<devicename\>.local** (e.g. http://batterylight1.local). The AP turns off automatically once connected.
+After reboot the device joins your WiFi and is reachable at **http://\<devicename\>.local** (e.g. http://lightwitch1.local). The AP turns off automatically once connected.
 
 > If WiFi is unreachable the device falls back to AP mode so you can always reach it at http://192.168.4.1.
 
@@ -103,7 +103,7 @@ After first boot, go to **Settings** to review:
 | Setting | Why |
 |---|---|
 | **Device name** | mDNS hostname (`http://<name>.local`) and OTA target name; defaults to a MAC-based name like `light-a1b2c3`. |
-| **AP password** | Defaults to `batterylight` (published in this README) — change it if the device's AP could ever be reachable by others. |
+| **AP password** | Defaults to `lightwitch` (published in this README) — change it if the device's AP could ever be reachable by others. |
 | **Timezone** | Only used by the Time-mode pattern; skip it if you don't use that mode. |
 | **MQTT** | Optional home-automation integration — leave the broker host blank to disable it. |
 | **Firmware updates** | Optional GitHub-releases integration — see [below](#firmware-updates-from-github-releases-device-web-ui). |
@@ -207,9 +207,9 @@ Devices can check for and install new firmware directly from GitHub releases wit
 ### Setup
 
 1. Go to **Settings → Firmware updates** in the device web UI.
-2. Set **Repository** to `variour/batterylight` (the default).
+2. Set **Repository** to `variour/lightwitch` (the default).
 3. Create a GitHub **fine-grained personal access token** with the following permissions:
-   - **Repository access:** this repository only (`variour/batterylight`)
+   - **Repository access:** this repository only (`variour/lightwitch`)
    - **Repository permissions:**
      - `Contents` — **Read-only** (required to download release assets)
      - `Metadata` — **Read-only** (automatically included, required to access repository metadata)

@@ -1,6 +1,6 @@
 ---
 name: validate-ui
-description: Launch the batterylight mock server and use Playwright to validate only the changed UI flow.
+description: Launch the lightwitch mock server and use Playwright to validate only the changed UI flow.
 ---
 
 Validate only the UI behavior affected by the current change.
@@ -15,7 +15,7 @@ Validate only the UI behavior affected by the current change.
 ## Start the mock server
 
 ```bash
-npm run dev:no-auth > /tmp/batterylight-ui.log 2>&1 &
+npm run dev:no-auth > /tmp/lightwitch-ui.log 2>&1 &
 SERVER_PID=$!
 for i in $(seq 1 20); do curl -sf http://127.0.0.1:8080/ > /dev/null && break; sleep 0.5; done
 ```

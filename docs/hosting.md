@@ -38,8 +38,8 @@ Access is restricted to specific GitHub accounts via OAuth. The production conta
 Every push to `main` and every pull request builds a Docker image pushed to the GitHub Container Registry. Run any image locally:
 
 ```sh
-docker run --rm -p 8080:8080 ghcr.io/<owner>/batterylight:latest      # main branch
-docker run --rm -p 8080:8080 ghcr.io/<owner>/batterylight:pr-<N>      # specific PR
+docker run --rm -p 8080:8080 ghcr.io/<owner>/lightwitch:latest      # main branch
+docker run --rm -p 8080:8080 ghcr.io/<owner>/lightwitch:pr-<N>      # specific PR
 ```
 
 Auth is disabled when running locally (no environment variables set).

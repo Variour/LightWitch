@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Battery Light</title>
+<title>LightWitch</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: system-ui, sans-serif; background: #111; color: #eee;
@@ -507,7 +507,7 @@ input[type=radio]:active { background-color: #1a5; }
 </style>
 </head>
 <body>
-<h1 style="display:flex;align-items:baseline;justify-content:space-between;gap:.5rem"><span><span id="device-title">Battery Light</span> <span id="fw-version" style="font-size:.75rem;color:#444;font-weight:400"></span></span> <a href="https://github.com/Variour/batteryLight" target="_blank" rel="noopener" style="font-size:.75rem;color:#444;font-weight:400;text-decoration:underline;white-space:nowrap">Battery Light</a></h1>
+<h1 style="display:flex;align-items:baseline;justify-content:space-between;gap:.5rem"><span><span id="device-title">LightWitch</span> <span id="fw-version" style="font-size:.75rem;color:#444;font-weight:400"></span></span> <a href="https://github.com/Variour/LightWitch" target="_blank" rel="noopener" style="font-size:.75rem;color:#444;font-weight:400;text-decoration:underline;white-space:nowrap">LightWitch</a></h1>
 
 <!-- Tab bar -->
 <div class="tab-bar">
@@ -970,7 +970,7 @@ input[type=radio]:active { background-color: #1a5; }
   <div class="card">
     <h2>General</h2>
     <label>Device name (mDNS hostname)</label>
-    <input type="text" id="deviceName" placeholder="batterylight">
+    <input type="text" id="deviceName" placeholder="lightwitch">
     <label>Log level</label>
     <select id="logLevel">
       <option value="0">Verbose</option>
@@ -1117,7 +1117,7 @@ input[type=radio]:active { background-color: #1a5; }
   <div class="card">
     <h2>Updates</h2>
     <label>Repository <small>(owner/repo)</small></label>
-    <input type="text" id="githubRepo" placeholder="variour/batterylight">
+    <input type="text" id="githubRepo" placeholder="variour/lightwitch">
     <label>Personal access token <small>(fine-grained, Contents: read-only)</small></label>
     <input type="password" id="githubToken" placeholder="(unchanged if empty)">
     <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;margin-top:.25rem">

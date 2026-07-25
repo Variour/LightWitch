@@ -1,11 +1,11 @@
 {
-  "name": "batterylight",
+  "name": "lightwitch",
   "private": true,
-  "description": "Dev tooling and mock server for the batteryLight web UI",
+  "description": "Dev tooling and mock server for the LightWitch web UI",
   "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Variour/batteryLight.git"
+    "url": "git+https://github.com/Variour/LightWitch.git"
   },
   "type": "module",
   "scripts": {

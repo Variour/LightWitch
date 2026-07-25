@@ -5,7 +5,7 @@ param location string = resourceGroup().location
 param appName string = 'batterylight'
 
 @description('Container image for the latest build')
-param latestImage string = 'ghcr.io/variour/batterylight:latest'
+param latestImage string = 'ghcr.io/variour/lightwitch:latest'
 
 @description('ghcr.io pull secret (base64-encoded Docker config JSON)')
 @secure()

@@ -121,7 +121,7 @@ async function exchangeCode(code) {
 
 async function getGithubUsername(accessToken) {
   const res = await fetch('https://api.github.com/user', {
-    headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'batterylight' },
+    headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'lightwitch' },
   });
   return (await res.json()).login;
 }
