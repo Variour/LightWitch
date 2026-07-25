@@ -29,8 +29,8 @@ Access is restricted to specific GitHub accounts via OAuth. The production conta
 
 | Event | Result |
 |---|---|
-| Push to `main` | Updates the permanent `lightwitch-latest` container app |
-| Open / push to a PR | Creates or updates a `lightwitch-pr-<N>` container app; URL posted as a PR comment |
+| Push to `main` | Updates the permanent `batterylight-latest` container app |
+| Open / push to a PR | Creates or updates a `batterylight-pr-<N>` container app; URL posted as a PR comment |
 | PR closed / merged | PR container app and its registry image are cleaned up on next push to `main` |
 
 ## Docker images

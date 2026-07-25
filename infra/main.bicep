@@ -2,7 +2,7 @@
 param location string = resourceGroup().location
 
 @description('Name prefix used for all resources')
-param appName string = 'lightwitch'
+param appName string = 'batterylight'
 
 @description('Container image for the latest build')
 param latestImage string = 'ghcr.io/variour/lightwitch:latest'

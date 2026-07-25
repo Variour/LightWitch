@@ -72,7 +72,7 @@ jobs:
           IMAGE="ghcr.io/${{ github.repository }}:latest"
           IMAGE="${IMAGE,,}"
           az containerapp revision copy \
-            --name lightwitch-latest \
+            --name batterylight-latest \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             --revision-suffix "${GITHUB_SHA::7}"
 
@@ -81,19 +81,19 @@ jobs:
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         id: pr_app
         run: |
-          APP="lightwitch-pr-${{ github.event.number }}"
+          APP="batterylight-pr-${{ github.event.number }}"
           RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
           IMAGE="ghcr.io/${{ github.repository }}:pr-${{ github.event.number }}"
           IMAGE="${IMAGE,,}"  # lowercase
 
           # Retrieve the shared environment ID and prod FQDN from the permanent app
           ENV_ID=$(az containerapp show \
-            --name lightwitch-latest \
+            --name batterylight-latest \
             --resource-group "$RG" \
             --query "properties.environmentId" -o tsv)
 
           PROD_FQDN=$(az containerapp show \
-            --name lightwitch-latest \
+            --name batterylight-latest \
             --resource-group "$RG" \
             --query "properties.configuration.ingress.fqdn" -o tsv)
 
@@ -239,7 +239,7 @@ jobs:
         run: |
           RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
           for PR in $CLOSED_PRS; do
-            APP="lightwitch-pr-${PR}"
+            APP="batterylight-pr-${PR}"
             if az containerapp show --name "$APP" --resource-group "$RG" &>/dev/null; then
               echo "Deleting Container App $APP"
               az containerapp delete --name "$APP" --resource-group "$RG" --yes
