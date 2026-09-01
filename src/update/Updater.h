@@ -217,7 +217,8 @@ class Updater {
         DeserializationError err = deserializeJson(doc, body);
         if (err) {
             Logger::e("[upd] JSON parse error: %s", err.c_str());
-            _status.error = "JSON parse error";
+            snprintf(_errorBuf, sizeof(_errorBuf), "JSON parse error: %s", err.c_str());
+            _status.error = _errorBuf;
             return false;
         }
 
@@ -555,7 +556,8 @@ class Updater {
         http.end();
         if (err) {
             Logger::e("[upd] JSON parse error: %s", err.c_str());
-            _prListStatus.error = "JSON parse error";
+            snprintf(_prListErrorBuf, sizeof(_prListErrorBuf), "JSON parse error: %s", err.c_str());
+            _prListStatus.error = _prListErrorBuf;
             return false;
         }
 
