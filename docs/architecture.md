@@ -11,8 +11,8 @@ codebase for the first time. For build/flash/update instructions see
 |---|---|
 | `actions` | `ActionExecutor` turns a button press (`ButtonAction`) into a config change — brightness/color/pattern/scene — via injected callbacks, without depending on any other module directly. |
 | `automations` | `AutomationManager` matches an inbound mesh `GenericEvent` against the configured `AutomationBinding` table and fires the first matching rule's actions into `ActionExecutor` — the decentralized automation engine's seed (see `mesh`'s `GenericEventMsg`). |
-| `battery` | `BatteryMonitor` samples the battery ADC pin and derives a charge percentage plus on-battery/charging state. |
-| `buttons` | `ButtonManager` debounces GPIO/TCA9555-expander buttons (short/long press, double-click) and fires the matching action into `ActionExecutor`. |
+| `battery` | `BatteryMonitor` samples the battery ADC pin (or reads VBAT from the charger, see `power`) and derives a charge percentage plus on-battery/charging state. |
+| `buttons` | `ButtonManager` debounces GPIO/TCA9555-expander buttons (short/long press, double-click), fires the matching action into `ActionExecutor`, and reports raw press/release edges. Keys carry a stable role (`ButtonRoles.h`) other modules look them up by. |
 | `config` | Shared config types (`Color`, `LightConfig`, `GroupConfig`, `DeviceConfig`, ...) and the `Config` singleton that persists them to LittleFS/NVS. |
 | `io` | Generic hardware building blocks not specific to one feature, currently the `Tca9555Expander` I2C GPIO expander wrapper. See `src/io/README.md`. |
 | `led` | `LedDriver` interface plus `Ws2801Driver`/`Ws2812bDriver` implementations that actually push pixel data to the strip/matrix. |
@@ -20,6 +20,7 @@ codebase for the first time. For build/flash/update instructions see
 | `mesh` | ESP-NOW peer mesh (no router required): message types, peer discovery, channel coordination, WiFi-connection election, and encrypted config push. See [mesh-compatibility.md](mesh-compatibility.md). |
 | `mqtt` | `MqttManager` publishes Home-Assistant-discoverable MQTT entities per group and applies incoming MQTT commands. |
 | `patterns` | `Pattern` interface (one animation per light) and `PatternRunner`, which owns and ticks the active pattern for a light. Individual files (`Breathing.h`, `Candle.h`, ...) are concrete patterns. |
+| `power` | `PowerManager` drives the BQ25628 charger (`Bq25628`): host mode and watchdog, LED rail on battery (boost OTG), battery ADC for `BatteryMonitor`, and ship mode on a long press of the power key or a low battery. |
 | `scenes` | `SceneManager` reads/writes scene JSON files; `SceneSyncManager` syncs them between mesh peers. |
 | `sound` | `SoundDriver` interface for the onboard audio codec (`Es8311Driver`). See `src/sound/README.md`. |
 | `storage` | `SdCardManager` wraps the onboard microSD reader for uploaded sound files. See `src/storage/README.md`. |

@@ -29,6 +29,16 @@ class LedDriver {
     virtual void off() { writeColor(0, 0, 0); }
     // Changes the RGB→wire permutation at runtime — no re-init needed.
     virtual void setColorOrder(ColorOrder order) {}
+    // Optional total-current cap in mA (LightHardwareConfig::currentLimitMa),
+    // 0 = off. Only Ws2812bDriver implements it.
+    virtual void setCurrentLimitMa(uint16_t mA) {}
+    // Whether the LEDs' supply rail has power (boards whose LED rail can drop,
+    // see PowerManager); true unless told otherwise. After false, the LEDs
+    // count as dark.
+    virtual void setRailPowered(bool powered) {}
+    // Called on every render tick (PatternRunner::tick()), so a driver can
+    // finish work spread over several frames.
+    virtual void service() {}
 
    protected:
     // Hardware-specific output — receives already-clamped values.

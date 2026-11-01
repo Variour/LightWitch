@@ -120,6 +120,7 @@ class PatternRunner {
     }
 
     void tick() {
+        if (_led) _led->service();
         LightConfig pending;
         bool hasPending;
         portENTER_CRITICAL(&_mux);

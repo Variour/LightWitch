@@ -342,3 +342,87 @@ describe('POST /api/storage/delete', () => {
     assert.ok(!files.some(f => f.name === 'alarm.wav'));
   });
 });
+
+describe('button roles', () => {
+  const post = (path, body) => fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  test('reports maxButtons and each button role', async () => {
+    const body = await (await fetch(`${baseUrl}/api/buttons`)).json();
+    assert.equal(body.maxButtons, 11);
+    assert.equal(body.buttons.find(b => b.index === 0).role, 'buzz');
+  });
+
+  test('adds a button with a free role', async () => {
+    const res = await post('/api/buttons/add', { name: 'Up', pin: 33, role: 'up' });
+    assert.equal(res.status, 200);
+    const { index } = await res.json();
+    const { buttons } = await (await fetch(`${baseUrl}/api/buttons`)).json();
+    assert.equal(buttons.find(b => b.index === index).role, 'up');
+  });
+
+  test('rejects an unknown role', async () => {
+    const res = await post('/api/buttons/add', { name: 'X', pin: 34, role: 'jump' });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'unknown role');
+  });
+
+  test('rejects a role another button already has, on add and update', async () => {
+    let res = await post('/api/buttons/add', { name: 'X', pin: 35, role: 'buzz' });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'role already in use');
+    res = await post('/api/buttons/update', { index: 1, role: 'power' });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'role already in use');
+  });
+
+  test('lets a button keep or clear its own role', async () => {
+    let res = await post('/api/buttons/update', { index: 0, role: 'buzz' });
+    assert.equal(res.status, 200);
+    res = await post('/api/buttons/update', { index: 0, role: '' });
+    assert.equal(res.status, 200);
+    const { buttons } = await (await fetch(`${baseUrl}/api/buttons`)).json();
+    assert.equal(buttons.find(b => b.index === 0).role, '');
+  });
+});
+
+describe('charger setting', () => {
+  test('keeps the I2C bus while the charger needs it, drops both together', async () => {
+    const post = body => fetch(`${baseUrl}/api/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    // Also clear the mock's sound output and expander users of the bus.
+    const sounds = await (await fetch(`${baseUrl}/api/sounds`)).json();
+    for (const s of sounds.sounds) {
+      await fetch(`${baseUrl}/api/sounds/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index: s.index }),
+      });
+    }
+    const buttons = (await (await fetch(`${baseUrl}/api/buttons`)).json()).buttons;
+    for (const b of buttons.filter(x => x.viaExpander)) {
+      await fetch(`${baseUrl}/api/buttons/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index: b.index }),
+      });
+    }
+    let res = await post({ i2cSdaPin: 255, i2cSclPin: 255, expanderChip: 0 });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /charger/);
+
+    res = await post({ i2cSdaPin: 255, i2cSclPin: 255, expanderChip: 0, chargerEnabled: false });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true, rebooting: true });
+
+    res = await post({ chargerEnabled: true });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'configure the device I2C bus first');
+  });
+});
