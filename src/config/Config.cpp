@@ -6,6 +6,7 @@
 #include <esp_mac.h>
 
 #include "../logging/Logger.h"
+#include "BoardProfile.h"
 
 DeviceConfig Config::_cfg;
 const char* Config::_path = "/config.json";
@@ -403,6 +404,12 @@ bool Config::load() {
     esp_efuse_mac_get_default(mac);
     snprintf(_cfg.deviceName, sizeof(_cfg.deviceName), "light-%02x%02x%02x", mac[3], mac[4],
              mac[5]);
+    // First boot of an unconfigured device: a board-specific build seeds its
+    // board's hardware config, so identical devices work without setup.
+    if (applyBoardProfile(_cfg)) {
+        Logger::i("[cfg] seeded board hardware profile");
+        save();
+    }
     return false;
 }
 
