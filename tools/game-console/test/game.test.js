@@ -239,6 +239,7 @@ test('replay: the gateway lost the session, the console sends session and round 
   link.emitEvent({ ns: 'game', ev: 'session', session: 0, channel: 0, fleet: 0, login: false, active: false });
   const again = link.sent.slice(before);
   assert.deepEqual(again.map((c) => c.cmd), ['session', 'round']);
+  assert.deepEqual(link.batches.at(-1), again); // one write, read in one gateway pass
   assert.equal(again[1].round, game.round.roundId);
   assert.equal(again[1].phase, 'open');
   assert.match(game.snapshot().warning, /neu gestartet/);

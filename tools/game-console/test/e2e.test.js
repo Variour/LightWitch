@@ -69,7 +69,7 @@ test('session, login, 50 admits, scale, race, choice, end', { timeout: 90000 }, 
     s = await state();
     assert.equal(s.view, 'scale');
     assert.equal(s.session.login, false);
-    assert.equal(gw.login, false);
+    await waitFor(() => gw.login === false, { what: 'login closed on the gateway' });
     await act('next'); // open
     await waitFor(() => game.snapshot().round.results.voters >= 40, { timeoutMs: 15000, what: 'scale votes' });
     await sleep(3000);
@@ -97,7 +97,7 @@ test('session, login, 50 admits, scale, race, choice, end', { timeout: 90000 }, 
     assert.ok(ranking.length >= 40);
     for (let i = 1; i < ranking.length; i++) assert.ok(ranking[i - 1].t <= ranking[i].t);
     assert.equal(s.round.winner, ranking[0].n);
-    assert.equal(gw.round.winner, ranking[0].n);
+    await waitFor(() => gw.round.winner === ranking[0].n, { what: 'winner on the gateway' });
     await act('next'); // close
 
     // Choice.
@@ -112,7 +112,7 @@ test('session, login, 50 admits, scale, race, choice, end', { timeout: 90000 }, 
     await act('next'); // reveal
     s = await state();
     assert.equal(s.round.correct, 1);
-    assert.equal(gw.round.correct, 1);
+    await waitFor(() => gw.round.correct === 1, { what: 'reveal on the gateway' });
     await waitFor(() => gw.devices.filter((d) => d.round && d.round.correct === 1).length >= 45, { what: 'devices see the reveal' });
 
     // End: devices are released and back in normal operation.
@@ -149,13 +149,26 @@ test('lossy radio, a device restart and a gateway restart in the middle of a rou
     await waitFor(() => dev.confirmed && dev.vseq === 1, { timeoutMs: 10000, what: 'new value confirmed' });
     assert.equal(game.snapshot().round.results.entries.find((e) => e.n === n).v, dev.val);
 
-    // The gateway restarts: the console sends session and round again.
+    // The gateway restarts: the console sends session and round again in one
+    // write. The buzzers stay in the round, keep their values and report them
+    // to the new gateway; the next phase change reaches all of them.
+    for (const d of gw.devices) d.presses = []; // everyone stops tapping
+    await sleep(1000);
     const roundId = game.round.roundId;
+    const held = new Map(gw.devices.filter((d) => d.state === 'member' && d.val !== null).map((d) => [d, d.val]));
+    assert.ok(held.size >= 15);
     gw.restart();
     await waitFor(() => gw.bActive && gw.round.id === roundId, { timeoutMs: 8000, what: 'gateway restored' });
     assert.equal(gw.session, game.session.id);
     assert.equal(gw.round.phase, 'open');
     assert.match(game.snapshot().warning, /neu gestartet/);
+    const onNewGateway = (d, v) => d.round && d.round.id === roundId && d.round.seq === gw.round.seq && d.val === v &&
+      d.confirmed && gw.devs.get(d.number) && gw.devs.get(d.number).value === v;
+    await waitFor(() => [...held].every(([d, v]) => onNewGateway(d, v)), { timeoutMs: 15000, what: 'values confirmed by the new gateway' });
+    await act('close');
+    await waitFor(() => [...held.keys()].every((d) => d.round.phase === 'closed'), { timeoutMs: 8000, what: 'close on every buzzer' });
+    const entries = game.snapshot().round.results.entries;
+    for (const [d, v] of held) assert.equal(entries.find((e) => e.n === d.number).v, v, `console value of ${d.number}`);
   } finally {
     await app.close();
   }

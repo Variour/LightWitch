@@ -25,7 +25,13 @@ export class FakeLink extends EventEmitter {
     this.counters = null;
     this.transportStatus = '';
     this.sent = [];
+    this.batches = [];
     this.reply = reply;
+  }
+
+  requestAll(commands) {
+    this.batches.push(commands);
+    return commands.map((c) => this.request(c));
   }
 
   request(command) {

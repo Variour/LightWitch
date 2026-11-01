@@ -1,7 +1,8 @@
 // Simulated Buzzerboards for the fake gateway. The device logic follows
-// src/game/Participant.h on the game-session branch (join, admit, echo,
-// resend, status, rejoin after a restart); a small "person" on top presses
-// keys like a participant would.
+// src/game/Participant.h on the game-session branch at 723472b (join, admit,
+// echo, resend, status, rejoin after a restart, following the round across a
+// bridge restart); a small "person" on top presses keys like a participant
+// would.
 
 import { seq16Newer } from '../protocol.js';
 
@@ -100,21 +101,36 @@ export class SimDevice {
   }
 
   _onState(f, now) {
+    // The bridge sends only its current state, in order, so any frame that
+    // differs from the applied state is the newer one. A stateSeq that did
+    // not move forward means the bridge restarted and the console resent the
+    // round: its round clock restarted too.
     const newRound = !this.round || f.roundId !== this.round.id;
-    if (newRound || seq16Newer(f.stateSeq, this.round.seq)) {
+    const differs = newRound || !this._sameState(f);
+    const restarted = differs && !newRound && !seq16Newer(f.stateSeq, this.round.seq);
+    if (differs) {
       if (newRound) {
         this.round = { id: f.roundId };
         this._resetValue();
         this.presses = [];
       }
+      if (restarted) {
+        // The new bridge holds no values yet: report the own one again.
+        this.round.startMs = undefined;
+        if (this.val !== null) {
+          this.confirmed = false;
+          this.sendArmed = true;
+          this.retryMs = 0;
+          this.nextSendAt = now + this.world.rnd.int(T.retryMin, T.retryMax);
+        }
+      }
       const prevPhase = this.round.phase;
       Object.assign(this.round, {
         seq: f.stateSeq, type: f.roundType, phase: f.phase, keys: f.keys,
-        min: f.min, max: f.max, winner: f.winner, correct: f.correct,
+        min: f.min, max: f.max, redMax: f.redMax, greenMin: f.greenMin, winner: f.winner, correct: f.correct,
       });
       if (this.round.phase === 'open' && prevPhase !== 'open') this.round.justOpened = true;
     }
-    if (f.roundId !== this.round.id) return;
     if (f.roundType !== 'idle' && f.phase !== 'announced') {
       const cand = now - f.openOffsetMs;
       if (this.round.startMs === undefined || cand < this.round.startMs) this.round.startMs = cand;
@@ -135,6 +151,14 @@ export class SimDevice {
       this.retryMs = 0;
       this.nextSendAt = now + this.world.rnd.int(T.retryMin, T.retryMax);
     }
+  }
+
+  _sameState(f) {
+    const r = this.round;
+    const keys = (k) => JSON.stringify(Object.entries(k || {}).sort());
+    return f.stateSeq === r.seq && f.roundType === r.type && f.phase === r.phase && keys(f.keys) === keys(r.keys) &&
+      f.min === r.min && f.max === r.max && f.redMax === r.redMax && f.greenMin === r.greenMin &&
+      f.winner === r.winner && f.correct === r.correct;
   }
 
   // ── Keys ─────────────────────────────────────────────────────────────────
@@ -166,7 +190,7 @@ export class SimDevice {
   _setValue(v, ms, now, delay) {
     this.val = v;
     this.vseq = (this.vseq + 1) & 0xff;
-    this.t = Math.round(ms - this.round.startMs);
+    this.inputMs = ms;
     this.confirmed = false;
     this.sendArmed = true;
     this.retryMs = 0;
@@ -177,7 +201,7 @@ export class SimDevice {
   _resetValue() {
     this.val = null;
     this.vseq = 0;
-    this.t = 0;
+    this.inputMs = 0;
     this.confirmed = false;
     this.sendArmed = false;
     this.retryMs = 0;
@@ -238,7 +262,10 @@ export class SimDevice {
     if (!this.sendArmed || this.confirmed || now < this.nextSendAt) return;
     this._send({
       type: 'report', origin: this.number, session: this.session, roundId: this.round.id,
-      valueSeq: this.vseq, value: this.val, pressOffsetMs: this.t, battery: this.battery,
+      // Against the current round start, which a bridge restart moves.
+      valueSeq: this.vseq, value: this.val,
+      pressOffsetMs: this.round.startMs !== undefined ? Math.round(this.inputMs - this.round.startMs) : 0,
+      battery: this.battery,
     });
     this.retryMs = this.retryMs === 0 ? this.world.rnd.int(T.retryMin, T.retryMax) : Math.min(this.retryMs * 2, T.retryCap);
     this.nextSendAt = now + this.retryMs;

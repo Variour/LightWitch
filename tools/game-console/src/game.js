@@ -493,8 +493,7 @@ export class GameConsole extends EventEmitter {
           this.warning = 'Gateway neu gestartet: die Rangliste dieses Rennens gilt nicht.';
         }
         this._msg('warn', this.warning);
-        this._pushSession();
-        this._pushRound();
+        this._resendAll();
       }
       return this._changed();
     }
@@ -688,6 +687,27 @@ export class GameConsole extends EventEmitter {
         if (err.code === 'offline') return;
         this._msg('error', `Runde: ${err.message}`);
       });
+  }
+
+  // After a gateway restart: session and running round in one write. The
+  // gateway reads both in the same pass and goes straight from no session
+  // to the running round; between two passes it would send idle round 0,
+  // and the devices would drop their shown value.
+  _resendAll() {
+    const s = this.session;
+    const r = this.round;
+    if (!s || s.ending || !this.link.connected) return;
+    const commands = [cmd.session({ session: s.id, channel: s.channel, fleet: s.fleet, login: s.login })];
+    if (r && !r.adopted) commands.push(cmd.round(r));
+    const [session, round] = this.link.requestAll(commands);
+    session.catch((err) => {
+      if (err.code !== 'offline') this._msg('error', `Sitzung: ${err.message}`);
+    });
+    if (round) {
+      round.catch((err) => {
+        if (err.code !== 'offline') this._msg('error', `Runde: ${err.message}`);
+      });
+    }
   }
 
   _pushEnd() {

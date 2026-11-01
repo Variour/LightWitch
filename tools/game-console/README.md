@@ -166,7 +166,7 @@ The presenter strip at the bottom shows the USB link, online buzzers, the gatewa
 
 - The console opens the port with the serialport defaults and never sets DTR or RTS afterwards. POSIX asserts both lines together on open, Windows opens with DTR on and RTS off; an ESP32 behind USB-Serial-JTAG resets only while RTS is on and DTR is off. Check on the first board that opening the port leaves it running.
 - It says `link hello` on every open, repeats it every 2 s until the gateway answers, pings after 2 s without other lines and says hello again after 6 s without any line from the gateway. When the port disappears it reopens it as soon as it is back.
-- After every hello the gateway replays its state. The console compares it with its own state and sends what differs: session and round again after a gateway restart, the running round when the gateway shows another one. A console started during a running session takes the session, its participants and the running round's values over from the replay.
+- After every hello the gateway replays its state. The console compares it with its own state and sends what differs: after a gateway restart the session and the running round in one write, so the gateway reads both in the same pass and goes from no session straight to the running round; the running round alone when the gateway shows another one. A console started during a running session takes the session, its participants and the running round's values over from the replay.
 - Value lines are not filtered by `vseq`; a buzzer restarts its `vseq` after a rejoin and the gateway already passes only newer values.
 - A `device` line with a MAC and number counts as admission, in case the `admitted` line was dropped from the gateway's event queue.
 

@@ -8,6 +8,7 @@ class MemTransport extends EventEmitter {
   constructor() {
     super();
     this.lines = [];
+    this.writes = [];
   }
 
   start() {}
@@ -15,6 +16,7 @@ class MemTransport extends EventEmitter {
   async stop() {}
 
   write(text) {
+    this.writes.push(text);
     for (const l of text.split('\n').filter(Boolean)) this.lines.push(JSON.parse(l));
   }
 
@@ -106,5 +108,26 @@ test('closing the port fails open requests and the next open says hello again', 
   t.emit('open', { path: 'x' });
   await sleep(5);
   assert.equal(t.lines.at(-1).cmd, 'hello');
+  await link.stop();
+});
+
+test('several commands go out in one write, each reply resolves its own promise', async () => {
+  const t = new MemTransport();
+  const link = new GatewayLink(t);
+  link.start();
+  t.emit('open', { path: 'x' });
+  t.feed(`{"ns":"link","ev":"hello","id":${t.lines[0].id},"link":0,"spaces":{"link":0,"game":0}}\n`);
+  const before = t.writes.length;
+  const [ps, pr] = link.requestAll([
+    { ns: 'game', cmd: 'session', session: 4711, channel: 6, fleet: 0, login: false },
+    { ns: 'game', cmd: 'round', round: 23417, type: 'idle' },
+  ]);
+  assert.equal(t.writes.length, before + 1);
+  assert.equal(t.writes.at(-1).split('\n').filter(Boolean).length, 2);
+  const [s, r] = t.lines.slice(-2);
+  assert.deepEqual([s.cmd, r.cmd], ['session', 'round']);
+  t.feed(`{"ns":"game","ev":"state","id":${r.id},"round":23417,"seq":1,"type":"idle","phase":null,"changed":true}\n{"ns":"game","ev":"session","id":${s.id},"session":4711,"channel":6,"fleet":0,"login":false,"active":true}\n`);
+  assert.equal((await ps).ev, 'session');
+  assert.equal((await pr).ev, 'state');
   await link.stop();
 });

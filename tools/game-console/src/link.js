@@ -67,38 +67,49 @@ export class GatewayLink extends EventEmitter {
   // Sends a command and resolves with the gateway's direct reply (the event
   // carrying the same id). Rejects with { code, msg, field } on an `error`
   // reply, on timeout after `retries` resends, or 'offline'.
-  request(command, { timeoutMs = 2000, retries = 1 } = {}) {
-    return new Promise((resolve, reject) => {
+  request(command, opts) {
+    return this.requestAll([command], opts)[0];
+  }
+
+  // Sends several commands in one write, so the gateway reads them in the
+  // same loop pass, and returns one promise per command. A resend after a
+  // timeout goes out on its own.
+  requestAll(commands, { timeoutMs = 2000, retries = 1 } = {}) {
+    const batch = [];
+    const promises = commands.map((command) => new Promise((resolve, reject) => {
       if (this.state !== 'connected' && !(command.ns === 'link' && command.cmd === 'hello')) {
         reject(Object.assign(new Error('Gateway nicht verbunden'), { code: 'offline' }));
         return;
       }
-      const attempt = (left) => {
+      const attempt = (left, into) => {
         const id = this.nextId++;
         const timer = setTimeout(() => {
           this.pending.delete(id);
-          if (left > 0 && this.state === 'connected') attempt(left - 1);
+          if (left > 0 && this.state === 'connected') attempt(left - 1, null);
           else reject(Object.assign(new Error(`Keine Antwort auf ${command.ns} ${command.cmd}`), { code: 'timeout' }));
         }, timeoutMs);
         this.pending.set(id, { resolve, reject, timer, command });
-        this._write({ ...command, id });
+        if (into) into.push({ ...command, id });
+        else this._write([{ ...command, id }]);
       };
-      attempt(retries);
-    });
+      attempt(retries, batch);
+    }));
+    if (batch.length) this._write(batch);
+    return promises;
   }
 
-  _write(obj) {
-    const line = serialize(obj);
+  _write(objs) {
+    const text = objs.map(serialize).join('');
     this.lastTx = this.now();
-    this.emit('tx', obj);
-    this.transport.write(line);
+    for (const obj of objs) this.emit('tx', obj);
+    this.transport.write(text);
   }
 
   _sayHello() {
     this.state = 'handshake';
     this.helloId = this.nextId++;
     this.helloSentAt = this.now();
-    this._write({ ...cmd.hello(), id: this.helloId });
+    this._write([{ ...cmd.hello(), id: this.helloId }]);
     this.emit('change');
   }
 

@@ -73,6 +73,7 @@ export class FakeGateway extends EventEmitter {
     this.t0 = Date.now(); // world clock of the simulation
     this.bootAt = 0; // gateway start on that clock
     this.timer = null;
+    this.input = [];
     this.out = [];
     this.flushQueued = false;
 
@@ -159,8 +160,10 @@ export class FakeGateway extends EventEmitter {
     this.timer = null;
   }
 
+  // Like the firmware's loop(): input waits for the next pass, which reads
+  // every line that arrived, then runs the bridge once.
   write(text) {
-    for (const line of this.splitter.push(text)) this._processLine(line);
+    this.input.push(text);
   }
 
   // Restart the gateway: the port goes away and comes back, all state is lost.
@@ -171,6 +174,7 @@ export class FakeGateway extends EventEmitter {
       round: this._emptyRound(), devs: new Map(), maxNumber: 0, admits: [], releases: [], login: false,
       pendingChannel: 0, offChannel: false, radioChannel: 0, bootAt: this.now(),
       lastStateAt: -Infinity, nextStateAt: 0, burstStep: 0, rxFrames: 0, txFrames: 0,
+      input: [], out: [], splitter: new LineSplitter(LINE_MAX + 1),
     });
     setTimeout(() => this.emit('open', { path: 'simulator', sim: true }), 300);
   }
@@ -748,6 +752,9 @@ export class FakeGateway extends EventEmitter {
   }
 
   _tick() {
+    const input = this.input;
+    this.input = [];
+    for (const text of input) for (const line of this.splitter.push(text)) this._processLine(line);
     const now = this.now();
     if (this.active && !this.closing && now - this.lastRx >= this.t.linkTimeout) this.active = false;
     this.world.radio.tick(now);
