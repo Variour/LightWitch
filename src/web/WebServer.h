@@ -6,6 +6,7 @@
 #include <functional>
 
 #include "../battery/BatteryMonitor.h"
+#include "../buttons/ButtonRoles.h"
 #include "../config/Config.h"
 #include "../events/EventLog.h"
 #include "../logging/Logger.h"
@@ -52,8 +53,8 @@ using OrientationChangeCb = std::function<void(uint8_t)>;
 using ColorOrderChangeCb = std::function<void(uint8_t)>;
 // Called when a light's own brightnessOverride(Enabled) changes without reboot
 using LightBrightnessChangeCb = std::function<void(uint8_t)>;
-// Called when a light's brightnessLimit/brightnessScale changes without reboot,
-// so the new clamp can be applied to its LED driver live
+// Called when a light's brightnessLimit/brightnessScale/currentLimitMa changes
+// without reboot, so the new clamp/cap can be applied to its LED driver live
 using LightClampChangeCb = std::function<void(uint8_t)>;
 // Called after a button is added/updated/deleted, so GPIO pin modes can be re-applied live
 using ButtonsChangedCb = std::function<void()>;
@@ -901,7 +902,8 @@ class BatteryWebServer {
         doc["checkUpdateOnStartup"] = c.checkUpdateOnStartup;
         doc["eventLogLimit"] = c.eventLogLimit;
         doc["wifiSingleClientMode"] = c.wifiSingleClientMode;
-        doc["batteryHwSupported"] = BatteryMonitor::kHwSupported;
+        // The charger (if enabled) reads the battery too, see BatteryMonitor.
+        doc["batteryHwSupported"] = BatteryMonitor::kHwSupported || c.chargerEnabled;
         doc["batteryMonitoringEnabled"] = c.batteryMonitoringEnabled;
         doc["prOtaBoardSupported"] = Updater::supportsPrOta();
         doc["prOtaEnabled"] = c.prOtaEnabled;
@@ -910,6 +912,7 @@ class BatteryWebServer {
         doc["i2cSclPin"] = c.i2cSclPin;
         doc["expanderChip"] = (uint8_t)c.expanderChip;
         doc["expanderAddress"] = c.expanderAddress;
+        doc["chargerEnabled"] = c.chargerEnabled;
         doc["mqttHost"] = c.mqttHost;
         doc["mqttPort"] = c.mqttPort;
         doc["mqttUser"] = c.mqttUser;
@@ -941,6 +944,7 @@ class BatteryWebServer {
             lo["brightnessOverride"] = l.brightnessOverride;
             lo["brightnessLimit"] = l.brightnessLimit;
             lo["brightnessScale"] = l.brightnessScale;
+            lo["currentLimitMa"] = l.currentLimitMa;
         }
 
         JsonArray arr = doc["groups"].to<JsonArray>();
@@ -1008,6 +1012,13 @@ class BatteryWebServer {
         }
         if (!doc["prOtaEnabled"].isNull()) c.prOtaEnabled = (bool)doc["prOtaEnabled"];
 
+        // A charger disable goes first, so one save can drop both the charger
+        // and the I2C bus it sits on (the bus check below counts it).
+        if (!doc["chargerEnabled"].isNull() && !(bool)doc["chargerEnabled"] && c.chargerEnabled) {
+            c.chargerEnabled = false;
+            rebootNeeded = true;
+        }
+
         // The I2C bus is only ever brought up once at boot (see main.cpp) —
         // unlike battery/mqtt/timezone above, there's no live-reconfigure path,
         // so changing it always needs a reboot.
@@ -1017,8 +1028,8 @@ class BatteryWebServer {
             if (sda == PIN_UNUSED || scl == PIN_UNUSED) {
                 if (Config::i2cBusInUse()) {
                     auto e = _makeErr(
-                        "I2C bus still used by a configured sound output, button, or "
-                        "the configured expander");
+                        "I2C bus still used by a configured sound output, button, the "
+                        "configured expander, or the charger");
                     _sendJson(r, 400, e);
                     return;
                 }
@@ -1068,6 +1079,19 @@ class BatteryWebServer {
             if (c.expanderChip != newChip || c.expanderAddress != newAddr) rebootNeeded = true;
             c.expanderChip = newChip;
             c.expanderAddress = newAddr;
+        }
+
+        // The BQ25628 charger on the device I2C bus (see PowerManager) — set
+        // up once at boot, so changing it needs a reboot, like the expander.
+        if (!doc["chargerEnabled"].isNull()) {
+            bool enable = (bool)doc["chargerEnabled"];
+            if (enable && (c.i2cSdaPin == PIN_UNUSED || c.i2cSclPin == PIN_UNUSED)) {
+                auto e = _makeErr("configure the device I2C bus first");
+                _sendJson(r, 400, e);
+                return;
+            }
+            if (enable != c.chargerEnabled) rebootNeeded = true;
+            c.chargerEnabled = enable;
         }
         // wifiSingleClientMode is intentionally not handled here — it's a
         // runtime-safe, mesh-wide toggle exposed from the device list instead
@@ -2046,6 +2070,7 @@ class BatteryWebServer {
             o["brightnessOverride"] = l.brightnessOverride;
             o["brightnessLimit"] = l.brightnessLimit;
             o["brightnessScale"] = l.brightnessScale;
+            o["currentLimitMa"] = l.currentLimitMa;
         }
         _sendJson(r, 200, doc);
     }
@@ -2068,7 +2093,8 @@ class BatteryWebServer {
 
     // ── POST /api/lights/add ──────────────────────────────────────────────────
     // Body: {ledType, colorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir,
-    // matrixSerpentine, wrapWidth, wrapHeight, groupId, brightnessLimit, brightnessScale}
+    // matrixSerpentine, wrapWidth, wrapHeight, groupId, brightnessLimit, brightnessScale,
+    // currentLimitMa}
     void _addLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2102,6 +2128,7 @@ class BatteryWebServer {
         l.groupId = doc["groupId"] | (uint8_t)0;
         l.brightnessLimit = (uint8_t)constrain((int)(doc["brightnessLimit"] | 255), 0, 255);
         l.brightnessScale = (uint8_t)constrain((int)(doc["brightnessScale"] | 255), 0, 255);
+        l.currentLimitMa = (uint16_t)constrain((long)(doc["currentLimitMa"] | 0), 0L, 65535L);
         if (l.width == 0) l.width = 1;
         if (l.height == 0) l.height = 1;
         if (const char* conflict = _lightPinConflict(l, /*excludeLightIndex=*/idx)) {
@@ -2124,7 +2151,7 @@ class BatteryWebServer {
     // ── POST /api/lights/update ───────────────────────────────────────────────
     // Body: {index, ledType?, colorOrder?, dataPin?, clockPin?, width?, height?, matrixStart?,
     // matrixDir?, matrixSerpentine?, wrapWidth?, wrapHeight?, groupId?, brightnessLimit?,
-    // brightnessScale?}
+    // brightnessScale?, currentLimitMa?}
     void _updateLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2229,6 +2256,10 @@ class BatteryWebServer {
         }
         if (!doc["brightnessScale"].isNull()) {
             l.brightnessScale = (uint8_t)constrain((int)doc["brightnessScale"], 0, 255);
+            clampChanged = true;
+        }
+        if (!doc["currentLimitMa"].isNull()) {
+            l.currentLimitMa = (uint16_t)constrain((long)doc["currentLimitMa"], 0L, 65535L);
             clampChanged = true;
         }
         Config::save();
@@ -2939,8 +2970,19 @@ class BatteryWebServer {
         return nullptr;
     }
 
+    // Returns an error string if role is not one of src/buttons/ButtonRoles.h
+    // (or "") or already belongs to another configured button, else nullptr.
+    // Pass the button's own index as excludeButtonIndex when validating an
+    // update.
+    static const char* _buttonRoleConflict(const char* role, int8_t excludeButtonIndex) {
+        if (!ButtonRole::isValid(role)) return "unknown role";
+        int8_t owner = Config::buttonIndexForRole(role);
+        if (owner >= 0 && owner != excludeButtonIndex) return "role already in use";
+        return nullptr;
+    }
+
     // ── POST /api/buttons/add ─────────────────────────────────────────────────
-    // Body: {name?, pin, activeLow?, viaExpander?, onShortPress?, onLongPress?,
+    // Body: {name?, pin, activeLow?, viaExpander?, role?, onShortPress?, onLongPress?,
     // onDoubleClick?}
     void _addButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
@@ -2964,6 +3006,11 @@ class BatteryWebServer {
             _sendJson(r, 400, e);
             return;
         }
+        if (const char* conflict = _buttonRoleConflict(doc["role"] | "", (int8_t)idx)) {
+            auto e = _makeErr(conflict);
+            _sendJson(r, 400, e);
+            return;
+        }
         b.exists = true;  // deserializeButton defaults "exists" to false when the key is absent
         Config::get().buttons[idx] = b;
         Config::save();
@@ -2975,7 +3022,7 @@ class BatteryWebServer {
     }
 
     // ── POST /api/buttons/update ──────────────────────────────────────────────
-    // Body: {index, name?, pin?, activeLow?, viaExpander?, onShortPress?, onLongPress?,
+    // Body: {index, name?, pin?, activeLow?, viaExpander?, role?, onShortPress?, onLongPress?,
     // onDoubleClick?}
     void _updateButton(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
@@ -2987,6 +3034,13 @@ class BatteryWebServer {
             return;
         }
         auto& existing = Config::get().buttons[idx];
+        if (!doc["role"].isNull()) {
+            if (const char* conflict = _buttonRoleConflict(doc["role"] | "", (int8_t)idx)) {
+                auto e = _makeErr(conflict);
+                _sendJson(r, 400, e);
+                return;
+            }
+        }
         if (!doc["name"].isNull()) strlcpy(existing.name, doc["name"] | "", sizeof(existing.name));
 
         // pin/viaExpander together decide the pin's address space — apply on
@@ -3011,6 +3065,7 @@ class BatteryWebServer {
             }
         }
         existing = candidate;
+        if (!doc["role"].isNull()) strlcpy(existing.role, doc["role"] | "", sizeof(existing.role));
         if (!doc["onShortPress"].isNull())
             existing.onShortPress =
                 deserializeButtonAction(doc["onShortPress"], existing.onShortPress);
