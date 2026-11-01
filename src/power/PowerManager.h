@@ -66,7 +66,10 @@ class PowerManager {
     void setOnLedBlank(LedBlankFn fn) { _onLedBlank = fn; }
     void setOnLedRailUp(LedRailUpFn fn) { _onLedRailUp = fn; }
 
-    // Call once the device I2C bus (Wire) is up.
+    // Call once the device I2C bus (Wire) is up, as early in setup() as
+    // possible: on battery below LOW_BATTERY_MV it switches the device off
+    // right away (see _checkBatteryAtBoot()). The LED callbacks may run here,
+    // before any light exists.
     void begin(bool enabled) {
         _enabled = enabled;
         if (!_enabled) return;
@@ -77,6 +80,7 @@ class PowerManager {
             return;
         }
         _connect(millis());
+        if (_online && _hasStatus) _checkBatteryAtBoot();
     }
 
     // Call on every loop() pass, including while an HTTP update downloads,
@@ -190,6 +194,7 @@ class PowerManager {
     // 8 channels x 30 ms at 12 bit (tADC_CONV, §7.5) = 240 ms.
     static constexpr uint32_t ADC_CONVERSION_MS = 250;
     static constexpr uint32_t ADC_TIMEOUT_MS = 1500;
+    static constexpr uint32_t ADC_POLL_MS = 20;
     static constexpr uint32_t ADC_STALE_MS = 10000;
     static constexpr uint32_t ADC_LOG_INTERVAL_MS = 30000;
     // Time after a ship-mode request (BATFET_DLY 25 ms) after which a still
@@ -271,6 +276,47 @@ class PowerManager {
             _hasStatus = true;
             _updateOtg(st, now);
         }
+    }
+
+    // One blocking VBAT reading at boot. On battery below LOW_BATTERY_MV, or
+    // with the ADC refusing to convert (VBAT below VBAT_LOWV), switch off
+    // without the 30 s hold: Wi-Fi setup can take minutes, and a device in a
+    // crash loop would otherwise never reach the regular cut-off.
+    void _checkBatteryAtBoot() {
+        if (_status.powerGood()) return;
+        _updateTsAdc(_status);
+        uint32_t start = millis();
+        _lastAdcStartMs = start;
+        Bq25628::AdcStart r = _chg.startAdcOneShot();
+        if (r == Bq25628::AdcStart::Error) return;
+        if (r == Bq25628::AdcStart::Refused) {
+            Logger::w("[pwr] no VBAT reading at boot on battery - below the ADC threshold");
+            _shutdownAtBoot();
+            return;
+        }
+        bool done = false;
+        while (!done && millis() - start < ADC_TIMEOUT_MS) {
+            delay(ADC_POLL_MS);
+            if (!_chg.adcDone(done)) return;
+        }
+        Bq25628::Adc a;
+        if (!done || !_chg.readAdc(a)) {
+            Logger::w("[pwr] no VBAT reading at boot");
+            return;
+        }
+        _adc = a;
+        _adcMs = millis();
+        Logger::i("[pwr] VBAT %u mV at boot on battery", a.vbatMv);
+        if (a.vbatMv < LOW_BATTERY_MV) _shutdownAtBoot();
+    }
+
+    // Ship mode at boot; still running after SHIP_MODE_TIMEOUT_MS (USB
+    // plugged in meanwhile) withdraws the request and boots on.
+    void _shutdownAtBoot() {
+        _shutdown("low battery at boot");
+        if (!_shipPending) return;
+        delay(SHIP_MODE_TIMEOUT_MS);
+        _tickShipMode(millis());
     }
 
     void _goOffline(const char* why) {

@@ -460,6 +460,40 @@ void setup() {
     Logger::setLevel((LogLevel)Config::get().logLevel);
     Logger::i("[sys] firmware %s  device: %s", FW_VERSION, Config::get().deviceName);
 
+    // Bring up the device-wide I2C bus, if configured — shared by the sound
+    // codec's control interface and any TCA9555-backed button (see
+    // DeviceConfig::i2cSdaPin/i2cSclPin). Centralized here (rather than each
+    // consumer calling Wire.begin() itself) since ESP32 has a single default
+    // I2C bus that every consumer must agree on the same pins for.
+    if (Config::get().i2cSdaPin != PIN_UNUSED && Config::get().i2cSclPin != PIN_UNUSED) {
+        Wire.begin(Config::get().i2cSdaPin, Config::get().i2cSclPin);
+        Logger::i("[sys] I2C bus: sda=GPIO%d scl=GPIO%d", Config::get().i2cSdaPin,
+                  Config::get().i2cSclPin);
+    }
+
+    // Charger / LED rail / ship mode (boards with a BQ25628), right after the
+    // config so the low-battery check runs before anything that can block or
+    // crash (Wi-Fi setup). No light exists yet; the LED callbacks skip them.
+    // Blanking goes through the brightness clamp so running patterns stay
+    // dark too.
+    power.setOnLedBlank([](bool blank) {
+        Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
+            if (!_leds[i]) return;
+            if (blank) {
+                _leds[i]->setBrightnessClamp(0, 0);
+                _leds[i]->off();
+            } else {
+                _leds[i]->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
+            }
+        });
+        if (!blank) applyAllLights();
+    });
+    power.setOnLedRailUp([]() {
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+            if (_leds[i]) _leds[i]->show();
+    });
+    power.begin(Config::get().chargerEnabled);
+
     // Auto-probe the onboard SD card reader, if this build targets a board
     // that has one (see SdCardManager) — no-op/harmless on boards without it.
     _sdCard.begin();
@@ -502,37 +536,6 @@ void setup() {
         auto* g = Config::group(l.groupId);
         if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
     });
-
-    // Bring up the device-wide I2C bus, if configured — shared by the sound
-    // codec's control interface and any TCA9555-backed button (see
-    // DeviceConfig::i2cSdaPin/i2cSclPin). Centralized here (rather than each
-    // consumer calling Wire.begin() itself) since ESP32 has a single default
-    // I2C bus that every consumer must agree on the same pins for.
-    if (Config::get().i2cSdaPin != PIN_UNUSED && Config::get().i2cSclPin != PIN_UNUSED) {
-        Wire.begin(Config::get().i2cSdaPin, Config::get().i2cSclPin);
-        Logger::i("[sys] I2C bus: sda=GPIO%d scl=GPIO%d", Config::get().i2cSdaPin,
-                  Config::get().i2cSclPin);
-    }
-
-    // Charger / LED rail / ship mode (boards with a BQ25628). Blanking goes
-    // through the brightness clamp so running patterns stay dark too.
-    power.setOnLedBlank([](bool blank) {
-        Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
-            if (!_leds[i]) return;
-            if (blank) {
-                _leds[i]->setBrightnessClamp(0, 0);
-                _leds[i]->off();
-            } else {
-                _leds[i]->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
-            }
-        });
-        if (!blank) applyAllLights();
-    });
-    power.setOnLedRailUp([]() {
-        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
-            if (_leds[i]) _leds[i]->show();
-    });
-    power.begin(Config::get().chargerEnabled);
 
     // Initialise the sound output, if configured.
     Config::forEachSound([](uint8_t, SoundHardwareConfig& s) {
