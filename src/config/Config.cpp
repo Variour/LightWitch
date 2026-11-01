@@ -103,6 +103,7 @@ void serializeButton(JsonObject o, const ButtonHardwareConfig& b) {
     o["pin"] = b.pin;
     o["activeLow"] = b.activeLow;
     o["viaExpander"] = b.viaExpander;
+    o["role"] = b.role;
     o["exists"] = b.exists;
     serializeButtonAction(o["onShortPress"].to<JsonObject>(), b.onShortPress);
     serializeButtonAction(o["onLongPress"].to<JsonObject>(), b.onLongPress);
@@ -114,6 +115,7 @@ void deserializeButton(JsonVariant o, ButtonHardwareConfig& b) {
     b.pin = o["pin"] | (uint8_t)0;
     b.activeLow = o["activeLow"] | true;
     b.viaExpander = o["viaExpander"] | false;
+    strlcpy(b.role, o["role"] | "", sizeof(b.role));
     b.exists = o["exists"] | false;
     b.onShortPress = deserializeButtonAction(o["onShortPress"], b.onShortPress);
     b.onLongPress = deserializeButtonAction(o["onLongPress"], b.onLongPress);
@@ -227,6 +229,13 @@ static bool migrateDoc(JsonDocument& doc) {
         // with `| default` fallbacks in applyDoc(), nothing to rewrite.
         Logger::i("[cfg] schema v%u -> v5", ver);
     }
+    if (ver < 6) {
+        // v5 -> v6: buttons gained role, lights gained currentLimitMa, the
+        // device gained chargerEnabled — additive with `| default` fallbacks
+        // in applyDoc() (role "", no current cap, charger off), nothing to
+        // rewrite.
+        Logger::i("[cfg] schema v%u -> v6", ver < 5 ? 5 : ver);
+    }
     return true;
 }
 
@@ -251,6 +260,7 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().expanderChip =
         (IoExpanderChip)(uint8_t)(doc["expanderChip"] | (uint8_t)IoExpanderChip::None);
     Config::get().expanderAddress = doc["expanderAddress"] | (uint8_t)0x20;
+    Config::get().chargerEnabled = doc["chargerEnabled"] | false;
     Config::get().wifiPolicyRevision = doc["wifiPolicyRevision"] | (uint32_t)0;
     for (uint8_t i = 0; i < 6; i++)
         Config::get().wifiPolicyOriginMac[i] = doc["wifiPolicyOriginMac"][i] | (uint8_t)0;
@@ -290,6 +300,7 @@ static void applyDoc(JsonDocument& doc) {
             l.brightnessOverride = v["brightnessOverride"] | (uint8_t)255;
             l.brightnessLimit = v["brightnessLimit"] | (uint8_t)255;
             l.brightnessScale = v["brightnessScale"] | (uint8_t)255;
+            l.currentLimitMa = v["currentLimitMa"] | (uint16_t)0;
             if (!v["name"].isNull()) strlcpy(l.name, v["name"] | "", sizeof(l.name));
         }
     }
@@ -415,6 +426,7 @@ bool Config::save() {
     doc["i2cSclPin"] = _cfg.i2cSclPin;
     doc["expanderChip"] = (uint8_t)_cfg.expanderChip;
     doc["expanderAddress"] = _cfg.expanderAddress;
+    doc["chargerEnabled"] = _cfg.chargerEnabled;
     doc["wifiPolicyRevision"] = _cfg.wifiPolicyRevision;
     {
         JsonArray origin = doc["wifiPolicyOriginMac"].to<JsonArray>();
@@ -453,6 +465,7 @@ bool Config::save() {
         o["brightnessOverride"] = l.brightnessOverride;
         o["brightnessLimit"] = l.brightnessLimit;
         o["brightnessScale"] = l.brightnessScale;
+        o["currentLimitMa"] = l.currentLimitMa;
     }
 
     JsonArray arr = doc["groups"].to<JsonArray>();
@@ -874,6 +887,7 @@ bool Config::isExpanderPinInUse(uint8_t pin, int8_t excludeButtonIndex, bool exc
 
 bool Config::i2cBusInUse() {
     if (_cfg.expanderChip != IoExpanderChip::None) return true;
+    if (_cfg.chargerEnabled) return true;
     for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
         if (_cfg.sounds[i].exists) return true;
     }
