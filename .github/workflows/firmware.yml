@@ -5,12 +5,13 @@ on:
     inputs:
       environments:
         description: 'PlatformIO environments to build (comma-separated)'
-        default: 'esp32dev,esp32c3,esp32s3'
+        default: 'esp32dev,esp32c3,esp32s3,esp32c5'
         required: true
   pull_request:
     paths:
       - 'platformio.ini'
       - 'partitions.csv'
+      - 'partitions-esp32c5.csv'
       - 'requirements.txt'
       - 'src/**'
       - 'scripts/**'
@@ -34,7 +35,7 @@ jobs:
     steps:
       - id: matrix
         run: |
-          ENVIRONMENTS="${{ github.event_name == 'pull_request' && 'esp32dev,esp32s3' || github.event.inputs.environments || 'esp32dev,esp32c3,esp32s3' }}"
+          ENVIRONMENTS="${{ github.event_name == 'pull_request' && 'esp32dev,esp32s3,esp32c5' || github.event.inputs.environments || 'esp32dev,esp32c3,esp32s3,esp32c5' }}"
           JSON=$(echo "$ENVIRONMENTS" \
             | tr ',' '\n' | sed 's/[[:space:]]//g' | jq -R . | jq -sc .)
           echo "value={\"env\":${JSON}}" >> "$GITHUB_OUTPUT"
@@ -69,10 +70,10 @@ jobs:
             ~/.platformio
             .pio/libdeps
             .pio/build/${{ matrix.env }}
-          key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'src/**') }}
+          key: pioarduino-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'src/**') }}
           restore-keys: |
-            pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}-
-            pio-${{ matrix.env }}-
+            pioarduino-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}-
+            pioarduino-${{ matrix.env }}-
 
       - name: Install PlatformIO
         run: pip install -r requirements.txt
@@ -104,8 +105,8 @@ jobs:
           path: |
             ~/.platformio
             .pio/libdeps
-          key: pio-esp32dev-${{ hashFiles('platformio.ini') }}
-          restore-keys: pio-esp32dev-
+          key: pioarduino-esp32dev-${{ hashFiles('platformio.ini') }}
+          restore-keys: pioarduino-esp32dev-
 
       - name: Install PlatformIO
         run: pip install -r requirements.txt
@@ -145,6 +146,9 @@ jobs:
             cp "artifacts/firmware-${env}/bootloader.bin" "bootloader-${env}.bin"
           done
           cp artifacts/firmware-esp32dev/partitions.bin partitions.bin
+          if [ -f artifacts/firmware-esp32c5/partitions.bin ]; then
+            cp artifacts/firmware-esp32c5/partitions.bin partitions-esp32c5.bin
+          fi
           cp artifacts/littlefs/littlefs.bin littlefs.bin
 
       - uses: softprops/action-gh-release@v3
@@ -155,10 +159,11 @@ jobs:
             firmware-*.bin
             bootloader-*.bin
             partitions.bin
+            partitions-esp32c5.bin
             littlefs.bin
           generate_release_notes: true
 
-  # Publishes every PR's esp32dev and esp32s3 builds as a prerelease so they
+  # Publishes every PR's esp32dev, esp32s3 and esp32c5 builds as a prerelease so they
   # can be installed via OTA from the device's "install from PR" picker (see
   # src/update/Updater.h). Re-running this on a later push to the same PR
   # updates the existing pr-<number> release/assets in place.
@@ -178,6 +183,7 @@ jobs:
         run: |
           cp artifacts/firmware-esp32dev/firmware.bin firmware-esp32dev.bin
           cp artifacts/firmware-esp32s3/firmware.bin firmware-esp32s3.bin
+          cp artifacts/firmware-esp32c5/firmware.bin firmware-esp32c5.bin
           cp artifacts/littlefs/littlefs.bin littlefs.bin
 
       - uses: softprops/action-gh-release@v3
@@ -189,4 +195,5 @@ jobs:
           files: |
             firmware-esp32dev.bin
             firmware-esp32s3.bin
+            firmware-esp32c5.bin
             littlefs.bin
