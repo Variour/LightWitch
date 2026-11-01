@@ -72,7 +72,7 @@ class PowerManager {
         _connect(millis());
     }
 
-    // Call on every loop() pass, including while a firmware download runs,
+    // Call on every loop() pass, including while an HTTP update downloads,
     // so the watchdog keeps getting reset; internally rate-limited.
     void tick() {
         uint32_t now = millis();
@@ -155,8 +155,11 @@ class PowerManager {
    private:
     static constexpr uint32_t POLL_INTERVAL_MS = 200;
     static constexpr uint32_t PROBE_INTERVAL_MS = 5000;
-    // Watchdog is 200 s nominal, 136 s minimum (tWDT, §7.5); a reset every
-    // 10 s survives long loop stalls (OTA transfers block loop()).
+    // Watchdog is 200 s nominal, 136 s minimum (tWDT, §7.5), reset every 10 s
+    // from loop(). An HTTP update (Updater) runs in its own task and loop()
+    // keeps resetting it. ArduinoOTA blocks loop() for its whole transfer, so
+    // only transfers shorter than 136 s keep host mode; after a longer one
+    // tick() finds the charger in default mode and configures it again.
     static constexpr uint32_t WATCHDOG_KICK_MS = 10000;
     static constexpr uint32_t OTG_RETRY_MS = 5000;
     // At most one re-configure per this time; the rest of tick() keeps

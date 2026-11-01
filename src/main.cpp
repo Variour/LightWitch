@@ -1029,7 +1029,7 @@ void loop() {
     if (slowTick) _lastSlowTickMs = now;
 
     // Ahead of the update early-return below: the charger watchdog reset and
-    // the LED rail keep running during a firmware download.
+    // the LED rail keep running during an HTTP update download.
     power.tick();
 
     // Idle OTA polling is throttled with everything else; once a transfer is
