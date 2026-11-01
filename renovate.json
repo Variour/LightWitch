@@ -8,11 +8,10 @@
     {
       "customType": "regex",
       "managerFilePatterns": ["/^platformio\\.ini$/"],
-      "matchStrings": ["platform\\s*=\\s*espressif32\\s*@\\s*(?<currentValue>[\\d.]+)"],
-      "depNameTemplate": "espressif32",
-      "packageNameTemplate": "platformio/platform-espressif32",
-      "datasourceTemplate": "github-tags",
-      "versioningTemplate": "semver-coerced"
+      "matchStrings": ["platform\\s*=\\s*https://github\\.com/pioarduino/platform-espressif32/releases/download/(?<currentValue>[^/\\s]+)/platform-espressif32\\.zip"],
+      "depNameTemplate": "pioarduino/platform-espressif32",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:-(?<build>\\d+))?$"
     },
     {
       "customType": "regex",
