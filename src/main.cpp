@@ -635,8 +635,12 @@ void setup() {
     buttonManager.setExecutor(gameQuietBoot ? nullptr : &actionExecutor);
     // The one raw key-edge consumer slot: fan out from here to every module
     // that needs press/release edges.
-    buttonManager.setRawCallback(
-        [](uint8_t index, bool pressed, uint32_t ms) { power.onButtonRaw(index, pressed, ms); });
+    buttonManager.setRawCallback([](uint8_t index, bool pressed, uint32_t ms) {
+        power.onButtonRaw(index, pressed, ms);
+        // The game session finds its keys by role; it ignores "power" and "".
+        if (index < MAX_BUTTONS)
+            gameSession.onKey(game::keyFromName(Config::get().buttons[index].role), pressed, ms);
+    });
     buttonManager.begin();
     automationManager.setExecutor(&actionExecutor);
 
@@ -684,19 +688,8 @@ void setup() {
         h.charging = bs.present && bs.state == BatteryMonitor::State::Charging;
         return h;
     });
-    // TODO(keys): once claude/buzzerboard-support is merged, feed raw key edges
-    // into the game session from main.cpp's one raw-key callback (keep a
-    // single setRawCallback call; add the game line next to the power line):
-    //   buttonManager.setRawCallback([](uint8_t index, bool pressed, uint32_t ms) {
-    //       power.onButtonRaw(index, pressed, ms);
-    //       if (index < MAX_BUTTONS)
-    //           gameSession.onKey(game::keyFromName(Config::get().buttons[index].role),
-    //                             pressed, ms);
-    //   });
-    // and report the buzz key here and after every button change
-    // (webServer.setOnButtonsChanged):
-    //   gameSession.setHasBuzzKey(Config::buttonIndexForRole(ButtonRole::BUZZ) >= 0);
-    // The bridge role needs no keys.
+    // Only a device with a buzz key takes invites; the bridge role needs no keys.
+    gameSession.setHasBuzzKey(Config::buttonIndexForRole(ButtonRole::BUZZ) >= 0);
     gameSession.begin(millis());
 
     // Wire SceneSyncManager → MeshManager
@@ -1027,7 +1020,10 @@ void setup() {
         if (idx < MAX_LIGHTS && _leds[idx])
             _leds[idx]->setColorOrder(Config::get().lights[idx].colorOrder);
     });
-    webServer.setOnButtonsChanged([]() { buttonManager.reconfigure(); });
+    webServer.setOnButtonsChanged([]() {
+        buttonManager.reconfigure();
+        gameSession.setHasBuzzKey(Config::buttonIndexForRole(ButtonRole::BUZZ) >= 0);
+    });
     webServer.setBatteryStatusProvider([]() { return battery.status(); });
     webServer.setOnMqttReconfigure([]() { mqtt.reconfigure(Config::get()); });
     webServer.setOnBatteryMonitoringChanged([](bool enabled) {
