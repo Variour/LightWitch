@@ -58,14 +58,35 @@ class PowerManager {
     static constexpr uint16_t LOW_BATTERY_MV = 3300;
     static constexpr uint32_t LOW_BATTERY_HOLD_MS = 30000;
 
+    // On battery, a firmware update starts only with VBAT at or above
+    // UPDATE_MIN_MV (updateBlockReason()). While one is being written, ship
+    // mode (power key, low battery) waits for its end unless VBAT is below
+    // CRITICAL_BATTERY_MV or has no fresh reading.
+    static constexpr uint16_t UPDATE_MIN_MV = 3500;
+    static constexpr uint16_t CRITICAL_BATTERY_MV = 3100;
+
     // blank = true: show nothing until called again with false (see main.cpp).
     using LedBlankFn = std::function<void(bool blank)>;
     // The LED rail (PMID) lost power (up = false) or has had it for
     // LED_RAIL_SETTLE_MS (up = true): on true, resend the current frame.
     using LedRailFn = std::function<void(bool up)>;
 
+    // Whether a firmware update is being written (see main.cpp).
+    using UpdateBusyFn = std::function<bool()>;
+
     void setOnLedBlank(LedBlankFn fn) { _onLedBlank = fn; }
     void setOnLedRail(LedRailFn fn) { _onLedRail = fn; }
+    void setUpdateBusy(UpdateBusyFn fn) { _updateBusy = fn; }
+
+    // Why a firmware update must not start now, or nullptr. Only a charger
+    // that answers on battery power gives a reason. Called from other tasks
+    // too (web handlers, Updater); it only reads word-sized fields.
+    const char* updateBlockReason() const {
+        if (!_enabled || !_online || !_hasStatus || _status.powerGood()) return nullptr;
+        if (!_vbatFresh()) return "no battery reading";
+        if (_adc.vbatMv < UPDATE_MIN_MV) return "battery below 3.5 V";
+        return nullptr;
+    }
 
     // Call once the device I2C bus (Wire) is up, as early in setup() as
     // possible: on battery below LOW_BATTERY_MV it switches the device off
@@ -126,6 +147,7 @@ class PowerManager {
         _updateLedRail(st, now);
         _updateTsAdc(st);
         _tickAdc(now);
+        if (_deferredShutdown && !_mustDeferShutdown()) _shutdown(_deferredShutdown);
         _tickShipMode(now);
     }
 
@@ -246,8 +268,12 @@ class PowerManager {
     uint32_t _shipRequestedMs = 0;
     bool _blanked = false;
 
+    // Reason of a shutdown that waits for an update to end.
+    const char* _deferredShutdown = nullptr;
+
     LedBlankFn _onLedBlank;
     LedRailFn _onLedRail;
+    UpdateBusyFn _updateBusy;
 
     void _connect(uint32_t now) {
         _lastProbeMs = now;
@@ -482,13 +508,30 @@ class PowerManager {
                   (unsigned long)(POWER_KEY_HOLD_MS / 1000));
     }
 
+    bool _vbatFresh() const { return _adcMs != 0 && millis() - _adcMs < ADC_STALE_MS; }
+
+    bool _mustDeferShutdown() const {
+        if (!_updateBusy || !_updateBusy()) return false;
+        return _vbatFresh() && _adc.vbatMv >= CRITICAL_BATTERY_MV;
+    }
+
     void _shutdown(const char* reason) {
         if (_shipPending) return;
         if (!_online || !_hasStatus || _status.powerGood()) {
             Logger::i("[pwr] %s: no ship mode (charger unavailable or USB present)", reason);
+            _deferredShutdown = nullptr;
             _blank(false);
             return;
         }
+        if (_mustDeferShutdown()) {
+            if (!_deferredShutdown) {
+                Logger::w("[pwr] %s: update running - switching off once it ends", reason);
+                _blank(false);
+            }
+            _deferredShutdown = reason;
+            return;
+        }
+        _deferredShutdown = nullptr;
         _blank(true);
         Logger::w("[pwr] %s: entering ship mode (wake: hold the power key ~1 s or plug in USB)",
                   reason);

@@ -496,6 +496,11 @@ void setup() {
             if (up) _leds[i]->show();
         }
     });
+    // Updates: none starts on a low battery, and ship mode waits for a
+    // running one.
+    power.setUpdateBusy(
+        []() { return _otaActive || Updater::status().state == Updater::State::Downloading; });
+    Updater::setStartGuard([]() { return power.updateBlockReason(); });
     power.begin(Config::get().chargerEnabled);
 
     // Auto-probe the onboard SD card reader, if this build targets a board
@@ -1041,7 +1046,8 @@ void loop() {
 
     // Idle OTA polling is throttled with everything else; once a transfer is
     // actually in flight (_otaActive), run every pass so flashing isn't slowed.
-    if (Config::get().otaEnabled && (slowTick || _otaActive)) ArduinoOTA.handle();
+    if (Config::get().otaEnabled && (slowTick || _otaActive) && !power.updateBlockReason())
+        ArduinoOTA.handle();
     if (slowTick) webServer.loop();
 
     Updater::State updState = Updater::status().state;
