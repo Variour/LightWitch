@@ -4,6 +4,8 @@
 #include <LittleFS.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <esp_wifi.h>
+#include <soc/soc_caps.h>
 
 #include <new>
 
@@ -344,6 +346,16 @@ static void setupWifi() {
     auto& c = Config::get();
 
     WiFi.mode(WIFI_AP_STA);
+#if SOC_WIFI_SUPPORT_5G
+    // Dual-band chips (ESP32-C5): stay on 2.4 GHz, where ESP-NOW and the mesh
+    // channel scan run, also when a configured network offers 5 GHz. The
+    // Arduino core starts the driver in WIFI_BAND_MODE_AUTO (WiFi.mode()
+    // above), so set the band right after it. The IDF call only needs the
+    // driver started; WiFi.setBandMode() also needs the STA/AP start event,
+    // which arrives asynchronously.
+    if (esp_err_t err = esp_wifi_set_band_mode(WIFI_BAND_MODE_2G_ONLY); err != ESP_OK)
+        Logger::e("[wifi] 2.4 GHz-only band mode failed: %s", esp_err_to_name(err));
+#endif
     WiFi.setAutoReconnect(false);
     ensureWifiPolicyStateInitialized();
 
