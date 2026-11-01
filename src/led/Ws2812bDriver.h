@@ -38,8 +38,11 @@ class Ws2812bDriver : public LedDriver {
         _neo->show();
     }
 
+    // While the LED rail is down, the frame stays in the buffer and goes out
+    // with the show() after setRailPowered(true).
     void show() override {
         _shownSinceService = true;
+        if (!_railPowered) return;
         _syncCurrentLimit();
         if (_limitMa) _writeCappedFrame();
         _neo->show();
@@ -51,7 +54,7 @@ class Ws2812bDriver : public LedDriver {
         _shownCounts = 0;
         _rampPending = false;
         _neo->clear();
-        _neo->show();
+        if (_railPowered) _neo->show();
     }
 
     void setRailPowered(bool powered) override {
@@ -117,8 +120,8 @@ class Ws2812bDriver : public LedDriver {
     std::atomic<uint16_t> _requestedLimitMa{0};
     uint16_t _limitMa = 0;
     std::vector<uint8_t> _frame;
-    // Capped mode only: channel sum of what the LEDs show now (0 while the
-    // rail is down), and whether the slew limit held the last frame back.
+    // Capped mode only: channel sum of what the LEDs show now (0 after the
+    // rail went down), and whether the slew limit held the last frame back.
     uint32_t _shownCounts = 0;
     bool _rampPending = false;
     bool _shownSinceService = false;
@@ -171,6 +174,6 @@ class Ws2812bDriver : public LedDriver {
             }
         }
         _rampPending = sum > budget && budget < cap;
-        _shownCounts = _railPowered ? shown : 0;
+        _shownCounts = shown;
     }
 };
