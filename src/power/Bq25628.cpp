@@ -60,7 +60,7 @@ bool Bq25628::readStatus(Status& out) {
     return true;
 }
 
-bool Bq25628::configure(uint16_t chargeCurrentMa, uint16_t otgVoltageMv) {
+bool Bq25628::configure(const Settings& s) {
     // The first write moves the charger from default mode to host mode and
     // starts the watchdog (§8.4.1), so the watchdog setting and its reset go
     // first.
@@ -68,11 +68,18 @@ bool Bq25628::configure(uint16_t chargeCurrentMa, uint16_t otgVoltageMv) {
         _update8(REG_CHG_CTRL_0, CTRL0_WATCHDOG_MASK | CTRL0_WD_RST | CTRL0_EN_CHG | CTRL0_EN_HIZ,
                  CTRL0_WATCHDOG_200S | CTRL0_WD_RST | CTRL0_EN_CHG);
 
-    uint16_t ichg = constrain(chargeCurrentMa, ICHG_MIN_MA, ICHG_MAX_MA) / ICHG_STEP_MA;
+    uint16_t ichg = constrain(s.chargeCurrentMa, ICHG_MIN_MA, ICHG_MAX_MA) / ICHG_STEP_MA;
     ok &= _write16(REG_ICHG, (uint16_t)(ichg << ICHG_SHIFT) & ICHG_MASK);
 
-    uint16_t votg = otgVoltageMv / VOTG_STEP_MV;
+    uint16_t vreg = s.chargeVoltageMv / VREG_STEP_MV;
+    ok &= _write16(REG_VREG, (uint16_t)(vreg << VREG_SHIFT) & VREG_MASK);
+
+    uint16_t votg = s.otgVoltageMv / VOTG_STEP_MV;
     ok &= _write16(REG_VOTG, (uint16_t)(votg << VOTG_SHIFT) & VOTG_MASK);
+
+    // Charge safety timers on, TS (battery NTC) feedback used.
+    ok &= _update8(REG_CHG_TMR_CTRL, TMR_EN_SAFETY_TMRS, TMR_EN_SAFETY_TMRS);
+    ok &= _update8(REG_NTC_CTRL_0, NTC0_TS_IGNORE, 0);
 
     // Boost OTG (VOTG on PMID), not bypass (PMID = VBAT).
     ok &= _update8(REG_CHG_CTRL_2, CTRL2_EN_BYPASS_OTG, 0);
@@ -81,9 +88,16 @@ bool Bq25628::configure(uint16_t chargeCurrentMa, uint16_t otgVoltageMv) {
     // limits (§8.3.3.4); IINDPM stays at its POR 3.2 A, so the pin decides.
     ok &= _update8(REG_CHG_CTRL_3, CTRL3_EN_EXTILIM, CTRL3_EN_EXTILIM);
 
-    // Read back what the charger actually holds (ICHG and VOTG are clamped
-    // to their ranges, Tables 8-9 / 8-13).
+    // Read back what the charger actually holds (ICHG, VREG and VOTG are
+    // clamped to their ranges, Tables 8-9 / 8-10 / 8-13). VREG must match.
     uint8_t b[2];
+    if (!_read(REG_VREG, b, 2)) return false;
+    uint16_t vregMv = (((uint16_t)(b[0] | (b[1] << 8)) & VREG_MASK) >> VREG_SHIFT) * VREG_STEP_MV;
+    if (vregMv != s.chargeVoltageMv) {
+        Logger::e("[pwr] VREG reads %u mV, not %u mV", vregMv, s.chargeVoltageMv);
+        return false;
+    }
+    Logger::i("[pwr] VREG %u mV", vregMv);
     if (_read(REG_ICHG, b, 2)) {
         uint16_t v = (uint16_t)(b[0] | (b[1] << 8));
         Logger::i("[pwr] ICHG %u mA", ((v & ICHG_MASK) >> ICHG_SHIFT) * ICHG_STEP_MA);

@@ -30,6 +30,9 @@ class PowerManager {
     // 18650 of 2 Ah or more. On a default USB source the ILIM pin's 446 mA
     // input limit keeps the real charge current lower anyway.
     static constexpr uint16_t CHARGE_CURRENT_MA = 1000;
+    // Li-ion charge voltage, 4.20 V (board README, charger table and
+    // "Over-charge: VREG 4.20 V regulation").
+    static constexpr uint16_t CHARGE_VOLTAGE_MV = 4200;
     // Boost output on PMID: 5.04 V (the POR value) gives the LEDs full colour
     // (board README, "LED rail = PMID"); bypass (PMID = VBAT) dims blue below
     // ~3.7 V.
@@ -97,7 +100,7 @@ class PowerManager {
             // halved (§8.4.1). Configure again; the next poll picks up.
             Logger::w("[pwr] charger in default mode (watchdog) - configuring again");
             _lastConfigureMs = now;
-            if (!_chg.configure(CHARGE_CURRENT_MA, OTG_VOLTAGE_MV)) _goOffline("configure failed");
+            if (!_chg.configure(kSettings)) _goOffline("configure failed");
             _lastKickMs = now;
             _adcBusy = false;
             return;
@@ -153,6 +156,9 @@ class PowerManager {
     uint32_t adcAgeMs() const { return _adcMs ? millis() - _adcMs : UINT32_MAX; }
 
    private:
+    static constexpr Bq25628::Settings kSettings = {CHARGE_CURRENT_MA, CHARGE_VOLTAGE_MV,
+                                                    OTG_VOLTAGE_MV};
+
     static constexpr uint32_t POLL_INTERVAL_MS = 200;
     static constexpr uint32_t PROBE_INTERVAL_MS = 5000;
     // Watchdog is 200 s nominal, 136 s minimum (tWDT, §7.5), reset every 10 s
@@ -233,8 +239,8 @@ class PowerManager {
             return;
         }
         _lastConfigureMs = now;
-        if (!_chg.configure(CHARGE_CURRENT_MA, OTG_VOLTAGE_MV)) {
-            Logger::e("[pwr] BQ25628 configuration failed");
+        if (!_chg.configure(kSettings)) {
+            Logger::e("[pwr] BQ25628 configuration failed - charger stays offline");
             return;
         }
         _online = true;

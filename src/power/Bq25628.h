@@ -26,10 +26,12 @@ class Bq25628 {
     static constexpr uint8_t REG_VREG = 0x04;            // 16-bit, Table 8-10
     static constexpr uint8_t REG_IINDPM = 0x06;          // 16-bit, Table 8-11
     static constexpr uint8_t REG_VOTG = 0x0C;            // 16-bit, Table 8-13
+    static constexpr uint8_t REG_CHG_TMR_CTRL = 0x15;    // Table 8-18
     static constexpr uint8_t REG_CHG_CTRL_0 = 0x16;      // Table 8-19
     static constexpr uint8_t REG_CHG_CTRL_1 = 0x17;      // Table 8-20
     static constexpr uint8_t REG_CHG_CTRL_2 = 0x18;      // Table 8-21
     static constexpr uint8_t REG_CHG_CTRL_3 = 0x19;      // Table 8-22
+    static constexpr uint8_t REG_NTC_CTRL_0 = 0x1A;      // Table 8-23
     static constexpr uint8_t REG_CHG_STAT_0 = 0x1D;      // Table 8-26
     static constexpr uint8_t REG_CHG_STAT_1 = 0x1E;      // Table 8-27
     static constexpr uint8_t REG_FAULT_STAT_0 = 0x1F;    // Table 8-28
@@ -53,11 +55,20 @@ class Bq25628 {
     static constexpr uint16_t ICHG_MIN_MA = 40;
     static constexpr uint16_t ICHG_MAX_MA = 2000;
 
+    // ── REG0x04 VREG, bits 11:3, 10 mV/LSB, 3500-4800 mV, POR 4200 mV
+    // (Table 8-10).
+    static constexpr uint16_t VREG_SHIFT = 3;
+    static constexpr uint16_t VREG_MASK = 0x1FF << VREG_SHIFT;
+    static constexpr uint16_t VREG_STEP_MV = 10;
+
     // ── REG0x0C VOTG, bits 12:6, 80 mV/LSB, 3840-5200 mV, POR 5040 mV
     // (Table 8-13).
     static constexpr uint16_t VOTG_SHIFT = 6;
     static constexpr uint16_t VOTG_MASK = 0x7F << VOTG_SHIFT;
     static constexpr uint16_t VOTG_STEP_MV = 80;
+
+    // ── REG0x15 Charge Timer Control (Table 8-18, POR 5Ch).
+    static constexpr uint8_t TMR_EN_SAFETY_TMRS = 1 << 2;  // reset by WATCHDOG to 1
 
     // ── REG0x16 Charger Control 0 (Table 8-19, POR A1h).
     static constexpr uint8_t CTRL0_EN_CHG = 1 << 5;  // reset by WATCHDOG to 1
@@ -77,6 +88,9 @@ class Bq25628 {
 
     // ── REG0x19 Charger Control 3 (Table 8-22, POR C4h).
     static constexpr uint8_t CTRL3_EN_EXTILIM = 1 << 2;  // reset by WATCHDOG to 1
+
+    // ── REG0x1A NTC Control 0 (Table 8-23, POR 3Dh).
+    static constexpr uint8_t NTC0_TS_IGNORE = 1 << 7;  // reset by WATCHDOG to 0
 
     // ── REG0x1D Charger Status 0 (Table 8-26).
     static constexpr uint8_t STAT0_ADC_DONE = 1 << 6;  // one-shot mode only
@@ -158,6 +172,13 @@ class Bq25628 {
         int16_t tdieDeciC = 0;    // die temperature in 0.1 °C
     };
 
+    // What configure() writes.
+    struct Settings {
+        uint16_t chargeCurrentMa;  // ICHG
+        uint16_t chargeVoltageMv;  // VREG
+        uint16_t otgVoltageMv;     // VOTG
+    };
+
     explicit Bq25628(TwoWire& wire = Wire) : _wire(wire) {}
 
     // Reads the part number. True if a BQ25628 answers at I2C_ADDRESS.
@@ -165,15 +186,19 @@ class Bq25628 {
 
     bool readStatus(Status& out);
 
-    // Moves the charger to host mode and applies the settings below. Call at
-    // start-up and whenever Status::watchdogExpired() reports a fall-back to
-    // default mode (§8.4.1), which resets several fields.
+    // Moves the charger to host mode and writes every setting below, none
+    // left at its default. Call at start-up and whenever
+    // Status::watchdogExpired() reports a fall-back to default mode
+    // (§8.4.1), which resets several fields.
     //   - watchdog 200 s (reset WD_RST every kick)
-    //   - ICHG chargeCurrentMa
+    //   - ICHG, VREG and VOTG from s
     //   - charging enabled, HIZ off
+    //   - safety timers on (EN_SAFETY_TMRS = 1)
+    //   - TS feedback used (TS_IGNORE = 0)
     //   - ILIM pin input-current limit on (EN_EXTILIM = 1)
-    //   - VOTG otgVoltageMv, boost (not bypass) OTG
-    bool configure(uint16_t chargeCurrentMa, uint16_t otgVoltageMv);
+    //   - boost (not bypass) OTG
+    // Returns false on an I2C error or if VREG does not read back as written.
+    bool configure(const Settings& s);
 
     // Resets the I2C watchdog (WD_RST, §8.4.1).
     bool kickWatchdog();
