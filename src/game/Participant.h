@@ -285,7 +285,7 @@ class Participant {
     Round _round;
     uint8_t _val = kNoValue;
     uint8_t _vseq = 0;
-    int32_t _t = 0;
+    uint32_t _inputMs = 0;  // moment of the last input (millis())
     bool _confirmed = false;
     bool _sendArmed = false;
     uint32_t _nextSendAt = 0;
@@ -381,11 +381,27 @@ class Participant {
         QuizStateMsg m;
         if (!decodeFrame(d, len, kMsgQuizState, m)) return;
         if (m.roundType >= kRoundTypeCount || m.phase >= kPhaseCount) return;
+        // The bridge sends only its current state, in order over one hop, so
+        // any frame that differs from the applied state is the newer one. A
+        // stateSeq that did not move forward means the bridge restarted and
+        // the console resent the round: the bridge's round clock restarted too.
         bool newRound = !_round.known || m.roundId != _round.id;
-        if (newRound || seq16Newer(m.stateSeq, _round.seq)) {
+        bool differs = newRound || !_sameState(m);
+        bool restarted = differs && !newRound && !seq16Newer(m.stateSeq, _round.seq);
+        if (differs) {
             if (newRound) {
                 _round = Round{};
                 _resetValue();
+            }
+            if (restarted) {
+                // The new bridge holds no values yet: report the own one again.
+                _round.startKnown = false;
+                if (_val != kNoValue) {
+                    _confirmed = false;
+                    _sendArmed = true;
+                    _retryMs = 0;
+                    _nextSendAt = now + _rand(kRetryMinMs, kRetryMaxMs);
+                }
             }
             _round.known = true;
             _round.id = m.roundId;
@@ -401,7 +417,6 @@ class Participant {
             _round.winner = m.winner;
             _round.correct = m.correct;
         }
-        if (m.roundId != _round.id) return;  // an older round's frame
         // Local round start = receive time - openOffsetMs; keep the smallest,
         // since every delay only makes it larger (gateway protocol v0).
         if (m.roundType != (uint8_t)RoundType::Idle && m.phase != (uint8_t)Phase::Announced) {
@@ -426,10 +441,19 @@ class Participant {
         }
     }
 
+    bool _sameState(const QuizStateMsg& m) const {
+        const Round& r = _round;
+        return m.stateSeq == r.seq && m.roundType == (uint8_t)r.type &&
+               m.phase == (uint8_t)r.phase && m.keyMask == r.keyMask &&
+               memcmp(m.keyColor, r.keyColor, sizeof(r.keyColor)) == 0 && m.scaleMin == r.min &&
+               m.scaleMax == r.max && m.redMax == r.redMax && m.greenMin == r.greenMin &&
+               m.winner == r.winner && m.correct == r.correct;
+    }
+
     void _resetValue() {
         _val = kNoValue;
         _vseq = 0;
-        _t = 0;
+        _inputMs = 0;
         _confirmed = false;
         _sendArmed = false;
         _retryMs = 0;
@@ -477,7 +501,7 @@ class Participant {
     void _setValue(uint8_t v, uint32_t ms, uint32_t now, uint32_t delayMs) {
         _val = v;
         _vseq++;
-        _t = (int32_t)(ms - _round.startMs);
+        _inputMs = ms;
         _confirmed = false;
         _sendArmed = true;
         _retryMs = 0;
@@ -493,7 +517,8 @@ class Participant {
         m.roundId = _round.id;
         m.valueSeq = _vseq;
         m.value = _val;
-        m.pressOffsetMs = _t;
+        // Against the current round start, which a bridge restart moves.
+        m.pressOffsetMs = _round.startKnown ? (int32_t)(_inputMs - _round.startMs) : 0;
         m.battery = _health().battery;
         m.rssi = _lastRssi;
         _send(&m, sizeof(m));
