@@ -909,8 +909,9 @@ class MeshManager {
         _instance->peers.updateRssi(pkt->payload + 10, (int8_t)pkt->rx_ctrl.rssi);
     }
 
-    static void _onRecv(const uint8_t* mac, const uint8_t* data, int len) {
+    static void _onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
         if (len < 1 || !_instance) return;
+        const uint8_t* mac = info->src_addr;
         MsgType type = (MsgType)data[0];
 
         switch (type) {
@@ -1233,7 +1234,7 @@ class MeshManager {
         }
     }
 
-    static void _onSent(const uint8_t*, esp_now_send_status_t status) {
+    static void _onSent(const esp_now_send_info_t*, esp_now_send_status_t status) {
         if (status != ESP_NOW_SEND_SUCCESS) Logger::d("[mesh] send failed");
     }
 };

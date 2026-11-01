@@ -14,7 +14,6 @@
 #include "../scenes/SceneManager.h"
 #include "../sound/PlaylistManager.h"
 #include "../version.h"
-#include "CaBundle.h"
 
 // GitHub API-based OTA updater.
 //
@@ -59,8 +58,8 @@ class Updater {
     static PrListStatus& prListStatus() { return _prListStatus; }
 
     // True for the board families CI publishes PR prerelease builds for
-    // (esp32dev, esp32s3 — see .github/workflows/firmware.yml). esp32c3 is
-    // not built for PRs, so it stays excluded.
+    // (esp32dev, esp32s3, esp32c5 — see .github/workflows/firmware.yml).
+    // esp32c3 is not built for PRs, so it stays excluded.
     static constexpr bool supportsPrOta() {
 #if defined(CONFIG_IDF_TARGET_ESP32C3)
         return false;
@@ -175,7 +174,9 @@ class Updater {
     // tls/http are owned by the caller and must stay alive while the response body/stream is read.
     static int _httpGet(WiFiClientSecure& tls, HTTPClient& http, const String& url,
                         const char* accept) {
-        tls.setCACertBundle(CA_BUNDLE);
+        // The built-in bundle is src/update/CaBundle.S (certifi roots, see
+        // scripts/gen_ca_bundle.py).
+        tls.useBuiltinCACertBundle();
         http.begin(tls, url);
         if (strlen(Config::get().githubToken) > 0) {
             http.addHeader("Authorization", String("Bearer ") + Config::get().githubToken);
@@ -283,6 +284,8 @@ class Updater {
         return strcmp(name, "firmware-esp32c3.bin") == 0;
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
         return strcmp(name, "firmware-esp32s3.bin") == 0;
+#elif defined(CONFIG_IDF_TARGET_ESP32C5)
+        return strcmp(name, "firmware-esp32c5.bin") == 0;
 #else
         return strcmp(name, "firmware-esp32dev.bin") == 0;
 #endif

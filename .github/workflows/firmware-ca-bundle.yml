@@ -22,19 +22,15 @@ jobs:
           python-version: '3.x'
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          sudo apt-get update
-          sudo apt-get install -y clang-format-18
-          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-18 100
+        run: pip install -r requirements.txt
 
       - name: Regenerate CA bundle
-        run: python3 scripts/gen_ca_bundle.py src/update/CaBundle.h
+        run: python3 scripts/gen_ca_bundle.py src/update/CaBundle.S
 
       - name: Check for changes
         id: diff
         run: |
-          git diff --quiet -- src/update/CaBundle.h && echo "changed=false" >> "$GITHUB_OUTPUT" || echo "changed=true" >> "$GITHUB_OUTPUT"
+          git diff --quiet -- src/update/CaBundle.S && echo "changed=false" >> "$GITHUB_OUTPUT" || echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Open pull request
         if: steps.diff.outputs.changed == 'true'
@@ -44,7 +40,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git checkout -B chore/refresh-ca-bundle
-          git add src/update/CaBundle.h
+          git add src/update/CaBundle.S
           git commit -m 'ota: refresh CA bundle'
           git push --force -u origin chore/refresh-ca-bundle
 
@@ -53,5 +49,5 @@ jobs:
               --base main \
               --head chore/refresh-ca-bundle \
               --title 'ota: refresh CA bundle' \
-              --body 'Automated refresh of `src/update/CaBundle.h` from the current `certifi` root-CA store (`scripts/gen_ca_bundle.py`).'
+              --body 'Automated refresh of `src/update/CaBundle.S` from the current `certifi` root-CA store (`scripts/gen_ca_bundle.py`).'
           fi

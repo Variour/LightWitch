@@ -33,57 +33,14 @@ def _gzip_assets(env):
         orig, comp = os.path.getsize(src), os.path.getsize(dst)
         print(f"[ota-all] gzip {fname}: {orig} B → {comp} B ({comp * 100 // orig}%)")
 
-def _spiffs_size(env):
-    raw = env.subst("$SPIFFS_SIZE").strip()
-    if raw and raw != "$SPIFFS_SIZE":
-        try:
-            return int(raw, 0)
-        except ValueError:
-            pass
-    proj  = env.subst("$PROJECT_DIR")
-    fwdir = env.PioPlatform().get_package_dir("framework-arduinoespressif32") or ""
-    for csv_path in [
-        os.path.join(proj, "partitions.csv"),
-        os.path.join(proj, env.subst("$PARTITIONS_TABLE_CSV") or ""),
-        os.path.join(fwdir, "tools", "partitions", "default.csv"),
-    ]:
-        if not os.path.isfile(csv_path):
-            continue
-        with open(csv_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                parts = [p.strip() for p in line.split(",")]
-                if len(parts) >= 5 and parts[2].lower() in ("spiffs", "littlefs", "fat"):
-                    try:
-                        return int(parts[4], 0)
-                    except (ValueError, IndexError):
-                        pass
-    print("[ota-all] WARNING: partition size unknown, falling back to 0x170000 (1.5 MB)")
-    return 0x170000
-
 def _build_fs(env):
     _gzip_assets(env)
-    pkg = env.PioPlatform().get_package_dir("tool-mklittlefs")
-    if not pkg:
-        print("[ota-all] ERROR: tool-mklittlefs package not found")
-        return 1
-    tool = os.path.join(pkg, "mklittlefs" + (".exe" if sys.platform.startswith("win") else ""))
-    if not os.path.isfile(tool):
-        print(f"[ota-all] ERROR: mklittlefs not found at {tool}")
-        return 1
-    data_dir = os.path.join(env.subst("$PROJECT_DIR"), "data")
-    out_file  = os.path.join(env.subst("$BUILD_DIR"), "littlefs.bin")
-    page = int(env.subst("$SPIFFS_PAGE").strip() or 256)
-    block = int(env.subst("$SPIFFS_BLOCK").strip() or 4096)
-    size  = _spiffs_size(env)
     r = subprocess.run(
-        [tool, "-c", data_dir, "-p", str(page), "-b", str(block), "-s", str(size), out_file],
-        capture_output=True,
+        ["pio", "run", "-e", env.subst("$PIOENV"), "-t", "buildfs"],
+        cwd=env.subst("$PROJECT_DIR"), capture_output=True, text=True,
     )
     if r.returncode != 0:
-        print(r.stderr.decode(errors="replace"))
+        print(r.stdout[-3000:] + r.stderr[-3000:])
     return r.returncode
 
 # ── OTA helpers ────────────────────────────────────────────────────────────────

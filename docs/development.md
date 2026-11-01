@@ -13,6 +13,7 @@ Do this once per device, with a USB cable connected.
 pio run -e esp32c3 -t upload    # For ESP32-C3 devices (e.g., lightwitch1)
 pio run -e esp32dev -t upload   # For ESP32-WROOM-32 devices
 pio run -e esp32s3 -t upload    # For ESP32-S3 devices
+pio run -e esp32c5 -t upload    # For ESP32-C5 devices
 ```
 
 **2. Flash the web UI filesystem**
@@ -20,6 +21,7 @@ pio run -e esp32s3 -t upload    # For ESP32-S3 devices
 pio run -e esp32c3 -t uploadfs    # For ESP32-C3 devices (e.g., lightwitch1)
 pio run -e esp32dev -t uploadfs   # For ESP32-WROOM-32 devices
 pio run -e esp32s3 -t uploadfs    # For ESP32-S3 devices
+pio run -e esp32c5 -t uploadfs    # For ESP32-C5 devices
 ```
 
 Both steps are required on a fresh device. Use the environment matching your device type. After this, all further updates can be done over WiFi.
@@ -68,7 +70,7 @@ pio run -e lightwitch1_ota -t upload && pio run -e lightwitch1_ota -t uploadfs
 
 ## Installing PR firmware builds (experimental)
 
-CI publishes every open PR's `esp32dev` and `esp32s3` builds as a GitHub prerelease (tag `pr-<number>`), so a device can install and track it directly over the air — no PlatformIO needed. `esp32c3` is not built for PRs and stays unsupported.
+CI publishes every open PR's `esp32dev`, `esp32s3` and `esp32c5` builds as a GitHub prerelease (tag `pr-<number>`), so a device can install and track it directly over the air — no PlatformIO needed. `esp32c3` is not built for PRs and stays unsupported.
 
 1. In the web UI, **Settings → Updates**: set `Repository` and a GitHub PAT, enable **"Allow installing PR builds"**, then click **Save** — none of these need a reboot to take effect. See [README: Firmware updates from GitHub releases](../README.md#firmware-updates-from-github-releases-device-web-ui) for the required token permissions.
 2. In **Firmware update**, click **"Load open PRs"**, pick the PR from the dropdown, then **"Install selected build"**.
