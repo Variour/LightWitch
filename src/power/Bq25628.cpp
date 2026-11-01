@@ -45,11 +45,10 @@ bool Bq25628::probe() {
 }
 
 bool Bq25628::readStatus(Status& out) {
-    // REG0x16..0x1F in one burst: control 0-3, NTC control 0-2, status 0-1,
-    // fault status 0. Status and fault registers are not cleared by reading
-    // (only the flag registers 0x20-0x22 are, §8.3.8.1), so this read has no
-    // side effects.
-    uint8_t b[10];
+    // REG0x16..0x20 in one burst: control 0-3, NTC control 0-2, status 0-1,
+    // fault status 0, charger flag 0. Of these only the flag register is
+    // cleared by reading (§8.3.8.1).
+    uint8_t b[11];
     if (!_read(REG_CHG_CTRL_0, b, sizeof(b))) return false;
     out.ctrl0 = b[REG_CHG_CTRL_0 - REG_CHG_CTRL_0];
     out.ctrl2 = b[REG_CHG_CTRL_2 - REG_CHG_CTRL_0];
@@ -57,6 +56,7 @@ bool Bq25628::readStatus(Status& out) {
     out.stat0 = b[REG_CHG_STAT_0 - REG_CHG_CTRL_0];
     out.stat1 = b[REG_CHG_STAT_1 - REG_CHG_CTRL_0];
     out.fault = b[REG_FAULT_STAT_0 - REG_CHG_CTRL_0];
+    out.flag0 = b[REG_CHG_FLAG_0 - REG_CHG_CTRL_0];
     return true;
 }
 

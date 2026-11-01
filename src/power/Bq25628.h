@@ -36,6 +36,7 @@ class Bq25628 {
     static constexpr uint8_t REG_CHG_STAT_0 = 0x1D;      // Table 8-26
     static constexpr uint8_t REG_CHG_STAT_1 = 0x1E;      // Table 8-27
     static constexpr uint8_t REG_FAULT_STAT_0 = 0x1F;    // Table 8-28
+    static constexpr uint8_t REG_CHG_FLAG_0 = 0x20;      // Table 8-29
     static constexpr uint8_t REG_ADC_CTRL = 0x26;        // Table 8-35
     static constexpr uint8_t REG_ADC_FUNC_DIS_0 = 0x27;  // Table 8-36
     static constexpr uint8_t REG_IBUS_ADC = 0x28;        // 16-bit, Table 8-37
@@ -129,6 +130,9 @@ class Bq25628 {
     static constexpr uint8_t FAULT_TSHUT = 1 << 3;
     static constexpr uint8_t FAULT_TS_MASK = 0x07;
 
+    // ── REG0x20 Charger Flag 0 (Table 8-29): latched, cleared by reading.
+    static constexpr uint8_t FLAG0_WD = 1 << 0;  // watchdog expired since the last read
+
     // ── REG0x26 ADC Control (Table 8-35, POR 30h).
     static constexpr uint8_t ADC_EN = 1 << 7;               // reset by WATCHDOG to 0
     static constexpr uint8_t ADC_RATE = 1 << 6;             // 0 continuous, 1 one-shot
@@ -156,13 +160,16 @@ class Bq25628 {
         uint8_t stat0 = 0;  // REG0x1D
         uint8_t stat1 = 0;  // REG0x1E
         uint8_t fault = 0;  // REG0x1F
+        uint8_t flag0 = 0;  // REG0x20 (latched)
 
         uint8_t vbusStat() const { return stat1 & STAT1_VBUS_MASK; }
         // Power good: the charger runs from a qualified USB adapter.
         bool powerGood() const { return vbusStat() == VBUS_STAT_ADAPTER; }
         bool otgActive() const { return vbusStat() == VBUS_STAT_OTG; }
         bool otgEnabled() const { return ctrl2 & CTRL2_EN_OTG; }
-        bool watchdogExpired() const { return stat0 & STAT0_WD; }
+        // In default mode now (WD_STAT), or the watchdog expired since the
+        // last status read (WD_FLAG), so no expiry goes unnoticed.
+        bool watchdogExpired() const { return (stat0 & STAT0_WD) || (flag0 & FLAG0_WD); }
         ChargeState chargeState() const {
             return (ChargeState)((stat1 & STAT1_CHG_MASK) >> STAT1_CHG_SHIFT);
         }
@@ -196,6 +203,8 @@ class Bq25628 {
     // Reads the part number. True if a BQ25628 answers at I2C_ADDRESS.
     bool probe();
 
+    // Reads REG0x16..0x20. Reading clears the latched flags in REG0x20
+    // (§8.3.8.1); nothing else uses them.
     bool readStatus(Status& out);
 
     // Moves the charger to host mode and writes every setting below, none

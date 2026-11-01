@@ -98,7 +98,10 @@ class PowerManager {
             _goOffline("status read failed");
             return;
         }
-        if (st.watchdogExpired() && now - _lastConfigureMs >= RECONFIGURE_MIN_MS) {
+        // WD_FLAG clears on reading, so keep it until the configure runs.
+        if (st.watchdogExpired()) _reconfigurePending = true;
+        if (_reconfigurePending && now - _lastConfigureMs >= RECONFIGURE_MIN_MS) {
+            _reconfigurePending = false;
             // Default mode: watchdog expired (or the charger reset), so EN_OTG,
             // ADC_EN, EN_EXTILIM, ... are back at their defaults and ICHG is
             // halved (§8.4.1). Configure again; the next poll picks up.
@@ -212,6 +215,7 @@ class PowerManager {
     uint32_t _lastProbeMs = 0;
     uint32_t _lastKickMs = 0;
     uint32_t _lastConfigureMs = 0;
+    bool _reconfigurePending = false;
     uint32_t _lastOtgAttemptMs = 0;
     bool _otgFailLogged = false;
 
@@ -252,6 +256,8 @@ class PowerManager {
             return;
         }
         _online = true;
+        // Configured just now; a WD_FLAG left from power-on is stale.
+        _reconfigurePending = false;
         _lastKickMs = now;
         _adcBusy = false;
         _tsAdcOn = -1;
