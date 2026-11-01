@@ -41,7 +41,9 @@ static ChannelManager channelMgr;
 static WifiElection wifiElection;
 static BatteryWebServer webServer;
 static MqttManager mqtt;
-static SceneSyncManager sceneSync;
+// Heap-allocated once at startup to keep its ~26 KB out of the ESP32's
+// (esp32dev) static DRAM segment.
+static SceneSyncManager& sceneSync = *new SceneSyncManager();
 static PlaylistSyncManager playlistSync;
 static ActionExecutor actionExecutor;
 static ButtonManager buttonManager;
