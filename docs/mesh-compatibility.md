@@ -87,6 +87,13 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `StopAudio` | `StopAudioMsg` fixed-size | `len >= sizeof(StopAudioMsg)` | Raw fixed struct. |
 | `GenericEvent` | `GenericEventMsg` fixed-size | `len >= sizeof(GenericEventMsg)` | Raw fixed struct. `eventType` is opaque to the mesh layer; no versioning. |
 | `Hello` | `HelloMsg` fixed-size | exact `sizeof(HelloMsg)` | **The one deliberate cross-firmware exception** — see below. |
+| `QuizInvite` | `QuizInviteMsg` fixed-size, 16 bytes | exact `sizeof(QuizInviteMsg)` | Game session, see below. Bridge to all, also on foreign channels while login is open. |
+| `QuizState` | `QuizStateMsg` variable-length (41-byte head + `echoCount` echo bytes) | head must be present, `echoCount <= 200`, and `len` must equal head + `echoCount` | Game session. Bridge to all; the echo is paged by `echoFirst`/`echoCount`. |
+| `QuizReport` | `QuizReportMsg` fixed-size, 24 bytes | exact `sizeof(QuizReportMsg)` | Game session. Device to bridge. |
+| `QuizStatus` | `QuizStatusMsg` fixed-size, 31 bytes | exact `sizeof(QuizStatusMsg)` | Game session. Device to bridge; with flag bit 1 it is a join request. |
+| `QuizAdmit` | `QuizAdmitMsg` fixed-size, 22 bytes | exact `sizeof(QuizAdmitMsg)` | Game session. Bridge to one device, target filtering after parse. |
+| `QuizRelease` | `QuizReleaseMsg` fixed-size, 20 bytes | exact `sizeof(QuizReleaseMsg)` | Game session. Bridge to one device or all (`ff:ff:ff:ff:ff:ff`). |
+| `QuizChannel` | `QuizChannelMsg` fixed-size, 17 bytes | exact `sizeof(QuizChannelMsg)` | Game session. Bridge to all, announces a channel change. |
 
 ## The `Hello` exception
 
@@ -99,6 +106,18 @@ This does not reopen the "no compatibility code" rule for the rest of the protoc
 - Every device broadcasts it unconditionally (same 5 s cadence as `PresenceMsg`), regardless of onboarding state — so discovery is symmetric and doesn't depend on either side knowing it's "new".
 - Receiving a `Hello` also counts as "peer heard" for `ChannelManager`'s channel-lock logic, the same as a valid `PresenceMsg` did before — so channel convergence no longer depends on the two devices' `PresenceMsg` schemas matching either.
 - Once a device starts sending a `PresenceMsg` this receiver accepts, it's treated as a full peer; `Hello` only ever represents "seen, but not yet interoperable with the full protocol."
+
+## Game session frames (`Quiz*`)
+
+The `Quiz*` types belong to the game session module (`src/game/`). Their layouts live in `src/game/GameFrames.h`, not in `MeshTypes.h`, so the module's protocol code builds without Arduino; `MeshTypes.h` mirrors the type numbers and `static_assert`s that both agree.
+
+- Packed, little-endian, every frame at most 250 bytes (ESP-NOW v1). Each frame starts with a 12-byte header (`type`, `proto`, `fleet`, `origin`, `msgId`, `ttl`, `hops`, `dist`, `flags`) and the session id.
+- `proto` (1 in v0) is checked by the game module, not by the mesh layer. The mesh layer only checks framing, sends every framed quiz frame to `MeshManager::setOnQuizFrame` with its RSSI, and `MeshManager::broadcastQuizFrame` applies the same check before sending.
+- Devices outside a session handle only `QuizInvite`, and only when they have a buzz key.
+
+### Quiet mode and the Hello rule
+
+While a device is in a game session (participant from join until release, bridge from its first session until restart), `MeshManager::setQuiet(true)` makes it send and handle only `Quiz*` frames. It sends no `Presence`, no `Hello`, no `MeshPolicy`, `GroupSync`, `AudioGroupSync`, `PhaseSync` or proximity pings, and it ignores every other received type. This is a deliberate exception to the unconditional `Hello` cadence above, for the duration of a session only. A participant leaves a session by restarting into normal operation.
 
 ## Audit conclusions
 
