@@ -16,6 +16,7 @@
 #include "config/BoardProfile.h"
 #include "config/Config.h"
 #include "events/EventLog.h"
+#include "game/GameManager.h"
 #include "led/Ws2801Driver.h"
 #include "led/Ws2812bDriver.h"
 #include "logging/Logger.h"
@@ -55,6 +56,7 @@ static AutomationManager automationManager;
 static EventLog eventLog;
 static BatteryMonitor battery;
 static PowerManager power;
+static GameManager gameSession;
 static bool _otaActive = false;
 
 // Last-published battery reading, so mqtt/mesh-telemetry pushes only fire on
@@ -101,6 +103,7 @@ static String _cfgSyncBuf;
 static uint16_t _cfgSyncExpected = 0;
 
 static void serialSink(LogLevel level, const char* msg) {
+    if (gameSession.logMuted()) return;  // the bridge's NDJSON link owns the port
     const char* p = level == LogLevel::ERROR     ? "[E]"
                     : level == LogLevel::WARN    ? "[W]"
                     : level == LogLevel::INFO    ? "[I]"
@@ -343,20 +346,25 @@ static void setLocalWifiPolicy(bool enabled) {
 }
 
 // ── WiFi ─────────────────────────────────────────────────────────────────────
+// Call right after WiFi.mode().
+static void keepWifiOn24GHz() {
+#if SOC_WIFI_SUPPORT_5G
+    // Dual-band chips (ESP32-C5): stay on 2.4 GHz, where ESP-NOW and the mesh
+    // channel scan run, also when a configured network offers 5 GHz. The
+    // Arduino core starts the driver in WIFI_BAND_MODE_AUTO (WiFi.mode()),
+    // so set the band right after it. The IDF call only needs the driver
+    // started; WiFi.setBandMode() also needs the STA/AP start event, which
+    // arrives asynchronously.
+    if (esp_err_t err = esp_wifi_set_band_mode(WIFI_BAND_MODE_2G_ONLY); err != ESP_OK)
+        Logger::e("[wifi] 2.4 GHz-only band mode failed: %s", esp_err_to_name(err));
+#endif
+}
+
 static void setupWifi() {
     auto& c = Config::get();
 
     WiFi.mode(WIFI_AP_STA);
-#if SOC_WIFI_SUPPORT_5G
-    // Dual-band chips (ESP32-C5): stay on 2.4 GHz, where ESP-NOW and the mesh
-    // channel scan run, also when a configured network offers 5 GHz. The
-    // Arduino core starts the driver in WIFI_BAND_MODE_AUTO (WiFi.mode()
-    // above), so set the band right after it. The IDF call only needs the
-    // driver started; WiFi.setBandMode() also needs the STA/AP start event,
-    // which arrives asynchronously.
-    if (esp_err_t err = esp_wifi_set_band_mode(WIFI_BAND_MODE_2G_ONLY); err != ESP_OK)
-        Logger::e("[wifi] 2.4 GHz-only band mode failed: %s", esp_err_to_name(err));
-#endif
+    keepWifiOn24GHz();
     WiFi.setAutoReconnect(false);
     ensureWifiPolicyStateInitialized();
 
@@ -422,6 +430,32 @@ static void setupWifi() {
     Logger::i("[wifi] AP: %s  IP: %s", c.deviceName, WiFi.softAPIP().toString().c_str());
 }
 
+// Boot with a stored game session entry (see GameManager::quietBoot): WiFi
+// runs for ESP-NOW only, with no softAP and no connection.
+static void setupWifiQuiet() {
+    WiFi.mode(WIFI_STA);
+    keepWifiOn24GHz();
+    WiFi.setAutoReconnect(false);
+    WiFi.setTxPower(WIFI_TX_POWER);
+    Logger::i("[wifi] game session: no AP, no WiFi connection");
+}
+
+// ── Game session ─────────────────────────────────────────────────────────────
+// The game session (src/game/) takes the radio: softAP and WiFi off,
+// LightWitch mesh traffic off. While gameSession.radioQuiet(), loop() also pauses
+// channel search, WiFi election, web, OTA, MQTT, time and scene/playlist
+// sync. A participant also hands the LEDs and keys to the session. Leaving a
+// session restarts the device into normal operation.
+static void enterGameQuiet(bool participant) {
+    if (!mesh.quiet()) {
+        mesh.setQuiet(true);
+        WiFi.softAPdisconnect(true);
+        WiFi.disconnect(false, false);
+        Logger::i("[game] radio quiet: no AP, no WiFi, no LightWitch mesh traffic");
+    }
+    if (participant) buttonManager.setExecutor(nullptr);
+}
+
 // ── OTA ──────────────────────────────────────────────────────────────────────
 static void setupOta() {
     auto& c = Config::get();
@@ -444,6 +478,9 @@ static void setupOta() {
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 void setup() {
+    // Sized for the game bridge's NDJSON link (gateway protocol v0: ~4 KB send buffer).
+    Serial.setRxBufferSize(game::kUsbRxBufferBytes);
+    Serial.setTxBufferSize(game::kUsbTxBufferBytes);
     Serial.begin(115200);
     Logger::addSink(serialSink);
 
@@ -511,9 +548,14 @@ void setup() {
         battery.setChargerSource([]() { return power.batteryReading(); });
     battery.begin(Config::get().batteryMonitoringEnabled);
 
-    setupWifi();
+    gameSession.loadStored();
+    const bool gameQuietBoot = gameSession.quietBoot();
+    if (gameQuietBoot)
+        setupWifiQuiet();
+    else
+        setupWifi();
     TimeSync::begin(Config::get().timezone);
-    channelMgr.begin(&mesh.peers);
+    if (!gameQuietBoot) channelMgr.begin(&mesh.peers);
 
     // Initialise one driver + runner per configured light
     Config::forEachLight([](uint8_t i, LightHardwareConfig& l) {
@@ -536,6 +578,7 @@ void setup() {
         drv->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
         drv->setCurrentLimitMa(boardLedCurrentLimitMa(l.currentLimitMa));
         _leds[i] = drv;
+        gameSession.setLight(drv, numLeds);
         _runners[i].begin(*drv);
         _runners[i].setDimensions(l.width, l.height);
         _runners[i].setMatrixLayout(l.matrixStart, l.matrixDir, l.matrixSerpentine);
@@ -571,7 +614,7 @@ void setup() {
         triggerPlayPlaylist(audioGroupId, playlistId);
     });
     mqtt.setOnStopAudio([](uint8_t audioGroupId) { triggerStopAudio(audioGroupId); });
-    mqtt.begin(Config::get());
+    if (!gameQuietBoot) mqtt.begin(Config::get());
 
     // Wire the action layer: buttons (and, perspectively, other future trigger
     // sources) execute actions through this, which funnels into the same
@@ -589,7 +632,7 @@ void setup() {
     actionExecutor.setSendEventFn([](const char* eventType, uint16_t payload) {
         mesh.broadcastGenericEvent(eventType, payload);
     });
-    buttonManager.setExecutor(&actionExecutor);
+    buttonManager.setExecutor(gameQuietBoot ? nullptr : &actionExecutor);
     // The one raw key-edge consumer slot: fan out from here to every module
     // that needs press/release edges.
     buttonManager.setRawCallback(
@@ -597,10 +640,11 @@ void setup() {
     buttonManager.begin();
     automationManager.setExecutor(&actionExecutor);
 
-    if (MDNS.begin(Config::get().deviceName))
+    if (!gameQuietBoot && MDNS.begin(Config::get().deviceName))
         Logger::i("[mdns] http://%s.local", Config::get().deviceName);
 
-    if (Config::get().otaEnabled) setupOta();
+    if (Config::get().otaEnabled && !gameQuietBoot) setupOta();
+    mesh.setQuiet(gameQuietBoot);
     mesh.begin();
     wifiElection.begin(&mesh.peers);
     mesh.setWifiAttemptingProvider([]() { return wifiElection.isAttempting(); });
@@ -625,6 +669,35 @@ void setup() {
         eventLog.record(name ? name : "unknown", eventType, payload);
     });
     mesh.setBatteryStatusProvider([]() { return battery.status(); });
+
+    // Wire the game session (src/game/): participant, bridge and their radio frames.
+    mesh.setOnQuizFrame([](const uint8_t* data, int len, int8_t rssi) {
+        gameSession.onRadioFrame(data, len, rssi);
+    });
+    gameSession.setSendFn(
+        [](const uint8_t* data, size_t len) { mesh.broadcastQuizFrame(data, len); });
+    gameSession.setEnterQuietFn([](bool participant) { enterGameQuiet(participant); });
+    gameSession.setHealthFn([]() {
+        const auto& bs = battery.status();
+        game::Participant::Health h;
+        if (bs.present) h.battery = bs.percent;
+        h.charging = bs.present && bs.state == BatteryMonitor::State::Charging;
+        return h;
+    });
+    // TODO(keys): once claude/buzzerboard-support is merged, feed raw key edges
+    // into the game session from main.cpp's one raw-key callback (keep a
+    // single setRawCallback call; add the game line next to the power line):
+    //   buttonManager.setRawCallback([](uint8_t index, bool pressed, uint32_t ms) {
+    //       power.onButtonRaw(index, pressed, ms);
+    //       if (index < MAX_BUTTONS)
+    //           gameSession.onKey(game::keyFromName(Config::get().buttons[index].role),
+    //                             pressed, ms);
+    //   });
+    // and report the buzz key here and after every button change
+    // (webServer.setOnButtonsChanged):
+    //   gameSession.setHasBuzzKey(Config::buttonIndexForRole(ButtonRole::BUZZ) >= 0);
+    // The bridge role needs no keys.
+    gameSession.begin(millis());
 
     // Wire SceneSyncManager → MeshManager
     sceneSync.setBroadcastFns(
@@ -1022,7 +1095,7 @@ void setup() {
     // consumer, so there's nothing for this callback to do yet.
 
     Logger::i("[sys] ready");
-    if (Config::get().checkUpdateOnStartup) {
+    if (Config::get().checkUpdateOnStartup && !gameQuietBoot) {
         if (Config::get().wifiSingleClientMode) {
             _startupUpdateCheckPending = true;
             Logger::i("[upd] startup check armed; waiting for WiFi election");
@@ -1044,11 +1117,16 @@ void loop() {
     // the LED rail keep running during an HTTP update download.
     power.tick();
 
+    // Every pass: the bridge repeats state at 50 ms and hops channels for 30 ms.
+    gameSession.tick(now);
+    const bool gameQuiet = gameSession.radioQuiet();
+
     // Idle OTA polling is throttled with everything else; once a transfer is
     // actually in flight (_otaActive), run every pass so flashing isn't slowed.
-    if (Config::get().otaEnabled && (slowTick || _otaActive) && !power.updateBlockReason())
+    if (Config::get().otaEnabled && !gameQuiet && (slowTick || _otaActive) &&
+        !power.updateBlockReason())
         ArduinoOTA.handle();
-    if (slowTick) webServer.loop();
+    if (slowTick && !gameQuiet) webServer.loop();
 
     Updater::State updState = Updater::status().state;
 
@@ -1081,16 +1159,18 @@ void loop() {
     _lastUpdateState = updState;
 
     if (!_otaActive && slowTick) {
-        channelMgr.tick();
+        if (!gameQuiet) channelMgr.tick();
         mesh.tick();
-        wifiElection.tick();
-        if (_startupUpdateCheckPending && wifiElection.isAdvertisableConnected()) {
-            _startupUpdateCheckPending = false;
-            Logger::i("[upd] WiFi election connected; running deferred startup check");
-            Updater::checkAsync();
+        if (!gameQuiet) {
+            wifiElection.tick();
+            if (_startupUpdateCheckPending && wifiElection.isAdvertisableConnected()) {
+                _startupUpdateCheckPending = false;
+                Logger::i("[upd] WiFi election connected; running deferred startup check");
+                Updater::checkAsync();
+            }
+            TimeSync::tick();
+            mqtt.loop();
         }
-        TimeSync::tick();
-        mqtt.loop();
 
         battery.tick();
         const auto& bs = battery.status();
@@ -1105,13 +1185,21 @@ void loop() {
     }
     if (!_otaActive && backgroundTick) {
         buttonManager.tick();
-        sceneSync.tick();
-        playlistSync.tick();
+        if (!gameQuiet) {
+            sceneSync.tick();
+            playlistSync.tick();
+        }
     }
 
     if (!_otaActive && now - _lastPatternTickMs >= PATTERN_TICK_INTERVAL_MS) {
         _lastPatternTickMs = now;
-        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
-            if (_leds[i]) _runners[i].tick();
+        if (gameSession.ownsLeds()) {
+            gameSession.render(now);
+        } else {
+            for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+                if (_leds[i]) _runners[i].tick();
+            // Invite ring over the pattern; once it ends, repaint from the config.
+            if (gameSession.renderOverlay(now) == GameManager::Overlay::Ended) applyAllLights();
+        }
     }
 }
