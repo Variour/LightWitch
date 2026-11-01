@@ -362,16 +362,22 @@ class PowerManager {
         }
         if (_lastAdcStartMs != 0 && now - _lastAdcStartMs < ADC_INTERVAL_MS) return;
         _lastAdcStartMs = now;
-        if (_chg.startAdcOneShot()) {
-            _adcBusy = true;
-            _adcStartMs = now;
-            return;
+        switch (_chg.startAdcOneShot()) {
+            case Bq25628::AdcStart::Started:
+                _adcBusy = true;
+                _adcStartMs = now;
+                return;
+            case Bq25628::AdcStart::Refused:
+                // Neither VBUS nor VBAT above its ADC threshold (§8.3.7). On
+                // battery with the TS channel off that threshold is VBAT_LOWV
+                // (2.7-2.9 V), so the battery is below the cut-off.
+                Logger::w("[pwr] ADC conversion refused");
+                _onVbatSample(now, false, 0);
+                return;
+            case Bq25628::AdcStart::Error:
+                Logger::w("[pwr] ADC start: I2C error");
+                return;
         }
-        // Refused (§8.3.7): neither VBUS nor VBAT above its ADC threshold.
-        // On battery with the TS channel off that threshold is VBAT_LOWV
-        // (2.7-2.9 V), so the battery is below the cut-off.
-        Logger::w("[pwr] ADC conversion refused");
-        _onVbatSample(now, false, 0);
     }
 
     // One VBAT sample for the low-battery cut-off; measured = false for a

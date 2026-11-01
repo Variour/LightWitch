@@ -232,10 +232,16 @@ class Bq25628 {
     // runs above VBAT 3.2 V (§8.3.7).
     bool setTsAdc(bool enable);
 
-    // Starts one ADC conversion of every channel (one-shot, 12 bit). Returns
-    // false if the charger refused it: ADC_EN stays 0 while neither VBUS nor
-    // VBAT is above its ADC threshold (§8.3.7).
-    bool startAdcOneShot();
+    enum class AdcStart : uint8_t {
+        Started,
+        // Read back with ADC_EN = 0: neither VBUS nor VBAT is above its ADC
+        // threshold (§8.3.7).
+        Refused,
+        Error,  // I2C error: nothing known
+    };
+
+    // Starts one ADC conversion of every enabled channel (one-shot, 12 bit).
+    AdcStart startAdcOneShot();
 
     // True once the one-shot conversion started by startAdcOneShot() is done
     // (ADC_EN back to 0, §8.3.7).

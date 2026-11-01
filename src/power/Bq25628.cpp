@@ -124,15 +124,15 @@ bool Bq25628::setTsAdc(bool enable) {
     return _update8(REG_ADC_FUNC_DIS_0, ADC_DIS_TS, enable ? 0 : ADC_DIS_TS);
 }
 
-bool Bq25628::startAdcOneShot() {
-    if (!_write8(REG_ADC_CTRL, ADC_EN | ADC_RATE | ADC_SAMPLE_12BIT)) return false;
+Bq25628::AdcStart Bq25628::startAdcOneShot() {
+    if (!_write8(REG_ADC_CTRL, ADC_EN | ADC_RATE | ADC_SAMPLE_12BIT)) return AdcStart::Error;
     // Read back right away: a conversion of all channels takes far longer
     // than this I2C read, so ADC_EN = 0 here means the charger refused it.
     // UNVERIFIED: that a refused ADC_EN reads back as 0 at once (§8.3.7 says
     // it "stays 0", without timing).
     uint8_t v;
-    if (!_read8(REG_ADC_CTRL, v)) return false;
-    return (v & ADC_EN) != 0;
+    if (!_read8(REG_ADC_CTRL, v)) return AdcStart::Error;
+    return (v & ADC_EN) ? AdcStart::Started : AdcStart::Refused;
 }
 
 bool Bq25628::adcDone(bool& done) {
