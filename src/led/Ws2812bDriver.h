@@ -11,11 +11,10 @@
 class Ws2812bDriver : public LedDriver {
    public:
     // Current of one colour channel at full scale (255), the model behind the
-    // optional current cap: ~12 mA per channel, 36 mA per pixel at full white
-    // (SK6812MINI-E, Buzzerboard hardware/README.md "LED rail = PMID":
-    // 34 x 36 mA ≈ 1.2 A). A pixel's idle current is not part of the estimate.
-    // UNVERIFIED: 12 mA comes from the board README's 36 mA per white pixel,
-    // not from the SK6812MINI-E datasheet; measure the chain at full white.
+    // optional current cap: 12 mA per channel, 36 mA per pixel at full white
+    // (OPSCO SK6812MINI-E datasheet Rev. 04, §9 "SK6812MINI-E 12mA"; the part
+    // also comes as a 5 mA version, for which this estimate is high). A
+    // pixel's idle current is not part of the estimate.
     static constexpr uint32_t CHANNEL_FULL_SCALE_MA = 12;
     // With a cap, the estimated current rises by at most this much per shown
     // frame, so a bright frame after a dark one (or after the LED rail comes

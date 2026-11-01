@@ -48,9 +48,8 @@ constexpr uint8_t kI2cSdaPin = 26;
 constexpr uint8_t kI2cSclPin = 27;
 
 // 34 x SK6812MINI-E in one chain behind the SN74LV1T34 5 V buffer, on the
-// WS2812B driver.
-// UNVERIFIED: GRB channel order (SK6812 convention, no datasheet checked);
-// confirm with the light's colour-order test.
+// WS2812B driver. GRB: the 24-bit word goes out G7..G0, R7..R0, B7..B0
+// (OPSCO SK6812MINI-E datasheet Rev. 04, §15).
 constexpr uint8_t kLedDataPin = 8;
 constexpr uint16_t kLedCount = 34;
 
@@ -59,13 +58,14 @@ constexpr uint16_t kLedCount = 34;
 // is held at the ILIM pin's 446 mA (5.6k, 398-496 mA with KILIM and 1 %
 // tolerance), and PMID_GD cuts the LED rail once the ILIM pin passes
 // VILIM_OCP (0.9 V = 112.5 % of the 0.8 V regulation point, BQ25628
-// SLUSEG4C §8.3.3.4 / §8.3.10.2.7). Worst case 398 mA, minus the chain's
-// idle current (~34 x 0.6 mA, board README) and ~75 mA for the C5 when the
-// cell cannot supplement the system leaves ~300 mA for the pixels. On
-// battery the boost could deliver more (board budget 1.22 A), but one cap
-// has to hold on USB too.
-// UNVERIFIED: the 0.6 mA idle and ~75 mA system figures are estimates;
-// measure IBUS with the LEDs dark and at the cap on a 500 mA USB port.
+// SLUSEG4C §8.3.3.4 / §8.3.10.2.7). Worst case that trip point is
+// 398 x 1.125 = 448 mA. The pixels at the cap (300 mA), the chain's idle
+// current (34 x 1 mA, IDD typ., OPSCO SK6812MINI-E datasheet Rev. 04, §9)
+// and ~75 mA for the C5 when the cell cannot supplement the system add up
+// to ~409 mA. On battery the boost could deliver more (board budget
+// 1.22 A), but one cap has to hold on USB too.
+// UNVERIFIED: the ~75 mA system figure is an estimate; measure IBUS with
+// the LEDs dark and at the cap on a 500 mA USB port.
 constexpr uint16_t kLedCurrentLimitMa = 300;
 
 bool sDetected = false;
