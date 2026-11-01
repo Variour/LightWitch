@@ -33,6 +33,10 @@ class PowerManager {
     // Li-ion charge voltage, 4.20 V (board README, charger table and
     // "Over-charge: VREG 4.20 V regulation").
     static constexpr uint16_t CHARGE_VOLTAGE_MV = 4200;
+    // Charge termination: 120 mA, about C/40-C/60 for two parallel 18650.
+    // The POR 20 mA sits where ITERM is least accurate (+-80 % at 10 mA,
+    // +-17 % at 50 mA, +-10 % at 100 mA, ITERM_ACC §7.5).
+    static constexpr uint16_t TERMINATION_CURRENT_MA = 120;
     // Boost output on PMID: 5.04 V (the POR value) gives the LEDs full colour
     // (board README, "LED rail = PMID"); bypass (PMID = VBAT) dims blue below
     // ~3.7 V.
@@ -156,8 +160,12 @@ class PowerManager {
     uint32_t adcAgeMs() const { return _adcMs ? millis() - _adcMs : UINT32_MAX; }
 
    private:
+    // IBAT_PK 6 A, the lower of the two settings (Table 8-22): the board's
+    // worst discharge is ~2.9 A (one low cell, all LEDs white on boost,
+    // board README "Track widths"), and each cell's PTC trips at 4 A.
     static constexpr Bq25628::Settings kSettings = {CHARGE_CURRENT_MA, CHARGE_VOLTAGE_MV,
-                                                    OTG_VOLTAGE_MV};
+                                                    OTG_VOLTAGE_MV, TERMINATION_CURRENT_MA,
+                                                    Bq25628::CTRL3_IBAT_PK_6A};
 
     static constexpr uint32_t POLL_INTERVAL_MS = 200;
     static constexpr uint32_t PROBE_INTERVAL_MS = 5000;

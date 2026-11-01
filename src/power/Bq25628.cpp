@@ -77,6 +77,9 @@ bool Bq25628::configure(const Settings& s) {
     uint16_t votg = s.otgVoltageMv / VOTG_STEP_MV;
     ok &= _write16(REG_VOTG, (uint16_t)(votg << VOTG_SHIFT) & VOTG_MASK);
 
+    uint16_t iterm = s.terminationCurrentMa / ITERM_STEP_MA;
+    ok &= _write16(REG_ITERM, (uint16_t)(iterm << ITERM_SHIFT) & ITERM_MASK);
+
     // Charge safety timers on, TS (battery NTC) feedback used.
     ok &= _update8(REG_CHG_TMR_CTRL, TMR_EN_SAFETY_TMRS, TMR_EN_SAFETY_TMRS);
     ok &= _update8(REG_NTC_CTRL_0, NTC0_TS_IGNORE, 0);
@@ -87,6 +90,8 @@ bool Bq25628::configure(const Settings& s) {
     // Input current from the ILIM pin. The lower of the ILIM pin and IINDPM
     // limits (§8.3.3.4); IINDPM stays at its POR 3.2 A, so the pin decides.
     ok &= _update8(REG_CHG_CTRL_3, CTRL3_EN_EXTILIM, CTRL3_EN_EXTILIM);
+
+    ok &= _update8(REG_CHG_CTRL_3, CTRL3_IBAT_PK_MASK, s.batteryPeakCurrent & CTRL3_IBAT_PK_MASK);
 
     // Read back what the charger actually holds (ICHG, VREG and VOTG are
     // clamped to their ranges, Tables 8-9 / 8-10 / 8-13). VREG must match.

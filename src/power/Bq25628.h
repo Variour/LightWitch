@@ -26,6 +26,7 @@ class Bq25628 {
     static constexpr uint8_t REG_VREG = 0x04;            // 16-bit, Table 8-10
     static constexpr uint8_t REG_IINDPM = 0x06;          // 16-bit, Table 8-11
     static constexpr uint8_t REG_VOTG = 0x0C;            // 16-bit, Table 8-13
+    static constexpr uint8_t REG_ITERM = 0x12;           // 16-bit, Table 8-16
     static constexpr uint8_t REG_CHG_TMR_CTRL = 0x15;    // Table 8-18
     static constexpr uint8_t REG_CHG_CTRL_0 = 0x16;      // Table 8-19
     static constexpr uint8_t REG_CHG_CTRL_1 = 0x17;      // Table 8-20
@@ -67,6 +68,12 @@ class Bq25628 {
     static constexpr uint16_t VOTG_MASK = 0x7F << VOTG_SHIFT;
     static constexpr uint16_t VOTG_STEP_MV = 80;
 
+    // ── REG0x12 ITERM, bits 7:2, 5 mA/LSB, 5-310 mA, POR 20 mA; the upper
+    // byte is reserved (Table 8-16).
+    static constexpr uint16_t ITERM_SHIFT = 2;
+    static constexpr uint16_t ITERM_MASK = 0x3F << ITERM_SHIFT;
+    static constexpr uint16_t ITERM_STEP_MA = 5;
+
     // ── REG0x15 Charge Timer Control (Table 8-18, POR 5Ch).
     static constexpr uint8_t TMR_EN_SAFETY_TMRS = 1 << 2;  // reset by WATCHDOG to 1
 
@@ -87,7 +94,10 @@ class Bq25628 {
                                                              // 10 ship, 11 system reset
 
     // ── REG0x19 Charger Control 3 (Table 8-22, POR C4h).
-    static constexpr uint8_t CTRL3_EN_EXTILIM = 1 << 2;  // reset by WATCHDOG to 1
+    static constexpr uint8_t CTRL3_IBAT_PK_MASK = 0x03 << 6;
+    static constexpr uint8_t CTRL3_IBAT_PK_6A = 0x02 << 6;   // 00, 01 reserved
+    static constexpr uint8_t CTRL3_IBAT_PK_12A = 0x03 << 6;  // POR
+    static constexpr uint8_t CTRL3_EN_EXTILIM = 1 << 2;      // reset by WATCHDOG to 1
 
     // ── REG0x1A NTC Control 0 (Table 8-23, POR 3Dh).
     static constexpr uint8_t NTC0_TS_IGNORE = 1 << 7;  // reset by WATCHDOG to 0
@@ -174,9 +184,11 @@ class Bq25628 {
 
     // What configure() writes.
     struct Settings {
-        uint16_t chargeCurrentMa;  // ICHG
-        uint16_t chargeVoltageMv;  // VREG
-        uint16_t otgVoltageMv;     // VOTG
+        uint16_t chargeCurrentMa;       // ICHG
+        uint16_t chargeVoltageMv;       // VREG
+        uint16_t otgVoltageMv;          // VOTG
+        uint16_t terminationCurrentMa;  // ITERM
+        uint8_t batteryPeakCurrent;     // IBAT_PK: CTRL3_IBAT_PK_6A or _12A
     };
 
     explicit Bq25628(TwoWire& wire = Wire) : _wire(wire) {}
@@ -191,7 +203,7 @@ class Bq25628 {
     // Status::watchdogExpired() reports a fall-back to default mode
     // (§8.4.1), which resets several fields.
     //   - watchdog 200 s (reset WD_RST every kick)
-    //   - ICHG, VREG and VOTG from s
+    //   - ICHG, VREG, VOTG, ITERM and IBAT_PK from s
     //   - charging enabled, HIZ off
     //   - safety timers on (EN_SAFETY_TMRS = 1)
     //   - TS feedback used (TS_IGNORE = 0)
