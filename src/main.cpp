@@ -488,9 +488,12 @@ void setup() {
         });
         if (!blank) applyAllLights();
     });
-    power.setOnLedRailUp([]() {
-        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
-            if (_leds[i]) _leds[i]->show();
+    power.setOnLedRail([](bool up) {
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            if (!_leds[i]) continue;
+            _leds[i]->setRailPowered(up);
+            if (up) _leds[i]->show();
+        }
     });
     power.begin(Config::get().chargerEnabled);
 

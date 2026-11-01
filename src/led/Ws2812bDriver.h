@@ -17,6 +17,10 @@ class Ws2812bDriver : public LedDriver {
     // UNVERIFIED: 12 mA comes from the board README's 36 mA per white pixel,
     // not from the SK6812MINI-E datasheet; measure the chain at full white.
     static constexpr uint32_t CHANNEL_FULL_SCALE_MA = 12;
+    // With a cap, the estimated current rises by at most this much per shown
+    // frame, so a bright frame after a dark one (or after the LED rail comes
+    // up) ramps up over a few frames instead of one step.
+    static constexpr uint32_t CAP_SLEW_MA_PER_FRAME = 50;
 
     void setup(uint8_t dataPin, uint16_t numLeds, ColorOrder order = ColorOrder::GRB) {
         _pin = dataPin;
@@ -35,6 +39,7 @@ class Ws2812bDriver : public LedDriver {
     }
 
     void show() override {
+        _shownSinceService = true;
         _syncCurrentLimit();
         if (_limitMa) _writeCappedFrame();
         _neo->show();
@@ -43,8 +48,22 @@ class Ws2812bDriver : public LedDriver {
     void off() override {
         _syncCurrentLimit();
         if (_limitMa) memset(_frame.data(), 0, _frame.size());
+        _shownCounts = 0;
+        _rampPending = false;
         _neo->clear();
         _neo->show();
+    }
+
+    void setRailPowered(bool powered) override {
+        _railPowered = powered;
+        if (!powered) _shownCounts = 0;
+    }
+
+    // Continues a slew-limited ramp for frames that are not redrawn (static
+    // patterns), one step per render tick.
+    void service() override {
+        if (_rampPending && _railPowered && !_shownSinceService) show();
+        _shownSinceService = false;
     }
 
     void setColorOrder(ColorOrder order) override { _order = order; }
@@ -98,6 +117,12 @@ class Ws2812bDriver : public LedDriver {
     std::atomic<uint16_t> _requestedLimitMa{0};
     uint16_t _limitMa = 0;
     std::vector<uint8_t> _frame;
+    // Capped mode only: channel sum of what the LEDs show now (0 while the
+    // rail is down), and whether the slew limit held the last frame back.
+    uint32_t _shownCounts = 0;
+    bool _rampPending = false;
+    bool _shownSinceService = false;
+    bool _railPowered = true;
 
     // Applies a cap change from setCurrentLimitMa() on the render task. The
     // NeoPixel buffer holds 3 bytes per pixel in call (= wire) order for
@@ -111,6 +136,9 @@ class Ws2812bDriver : public LedDriver {
             // requested frame.
             const uint8_t* p = _neo->getPixels();
             _frame.assign(p, p + bytes);
+            _shownCounts = 0;
+            if (_railPowered)
+                for (uint8_t v : _frame) _shownCounts += v;
         } else if (want == 0) {
             // Cap switches off: the NeoPixel buffer gets the requested frame
             // back, unscaled.
@@ -121,19 +149,28 @@ class Ws2812bDriver : public LedDriver {
     }
 
     // Estimates the frame's current as sum(channel values) x
-    // CHANNEL_FULL_SCALE_MA / 255 and, if it exceeds the cap, scales every
+    // CHANNEL_FULL_SCALE_MA / 255 and, if it exceeds the budget, scales every
     // channel by the same factor (rounded down, so the result stays within
-    // the cap).
+    // it). The budget is the cap, or less while the slew limit ramps up from
+    // the current shown frame.
     void _writeCappedFrame() {
         uint8_t* p = _neo->getPixels();
         uint32_t sum = 0;
         for (uint8_t v : _frame) sum += v;
-        uint32_t budget = (uint32_t)_limitMa * 255 / CHANNEL_FULL_SCALE_MA;
+        uint32_t cap = (uint32_t)_limitMa * 255 / CHANNEL_FULL_SCALE_MA;
+        uint32_t slewed = _shownCounts + CAP_SLEW_MA_PER_FRAME * 255 / CHANNEL_FULL_SCALE_MA;
+        uint32_t budget = slewed < cap ? slewed : cap;
+        uint32_t shown = 0;
         if (sum <= budget) {
             memcpy(p, _frame.data(), _frame.size());
-            return;
+            shown = sum;
+        } else {
+            for (size_t k = 0; k < _frame.size(); k++) {
+                p[k] = (uint8_t)((uint32_t)_frame[k] * budget / sum);
+                shown += p[k];
+            }
         }
-        for (size_t k = 0; k < _frame.size(); k++)
-            p[k] = (uint8_t)((uint32_t)_frame[k] * budget / sum);
+        _rampPending = sum > budget && budget < cap;
+        _shownCounts = _railPowered ? shown : 0;
     }
 };

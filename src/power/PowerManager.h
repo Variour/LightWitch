@@ -60,11 +60,12 @@ class PowerManager {
 
     // blank = true: show nothing until called again with false (see main.cpp).
     using LedBlankFn = std::function<void(bool blank)>;
-    // The LED rail just got power: resend the current frame.
-    using LedRailUpFn = std::function<void()>;
+    // The LED rail (PMID) lost power (up = false) or has had it for
+    // LED_RAIL_SETTLE_MS (up = true): on true, resend the current frame.
+    using LedRailFn = std::function<void(bool up)>;
 
     void setOnLedBlank(LedBlankFn fn) { _onLedBlank = fn; }
-    void setOnLedRailUp(LedRailUpFn fn) { _onLedRailUp = fn; }
+    void setOnLedRail(LedRailFn fn) { _onLedRail = fn; }
 
     // Call once the device I2C bus (Wire) is up, as early in setup() as
     // possible: on battery below LOW_BATTERY_MV it switches the device off
@@ -224,7 +225,7 @@ class PowerManager {
     uint32_t _lastOtgAttemptMs = 0;
     bool _otgFailLogged = false;
 
-    bool _railUp = false;
+    int8_t _rail = -1;  // -1 unknown, else 0/1 as last reported
     bool _railRefreshPending = false;
     uint32_t _railUpMs = 0;
 
@@ -246,7 +247,7 @@ class PowerManager {
     bool _blanked = false;
 
     LedBlankFn _onLedBlank;
-    LedRailUpFn _onLedRailUp;
+    LedRailFn _onLedRail;
 
     void _connect(uint32_t now) {
         _lastProbeMs = now;
@@ -359,20 +360,35 @@ class PowerManager {
         }
     }
 
+    // The LED rail is PMID behind the PMID_GD switch (Buzzerboard Q2/Q3,
+    // hardware/README.md "LED rail = PMID"). On USB it is up while power is
+    // good and OTG_FAULT_STAT (REG0x1F bit 4) is clear: in forward mode that
+    // bit means IBUS overcurrent or PMID overvoltage, and PMID_GD is low
+    // (§8.3.10.2.7). On battery it is up while VBUS_STAT = OTG. A drop is
+    // reported at once, a rise after LED_RAIL_SETTLE_MS, also when the fault
+    // clears.
     void _updateLedRail(const Bq25628::Status& st, uint32_t now) {
-        bool up = st.powerGood() || st.otgActive();
-        if (up && !_railUp) {
-            _railUpMs = now;
-            _railRefreshPending = true;
-        }
+        bool up = (st.powerGood() && !(st.fault & Bq25628::FAULT_OTG)) || st.otgActive();
         if (up && st.otgActive()) {
             _otgFailLogged = false;
             _lastOtgAttemptMs = 0;
         }
-        _railUp = up;
-        if (_railRefreshPending && up && now - _railUpMs >= LED_RAIL_SETTLE_MS) {
+        if (!up) {
             _railRefreshPending = false;
-            if (_onLedRailUp) _onLedRailUp();
+            if (_rail != 0) {
+                _rail = 0;
+                if (_onLedRail) _onLedRail(false);
+            }
+            return;
+        }
+        if (_rail != 1 && !_railRefreshPending) {
+            _railUpMs = now;
+            _railRefreshPending = true;
+        }
+        if (_railRefreshPending && now - _railUpMs >= LED_RAIL_SETTLE_MS) {
+            _railRefreshPending = false;
+            _rail = 1;
+            if (_onLedRail) _onLedRail(true);
         }
     }
 
