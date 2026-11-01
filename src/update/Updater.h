@@ -14,7 +14,6 @@
 #include "../scenes/SceneManager.h"
 #include "../sound/PlaylistManager.h"
 #include "../version.h"
-#include "CaBundle.h"
 
 // GitHub API-based OTA updater.
 //
@@ -175,7 +174,9 @@ class Updater {
     // tls/http are owned by the caller and must stay alive while the response body/stream is read.
     static int _httpGet(WiFiClientSecure& tls, HTTPClient& http, const String& url,
                         const char* accept) {
-        tls.setCACertBundle(CA_BUNDLE, CA_BUNDLE_LEN);
+        // The built-in bundle is src/update/CaBundle.S (certifi roots, see
+        // scripts/gen_ca_bundle.py).
+        tls.useBuiltinCACertBundle();
         http.begin(tls, url);
         if (strlen(Config::get().githubToken) > 0) {
             http.addHeader("Authorization", String("Bearer ") + Config::get().githubToken);
