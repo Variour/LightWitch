@@ -21,6 +21,7 @@
 #include "mesh/WifiElection.h"
 #include "mqtt/MqttManager.h"
 #include "patterns/PatternRunner.h"
+#include "power/PowerManager.h"
 #include "scenes/SceneSyncManager.h"
 #include "sound/Es8311Driver.h"
 #include "sound/PlaylistManager.h"
@@ -50,6 +51,7 @@ static ButtonManager buttonManager;
 static AutomationManager automationManager;
 static EventLog eventLog;
 static BatteryMonitor battery;
+static PowerManager power;
 static bool _otaActive = false;
 
 // Last-published battery reading, so mqtt/mesh-telemetry pushes only fire on
@@ -450,6 +452,8 @@ void setup() {
     // that has one (see SdCardManager) — no-op/harmless on boards without it.
     _sdCard.begin();
 
+    if (Config::get().chargerEnabled)
+        battery.setChargerSource([]() { return power.batteryReading(); });
     battery.begin(Config::get().batteryMonitoringEnabled);
 
     setupWifi();
@@ -498,6 +502,26 @@ void setup() {
                   Config::get().i2cSclPin);
     }
 
+    // Charger / LED rail / ship mode (boards with a BQ25628). Blanking goes
+    // through the brightness clamp so running patterns stay dark too.
+    power.setOnLedBlank([](bool blank) {
+        Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
+            if (!_leds[i]) return;
+            if (blank) {
+                _leds[i]->setBrightnessClamp(0, 0);
+                _leds[i]->off();
+            } else {
+                _leds[i]->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
+            }
+        });
+        if (!blank) applyAllLights();
+    });
+    power.setOnLedRailUp([]() {
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+            if (_leds[i]) _leds[i]->show();
+    });
+    power.begin(Config::get().chargerEnabled);
+
     // Initialise the sound output, if configured.
     Config::forEachSound([](uint8_t, SoundHardwareConfig& s) {
         _sound.setup(s, Config::get().i2cSdaPin, Config::get().i2cSclPin,
@@ -542,6 +566,10 @@ void setup() {
         mesh.broadcastGenericEvent(eventType, payload);
     });
     buttonManager.setExecutor(&actionExecutor);
+    // The one raw key-edge consumer slot: fan out from here to every module
+    // that needs press/release edges.
+    buttonManager.setRawCallback(
+        [](uint8_t index, bool pressed, uint32_t ms) { power.onButtonRaw(index, pressed, ms); });
     buttonManager.begin();
     automationManager.setExecutor(&actionExecutor);
 
@@ -987,6 +1015,10 @@ void loop() {
     if (backgroundTick) _lastBackgroundTickMs = now;
     bool slowTick = now - _lastSlowTickMs >= SLOW_TICK_INTERVAL_MS;
     if (slowTick) _lastSlowTickMs = now;
+
+    // Ahead of the update early-return below: the charger watchdog reset and
+    // the LED rail keep running during a firmware download.
+    power.tick();
 
     // Idle OTA polling is throttled with everything else; once a transfer is
     // actually in flight (_otaActive), run every pass so flashing isn't slowed.
