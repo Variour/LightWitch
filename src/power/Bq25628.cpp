@@ -87,8 +87,9 @@ bool Bq25628::configure(const Settings& s) {
     // Boost OTG (VOTG on PMID), not bypass (PMID = VBAT).
     ok &= _update8(REG_CHG_CTRL_2, CTRL2_EN_BYPASS_OTG, 0);
 
-    // Input current from the ILIM pin. The lower of the ILIM pin and IINDPM
-    // limits (§8.3.3.4); IINDPM stays at its POR 3.2 A, so the pin decides.
+    // Input current from the ILIM pin; the lower of the ILIM pin and IINDPM
+    // limits apply (§8.3.3.4). IINDPM is left to the D+/D- input source
+    // detection, which sets it to 500 mA or more (Table 8-11).
     ok &= _update8(REG_CHG_CTRL_3, CTRL3_EN_EXTILIM, CTRL3_EN_EXTILIM);
 
     ok &= _update8(REG_CHG_CTRL_3, CTRL3_IBAT_PK_MASK, s.batteryPeakCurrent & CTRL3_IBAT_PK_MASK);
