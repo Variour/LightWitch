@@ -475,6 +475,7 @@ void setup() {
                       l.groupId);
         }
         drv->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
+        drv->setCurrentLimitMa(l.currentLimitMa);
         _leds[i] = drv;
         _runners[i].begin(*drv);
         _runners[i].setDimensions(l.width, l.height);
@@ -894,6 +895,7 @@ void setup() {
         if (idx < MAX_LIGHTS && _leds[idx]) {
             auto& l = Config::get().lights[idx];
             _leds[idx]->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
+            _leds[idx]->setCurrentLimitMa(l.currentLimitMa);
         }
     });
     webServer.setOnColorOrderChange([](uint8_t idx) {

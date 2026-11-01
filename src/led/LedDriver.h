@@ -29,6 +29,9 @@ class LedDriver {
     virtual void off() { writeColor(0, 0, 0); }
     // Changes the RGB→wire permutation at runtime — no re-init needed.
     virtual void setColorOrder(ColorOrder order) {}
+    // Optional total-current cap in mA (LightHardwareConfig::currentLimitMa),
+    // 0 = off. Only Ws2812bDriver implements it.
+    virtual void setCurrentLimitMa(uint16_t mA) {}
 
    protected:
     // Hardware-specific output — receives already-clamped values.

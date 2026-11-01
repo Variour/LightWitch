@@ -1,12 +1,23 @@
 #pragma once
 #include <Adafruit_NeoPixel.h>
+#include <string.h>
 
+#include <atomic>
 #include <memory>
+#include <vector>
 
 #include "LedDriver.h"
 
 class Ws2812bDriver : public LedDriver {
    public:
+    // Current of one colour channel at full scale (255), the model behind the
+    // optional current cap: ~12 mA per channel, 36 mA per pixel at full white
+    // (SK6812MINI-E, Buzzerboard hardware/README.md "LED rail = PMID":
+    // 34 x 36 mA ≈ 1.2 A). A pixel's idle current is not part of the estimate.
+    // UNVERIFIED: 12 mA comes from the board README's 36 mA per white pixel,
+    // not from the SK6812MINI-E datasheet; measure the chain at full white.
+    static constexpr uint32_t CHANNEL_FULL_SCALE_MA = 12;
+
     void setup(uint8_t dataPin, uint16_t numLeds, ColorOrder order = ColorOrder::GRB) {
         _pin = dataPin;
         _numLeds = numLeds;
@@ -23,27 +34,54 @@ class Ws2812bDriver : public LedDriver {
         _neo->show();
     }
 
-    void show() override { _neo->show(); }
+    void show() override {
+        _syncCurrentLimit();
+        if (_limitMa) _writeCappedFrame();
+        _neo->show();
+    }
 
     void off() override {
+        _syncCurrentLimit();
+        if (_limitMa) memset(_frame.data(), 0, _frame.size());
         _neo->clear();
         _neo->show();
     }
 
     void setColorOrder(ColorOrder order) override { _order = order; }
 
+    // Safe to call from any task: the new cap takes effect on the next write
+    // or show(), which run on the render (loop) task.
+    void setCurrentLimitMa(uint16_t mA) override { _requestedLimitMa.store(mA); }
+
    protected:
     void writeColor(uint8_t r, uint8_t g, uint8_t b) override {
         uint8_t a, bb, c;
         applyColorOrder(_order, r, g, b, a, bb, c);
-        uint32_t col = _neo->Color(a, bb, c);
-        for (uint16_t i = 0; i < _numLeds; i++) _neo->setPixelColor(i, col);
-        _neo->show();
+        _syncCurrentLimit();
+        if (_limitMa) {
+            for (size_t k = 0; k + 2 < _frame.size(); k += 3) {
+                _frame[k] = a;
+                _frame[k + 1] = bb;
+                _frame[k + 2] = c;
+            }
+        } else {
+            uint32_t col = _neo->Color(a, bb, c);
+            for (uint16_t i = 0; i < _numLeds; i++) _neo->setPixelColor(i, col);
+        }
+        show();
     }
 
     void writePixel(uint16_t idx, uint8_t r, uint8_t g, uint8_t b) override {
         uint8_t a, bb, c;
         applyColorOrder(_order, r, g, b, a, bb, c);
+        _syncCurrentLimit();
+        if (_limitMa) {
+            if (idx >= _numLeds) return;
+            _frame[(size_t)idx * 3] = a;
+            _frame[(size_t)idx * 3 + 1] = bb;
+            _frame[(size_t)idx * 3 + 2] = c;
+            return;
+        }
         _neo->setPixelColor(idx, a, bb, c);
     }
 
@@ -52,4 +90,50 @@ class Ws2812bDriver : public LedDriver {
     uint16_t _numLeds = 1;
     ColorOrder _order = ColorOrder::GRB;
     std::unique_ptr<Adafruit_NeoPixel> _neo;
+
+    // Current cap. With a cap, pixel writes go to _frame (the frame as
+    // requested, in wire order) and show() writes a scaled copy into the
+    // NeoPixel buffer; without one (0), writes go straight to the NeoPixel
+    // buffer as before and _frame stays empty.
+    std::atomic<uint16_t> _requestedLimitMa{0};
+    uint16_t _limitMa = 0;
+    std::vector<uint8_t> _frame;
+
+    // Applies a cap change from setCurrentLimitMa() on the render task. The
+    // NeoPixel buffer holds 3 bytes per pixel in call (= wire) order for
+    // NEO_RGB, the same layout as _frame.
+    void _syncCurrentLimit() {
+        uint16_t want = _requestedLimitMa.load();
+        if (want == _limitMa || !_neo) return;
+        size_t bytes = (size_t)_numLeds * 3;
+        if (_limitMa == 0) {
+            // Cap switches on: the uncapped NeoPixel buffer becomes the
+            // requested frame.
+            const uint8_t* p = _neo->getPixels();
+            _frame.assign(p, p + bytes);
+        } else if (want == 0) {
+            // Cap switches off: the NeoPixel buffer gets the requested frame
+            // back, unscaled.
+            memcpy(_neo->getPixels(), _frame.data(), bytes);
+            std::vector<uint8_t>().swap(_frame);
+        }
+        _limitMa = want;
+    }
+
+    // Estimates the frame's current as sum(channel values) x
+    // CHANNEL_FULL_SCALE_MA / 255 and, if it exceeds the cap, scales every
+    // channel by the same factor (rounded down, so the result stays within
+    // the cap).
+    void _writeCappedFrame() {
+        uint8_t* p = _neo->getPixels();
+        uint32_t sum = 0;
+        for (uint8_t v : _frame) sum += v;
+        uint32_t budget = (uint32_t)_limitMa * 255 / CHANNEL_FULL_SCALE_MA;
+        if (sum <= budget) {
+            memcpy(p, _frame.data(), _frame.size());
+            return;
+        }
+        for (size_t k = 0; k < _frame.size(); k++)
+            p[k] = (uint8_t)((uint32_t)_frame[k] * budget / sum);
+    }
 };
