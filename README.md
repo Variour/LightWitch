@@ -32,10 +32,13 @@ Go to the [latest release](https://github.com/Variour/LightWitch/releases/latest
 | `bootloader-esp32c3.bin` | Bootloader for ESP32-C3 devices |
 | `bootloader-esp32dev.bin` | Bootloader for ESP32-WROOM-32 devices |
 | `bootloader-esp32s3.bin` | Bootloader for ESP32-S3 devices |
-| `partitions.bin` | Partition table (same for all board types) |
+| `bootloader-esp32c5.bin` | Bootloader for ESP32-C5 devices |
+| `partitions.bin` | Partition table (all board types except ESP32-C5) |
+| `partitions-esp32c5.bin` | Partition table for ESP32-C5 devices (8 MB flash) |
 | `firmware-esp32c3.bin` | Firmware for ESP32-C3 devices |
 | `firmware-esp32dev.bin` | Firmware for ESP32-WROOM-32 devices |
 | `firmware-esp32s3.bin` | Firmware for ESP32-S3 devices |
+| `firmware-esp32c5.bin` | Firmware for ESP32-C5 devices |
 | `littlefs.bin` | Web UI filesystem (same for all board types) |
 
 **2. Open the web flasher**
@@ -58,6 +61,15 @@ Add entries for your board type with these addresses:
 | `0x8000` | `partitions.bin` |
 | `0x10000` | `firmware-esp32c3.bin` (C3) / `firmware-esp32s3.bin` (S3) |
 | `0x3B0000` | `littlefs.bin` |
+
+**ESP32-C5:**
+
+| Address | File |
+|---------|------|
+| `0x2000` | `bootloader-esp32c5.bin` |
+| `0x8000` | `partitions-esp32c5.bin` |
+| `0x10000` | `firmware-esp32c5.bin` |
+| `0x7B0000` | `littlefs.bin` |
 
 **ESP32-WROOM-32:**
 
