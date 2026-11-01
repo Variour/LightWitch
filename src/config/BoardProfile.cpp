@@ -2,7 +2,16 @@
 
 #include "../buttons/ButtonRoles.h"
 
+// BOARD_BUZZERBOARD (esp32c5 env) compiles the Buzzerboard detection and
+// profile into the C5 image only: GPIO26/27 are general-purpose pins on the
+// C5, but SPI flash/PSRAM pins on the ESP32-S3.
 #ifdef BOARD_BUZZERBOARD
+
+#include <Arduino.h>
+#include <Wire.h>
+
+#include "../logging/Logger.h"
+#include "../power/Bq25628.h"
 
 // Buzzerboard rev A0 (ESP32-C5-WROOM-1U-N8R8). Source of every value below:
 // the board repo's hardware/gen/buzzer.py (nets) and hardware/README.md
@@ -59,9 +68,42 @@ constexpr uint16_t kLedCount = 34;
 // measure IBUS with the LEDs dark and at the cap on a 500 mA USB port.
 constexpr uint16_t kLedCurrentLimitMa = 300;
 
+bool sDetected = false;
+
+// The I2C pull-ups (4.7k to 3V3) hold a line high against the internal
+// pull-down; a pin without them (e.g. the RGB LED input on GPIO27 of the
+// ESP32-C5-DevKitC-1) reads low and is left alone.
+bool hasPullUp(uint8_t pin) {
+    pinMode(pin, INPUT_PULLDOWN);
+    delayMicroseconds(100);
+    bool high = digitalRead(pin) == HIGH;
+    pinMode(pin, INPUT);
+    return high;
+}
+
 }  // namespace
 
+// A Buzzerboard is a C5 with a BQ25628 (PART_INFO part number 2) at 0x6A on
+// GPIO26/27. The bus runs at Wire's default 100 kHz.
+void detectBoard() {
+    sDetected = false;
+    if (!hasPullUp(kI2cSdaPin) || !hasPullUp(kI2cSclPin)) {
+        Logger::i("[cfg] no Buzzerboard: no I2C pull-ups on GPIO%u/%u", kI2cSdaPin, kI2cSclPin);
+        return;
+    }
+    if (!Wire.begin(kI2cSdaPin, kI2cSclPin)) {
+        Logger::w("[cfg] Buzzerboard check: I2C on GPIO%u/%u did not start", kI2cSdaPin,
+                  kI2cSclPin);
+        return;
+    }
+    sDetected = Bq25628(Wire).probe();
+    Wire.end();
+    Logger::i("[cfg] %s", sDetected ? "Buzzerboard detected (BQ25628 at 0x6A)"
+                                    : "no Buzzerboard: no BQ25628 at 0x6A");
+}
+
 bool applyBoardProfile(DeviceConfig& cfg) {
+    if (!sDetected) return false;
     cfg.i2cSdaPin = kI2cSdaPin;
     cfg.i2cSclPin = kI2cSclPin;
     cfg.chargerEnabled = true;
@@ -97,6 +139,7 @@ bool applyBoardProfile(DeviceConfig& cfg) {
 
 #else
 
+void detectBoard() {}
 bool applyBoardProfile(DeviceConfig&) { return false; }
 
 #endif

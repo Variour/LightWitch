@@ -439,6 +439,7 @@ static void applyDoc(JsonDocument& doc) {
 }
 
 bool Config::load() {
+    detectBoard();
     if (LittleFS.exists(_path)) {
         File f = LittleFS.open(_path, "r");
         if (f) {
@@ -475,7 +476,8 @@ bool Config::load() {
     snprintf(_cfg.deviceName, sizeof(_cfg.deviceName), "light-%02x%02x%02x", mac[3], mac[4],
              mac[5]);
     // First boot of an unconfigured device: a board-specific build seeds its
-    // board's hardware config, so identical devices work without setup.
+    // board's hardware config when it finds that board, so identical devices
+    // work without setup.
     if (applyBoardProfile(_cfg)) {
         Logger::i("[cfg] seeded board hardware profile");
         save();
