@@ -13,6 +13,7 @@
 #include "automations/AutomationManager.h"
 #include "battery/BatteryMonitor.h"
 #include "buttons/ButtonManager.h"
+#include "config/BoardProfile.h"
 #include "config/Config.h"
 #include "events/EventLog.h"
 #include "led/Ws2801Driver.h"
@@ -528,7 +529,7 @@ void setup() {
                       l.groupId);
         }
         drv->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
-        drv->setCurrentLimitMa(l.currentLimitMa);
+        drv->setCurrentLimitMa(boardLedCurrentLimitMa(l.currentLimitMa));
         _leds[i] = drv;
         _runners[i].begin(*drv);
         _runners[i].setDimensions(l.width, l.height);
@@ -941,7 +942,7 @@ void setup() {
         if (idx < MAX_LIGHTS && _leds[idx]) {
             auto& l = Config::get().lights[idx];
             _leds[idx]->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
-            _leds[idx]->setCurrentLimitMa(l.currentLimitMa);
+            _leds[idx]->setCurrentLimitMa(boardLedCurrentLimitMa(l.currentLimitMa));
         }
     });
     webServer.setOnColorOrderChange([](uint8_t idx) {

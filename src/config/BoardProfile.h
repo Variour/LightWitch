@@ -12,3 +12,8 @@ void detectBoard();
 // that has already been configured. Returns false unless detectBoard() found
 // the board (cfg is left untouched).
 bool applyBoardProfile(DeviceConfig& cfg);
+
+// The LED current cap (mA, 0 = off) to drive a light with when its setting is
+// configuredMa: on a detected board whose LED rail has a supply limit, at most
+// that board's cap, also when the setting is off; elsewhere the setting.
+uint16_t boardLedCurrentLimitMa(uint16_t configuredMa);
