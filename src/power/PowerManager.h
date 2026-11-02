@@ -133,7 +133,7 @@ class PowerManager {
             // halved (§8.4.1). Configure again; the next poll picks up.
             Logger::w("[pwr] charger in default mode (watchdog) - configuring again");
             _lastConfigureMs = now;
-            if (!_chg.configure(kSettings)) _goOffline("configure failed");
+            if (!_chg.configure(_settings)) _goOffline("configure failed");
             _lastKickMs = now;
             _adcBusy = false;
             return;
@@ -172,6 +172,90 @@ class PowerManager {
         // Enter ship mode on release: QON low for tSM_EXIT leaves ship mode
         // (§8.3.9.2), so the key has to be up first.
         if (armed) _shutdown("power key");
+    }
+
+    // Charge voltage (VREG), e.g. the fleet's charge target (src/fleet/).
+    // Before begin() it sets the value configure() writes; later it writes
+    // VREG at once if the charger answers. Watchdog re-configures keep it.
+    void setChargeVoltageMv(uint16_t mv) {
+        _settings.chargeVoltageMv = mv;
+        if (_enabled && _online && !_chg.setChargeVoltage(mv)) _goOffline("VREG write failed");
+    }
+    uint16_t chargeVoltageMv() const { return _settings.chargeVoltageMv; }
+
+    // false: keep the LED rail off on battery (boost OTG off), e.g. in
+    // standby. On USB the rail is VBUS and stays up.
+    void setLedRailWanted(bool wanted) { _railWanted = wanted; }
+
+    // Ship mode now, like a long press of the power key: on battery only,
+    // after a running update (fleet `off`, src/fleet/).
+    void requestOff(const char* reason) {
+        if (_enabled) _shutdown(reason);
+    }
+
+    // Before ESP deep sleep: LED rail off. In sleep the charger's watchdog
+    // expires and it falls back to default mode, where EN_OTG stays 0 (§8.4.1).
+    void prepareDeepSleep() {
+        if (_enabled && _online) _chg.setOtg(false);
+    }
+
+    // Charger ADC interval; ADC_INTERVAL_MS unless changed (factory test).
+    void setAdcIntervalMs(uint32_t ms) { _adcIntervalMs = ms; }
+    void resetAdcInterval() { _adcIntervalMs = ADC_INTERVAL_MS; }
+    // Completed ADC conversions since boot.
+    uint32_t adcCount() const { return _adcCount; }
+    uint8_t revision() const { return _chg.revision(); }
+    // TS converted to a temperature, if the TS channel is on (USB only).
+    bool tsDeciC(int16_t& out) const {
+        return _tsAdcOn == 1 && _adcMs != 0 && _tsToDeciC(_adc.tsPermille, out);
+    }
+    bool tsAdcOn() const { return _tsAdcOn == 1; }
+
+    // Sleep timer wake (src/fleet/DeepSleep.h): power good and VBAT, without
+    // configuring the charger or touching the LED rail. Wire must be begun.
+    // ok = false: the charger did not answer. vbatMv = 0 on battery: the ADC
+    // refused to convert, VBAT is below its threshold (§8.3.7).
+    struct WakeReading {
+        bool ok = false;
+        bool powerGood = false;
+        uint16_t vbatMv = 0;
+    };
+    static WakeReading readForWake() {
+        WakeReading r;
+        Bq25628 chg;
+        Bq25628::Status st;
+        if (!chg.probe() || !chg.readStatus(st)) return r;
+        r.powerGood = st.powerGood();
+        if (r.powerGood) {
+            r.ok = true;
+            return r;
+        }
+        Bq25628::AdcStart start = chg.startAdcOneShot();
+        if (start == Bq25628::AdcStart::Error) return r;
+        if (start == Bq25628::AdcStart::Refused) {
+            r.ok = true;
+            return r;
+        }
+        uint32_t t0 = millis();
+        bool done = false;
+        while (!done && millis() - t0 < ADC_TIMEOUT_MS) {
+            delay(ADC_POLL_MS);
+            if (!chg.adcDone(done)) return r;
+        }
+        Bq25628::Adc a;
+        if (!done || !chg.readAdc(a)) return r;
+        r.ok = true;
+        r.vbatMv = a.vbatMv;
+        return r;
+    }
+
+    // Ship mode from the sleep wake path; withdrawn again if the device still
+    // runs after SHIP_MODE_TIMEOUT_MS (USB plugged in meanwhile).
+    static void shipForWake() {
+        Bq25628 chg;
+        if (!chg.requestShipMode()) return;
+        delay(SHIP_MODE_TIMEOUT_MS);
+        chg.cancelShipMode();
     }
 
     // Battery source for BatteryMonitor::setChargerSource().
@@ -234,6 +318,10 @@ class PowerManager {
     static constexpr float TS_NTC_BETA = 3435.0f;
 
     Bq25628 _chg;
+    Bq25628::Settings _settings = kSettings;
+    bool _railWanted = true;
+    uint32_t _adcIntervalMs = ADC_INTERVAL_MS;
+    uint32_t _adcCount = 0;
     bool _enabled = false;
     bool _online = false;
     bool _hasStatus = false;
@@ -283,7 +371,7 @@ class PowerManager {
             return;
         }
         _lastConfigureMs = now;
-        if (!_chg.configure(kSettings)) {
+        if (!_chg.configure(_settings)) {
             Logger::e("[pwr] BQ25628 configuration failed - charger stays offline");
             return;
         }
@@ -369,6 +457,10 @@ class PowerManager {
             _otgFailLogged = false;
             return;
         }
+        if (!_railWanted) {
+            if (st.otgEnabled()) _chg.setOtg(false);
+            return;
+        }
         if (_shipPending || st.otgEnabled() || st.vbusStat() != Bq25628::VBUS_STAT_NONE) return;
         // On battery with OTG off: switch it on. The charger clears EN_OTG
         // again by itself on a fault (VBAT below VBAT_OTG, PMID undervoltage,
@@ -444,11 +536,12 @@ class PowerManager {
             if (!_chg.readAdc(a)) return;
             _adc = a;
             _adcMs = now;
+            _adcCount++;
             _onVbatSample(now, true, a.vbatMv);
             _logAdc(now);
             return;
         }
-        if (_lastAdcStartMs != 0 && now - _lastAdcStartMs < ADC_INTERVAL_MS) return;
+        if (_lastAdcStartMs != 0 && now - _lastAdcStartMs < _adcIntervalMs) return;
         _lastAdcStartMs = now;
         switch (_chg.startAdcOneShot()) {
             case Bq25628::AdcStart::Started:

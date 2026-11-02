@@ -202,6 +202,8 @@ class Bq25628 {
 
     // Reads the part number. True if a BQ25628 answers at I2C_ADDRESS.
     bool probe();
+    // Device revision from the last successful probe() (PART_INFO bits 2:0).
+    uint8_t revision() const { return _revision; }
 
     // Reads REG0x16..0x20. Reading clears the latched flags in REG0x20
     // (§8.3.8.1); nothing else uses them.
@@ -223,6 +225,11 @@ class Bq25628 {
 
     // Resets the I2C watchdog (WD_RST, §8.4.1).
     bool kickWatchdog();
+
+    // Writes VREG alone and reads it back (Table 8-10). VREG is reset by
+    // REG_RESET only, not by the watchdog, so it survives a fall-back to
+    // default mode. False on an I2C error or a read-back mismatch.
+    bool setChargeVoltage(uint16_t mv);
 
     // Sets or clears EN_OTG. Boost mode only (EN_BYPASS_OTG stays 0).
     bool setOtg(bool enable);
@@ -260,6 +267,7 @@ class Bq25628 {
 
    private:
     TwoWire& _wire;
+    uint8_t _revision = 0;
 
     bool _read(uint8_t reg, uint8_t* buf, size_t len);
     bool _write(uint8_t reg, const uint8_t* buf, size_t len);
