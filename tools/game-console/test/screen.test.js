@@ -84,7 +84,8 @@ test('every view renders without console errors', { timeout: 180000 }, async (t)
   }
   const dir = process.env.SCREENSHOT_DIR;
   if (dir) await fs.mkdir(dir, { recursive: true });
-  const app = await startConsole({ simulate: 50, httpPort: 0, inbox: null, simTiming: { endRelease: 1000, movePaceMin: 60, movePaceMax: 140 } });
+  const fastTurn = { lageSettleMs: 500, turnMin: 500, turnMax: 2500, turnSlowMin: 8000, turnSlowMax: 12000 };
+  const app = await startConsole({ simulate: 50, httpPort: 0, inbox: null, simTiming: { endRelease: 1000, movePaceMin: 60, movePaceMax: 140, ...fastTurn } });
   const game = app.game;
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   const errors = [];
@@ -107,7 +108,8 @@ test('every view renders without console errors', { timeout: 180000 }, async (t)
     await page.goto(app.url);
     await waitFor(() => app.link.connected, { what: 'link' });
     const move = validateInput(ROUNDS.move).value;
-    game.load({ kind: 'session', value: { title: 'Workshop am Nachmittag', rounds: [ROUNDS.scale, ROUNDS.race, ROUNDS.choice, move] } });
+    const lying = validateInput({ ...ROUNDS.race, id: 'liegend', title: 'Rennen im Liegen', hold: 'liegend' }).value;
+    game.load({ kind: 'session', value: { title: 'Workshop am Nachmittag', rounds: [ROUNDS.scale, ROUNDS.race, ROUNDS.choice, move, lying] } });
     await shot('start', '.hero h1');
 
     await act('next');
@@ -142,14 +144,32 @@ test('every view renders without console errors', { timeout: 180000 }, async (t)
     await act('next');
     await shot('auswahl-aufloesung', '.answer.right');
 
+    // The move round requires quer: "x von y bereit" while announced.
     await act('next');
+    await page.waitForSelector('#ready:not([hidden])');
+    assert.match(await page.textContent('#ready'), /^\d+ von 50 bereit$/);
     await act('next');
+    await page.waitForSelector('#ready', { state: 'hidden' });
     await page.waitForSelector('#finished .answered');
     assert.match(await page.textContent('#finished'), /0von 50 im Ziel/);
     await waitFor(() => game.snapshot().round.results.finished >= 3, { timeoutMs: 20000, what: 'three in the goal' });
     await shot('spielfeld', '#first .winner');
     assert.equal(await page.textContent('#first .winner'), String(game.snapshot().round.results.winner));
     assert.match(await page.textContent('.question'), /Wer ist zuerst im Ziel\?/);
+
+    // A race that requires liegend: "x von y liegen bereit" until the release.
+    await act('next'); // close the move round
+    await act('next');
+    await page.waitForSelector('#ready:not([hidden])');
+    assert.match(await page.textContent('#ready'), /^\d+ von 50 liegen bereit$/);
+    await waitFor(() => game.snapshot().round.results.ready >= 30, { timeoutMs: 15000, what: '30 lying' });
+    await sleep(300);
+    await shot('rennen-liegen-bereit', '#ready:not([hidden])');
+    await act('next'); // open: 1 s countdown
+    await page.waitForSelector('.countdown');
+    assert.equal(await page.isVisible('#ready'), true);
+    await page.waitForSelector('#ready', { state: 'hidden', timeout: 3000 });
+    await waitFor(() => game.snapshot().round.winner, { timeoutMs: 8000, what: 'winner lying' });
 
     await act('idle');
     await shot('ruhe', '.tiles.small .tile');

@@ -153,12 +153,31 @@
       stage.innerHTML = VIEWS[s.view].build(s);
     }
     VIEWS[s.view].update(s);
+    updateReady(s);
     fresh = false;
+  }
+
+  // A round that requires a lage: how many hold their buzzer that way, while
+  // announced and, in a race, until the release.
+  function updateReady(s) {
+    const el = document.getElementById('ready');
+    if (!el) return;
+    const r = s.round;
+    const res = r && r.results;
+    const waiting = r && (r.phase === 'announced' || (r.type === 'race' && r.phase === 'open' && r.startAt && r.startAt > Date.now()));
+    const html = res && typeof res.ready === 'number' && waiting
+      ? `<b>${res.ready}</b> von ${res.participants} ${r.hold === 'liegend' ? 'liegen bereit' : 'bereit'}`
+      : '';
+    if (el.dataset.html !== html) {
+      el.innerHTML = html;
+      el.dataset.html = html;
+      el.hidden = !html;
+    }
   }
 
   function head(title, phaseText, phaseClass, question) {
     const q = question ? `<h2 class="question${question.length > 110 ? ' long' : ''}">${esc(question)}</h2>` : '';
-    return `<header class="head"><div class="head-row"><div class="round-title">${esc(title)}</div>${phaseText ? `<span class="phase ${phaseClass || ''}" id="phase">${esc(phaseText)}</span>` : ''}</div>${q}</header>`;
+    return `<header class="head"><div class="head-row"><div class="round-title">${esc(title)}</div>${phaseText ? `<span class="phase ${phaseClass || ''}" id="phase">${esc(phaseText)}</span>` : ''}</div>${q}<p class="stat" id="ready" hidden></p></header>`;
   }
 
   function phaseLabel(r) {
