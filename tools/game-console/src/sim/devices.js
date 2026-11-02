@@ -9,7 +9,7 @@
 // with their lage, lock themselves in a round that requires another lage.
 
 import { seq8Newer, seq16Newer } from '../protocol.js';
-import { LAGEN, requiredLage, toLogical, toPhysical } from '../lage.js';
+import { LAGEN, requiredLage, fitsLage, toLogical, toPhysical } from '../lage.js';
 import { SimPower } from './power.js';
 
 export const T = {
@@ -224,7 +224,7 @@ export class SimDevice {
   locked() {
     const r = this.round;
     const need = this.state === 'member' && r && r.type !== 'idle' ? requiredLage(r.hold) : null;
-    return !!need && this.lage !== need;
+    return !!need && !fitsLage(this.lage, need);
   }
 
   // The keyboard: the buzzer is in this lage at once.
@@ -496,7 +496,7 @@ export class Person {
   onRound(dev, round, now) {
     dev.turn = null;
     const need = round.type !== 'idle' ? requiredLage(round.hold) : null;
-    if (!need || dev.physLage === need || dev.manual) return;
+    if (!need || fitsLage(dev.physLage, need) || dev.manual) return;
     const lt = this.world.lt;
     const rnd = this.world.lrnd;
     const x = rnd();

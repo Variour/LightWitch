@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameConsole } from '../src/game.js';
-import { LAGEN, toLogical, toPhysical, requiredLage } from '../src/lage.js';
+import { LAGEN, toLogical, toPhysical, requiredLage, fitsLage } from '../src/lage.js';
 import { validateInput } from '../src/validate.js';
 import { FakeLink, join, device, value, flush, ROUNDS } from './helpers.js';
 
@@ -58,6 +58,23 @@ test('a race that requires liegend: hold, ready count, unknown lage is not ready
   assert.equal(view().results.ready, 1);
   await game.act('open');
   assert.equal(view().results.ready, 1);
+});
+
+test('quer-links counts as quer: ready count and gating', async () => {
+  assert.deepEqual(LAGEN.map((l) => fitsLage(l, 'quer')), [false, true, true, false]);
+  assert.deepEqual(LAGEN.map((l) => fitsLage(l, 'hochkant')), [true, false, false, false]);
+  const { link, game, view } = await setup({ 1: 'quer', 2: 'quer-links', 3: 'hochkant' }, { ...ROUNDS.choice, hold: 'quer' });
+  assert.equal(view().results.ready, 2);
+  await game.act('open');
+  const id = game.round.roundId;
+  link.emitEvent(value(2, id, 1, { lage: 'quer-links' }));
+  link.emitEvent(value(3, id, 1, { lage: 'hochkant' }));
+  link.emitEvent(value(1, id, 2)); // no lage in the line: the participant's
+  assert.equal(view().results.answered, 2);
+  const move = await setup({ 1: 'quer-links' }, ROUNDS.move);
+  await move.game.act('open');
+  move.link.emitEvent({ ns: 'game', ev: 'key', n: 1, round: move.game.round.roundId, key: 'right', kseq: 1, lage: 'quer-links' });
+  assert.deepEqual([move.view().results.players[0].col, move.view().results.ready], [1, 1]);
 });
 
 test('frei and fest have no ready count', async () => {

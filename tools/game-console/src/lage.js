@@ -24,6 +24,12 @@ export function requiredLage(hold) {
   return hold === 'hochkant' || hold === 'quer' || hold === 'liegend' ? hold : null;
 }
 
+// Whether a buzzer in this lage meets the required one: "quer-links" (across,
+// buzzer on the left) counts as "quer".
+export function fitsLage(lage, need) {
+  return lage === need || (need === 'quer' && lage === 'quer-links');
+}
+
 // The physical button that gives this logical input in this lage, or null.
 export function toPhysical(lage, logical) {
   if (FIXED[logical]) return FIXED[logical];

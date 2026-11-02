@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { cmd, keysFor, normalizeMac, FW_RE, seq8Newer } from './protocol.js';
 import { FleetTable } from './fleet.js';
 import { boardDirection, startCell, step, inside, atGoal, MOVE_DEFAULTS } from './move.js';
-import { isLage, requiredLage } from './lage.js';
+import { isLage, requiredLage, fitsLage } from './lage.js';
 
 // Fixed values in v0 (round format, "Feste Werte in v0", console part).
 export const TIMING = {
@@ -821,7 +821,7 @@ export class GameConsole extends EventEmitter {
     const need = requiredLage(run.hold);
     if (!need) return false;
     const lage = isLage(inputLage) ? inputLage : this._lageOf(run, n);
-    return lage !== null && lage !== need;
+    return lage !== null && !fitsLage(lage, need);
   }
 
   _onValue(ev) {
@@ -895,8 +895,9 @@ export class GameConsole extends EventEmitter {
 
   // Admitted participants in the lage the round requires; null without one.
   _readyCount(r) {
-    if (r.type === 'idle' || !requiredLage(r.hold)) return null;
-    return this._admittedNumbers().filter((n) => this._lageOf(r, n) === r.hold).length;
+    const need = r.type === 'idle' ? null : requiredLage(r.hold);
+    if (!need) return null;
+    return this._admittedNumbers().filter((n) => fitsLage(this._lageOf(r, n), need)).length;
   }
 
   _admittedNumbers() {
