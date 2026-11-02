@@ -20,6 +20,7 @@ class RxRing {
     struct Frame {
         uint8_t len;
         int8_t rssi;
+        uint8_t mac[6];  // sender, if push() got one
         uint8_t data[kMaxFrameLen];
     };
 
@@ -39,7 +40,7 @@ class RxRing {
     bool allocated() const { return _slots != nullptr; }
 
     // Radio task.
-    void push(const uint8_t* d, size_t len, int8_t rssi) {
+    void push(const uint8_t* d, size_t len, int8_t rssi, const uint8_t* mac = nullptr) {
         if (len == 0 || len > kMaxFrameLen) return;
         _lock();
         if (!_slots || _count >= _cap) {
@@ -51,6 +52,10 @@ class RxRing {
         memcpy(f.data, d, len);
         f.len = (uint8_t)len;
         f.rssi = rssi;
+        if (mac)
+            memcpy(f.mac, mac, 6);
+        else
+            memset(f.mac, 0, 6);
         _count++;
         _unlock();
     }

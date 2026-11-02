@@ -152,6 +152,19 @@ class GameManager {
         _link.tick(now);
     }
 
+    // More USB namespaces (src/fleet/FleetLink.h). Call before begin().
+    void setLinkExtension(game::Link::Extension* ext) { _link.setExtension(ext); }
+    game::Link* link() { return &_link; }
+    // The USB link is open: `link hello`, or a device-scope namespace, within
+    // the last kLinkTimeoutMs.
+    bool linkActive() const { return _link.active(); }
+    uint16_t number() const { return _number; }
+    // An invite ring shows (normal operation, device with a buzz key).
+    bool inviteVisible(uint32_t now) const {
+        return _participant.state() == game::Participant::State::Normal &&
+               _participant.inviteVisible(now);
+    }
+
     // The radio belongs to the game: no softAP, WiFi, channel search, or
     // LightWitch mesh traffic.
     bool radioQuiet() const { return _participant.inSession() || _bridge.quiet(); }
@@ -229,8 +242,12 @@ class GameManager {
 
     static void _setChannel(uint8_t ch) { esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE); }
 
+   public:
     // Firmware build: the first 4 bytes of the running app image's SHA-256,
     // the same for every device flashed with the same binary.
+    uint32_t fwBuild() { return _fwBuild(); }
+
+   private:
     uint32_t _fwBuild() {
         if (!_fwKnown) {
             _fwKnown = true;

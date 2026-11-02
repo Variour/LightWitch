@@ -19,6 +19,11 @@ namespace game {
 // first, then per-device `device`/`value` lines straight from the bridge's
 // table, each only once a whole line fits the writer's free space.
 //
+// More namespaces come from an Extension (src/fleet/: `config`, `fleet`,
+// `test`, see docs/usb-link.md). A device-scope namespace opens the link
+// without `link hello`, so a device answers on USB without becoming the
+// bridge; `game` and bridge-scope namespaces need the hello.
+//
 // Plain C++ plus ArduinoJson; the serial port comes in as a Writer.
 class Link : public Bridge::Listener {
    public:
@@ -27,6 +32,29 @@ class Link : public Bridge::Listener {
         virtual int availableForWrite() = 0;
         virtual void write(const char* data, size_t len) = 0;
     };
+
+    struct Extension {
+        enum class Scope : uint8_t {
+            None,    // not this extension's namespace
+            Device,  // any device on USB; opens the link without hello
+            Bridge,  // needs `link hello` first
+        };
+        virtual ~Extension() = default;
+        virtual Scope scope(const char* ns) const = 0;
+        // Its namespaces for the `unknown_ns` message, e.g. "config, fleet, test".
+        virtual const char* names() const = 0;
+        // Adds its namespace versions to the `hello` reply.
+        virtual void addSpaces(JsonObject spaces) = 0;
+        virtual void command(Link& link, const char* ns, const char* cmd, JsonObjectConst o,
+                             const ReqId& id, uint32_t now) = 0;
+        // After a successful hello: replay its tables.
+        virtual void onHello() = 0;
+        // Writes its table lines with writeNow() while they fit, after the
+        // queue and the bridge's table.
+        virtual void flushTable(Link& link, uint32_t now) = 0;
+    };
+
+    enum class Field : uint8_t { Missing, Null, Ok, Bad };
 
     struct Io {
         std::function<uint32_t()> fwBuild;
@@ -46,8 +74,12 @@ class Link : public Bridge::Listener {
         memcpy(_mac, mac, 6);
     }
 
+    void setExtension(Extension* ext) { _ext = ext; }
+
     // Log output stays off the port while a link session is open.
     bool active() const { return _active; }
+    // A `link hello` succeeded since the link opened.
+    bool helloDone() const { return _helloDone; }
     // False while a new round waits for the old round's values to go out.
     bool readyForInput() const { return !_deferred; }
     uint32_t dropped() const { return _dropped; }
@@ -79,6 +111,7 @@ class Link : public Bridge::Listener {
     }
 
     void tick(uint32_t now) {
+        _now = now;
         if (_active && !_closing && now - _lastRx >= kLinkTimeoutMs) _close();
         _flush();
         if (_closing && _qCount == 0) _close();
@@ -90,9 +123,39 @@ class Link : public Bridge::Listener {
         }
     }
 
+    // ── For extensions ───────────────────────────────────────────────────────
+    void emit(JsonDocument& d) { _enqueue(d); }
+    void emitLine(const char* line, int len) { _enqueueRaw(line, len); }
+    void error(const ReqId& id, const char* code, const char* refNs, const char* refCmd,
+               const char* field, const char* msg) {
+        _error(id, code, refNs, refCmd, field, msg);
+    }
+    // Writes a whole line now if it fits the writer, else false.
+    bool writeNow(const char* line, size_t len) { return _write(line, len); }
+    bool queueEmpty() const { return _qCount == 0; }
+
+    static void head(JsonDocument& d, const char* ns, const char* ev, const ReqId& id) {
+        d["ns"] = ns;
+        d["ev"] = ev;
+        if (id.kind == ReqId::Kind::Num)
+            d["id"] = id.num;
+        else if (id.kind == ReqId::Kind::Str)
+            d["id"] = (const char*)id.str;
+    }
+
+    static Field intField(JsonObjectConst o, const char* key, long long lo, long long hi,
+                          long long& out) {
+        JsonVariantConst v = o[key];
+        if (v.isUnbound()) return Field::Missing;
+        if (v.isNull()) return Field::Null;
+        if (v.is<bool>() || !v.is<long long>()) return Field::Bad;
+        out = v.as<long long>();
+        return (out < lo || out > hi) ? Field::Bad : Field::Ok;
+    }
+
     // ── Bridge::Listener ─────────────────────────────────────────────────────
     void onJoin(const Bridge::JoinInfo& j) override {
-        if (!_active) return;
+        if (!_helloDone) return;
         char mac[18], n[8], bat[8];
         formatMac(j.mac, mac);
         _numOrNull(n, j.n != 0, j.n);
@@ -109,7 +172,7 @@ class Link : public Bridge::Listener {
     }
 
     void onAdmitted(const ReqId& id, const uint8_t* mac, uint16_t n) override {
-        if (!_active) return;
+        if (!_helloDone) return;
         JsonDocument d;
         _head(d, "game", "admitted", id);
         char m[18];
@@ -120,6 +183,7 @@ class Link : public Bridge::Listener {
     }
 
     void onAdmitTimeout(const ReqId& id, const uint8_t*, uint16_t) override {
+        if (!_helloDone) return;
         _error(id, "admit_timeout", "game", "admit", nullptr,
                "device did not confirm the admission within 5 s");
     }
@@ -134,6 +198,7 @@ class Link : public Bridge::Listener {
 
     Bridge* _bridge = nullptr;
     Writer* _writer = nullptr;
+    Extension* _ext = nullptr;
     Io _io;
     uint8_t _mac[6] = {};
     char _buf[kLineMax + 1];  // + a trailing '\r'
@@ -141,8 +206,10 @@ class Link : public Bridge::Listener {
     bool _discard = false;
     bool _active = false;
     bool _closing = false;
+    bool _helloDone = false;
     bool _everBridge = false;
     uint32_t _lastRx = 0;
+    uint32_t _now = 0;
     uint32_t _dropped = 0;
 
     Slot* _queue = nullptr;  // kEventQueueLines, allocated on the first hello
@@ -168,6 +235,7 @@ class Link : public Bridge::Listener {
     void _close() {
         _active = false;
         _closing = false;
+        _helloDone = false;
         _qCount = 0;
         _qHead = 0;
     }
@@ -208,9 +276,15 @@ class Link : public Bridge::Listener {
             _qHead = (uint8_t)((_qHead + 1) % kEventQueueLines);
             _qCount--;
         }
-        if (_closing) return;
+        if (_closing || !_helloDone) return;
+        if (!_flushBridgeTable()) return;
+        if (_ext) _ext->flushTable(*this, _now);
+    }
+
+    // The bridge's per-device lines; false while the writer is full.
+    bool _flushBridgeTable() {
         uint16_t maxN = _bridge->maxNumber();
-        if (_bridge->dirtyCount() == 0 || maxN == 0) return;
+        if (_bridge->dirtyCount() == 0 || maxN == 0) return true;
         char line[kEventLineMax];
         for (uint16_t scanned = 0; scanned < maxN && _bridge->dirtyCount() > 0; scanned++) {
             if (_cursor < 1 || _cursor > maxN) _cursor = 1;
@@ -226,7 +300,7 @@ class Link : public Bridge::Listener {
                                    "\"rssi\":%d,\"round\":%u,\"seq\":%u}\n",
                                    n, mac, (unsigned long)dv->fw, dv->proto, bat, _b(dv->charging),
                                    dv->rssi, dv->lastRound, dv->lastSeq);
-                if (!_write(line, len)) return;
+                if (!_write(line, len)) return false;
                 _bridge->clearDirtyDevice(n);
             }
             if (dv->dirtyValue) {
@@ -238,20 +312,16 @@ class Link : public Bridge::Listener {
                                    "\"rssi\":%d,\"bat\":%s}\n",
                                    n, _bridge->stateInfo(0).round, dv->value, dv->vseq, (long)dv->t,
                                    dv->arr, _b(dv->late), dv->valueRssi, bat);
-                if (!_write(line, len)) return;
+                if (!_write(line, len)) return false;
                 _bridge->clearDirtyValue(n);
             }
             _cursor = (uint16_t)(n % maxN + 1);
         }
+        return true;
     }
 
-    void _head(JsonDocument& d, const char* ns, const char* ev, const ReqId& id) {
-        d["ns"] = ns;
-        d["ev"] = ev;
-        if (id.kind == ReqId::Kind::Num)
-            d["id"] = id.num;
-        else if (id.kind == ReqId::Kind::Str)
-            d["id"] = (const char*)id.str;
+    static void _head(JsonDocument& d, const char* ns, const char* ev, const ReqId& id) {
+        head(d, ns, ev, id);
     }
 
     void _error(const ReqId& id, const char* code, const char* refNs, const char* refCmd,
@@ -268,7 +338,7 @@ class Link : public Bridge::Listener {
     }
 
     void _sendSession(const ReqId& id, bool forceInactive) {
-        if (!_active) return;
+        if (!_helloDone) return;
         JsonDocument d;
         _head(d, "game", "session", id);
         bool active = _bridge->active() && !forceInactive;
@@ -304,16 +374,9 @@ class Link : public Bridge::Listener {
     }
 
     // ── Input ────────────────────────────────────────────────────────────────
-    enum class Field : uint8_t { Missing, Null, Ok, Bad };
-
     static Field _int(JsonObjectConst o, const char* key, long long lo, long long hi,
                       long long& out) {
-        JsonVariantConst v = o[key];
-        if (v.isUnbound()) return Field::Missing;
-        if (v.isNull()) return Field::Null;
-        if (v.is<bool>() || !v.is<long long>()) return Field::Bad;
-        out = v.as<long long>();
-        return (out < lo || out > hi) ? Field::Bad : Field::Ok;
+        return intField(o, key, lo, hi, out);
     }
 
     static bool _parseId(JsonObjectConst o, ReqId& id) {
@@ -349,16 +412,20 @@ class Link : public Bridge::Listener {
         const char* ns = o["ns"].is<const char*>() ? o["ns"].as<const char*>() : nullptr;
         const char* cmd = o["cmd"].is<const char*>() ? o["cmd"].as<const char*>() : nullptr;
         bool isHello = ns && cmd && strcmp(ns, "link") == 0 && strcmp(cmd, "hello") == 0;
-        if (!_active && !isHello) return;  // a device becomes the bridge with `link hello`
-        if (isHello && !_queue) {
+        Extension::Scope scope = ns && _ext ? _ext->scope(ns) : Extension::Scope::None;
+        // A device becomes the bridge with `link hello`; a device-scope
+        // namespace opens the link without that.
+        bool opens = isHello || scope == Extension::Scope::Device;
+        if (!_active && !opens) return;
+        if (opens && !_queue) {
             _queue = new (std::nothrow) Slot[kEventQueueLines];
             if (!_queue) return;
         }
         if (!_active) {
-            // Provisional: an error reply still goes out, then the link closes
-            // again unless the hello succeeds.
+            // A hello is provisional: an error reply still goes out, then the
+            // link closes again unless the hello succeeds.
             _active = true;
-            _closing = true;
+            _closing = isHello;
             _lastRx = now;
         }
         ReqId id;
@@ -371,19 +438,25 @@ class Link : public Bridge::Listener {
             _error(id, "bad_field", nullptr, nullptr, "ns", "ns must be a string");
             return;
         }
-        if (strcmp(ns, "link") != 0 && strcmp(ns, "game") != 0) {
-            // `config` and `scene` are reserved for later and not part of v0.
-            _error(id, "unknown_ns", ns, cmd, nullptr, "supported namespaces: link, game");
+        bool isLink = strcmp(ns, "link") == 0;
+        bool isGame = strcmp(ns, "game") == 0;
+        if (!isLink && !isGame && scope == Extension::Scope::None) {
+            // `scene` is reserved for later.
+            char msg[96];
+            snprintf(msg, sizeof(msg), "supported namespaces: link, game%s%s", _ext ? ", " : "",
+                     _ext ? _ext->names() : "");
+            _error(id, "unknown_ns", ns, cmd, nullptr, msg);
             return;
         }
         if (!cmd) {
             _error(id, "bad_field", ns, nullptr, "cmd", "cmd must be a string");
             return;
         }
-        if (strcmp(ns, "link") == 0)
-            _linkCmd(o, cmd, id, now);
-        else
-            _gameCmd(o, cmd, id, now);
+        if (isLink) return _linkCmd(o, cmd, id, now);
+        if ((isGame || scope == Extension::Scope::Bridge) && !_helloDone)
+            return _error(id, "no_hello", ns, cmd, nullptr, "send link hello first");
+        if (isGame) return _gameCmd(o, cmd, id, now);
+        _ext->command(*this, ns, cmd, o, id, now);
     }
 
     void _badField(const ReqId& id, const char* cmd, const char* field, const char* msg) {
@@ -408,6 +481,7 @@ class Link : public Bridge::Listener {
             }
             _active = true;
             _closing = false;
+            _helloDone = true;
             _lastRx = now;
             JsonDocument d;
             _head(d, "link", "hello", id);
@@ -415,6 +489,7 @@ class Link : public Bridge::Listener {
             JsonObject spaces = d["spaces"].to<JsonObject>();
             spaces["link"] = kLinkVersion;
             spaces["game"] = kGameVersion;
+            if (_ext) _ext->addSpaces(spaces);
             char fw[9], mac[18];
             snprintf(fw, sizeof(fw), "%08lx", (unsigned long)(_io.fwBuild ? _io.fwBuild() : 0));
             formatMac(_mac, mac);
@@ -427,6 +502,7 @@ class Link : public Bridge::Listener {
             _sendSession(ReqId{}, false);
             if (_bridge->active()) _sendState(ReqId{}, false, now);
             _bridge->markAllDirty();
+            if (_ext) _ext->onHello();
             return;
         }
         if (strcmp(cmd, "ping") == 0) {
