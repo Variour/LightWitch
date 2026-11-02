@@ -184,8 +184,8 @@ test('every view renders without console errors', { timeout: 180000 }, async (t)
     await shot('spielfeld-team', '#first .winner.wide');
 
     await act('next');
-    await act('next'); // erste, announced
-    await page.waitForSelector('#finished .answered');
+    await act('next'); // erste, announced: wait for the new view, the team view looks alike
+    await page.waitForFunction('/Plätzen vergeben$/.test(document.getElementById("finished")?.textContent ?? "")');
     assert.equal(await page.textContent('#finished'), '0von 10 Plätzen vergeben');
     await act('next'); // open
     await waitFor(() => game.snapshot().round.results.chosen.length === 10, { timeoutMs: 10000, what: 'ten places' });
