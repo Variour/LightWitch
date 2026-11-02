@@ -174,10 +174,15 @@ class PowerManager {
         if (armed) _shutdown("power key");
     }
 
-    // Charge voltage (VREG), e.g. the fleet's charge target (src/fleet/).
-    // Before begin() it sets the value configure() writes; later it writes
-    // VREG at once if the charger answers. Watchdog re-configures keep it.
+    // Charge voltage (VREG), e.g. the fleet's charge target (src/fleet/),
+    // rounded to the 10 mV step and held within VREG_MIN_MV and
+    // CHARGE_VOLTAGE_MV. Before begin() it sets the value configure() writes;
+    // later it writes VREG at once if the charger answers. Watchdog
+    // re-configures keep it.
     void setChargeVoltageMv(uint16_t mv) {
+        uint32_t step = Bq25628::VREG_STEP_MV;
+        mv = (uint16_t)((mv + step / 2) / step * step);
+        mv = constrain(mv, Bq25628::VREG_MIN_MV, CHARGE_VOLTAGE_MV);
         _settings.chargeVoltageMv = mv;
         if (_enabled && _online && !_chg.setChargeVoltage(mv)) _goOffline("VREG write failed");
     }
@@ -193,10 +198,17 @@ class PowerManager {
         if (_enabled) _shutdown(reason);
     }
 
-    // Before ESP deep sleep: LED rail off. In sleep the charger's watchdog
+    // Before ESP deep sleep: LED rail off, read back, one retry. False if
+    // OTG still reads on: no sleep then. In sleep the charger's watchdog
     // expires and it falls back to default mode, where EN_OTG stays 0 (§8.4.1).
-    void prepareDeepSleep() {
-        if (_enabled && _online) _chg.setOtg(false);
+    bool prepareDeepSleep() {
+        if (!_enabled || !_online) return false;
+        for (uint8_t i = 0; i < 2; i++) {
+            Bq25628::Status st;
+            if (_chg.setOtg(false) && _chg.readStatus(st) && !st.otgEnabled()) return true;
+        }
+        Logger::w("[pwr] OTG still on - no sleep now");
+        return false;
     }
 
     // Charger ADC interval; ADC_INTERVAL_MS unless changed (factory test).
@@ -213,8 +225,8 @@ class PowerManager {
 
     // Sleep timer wake (src/fleet/DeepSleep.h): power good and VBAT, without
     // configuring the charger or touching the LED rail. Wire must be begun.
-    // ok = false: the charger did not answer. vbatMv = 0 on battery: the ADC
-    // refused to convert, VBAT is below its threshold (§8.3.7).
+    // ok = false: the charger did not answer. vbatMv = 0: the ADC refused to
+    // convert; on battery VBAT is below its threshold then (§8.3.7).
     struct WakeReading {
         bool ok = false;
         bool powerGood = false;
@@ -226,10 +238,6 @@ class PowerManager {
         Bq25628::Status st;
         if (!chg.probe() || !chg.readStatus(st)) return r;
         r.powerGood = st.powerGood();
-        if (r.powerGood) {
-            r.ok = true;
-            return r;
-        }
         Bq25628::AdcStart start = chg.startAdcOneShot();
         if (start == Bq25628::AdcStart::Error) return r;
         if (start == Bq25628::AdcStart::Refused) {

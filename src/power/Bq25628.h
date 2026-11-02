@@ -62,6 +62,7 @@ class Bq25628 {
     static constexpr uint16_t VREG_SHIFT = 3;
     static constexpr uint16_t VREG_MASK = 0x1FF << VREG_SHIFT;
     static constexpr uint16_t VREG_STEP_MV = 10;
+    static constexpr uint16_t VREG_MIN_MV = 3500;
 
     // ── REG0x0C VOTG, bits 12:6, 80 mV/LSB, 3840-5200 mV, POR 5040 mV
     // (Table 8-13).
