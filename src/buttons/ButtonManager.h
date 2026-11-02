@@ -34,6 +34,10 @@ class ButtonManager {
 
     void setExecutor(ActionExecutor* executor) { _executor = executor; }
 
+    // Buttons (bit per slot) whose actions do not fire; their raw edges
+    // still go out.
+    void setMuted(uint16_t mask) { _muted = mask; }
+
     // Single consumer: main.cpp owns it and fans out to every module that
     // needs raw key edges.
     void setRawCallback(RawCallback cb) { _rawCb = cb; }
@@ -88,6 +92,7 @@ class ButtonManager {
     ButtonState _state[MAX_BUTTONS];
     Tca9555Expander _expanders[MAX_BUTTONS];
     ActionExecutor* _executor = nullptr;
+    uint16_t _muted = 0;
     RawCallback _rawCb;
     // Buttons whose raw release reconfigure() owes the raw consumer.
     std::atomic<uint16_t> _pendingRelease{0};
@@ -103,8 +108,8 @@ class ButtonManager {
         return b.activeLow ? !high : high;
     }
 
-    void _fire(const ButtonAction& action) {
-        if (_executor) _executor->execute(action);
+    void _fire(uint8_t i, const ButtonAction& action) {
+        if (_executor && !(_muted & (1u << i))) _executor->execute(action);
     }
 
     void _raw(uint8_t i, bool pressed, uint32_t ms) {
@@ -137,14 +142,14 @@ class ButtonManager {
 
             case ClickState::Pressed:
                 if (active && now - s.pressStartMs >= LONG_PRESS_MS) {
-                    _fire(b.onLongPress);
+                    _fire(i, b.onLongPress);
                     s.state = ClickState::LongFired;
                     break;
                 }
                 if (!active) {
                     _raw(i, false, now);
                     if (s.lastReleaseMs != 0 && now - s.lastReleaseMs <= DOUBLE_CLICK_WINDOW_MS) {
-                        _fire(b.onDoubleClick);
+                        _fire(i, b.onDoubleClick);
                         s.lastReleaseMs = 0;
                         s.state = ClickState::Idle;
                     } else {
@@ -164,7 +169,7 @@ class ButtonManager {
                     break;
                 }
                 if (now - s.lastReleaseMs > DOUBLE_CLICK_WINDOW_MS) {
-                    _fire(b.onShortPress);
+                    _fire(i, b.onShortPress);
                     s.lastReleaseMs = 0;
                     s.state = ClickState::Idle;
                 }
