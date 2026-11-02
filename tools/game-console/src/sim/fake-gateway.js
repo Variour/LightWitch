@@ -1,19 +1,24 @@
 // In-process fake gateway for `--simulate N`: a transport for GatewayLink
 // that speaks the same NDJSON as the firmware (src/game/Link.h and Bridge.h
 // on the game-session branch) and runs N simulated Buzzerboards over a
-// simulated radio with optional loss, latency and restarts.
+// simulated radio with optional loss, latency and restarts. The `fleet` and
+// `config` namespaces follow the fleet protocol v0 draft.
 
 import { EventEmitter } from 'node:events';
-import { LineSplitter, LINE_MAX, KEY_NAMES, COLOR_NAMES, ROUND_TYPES, PHASES, CHOICE_KEYS, normalizeMac, seq8Newer } from '../protocol.js';
+import { LineSplitter, LINE_MAX, KEY_NAMES, COLOR_NAMES, ROUND_TYPES, PHASES, CHOICE_KEYS, CHARGE_TARGETS, normalizeMac, seq8Newer } from '../protocol.js';
 import { makeRandom } from './random.js';
 import { SimDevice, Person } from './devices.js';
+import { FLEET_T } from './power.js';
 
 export const GW = {
   stateRepeat1: 50, stateRepeat2: 150, statePeriodOpen: 250, statePeriodIdle: 1000, stateMinGap: 50,
   inviteSessionPeriod: 1000, inviteHopPeriod: 300, inviteHopDwell: 30, invitesPerHop: 2,
   endRelease: 5000, releaseOne: 2000, admitRepeat: 250, admitTimeout: 5000, channelAnnounce: 2000,
   burstRepeat: 250, linkTimeout: 10000, maxNumber: 999,
+  fleetRepeat2Min: 40, fleetRepeat2Max: 120, fleetRepeat3Min: 150, fleetRepeat3Max: 300,
 };
+
+const OLD_FW = '0e9d8c7b'; // the one device that missed the last update
 
 const TICK_MS = 10;
 const BROADCAST = 'ff:ff:ff:ff:ff:ff';
@@ -45,6 +50,20 @@ class SimRadio {
     this.queue.push({ at: this.world.now() + this._delay(), channel: dev.channel, to: 'bridge', frame, rssi: dev.rssi });
   }
 
+  // Fleet frames travel on the devices' common mesh channel, which the
+  // simulator does not model: they reach everyone (channel null).
+  fleetFromBridge(frame) {
+    for (const d of this.world.devices) {
+      if (this.world.rnd.chance(this.loss)) continue;
+      this.queue.push({ at: this.world.now() + this._delay(), channel: null, to: d, frame });
+    }
+  }
+
+  fleetFromDevice(dev, frame) {
+    if (this.world.rnd.chance(this.loss)) return;
+    this.queue.push({ at: this.world.now() + this._delay(), channel: null, to: 'bridge', frame, rssi: dev.rssi });
+  }
+
   tick(now) {
     if (!this.queue.length) return;
     const due = [];
@@ -54,8 +73,8 @@ class SimRadio {
     due.sort((a, b) => a.at - b.at);
     for (const q of due) {
       if (q.to === 'bridge') {
-        if (this.world.gateway.radioChannel === q.channel) this.world.gateway.onFrame(q.frame, q.rssi);
-      } else if (q.to.channel === q.channel) {
+        if (q.channel === null || this.world.gateway.radioChannel === q.channel) this.world.gateway.onFrame(q.frame, q.rssi);
+      } else if (q.channel === null || q.to.channel === q.channel) {
         q.to.onFrame(q.frame, now);
       }
     }
@@ -108,9 +127,18 @@ export class FakeGateway extends EventEmitter {
     this.lastStateAt = -Infinity;
     this.burstStep = 0;
 
+    // fleet and config
+    this.fleetTable = new Map(); // mac -> { st, heardAt, rssi, dirty }
+    this.fleetOut = []; // { at, frame } repeats of fleet commands
+    this.fleetNonce = 1;
+    this.wifi = []; // SSIDs of the gateway's own WiFi list
+    this.ownTarget = 'store';
+
     this.world = {
       rnd: this.rnd,
       fw,
+      releaseFw: fw, // the gateway runs the newest release
+      ft: { ...FLEET_T, ...timing },
       now: () => this.now(),
       gateway: this,
       devices: [],
@@ -130,16 +158,29 @@ export class FakeGateway extends EventEmitter {
 
   _makeDevices(n) {
     const rnd = this.rnd;
+    // The transport case: most buzzers charge in it, some already full. From
+    // five buzzers on, one has a charger fault, one runs an old firmware, two
+    // are out on battery and one sleeps in standby.
+    const at = (f) => (n >= 5 ? Math.ceil(n * f) : 0);
+    const fault = at(0.26);
+    const old = at(0.14);
+    const out = [at(0.42), at(0.74)];
+    const standby = at(0.9);
     for (let i = 1; i <= n; i++) {
       let storedN = i;
       if (rnd.chance(0.08)) storedN = 0; // never numbered
+      let power = { state: 'charging', bat: rnd.chance(0.4) ? 80 : rnd.int(180, 780) / 10 };
+      if (out.includes(i)) power = { state: 'active', bat: rnd.int(50, 90) };
+      else if (i === standby) power = { state: 'standby', bat: rnd.int(82, 95) };
+      else if (i === fault) power = { state: 'charging', bat: 41, fault: true };
+      power.fw = i === old ? OLD_FW : this.fw;
       this.world.devices.push(new SimDevice(this.world, {
         index: i,
         mac: `02:b0:00:00:${hex2(i >> 8)}:${hex2(i & 0xff)}`,
         storedN,
         channel: rnd.int(1, 13),
-        battery: rnd.int(35, 100),
         rssi: rnd.int(-82, -45),
+        power,
       }));
     }
     // One sticker mix-up: two devices with the same stored number.
@@ -172,6 +213,7 @@ export class FakeGateway extends EventEmitter {
     Object.assign(this, {
       active: false, closing: false, everBridge: false, bActive: false, ending: false, session: 0,
       round: this._emptyRound(), devs: new Map(), maxNumber: 0, admits: [], releases: [], login: false,
+      fleetTable: new Map(), fleetOut: [],
       pendingChannel: 0, offChannel: false, radioChannel: 0, bootAt: this.now(),
       lastStateAt: -Infinity, nextStateAt: 0, burstStep: 0, rxFrames: 0, txFrames: 0,
       input: [], out: [], splitter: new LineSplitter(LINE_MAX + 1),
@@ -237,9 +279,11 @@ export class FakeGateway extends EventEmitter {
       else return this._error(undefined, 'bad_field', ns, c, 'id', 'id must be an integer or a string of 1-16 chars');
     }
     if (!ns) return this._error(id, 'bad_field', null, null, 'ns', 'ns must be a string');
-    if (ns !== 'link' && ns !== 'game') return this._error(id, 'unknown_ns', ns, c, null, 'supported namespaces: link, game');
+    if (!['link', 'game', 'fleet', 'config'].includes(ns)) return this._error(id, 'unknown_ns', ns, c, null, 'supported namespaces: link, game, fleet, config');
     if (!c) return this._error(id, 'bad_field', ns, null, 'cmd', 'cmd must be a string');
     if (ns === 'link') return this._linkCmd(o, c, id, now);
+    if (ns === 'fleet') return this._fleetCmd(o, c, id, now);
+    if (ns === 'config') return this._configCmd(o, c, id);
     return this._gameCmd(o, c, id, now);
   }
 
@@ -266,7 +310,7 @@ export class FakeGateway extends EventEmitter {
       this.active = true;
       this.closing = false;
       this.lastRx = now;
-      this._ev('link', 'hello', id, { link: 0, spaces: { link: 0, game: 0 }, fw: this.fw, mac: this.mac, proto: 1, uptimeMs: now - this.bootAt });
+      this._ev('link', 'hello', id, { link: 0, spaces: { link: 0, game: 0, fleet: 0, config: 0 }, fw: this.fw, mac: this.mac, proto: 1, uptimeMs: now - this.bootAt });
       this._sendSession(undefined, false);
       if (this.bActive) this._sendState(undefined, false, now);
       this._markAllDirty();
@@ -283,6 +327,84 @@ export class FakeGateway extends EventEmitter {
       return undefined;
     }
     return this._error(id, 'unknown_cmd', 'link', c, null, 'link commands: hello, ping, bye');
+  }
+
+  // ── Fleet and config ─────────────────────────────────────────────────────
+  _fleetCmd(o, c, id, now) {
+    const bad = (f, m) => this._error(id, 'bad_field', 'fleet', c, f, m);
+    let frame;
+    if (c === 'update') {
+      if (o.source === 'release') frame = { op: 'update', source: 'release' };
+      else if (o.source === 'pr') {
+        if (!Number.isInteger(o.pr) || o.pr < 1) return bad('pr', 'pr must be a positive integer');
+        frame = { op: 'update', source: 'pr', pr: o.pr };
+      } else return bad('source', 'source must be release or pr');
+    } else if (c === 'charge') {
+      if (!CHARGE_TARGETS.includes(o.target)) return bad('target', 'target must be store or event');
+      frame = { op: 'charge', target: o.target };
+    } else if (c === 'off') {
+      frame = { op: 'off' };
+    } else if (c === 'ap') {
+      const mac = normalizeMac(o.mac);
+      if (!mac) return bad('mac', 'mac must look like 02:00:00:00:00:11');
+      frame = { op: 'ap', targets: [mac] };
+    } else {
+      return this._error(id, 'unknown_cmd', 'fleet', c, null, 'fleet commands: update, charge, off, ap');
+    }
+    // Three times with jitter, one nonce for the devices to drop repeats.
+    const f = { type: 'fleetCommand', origin: 0, nonce: this.fleetNonce++, targets: null, ...frame };
+    const t = this.t;
+    this.fleetOut.push(
+      { at: now, frame: f },
+      { at: now + this.rnd.int(t.fleetRepeat2Min, t.fleetRepeat2Max), frame: f },
+      { at: now + this.rnd.int(t.fleetRepeat3Min, t.fleetRepeat3Max), frame: f },
+    );
+    return this._ev('fleet', 'sent', id);
+  }
+
+  // The simulator answers the config commands the console uses: wifi, get.
+  _configCmd(o, c, id) {
+    if (c === 'wifi') {
+      const nets = o.networks;
+      const ok = Array.isArray(nets) && nets.every((n) => n && typeof n.ssid === 'string' && n.ssid.length >= 1 &&
+        Buffer.byteLength(n.ssid, 'utf8') <= 32 && typeof n.pass === 'string' && n.pass.length <= 64);
+      if (!ok) return this._error(id, 'bad_field', 'config', 'wifi', 'networks', 'networks: [{ssid 1-32 bytes, pass 0-64 chars}]');
+      this.wifi = nets.map((n) => n.ssid); // the simulator keeps no passwords
+      return this._ev('config', 'wifi', id, { ok: true, count: this.wifi.length });
+    }
+    if (c === 'get') {
+      return this._ev('config', 'config', id, { wifiCount: this.wifi.length, target: this.ownTarget, number: this.ownNumber || null, fw: this.fw });
+    }
+    return this._error(id, 'unknown_cmd', 'config', c, null, 'simulator: wifi, get');
+  }
+
+  _onFleetStatus(f, rssi, now) {
+    this.fleetTable.set(f.mac, { st: f, heardAt: now, rssi, dirty: true });
+  }
+
+  _serviceFleet(now) {
+    if (!this.fleetOut.length) return;
+    const due = this.fleetOut.filter((q) => q.at <= now);
+    this.fleetOut = this.fleetOut.filter((q) => q.at > now);
+    for (const q of due) {
+      this.txFrames++;
+      this.world.radio.fleetFromBridge(q.frame);
+    }
+  }
+
+  // Latest value per device, written when it changed (like `value`).
+  _flushFleet(now) {
+    if (!this.active || this.closing) return;
+    for (const [mac, e] of this.fleetTable) {
+      if (!e.dirty) continue;
+      e.dirty = false;
+      const f = e.st;
+      this._ev('fleet', 'status', undefined, {
+        mac, n: f.number || null, state: f.state, bat: f.battery, vbat: f.vbat, chg: f.charge, target: f.target,
+        usb: f.usbPresent, fw: f.fw, upd: f.upd, pct: f.pct, err: f.err, rssi: e.rssi,
+        age: Math.floor((now - e.heardAt) / 1000),
+      });
+    }
   }
 
   _gameCmd(o, c, id, now) {
@@ -338,11 +460,13 @@ export class FakeGateway extends EventEmitter {
       this.nextInviteAt = now;
       this.nextHopAt = now + this.t.inviteHopPeriod;
       this.hopIdx = o.channel;
+      if (o.login) this._takeOutAll(now);
     } else {
       this.fleet = fleet;
       if (o.login && !this.login) {
         this.nextInviteAt = now;
         this.nextHopAt = now + this.t.inviteHopPeriod;
+        this._takeOutAll(now);
       }
       this.login = o.login;
       if (o.channel !== this.channel && o.channel !== this.pendingChannel) {
@@ -568,10 +692,17 @@ export class FakeGateway extends EventEmitter {
       if (d.mac && d.hasStatus) d.dirtyDevice = true;
       if (d.hasValue) d.dirtyValue = true;
     }
+    for (const e of this.fleetTable.values()) e.dirty = true;
+  }
+
+  // Login opens: the crew takes every buzzer out of the transport case.
+  _takeOutAll(now) {
+    for (const d of this.devices) d.power.planTakeOut(now);
   }
 
   onFrame(f, rssi) {
     this.rxFrames++;
+    if (f.type === 'fleetStatus') return this._onFleetStatus(f, rssi, this.now());
     if (!this.bActive || this.ending || f.origin === 0 || f.session !== this.session) return;
     if (f.type === 'report') this._onReport(f, rssi);
     else if (f.type === 'status') this._onStatus(f, rssi);
@@ -760,7 +891,9 @@ export class FakeGateway extends EventEmitter {
     this.world.radio.tick(now);
     for (const d of this.devices) d.tick(now);
     this._bridgeTick(now);
+    this._serviceFleet(now);
     this._flushTable();
+    this._flushFleet(now);
     if (this.closing) this.active = false;
   }
 }

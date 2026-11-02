@@ -174,6 +174,83 @@ test('lossy radio, a device restart and a gateway restart in the middle of a rou
   }
 });
 
+// Fleet timings of the simulator, shortened: updates take 2-4 s, statuses come every ~2 s.
+const FAST_FLEET = {
+  fleetStatusPeriod: 2000, fleetStatusJitter: 300, fleetFirstStatusMax: 800, fleetUpdateStatusPeriod: 300,
+  fleetCheckMin: 200, fleetCheckMax: 400, fleetDownloadMin: 1500, fleetDownloadMax: 3000,
+  fleetInstallMin: 200, fleetInstallMax: 400, fleetRebootMs: 300,
+};
+
+test('fleet: charge target, update-all, ap, config, wifi-set and off-all against the simulator', { timeout: 90000 }, async () => {
+  const logs = [];
+  const { app, port, api, act, state, gw } = await start({
+    simulate: 12, trace: true, simTiming: { endRelease: 1000, ...FAST_FLEET }, log: (level, text) => logs.push(`${level} ${text}`),
+  });
+  const cli = (args, input) => {
+    const p = run(process.execPath, [BIN, ...args, '--http-port', String(port)]);
+    p.child.stdin.end(input ?? '');
+    return p;
+  };
+  try {
+    await waitFor(() => app.link.connected, { what: 'link' });
+    await waitFor(() => app.game.snapshot().fleet.devices.length === 12, { timeoutMs: 5000, what: '12 devices in the fleet table' });
+    let s = await state();
+    assert.deepEqual(s.fleet.ref, { fw: s.link.fw, source: 'gateway' });
+    assert.equal(s.fleet.counts.outdated, 1);
+    assert.equal(s.fleet.counts.errors, 1);
+    assert.ok(s.fleet.counts.charging >= 1 && s.fleet.counts.full >= 1);
+    for (const d of s.fleet.devices) {
+      assert.ok(typeof d.bat === 'number' && typeof d.rssi === 'number' && /^[0-9a-f]{8}$/.test(d.fw), d.mac);
+    }
+
+    // Charge target Event: every device reports it, full ones charge on.
+    const charge = await cli(['charge', 'event']);
+    assert.match(charge.stdout, /Ladeziel Event \(100 %\) an alle gesendet/);
+    await waitFor(() => app.game.snapshot().fleet.devices.every((d) => d.target === 'event'), { timeoutMs: 6000, what: 'target event' });
+    assert.ok(gw.devices.every((d) => d.power.target === 'event'));
+    await waitFor(() => app.game.snapshot().fleet.counts.full === 0, { timeoutMs: 6000, what: 'full devices charge on to 100 %' });
+
+    // Update an alle: the outdated device downloads with progress and comes back with the gateway's firmware.
+    await act('update-all');
+    await waitFor(() => app.game.snapshot().fleet.devices.some((d) => d.upd === 'downloading' && d.pct > 0), { timeoutMs: 6000, what: 'download progress' });
+    await waitFor(() => {
+      const f = app.game.snapshot().fleet;
+      return f.counts.outdated === 0 && f.counts.updating === 0 && f.devices.length === 12 && f.devices.every((d) => d.fw === f.ref.fw);
+    }, { timeoutMs: 15000, what: 'every device on the new firmware' });
+    assert.ok(gw.devices.every((d) => d.power.fw === gw.fw));
+
+    // Maintenance AP for one device, by MAC; a shared number is refused.
+    const one = (await state()).fleet.devices[0];
+    await cli(['ap', one.mac]);
+    await waitFor(() => gw.devices.find((d) => d.mac === one.mac).power.apUntil > gw.now(), { what: 'AP open' });
+    await assert.rejects(cli(['ap', '3']), (e) => e.code === 1 && /mehrere Geräte/.test(e.stderr));
+
+    // The device on the USB cable: WiFi from stdin, then read back.
+    const secret = 'Pf3rd-auf-der-Weide';
+    const wifi = await cli(['wifi-set'], `Halle 3\n${secret}\n`);
+    assert.match(wifi.stdout, /WLAN "Halle 3" auf dem Gerät am USB-Kabel gespeichert/);
+    assert.deepEqual(gw.wifi, ['Halle 3']);
+    const got = await cli(['config-get']);
+    assert.match(got.stdout, /Firmware 1a2b3c4d, Nummer keine, 1 WLAN-Netz\(e\), Ladeziel Lagern/);
+    assert.ok(logs.some((l) => l.startsWith('tx ') && l.includes('"cmd":"wifi"')), 'the trace shows the command');
+    assert.equal(logs.some((l) => l.includes(secret)), false, 'password in the log');
+    assert.equal(JSON.stringify(await state()).includes(secret), false, 'password in the state');
+
+    // Off: devices on battery go to ship mode and leave the table; devices on USB stay.
+    const onBattery = (await state()).fleet.devices.filter((d) => d.usb === false).map((d) => d.mac).sort();
+    assert.equal(onBattery.length, 3);
+    const off = await api('/api/action', { action: 'off-all' });
+    assert.match(off.body.message, /3 Gerät\(e\) im Akkubetrieb/);
+    await sleep(4000); // two status periods
+    s = await state();
+    assert.equal(s.fleet.devices.length, 9);
+    assert.ok(s.fleet.devices.every((d) => d.usb === true));
+    assert.deepEqual(gw.devices.filter((d) => d.power.state === 'off').map((d) => d.mac).sort(), onBattery);
+  } finally {
+    await app.close();
+  }
+});
+
 test('the API answers only on 127.0.0.1 and only to JSON posts', async () => {
   const { app, port } = await start({ simulate: 1 });
   try {
