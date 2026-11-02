@@ -434,7 +434,7 @@ export class GameConsole extends EventEmitter {
     let num;
     if (pr !== undefined && pr !== null && pr !== '') {
       num = Number(pr);
-      if (!Number.isInteger(num) || num < 1 || num > 99999) throw new ActionError('PR-Nummer: ganze Zahl ab 1.');
+      if (!Number.isInteger(num) || num < 1 || num > 65535) throw new ActionError('PR-Nummer: ganze Zahl von 1 bis 65535.');
     }
     const note = await this._fleetSend(cmd.fleetUpdate(num), 'Update an alle');
     const msg = `Update an alle gesendet (${num ? `PR ${num}` : 'neuestes Release'}). Das Gateway aktualisiert sich mit und startet bei einer neuen Firmware neu.${note}`;
@@ -490,8 +490,8 @@ export class GameConsole extends EventEmitter {
     }
     if (typeof pass !== 'string') throw new ActionError('WLAN-Passwort fehlt (leer für ein offenes Netz).');
     const printable = /^[\x20-\x7e]*$/.test(pass);
-    if (pass.length && !(printable && pass.length >= 8 && pass.length <= 63) && !/^[0-9a-fA-F]{64}$/.test(pass)) {
-      throw new ActionError('WLAN-Passwort: 8 bis 63 Zeichen (ohne Umlaute), 64 Hex-Zeichen oder leer für ein offenes Netz.');
+    if (pass.length && !(printable && pass.length >= 8 && pass.length <= 63)) {
+      throw new ActionError('WLAN-Passwort: 8 bis 63 Zeichen (ohne Umlaute) oder leer für ein offenes Netz.');
     }
     this._needSpace('config', 'die Konfiguration über USB');
     let ev;

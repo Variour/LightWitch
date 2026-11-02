@@ -101,7 +101,7 @@ function argsFor(action, pos, v) {
     case 'admit-mode': return { mode: pos[0] };
     case 'usb-number': return pos[0] === undefined ? {} : { n: pos[0] === 'none' ? null : Number(pos[0]) };
     case 'fleet-view': return pos[0] === undefined ? {} : { mode: pos[0] };
-    case 'update-all': return v.pr === undefined ? {} : { pr: int('pr', v.pr, 1, 99999) };
+    case 'update-all': return v.pr === undefined ? {} : { pr: int('pr', v.pr, 1, 65535) };
     case 'charge': return { target: pos[0] };
     case 'ap': return { to: pos[0] };
     case 'fw-ref': return { fw: pos[0] };

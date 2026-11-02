@@ -202,7 +202,7 @@ test('wifi-set sends one network and keeps the password out of messages, state a
   assert.equal((await game.act('wifi-set', { ssid: 'Halle 3', pass: 'kurz' })).ok, false);
   assert.equal((await game.act('wifi-set', { ssid: 'x'.repeat(33), pass: '' })).ok, false);
   assert.equal((await game.act('wifi-set', { ssid: 'Offen', pass: '' })).ok, true);
-  assert.equal((await game.act('wifi-set', { ssid: 'Hex', pass: 'ab'.repeat(32) })).ok, true);
+  assert.equal((await game.act('wifi-set', { ssid: 'Lang', pass: 'x'.repeat(64) })).ok, false);
   const bad = await game.act('wifi-set', { ssid: 'Halle', pass: 'Grüße-123' });
   assert.equal(bad.ok, false);
   assert.equal(bad.error.includes('Grüße-123'), false);
