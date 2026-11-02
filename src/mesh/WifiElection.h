@@ -7,6 +7,7 @@
 #include "../config/Config.h"
 #include "../logging/Logger.h"
 #include "PeerRegistry.h"
+#include "SoftAp.h"
 
 // Non-blocking, tick-based replacement for the STA connect loop in
 // main.cpp's setupWifi(), so a (possibly long) connection attempt never
@@ -57,7 +58,7 @@ class WifiConnectAttempt {
     // of waiting for kApConfirmHoldMs. No-op if not currently holding.
     void confirmDisableAp() {
         if (!awaitingApConfirm()) return;
-        WiFi.softAPdisconnect(false);
+        SoftAp::stopFallback();
         _active = false;
         _onDone = nullptr;
     }
@@ -70,9 +71,7 @@ class WifiConnectAttempt {
         _active = false;
         _onDone = nullptr;
         WiFi.disconnect(false);
-        auto& c = Config::get();
-        WiFi.softAP(c.deviceName, c.apPassword, 1);
-        WiFi.setTxPower(WIFI_TX_POWER);
+        SoftAp::startFallback();
     }
 
     void tick() {
@@ -80,7 +79,7 @@ class WifiConnectAttempt {
 
         if (_phase == Phase::AwaitingConfirm) {
             if (millis() - _confirmStart >= kApConfirmHoldMs) {
-                WiFi.softAPdisconnect(false);
+                SoftAp::stopFallback();
                 _active = false;
                 _onDone = nullptr;
             }
@@ -112,7 +111,7 @@ class WifiConnectAttempt {
                 if (cb) cb(true);
                 return;
             }
-            WiFi.softAPdisconnect(false);
+            SoftAp::stopFallback();
             _finish(true);
             return;
         }
@@ -164,11 +163,7 @@ class WifiConnectAttempt {
 
     void _finish(bool ok) {
         _active = false;
-        if (!ok) {
-            auto& c = Config::get();
-            WiFi.softAP(c.deviceName, c.apPassword, 1);
-            WiFi.setTxPower(WIFI_TX_POWER);
-        }
+        if (!ok) SoftAp::startFallback();
         DoneCb cb = _onDone;
         _onDone = nullptr;
         if (cb) cb(ok);
@@ -289,9 +284,7 @@ class WifiElection {
         } else if (_stateBeforeOta != State::Connecting) {
             if (Config::get().wifiSingleClientMode && WiFi.status() == WL_CONNECTED) {
                 WiFi.disconnect(false);
-                auto& c = Config::get();
-                WiFi.softAP(c.deviceName, c.apPassword, 1);
-                WiFi.setTxPower(WIFI_TX_POWER);
+                SoftAp::startFallback();
             }
             _state = _stateBeforeOta;
         }
@@ -404,9 +397,7 @@ class WifiElection {
                     // back to exactly one WiFi client.
                     Logger::w("[wifi-elect] a lower-MAC peer is also connected — yielding");
                     WiFi.disconnect(false);
-                    auto& c = Config::get();
-                    WiFi.softAP(c.deviceName, c.apPassword, 1);
-                    WiFi.setTxPower(WIFI_TX_POWER);
+                    SoftAp::startFallback();
                     _state = State::Standby;
                 }
                 break;
@@ -487,6 +478,28 @@ class WifiElection {
         if (WiFi.status() != WL_CONNECTED) return false;
         if (!_otaHold) return true;
         return _stateBeforeOta == State::Connected || _state == State::Connected;
+    }
+
+    // The radio goes to a game-free inactive mode (charging mode, standby,
+    // src/fleet/): drop the station connection and any attempt, except a
+    // temporary one an update still needs.
+    void suspend() {
+        if (_otaHold) return;
+        if (_attempt.active()) _attempt.abort();
+        if (Config::get().wifiSingleClientMode) _enterWaiting();
+        WiFi.disconnect(false);
+    }
+
+    // The radio is back from suspend(): connect again the way boot does,
+    // without blocking. Single-client mode: the election runs again.
+    void resume() {
+        if (_otaHold) return;
+        if (Config::get().wifiSingleClientMode) {
+            _enterWaiting();
+            return;
+        }
+        if (Config::wifiCount() > 0 && WiFi.status() != WL_CONNECTED && !_attempt.active())
+            _attempt.start([](bool) {});
     }
 
     // Manual nudge — e.g. a "retry WiFi" UI button — for a device stuck in
