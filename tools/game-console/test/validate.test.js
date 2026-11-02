@@ -79,9 +79,12 @@ test('choice rules', () => {
 });
 
 test('move rules and defaults', () => {
-  assert.deepEqual(validateInput(ROUNDS.move).value, { ...ROUNDS.move, cols: 22, rows: 10 });
+  assert.deepEqual(validateInput(ROUNDS.move).value, { ...ROUNDS.move, cols: 22, rows: 10, play: 'alle' });
   assert.deepEqual(validateInput({ format: 'buzzer-round/0', id: 'm', type: 'move' }).value,
-    { format: 'buzzer-round/0', id: 'm', title: '', question: '', type: 'move', hold: 'frei', goal: 'right', cols: 22, rows: 10 });
+    { format: 'buzzer-round/0', id: 'm', title: '', question: '', type: 'move', hold: 'frei', goal: 'right', cols: 22, rows: 10, play: 'alle' });
+  for (const play of ['alle', 'team', 'erste', 'gruppen']) assert.equal(validateInput({ ...ROUNDS.move, play }).value.play, play);
+  for (const play of ['Team', 'einzeln', '', 2, null]) fails({ ...ROUNDS.move, play }, 'play', /"play" muss "alle", "team", "erste" oder "gruppen" sein/);
+  fails({ ...ROUNDS.race, play: 'team' }, 'play', /Feld "play" gehört nicht zum Rundentyp "race"/);
   const sized = validateInput({ ...ROUNDS.move, hold: 'hochkant', cols: 40, rows: 1 });
   assert.deepEqual([sized.value.hold, sized.value.cols, sized.value.rows], ['hochkant', 40, 1]);
   assert.equal(validateInput({ ...ROUNDS.move, cols: 2, rows: 20 }).ok, true);

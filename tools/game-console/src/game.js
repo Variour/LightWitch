@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { cmd, keysFor, normalizeMac, FW_RE, seq8Newer } from './protocol.js';
 import { FleetTable } from './fleet.js';
-import { boardDirection, startCell, step, inside, atGoal, MOVE_DEFAULTS } from './move.js';
+import { boardDirection, startCell, step, inside, atGoal, groupOf, teamStart, MOVE_DEFAULTS } from './move.js';
 import { isLage, requiredLage, fitsLage } from './lage.js';
 
 // Fixed values in v0 (round format, "Feste Werte in v0", console part).
@@ -130,6 +130,7 @@ export class GameConsole extends EventEmitter {
       'wifi-set': ({ ssid, pass } = {}) => this._wifiSet(ssid, pass),
       'config-get': this._configGet,
       'fw-ref': ({ fw } = {}) => this._setFwRef(fw),
+      group: ({ k } = {}) => this._setGroup(k),
     };
   }
 
@@ -255,9 +256,14 @@ export class GameConsole extends EventEmitter {
     if (type === 'scale') Object.assign(run, { min: def.min, max: def.max, redMax: def.redMax, greenMin: def.greenMin });
     if (type === 'choice') Object.assign(run, { answers: def.answers, correct: def.correct });
     if (type === 'move') {
-      // pos: n -> { col, row }; order: numbers in the goal, first is the
-      // winner; kseq: the last press counter applied per number.
-      Object.assign(run, { goal: def.goal, cols: def.cols, rows: def.rows, pos: new Map(), order: [], kseq: new Map() });
+      // pos: n -> { col, row }; order: numbers in the goal (team: team
+      // numbers), first is the winner; kseq: the last press counter applied
+      // per number; teams: k -> { x, y } (team); chosen: numbers with a
+      // place, in order (erste); group: the active group (gruppen).
+      Object.assign(run, {
+        goal: def.goal, cols: def.cols, rows: def.rows, play: def.play,
+        pos: new Map(), order: [], kseq: new Map(), teams: new Map(), chosen: [], group: null,
+      });
     }
     this.prevRound = this.round;
     this.round = run;
@@ -274,7 +280,10 @@ export class GameConsole extends EventEmitter {
     if (r.type === 'move') {
       // Everybody back to the start cell; _changed() places them.
       r.pos.clear();
+      r.teams.clear();
       r.order = [];
+      r.chosen = [];
+      if (r.play === 'gruppen') r.group = this._groups()[0] ?? null;
     }
     const openInMs = r.type === 'race' ? TIMING.raceOpenInMs : 0;
     r.startAt = this.now() + openInMs;
@@ -314,6 +323,20 @@ export class GameConsole extends EventEmitter {
     r.revealed = true;
     this._pushRound();
     const msg = `Aufgelöst: Antwort ${r.correct}.`;
+    this._msg('info', msg);
+    return msg;
+  }
+
+  // Move rounds with "play": "gruppen": the group that moves now.
+  _setGroup(k) {
+    const r = this._needRound();
+    if (r.type !== 'move' || r.play !== 'gruppen') throw new ActionError('Eine Gruppe wählen geht nur bei einer Spielfeld-Runde mit "play": "gruppen".');
+    if (r.phase !== 'open') throw new ActionError('Eine Gruppe wählen geht nur, solange die Runde offen ist.');
+    const num = Number(k);
+    if (k === undefined || k === null || k === '' || !Number.isInteger(num) || num < 1) throw new ActionError('Gruppe: ganze Zahl ab 1.');
+    if (!this._groups().includes(num)) throw new ActionError(`Gruppe ${num} hat keine Teilnehmer.`);
+    r.group = num;
+    const msg = `Gruppe ${num} ist dran.`;
     this._msg('info', msg);
     return msg;
   }
@@ -720,7 +743,7 @@ export class GameConsole extends EventEmitter {
           startAt: typeof ev.sinceOpenMs === 'number' ? this.now() - ev.sinceOpenMs : null,
           firstPressAt: null, winnerDue: false, invalid: false, adopted: true,
           min: 0, max: 9, redMax: 3, greenMin: 7, answers: [], correct: null,
-          hold: 'frei', lageAtOpen: new Map(), ...MOVE_DEFAULTS, pos: new Map(), order: [], kseq: new Map(),
+          hold: 'frei', lageAtOpen: new Map(), ...MOVE_DEFAULTS, pos: new Map(), order: [], kseq: new Map(), teams: new Map(), chosen: [], group: null,
         };
         this._msg('warn', 'Laufende Runde vom Gateway übernommen; Titel und Frage sind unbekannt.');
       }
@@ -854,11 +877,47 @@ export class GameConsole extends EventEmitter {
     const last = r.kseq.get(ev.n);
     if (last !== undefined && !seq8Newer(ev.kseq, last)) return this._changed();
     r.kseq.set(ev.n, ev.kseq);
-    if (r.phase === 'open' && !this._wrongLage(r, ev.n, ev.lage)) {
+    if (r.phase === 'open' && this._admittedNumbers().includes(ev.n) && !this._wrongLage(r, ev.n, ev.lage)) {
       this._moveSync();
-      this._moveStep(r, ev.n, boardDirection(r.hold, ev.key, isLage(ev.lage) ? ev.lage : null));
+      const dir = boardDirection(r.hold, ev.key, isLage(ev.lage) ? ev.lage : null);
+      if (r.play === 'team') this._teamStep(r, groupOf(ev.n), dir);
+      else if (r.play === 'erste' && !r.chosen.includes(ev.n)) {
+        // The first press takes a place, if one is left, and does not move.
+        if (r.chosen.length < r.rows) {
+          r.chosen.push(ev.n);
+          this._moveSync();
+        }
+      } else if (r.play !== 'gruppen' || groupOf(ev.n) === r.group) this._moveStep(r, ev.n, dir);
     }
     return this._changed();
+  }
+
+  // A press of a team member moves the team by 1/members of a cell. Teams
+  // do not block each other; a team at the last column is in the goal.
+  _teamStep(r, k, dir) {
+    const t = r.teams.get(k);
+    const members = this._admittedNumbers().filter((n) => groupOf(n) === k).length;
+    if (!t || !dir || !members || r.order.includes(k)) return;
+    const d = step({ col: 0, row: 0 }, dir);
+    const clamp = (v, hi) => Math.min(Math.max(v, 0), hi);
+    t.x = clamp(t.x + d.col / members, r.cols - 1);
+    t.y = clamp(t.y + d.row / members, r.rows - 1);
+    if (t.x >= r.cols - 1 - 1e-9) {
+      t.x = r.cols - 1;
+      r.order.push(k);
+    }
+  }
+
+  // What participant n can do in the open move round: 'play', 'wait' (its
+  // group is not active) or 'out' (in the goal, no place left, not taking
+  // part). For the simulated people and the keyboard.
+  moveRole(n) {
+    const r = this.round;
+    if (!r || r.type !== 'move' || r.adopted || r.phase !== 'open' || !this._admittedNumbers().includes(n)) return 'out';
+    if (r.order.includes(r.play === 'team' ? groupOf(n) : n)) return 'out';
+    if (r.play === 'erste') return r.chosen.includes(n) || r.chosen.length < r.rows ? 'play' : 'out';
+    if (r.play === 'gruppen') return groupOf(n) === r.group ? 'play' : 'wait';
+    return 'play';
   }
 
   // One cell in the mapped direction. Ignored past the border, onto an
@@ -876,17 +935,25 @@ export class GameConsole extends EventEmitter {
   // Keeps the board in step with the participants: one figure per admitted
   // participant, a newcomer on its start cell as soon as that is free. A
   // start cell beyond the board or in the goal column gives no figure.
+  // Team: a figure for every group with a member, from its first member on.
+  // Erste: figures only for the participants with a place, in col 0 by order.
   _moveSync() {
     const r = this.round;
     if (!r || r.type !== 'move' || r.adopted) return;
     const present = this._admittedNumbers();
-    const keep = new Set(present);
+    if (r.play === 'team') {
+      for (const k of this._groups()) if (!r.teams.has(k)) r.teams.set(k, teamStart(k, r.rows));
+      return;
+    }
+    if (r.play === 'gruppen' && r.phase === 'open' && r.group === null) r.group = this._groups()[0] ?? null;
+    const playing = r.play === 'erste' ? r.chosen.filter((n) => present.includes(n)) : present;
+    const keep = new Set(playing);
     for (const n of r.pos.keys()) if (!keep.has(n)) r.pos.delete(n);
     const cellKey = (c) => `${c.col},${c.row}`;
     const taken = new Set([...r.pos.values()].map(cellKey));
-    for (const n of present) {
+    for (const n of playing) {
       if (r.pos.has(n)) continue;
-      const c = startCell(n, r.rows);
+      const c = r.play === 'erste' ? { col: 0, row: r.chosen.indexOf(n) } : startCell(n, r.rows);
       if (!inside(c, r.cols, r.rows) || atGoal(c, r.goal, r.cols) || taken.has(cellKey(c))) continue;
       r.pos.set(n, c);
       taken.add(cellKey(c));
@@ -904,6 +971,11 @@ export class GameConsole extends EventEmitter {
     const ns = [];
     for (const d of this.devices.values()) if (d.n && d.admitted) ns.push(d.n);
     return ns.sort((a, b) => a - b);
+  }
+
+  // Groups with at least one admitted member, ascending.
+  _groups() {
+    return [...new Set(this._admittedNumbers().map(groupOf))];
   }
 
   _raceUpdate(run) {
@@ -1169,15 +1241,27 @@ function roundView(r, admitted, ready) {
     return { ...base, answers: r.answers, correct: r.revealed ? r.correct : null, hasCorrect: !!r.correct, revealed: r.revealed, results };
   }
   if (r.type === 'move') {
+    const team = r.play === 'team';
     const players = admitted.map((n) => {
-      const c = r.pos.get(n);
-      const i = r.order.indexOf(n);
+      const c = team ? undefined : r.pos.get(n);
+      const i = team ? -1 : r.order.indexOf(n);
       return { n, col: c ? c.col : null, row: c ? c.row : null, place: i >= 0 ? i + 1 : null };
     });
-    return {
-      ...base, goal: r.goal, cols: r.cols, rows: r.rows,
-      results: { players, order: [...r.order], winner: r.order[0] ?? null, finished: r.order.length, participants, ready },
-    };
+    const results = { players, order: [...r.order], winner: r.order[0] ?? null, finished: r.order.length, participants, ready, play: r.play };
+    if (team) {
+      const round3 = (v) => Math.round(v * 1000) / 1000;
+      const members = (k) => admitted.filter((n) => groupOf(n) === k).length;
+      results.teams = [...r.teams.entries()]
+        .filter(([k]) => members(k) > 0)
+        .sort((a, b) => a[0] - b[0])
+        .map(([k, t]) => ({ team: k, members: members(k), x: round3(t.x), y: round3(t.y), place: r.order.includes(k) ? r.order.indexOf(k) + 1 : null }));
+    } else if (r.play === 'erste') {
+      results.chosen = [...r.chosen];
+      results.watching = admitted.filter((n) => !r.chosen.includes(n)).length;
+    } else if (r.play === 'gruppen') {
+      results.group = r.group;
+    }
+    return { ...base, goal: r.goal, cols: r.cols, rows: r.rows, results };
   }
   return base;
 }

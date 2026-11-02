@@ -571,7 +571,12 @@ export class Person {
     } else if (round.type === 'move') {
       const mt = this.world.mt;
       if (dev.pace === undefined) dev.pace = rnd.int(mt.movePaceMin, mt.movePaceMax);
-      dev.presses.push({ at: Math.max(start, this.world.now()) + rnd.int(mt.moveFirstMin, mt.moveFirstMax), move: true });
+      const board = this.world.board();
+      // "erste": everybody tries to get a place, with a race's reaction time.
+      const first = board && board.play === 'erste'
+        ? (rnd.chance(0.15) ? rnd.int(180, 260) : rnd.int(230, 1200))
+        : rnd.int(mt.moveFirstMin, mt.moveFirstMax);
+      dev.presses.push({ at: Math.max(start, this.world.now()) + first, move: true });
     }
     dev.presses.sort((a, b) => a.at - b.at);
   }
@@ -579,13 +584,15 @@ export class Person {
   // One turn in a move round: a step in a random direction with a clear pull
   // towards the goal, pressed on the button that points there the way the
   // buzzer is held. The person sees the board: no board, no play; in the
-  // goal, done. While the keyboard controls the buzzer the person waits.
+  // goal or without a place, done; another group's turn, wait. While the
+  // keyboard controls the buzzer the person waits.
   onMoveTurn(dev, at, now) {
     const r = dev.round;
     const board = this.world.board();
-    if (!r || r.type !== 'move' || r.phase !== 'open' || !board || board.finished.includes(dev.number)) return;
+    const role = board ? board.role(dev.number) : 'out';
+    if (!r || r.type !== 'move' || r.phase !== 'open' || role === 'out') return;
     const rnd = this.world.rnd;
-    if (!dev.manual) {
+    if (!dev.manual && role === 'play') {
       const x = rnd();
       const dir = x < 0.6 ? 'right' : x < 0.75 ? 'up' : x < 0.9 ? 'down' : 'left';
       dev.pressButton(toPhysical(dev.physLage, dir), at, now);

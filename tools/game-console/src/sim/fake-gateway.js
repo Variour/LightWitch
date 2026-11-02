@@ -151,7 +151,8 @@ export class FakeGateway extends EventEmitter {
       lt: { ...LAGE_T, ...timing },
       lrnd: makeRandom(seed + 7919), // orientation and turning, apart from the rest
       // What the people see of a move round on the projected board
-      // ({ finished }), or null. Set by the console app.
+      // ({ play, role(n) }: 'play', 'wait' or 'out'), or null. Set by the
+      // console app.
       board: () => null,
       now: () => this.now(),
       gateway: this,

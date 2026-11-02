@@ -69,7 +69,7 @@ test('the round state of a move round with three players', async () => {
     hold: 'quer', goal: 'right', cols: 22, rows: 10,
     results: {
       players: [{ n: 1, col: 0, row: 0, place: null }, { n: 2, col: 0, row: 1, place: null }, { n: 11, col: 1, row: 0, place: null }],
-      order: [], winner: null, finished: 0, participants: 3, ready: 0,
+      order: [], winner: null, finished: 0, participants: 3, ready: 0, play: 'alle',
     },
   });
 });

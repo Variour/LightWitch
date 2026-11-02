@@ -37,11 +37,11 @@ export function parseKeys(text) {
   return { keys, rest: text.slice(i) };
 }
 
-// participants(): admitted numbers, ascending. hold(): the hold of the
-// running move round, or null. press(n, dir, lage): the buzzer with number n
-// sends this logical direction in this lage. control(n): the keyboard takes
-// buzzer n, the others play on their own. say(text): one line in the
-// terminal. quit(): Ctrl+C.
+// participants(): the numbers the keyboard can take, ascending. hold(): the
+// hold of the running move round, or null. press(n, dir, lage): the buzzer
+// with number n sends this logical direction in this lage. control(n): the
+// keyboard takes buzzer n, the others play on their own. say(text): one
+// line in the terminal. quit(): Ctrl+C.
 export class SimKeyboard {
   constructor({ participants, hold, press, control, say, quit }) {
     Object.assign(this, { participants, hold, press, control, say, quit });
@@ -84,7 +84,14 @@ export function simKeyboard(app, { say, quit }) {
   const gw = app.transport;
   const member = (n) => gw.devices.find((d) => d.state === 'member' && d.number === n);
   return new SimKeyboard({
-    participants: () => app.game.snapshot().participants.filter((p) => p.admitted).map((p) => p.n),
+    // In an open move round only those who can move now (their group's
+    // turn, a place left, not in the goal), else every participant.
+    participants: () => {
+      const ns = app.game.snapshot().participants.filter((p) => p.admitted).map((p) => p.n);
+      const r = app.game.round;
+      if (!r || r.type !== 'move' || r.adopted || r.phase !== 'open') return ns;
+      return ns.filter((n) => app.game.moveRole(n) === 'play');
+    },
     hold: () => {
       const r = app.game.round;
       return r && r.type === 'move' && !r.adopted ? r.hold : null;

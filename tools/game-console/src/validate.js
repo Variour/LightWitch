@@ -3,7 +3,7 @@
 // rejected and named: the skill is a language model, so fail loudly.
 // Messages are German, ready to show to the presenter.
 
-import { GOALS, MOVE_DEFAULTS } from './move.js';
+import { GOALS, PLAYS, MOVE_DEFAULTS } from './move.js';
 import { HOLDS } from './lage.js';
 
 export const ROUND_FORMAT = 'buzzer-round/0';
@@ -14,7 +14,7 @@ const TYPE_FIELDS = {
   scale: ['hold', 'min', 'max', 'redMax', 'greenMin'],
   race: ['hold'],
   choice: ['hold', 'answers', 'correct'],
-  move: ['hold', 'goal', 'cols', 'rows'],
+  move: ['hold', 'goal', 'cols', 'rows', 'play'],
   idle: [],
 };
 const TYPE_NAMES = { scale: 'Skala', race: 'Buzzer-Rennen', choice: 'Auswahl', move: 'Spielfeld', idle: 'Ruhe' };
@@ -174,6 +174,10 @@ export function validateRound(input, prefix = '') {
     Object.assign(round, MOVE_DEFAULTS);
     if ('goal' in input && !GOALS.includes(input.goal)) {
       errors.push({ path: at(prefix, 'goal'), message: '"goal" muss "right" sein (in v0 liegt das Ziel rechts).' });
+    }
+    if ('play' in input) {
+      if (PLAYS.includes(input.play)) round.play = input.play;
+      else errors.push({ path: at(prefix, 'play'), message: '"play" muss "alle", "team", "erste" oder "gruppen" sein.' });
     }
     for (const [f, [lo, hi]] of Object.entries(MOVE_SIZE)) {
       if (!(f in input) || !checkInt(input, f, errors, prefix)) continue;

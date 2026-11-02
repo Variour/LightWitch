@@ -281,6 +281,81 @@ test('lage: the people turn their buzzers, a race that requires liegend counts o
   }
 });
 
+test('move play modes: team, erste and gruppen with 30 simulated buzzers', { timeout: 120000 }, async () => {
+  const FAST_MOVE = { movePaceMin: 60, movePaceMax: 140, moveFirstMin: 50, moveFirstMax: 300 };
+  const { app, port, act, gw, game } = await start({ simulate: 30, simTiming: { endRelease: 1000, ...FAST_MOVE } });
+  const keyLines = [];
+  app.link.on('rx', (ev) => {
+    if (ev.ns === 'game' && ev.ev === 'key') keyLines.push({ n: ev.n, at: Date.now() });
+  });
+  const mode = (play) => ({ ...ROUNDS.move, id: `lauf-${play}`, hold: 'frei', play });
+  try {
+    await waitFor(() => app.link.connected, { what: 'link' });
+    game.load({ kind: 'session', value: { title: '', rounds: ['team', 'erste', 'gruppen'].map((p) => validRound(mode(p))) } });
+    await act('next');
+    await waitFor(() => game.snapshot().counts.admitted === 30, { timeoutMs: 30000, what: '30 admits' });
+    const res = () => game.snapshot().round.results;
+
+    // Team: three teams of ten reach the goal together.
+    await act('next');
+    await act('next');
+    await waitFor(() => res().finished === 3, { timeoutMs: 30000, what: 'three teams in the goal' });
+    let r = res();
+    assert.deepEqual(r.teams.map((t) => [t.team, t.members, t.x, t.place !== null]), [[1, 10, 21, true], [2, 10, 21, true], [3, 10, 21, true]]);
+    assert.deepEqual([...r.order].sort(), [1, 2, 3]);
+    assert.equal(r.winner, r.order[0]);
+    assert.ok(r.players.every((p) => p.col === null));
+    await act('next'); // close
+
+    // Erste: the ten fastest get a place, the others stop pressing.
+    await act('next');
+    await act('next');
+    await waitFor(() => res().chosen.length === 10, { timeoutMs: 8000, what: 'ten places' });
+    const fullAt = Date.now();
+    r = res();
+    assert.equal(new Set(r.chosen).size, 10);
+    assert.equal(r.watching, 20);
+    await sleep(2000);
+    r = res();
+    const chosen = new Set(r.chosen);
+    assert.ok(r.players.every((p) => (p.col !== null) === chosen.has(p.n)));
+    assert.ok(r.players.filter((p) => chosen.has(p.n)).some((p) => p.col > 0), 'the chosen move');
+    assert.equal(keyLines.filter((k) => !chosen.has(k.n) && k.at > fullAt + 1000).length, 0, 'watchers stop pressing');
+    await act('next'); // close
+
+    // Gruppen: group 1 starts, the others wait; the keyboard takes only the
+    // active group. With 30 on 10 rows each group fills a column, so group 1
+    // is boxed in until the groups in front have moved.
+    await act('next');
+    await act('next');
+    assert.equal(res().group, 1);
+    await sleep(1500);
+    const moved = (p) => p.col !== Math.floor((p.n - 1) / 10) || p.row !== (p.n - 1) % 10;
+    const of = (k) => res().players.filter((p) => Math.floor((p.n - 1) / 10) + 1 === k);
+    assert.ok(of(2).every((p) => !moved(p)) && of(3).every((p) => !moved(p)), 'the other groups wait');
+    const said = [];
+    const kb = simKeyboard(app, { say: (t) => said.push(t), quit: () => {} });
+    kb.feed('\t\t');
+    assert.deepEqual(said, ['Tastatur steuert Nr. 1', 'Tastatur steuert Nr. 2']);
+    const cli = await run(process.execPath, [BIN, 'group', '3', '--http-port', String(port)]);
+    assert.match(cli.stdout, /Gruppe 3 ist dran\./);
+    await sleep(1500);
+    assert.ok(of(3).some(moved), 'group 3 moves');
+    assert.ok(of(2).every((p) => !moved(p)), 'group 2 waits');
+    await act('group', { k: 2 });
+    const group3 = JSON.stringify(of(3));
+    await sleep(1500);
+    assert.equal(res().group, 2);
+    assert.ok(of(2).some(moved), 'group 2 moves');
+    assert.equal(JSON.stringify(of(3)), group3, 'group 3 keeps its places');
+    kb.feed('\x1b[C'); // Nr. 2 cannot move now: the arrow takes the first of group 2
+    assert.equal(said.at(-1), 'Tastatur steuert Nr. 11');
+    assert.equal(gw.devices.find((d) => d.number === 11).manual, true);
+  } finally {
+    await app.close();
+  }
+});
+
 // Fleet timings of the simulator, shortened: updates take 2-4 s, statuses come every ~2 s.
 const FAST_FLEET = {
   fleetStatusPeriod: 2000, fleetStatusJitter: 300, fleetFirstStatusMax: 800, fleetUpdateStatusPeriod: 300,

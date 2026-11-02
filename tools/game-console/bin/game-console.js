@@ -38,6 +38,7 @@ An die laufende Konsole:
   game-console next                   Weiter (der nächste Schritt)
   game-console session-start | login-open | login-close | end
   game-console announce [id] | open | close | reveal | idle | winner <n>
+  game-console group <k>              Spielfeld mit Gruppen: Gruppe k ist dran
   game-console admit <mac|all> [n] | renumber <n> <neu> | release <n>
   game-console admit-mode auto|manual | usb-number [n|none]
   game-console status                 Kurzer Zustand
@@ -58,7 +59,7 @@ Gerät am USB-Kabel:
 
 const ACTIONS = new Set([
   'next', 'session-start', 'login-open', 'login-close', 'announce', 'open', 'close', 'reveal', 'idle',
-  'winner', 'admit', 'renumber', 'release', 'end', 'admit-mode', 'usb-number',
+  'winner', 'group', 'admit', 'renumber', 'release', 'end', 'admit-mode', 'usb-number',
   'fleet-view', 'update-all', 'charge', 'off-all', 'ap', 'fw-ref', 'config-get',
 ]);
 
@@ -99,6 +100,7 @@ function argsFor(action, pos, v) {
   switch (action) {
     case 'announce': return pos[0] ? { id: pos[0] } : {};
     case 'winner': return { n: Number(pos[0]) };
+    case 'group': return { k: pos[0] === undefined ? undefined : Number(pos[0]) };
     case 'admit': return { mac: pos[0] ?? 'all', n: pos[1] !== undefined ? Number(pos[1]) : undefined };
     case 'renumber': return { n: Number(pos[0]), to: Number(pos[1]) };
     case 'release': return { n: Number(pos[0]) };
