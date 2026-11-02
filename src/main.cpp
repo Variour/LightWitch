@@ -689,8 +689,9 @@ void setup() {
 #if FEATURE_GAME
         if (index >= MAX_BUTTONS) return;
         const char* role = Config::get().buttons[index].role;
-        // Charging mode, a standby wake and the key test take the key.
-        if (fleetManager.onKey(role, pressed, ms)) return;
+        // Charging mode, a standby wake, the key that woke the device and the
+        // key test take the key.
+        if (fleetManager.onKey(index, role, pressed, ms)) return;
         // The game session finds its keys by role; it ignores "power" and "".
         gameSession.onKey(game::keyFromName(role), pressed, ms);
 #endif
@@ -742,6 +743,12 @@ void setup() {
         // A participant's keys belong to its session.
         bool on = enabled && !gameSession.ownsLeds();
         buttonManager.setExecutor(on ? &actionExecutor : nullptr);
+    };
+    fio.mutedKeys = [](uint16_t mask) { buttonManager.setMuted(mask); };
+    fio.updateBusy = []() {
+        Updater::State s = Updater::status().state;
+        return _otaActive || s == Updater::State::Checking || s == Updater::State::Downloading ||
+               s == Updater::State::Done;
     };
     fleetManager.begin(fio, &power, &battery, &gameSession, &mesh, &wifiElection, fleetChargingBoot,
                        millis());
@@ -1295,6 +1302,8 @@ void loop() {
                 if (_leds[i]) _runners[i].tick();
             // Invite ring over the pattern; once it ends, repaint from the config.
             if (gameSession.renderOverlay(now) == GameManager::Overlay::Ended) applyAllLights();
+            // Maintenance AP open: the status dot pulses blue.
+            if (fleetManager.renderOverlay(now) == FleetManager::Overlay::Ended) applyAllLights();
         }
 #else
         for (uint8_t i = 0; i < MAX_LIGHTS; i++)

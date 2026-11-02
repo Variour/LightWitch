@@ -10,6 +10,7 @@
 
 #include "../battery/BatteryMonitor.h"
 #include "../buttons/ButtonRoles.h"
+#include "../config/BoardProfile.h"
 #include "../config/Config.h"
 #include "../game/GameManager.h"
 #include "../game/RxRing.h"
@@ -33,17 +34,25 @@
 
 static_assert(fleet::kWifiNetworksMax == MAX_WIFI_NETWORKS,
               "config wifi takes as many networks as Config stores");
+static_assert(fleet::kEventVregMv <= PowerManager::CHARGE_VOLTAGE_MV,
+              "the event target stays at or below the board's charge voltage");
+static_assert(MAX_BUTTONS <= 16, "the muted-key mask holds one bit per button");
 
 // Arduino side of the fleet package (src/fleet/): device states with their
 // effects on radio, keys and LEDs, the charge target in NVS, FleetStatus and
 // FleetCommand on the mesh, "update all", the maintenance AP, deep sleep and
 // the USB namespaces `config`, `fleet` and `test` through the game link.
-// main.cpp wires it like every other module. Without a charger the device
-// stays active; it still sends FleetStatus and acts on fleet commands.
+// main.cpp wires it like every other module. Only a detected Buzzerboard
+// sends FleetStatus and acts on fleet commands; any device can be the bridge
+// that sends them. Without a charger the device stays active.
 class FleetManager {
    public:
     struct Io {
         std::function<void(bool enabled)> keysEnabled;  // button actions on or off
+        std::function<void(uint16_t mask)> mutedKeys;   // ButtonManager::setMuted
+        // An update or OTA runs outside the fleet (Updater checking,
+        // downloading or done, ArduinoOTA): no standby, no sleep.
+        std::function<bool()> updateBusy;
     };
 
     // Before power.begin(): the stored charge target, so the charger starts with it.
@@ -89,13 +98,21 @@ class FleetManager {
         _mesh = mesh;
         _wifi = wifi;
         _radioInactive = bootCharging;
+        _fleetDevice = boardDetected();
         if (Config::wifiCount() == 0) Config::loadWifi();
 
         WiFi.macAddress(_mac);
         _filter.begin(_mac);
         if (!_rx.allocate(fleet::kRxQueue))
             Logger::e("[fleet] out of memory for the receive queue");
-        _ps.begin(now);
+        // A key wake from sleep: the short timeout, and the time in sleep so
+        // far goes on toward ship mode unless a real interaction follows.
+        _bootMs = now;
+        _sleptCarryS = fleet::DeepSleep::sleptS();
+        _ps.begin(now, fleet::DeepSleep::keyWake());
+        if (fleet::DeepSleep::keyWake())
+            Logger::i("[fleet] woken by a key: standby after %lu s without interaction",
+                      (unsigned long)(fleet::kWakeInactiveMs / 1000));
         auto rnd = [](uint32_t lo, uint32_t hi) { return lo + esp_random() % (hi - lo + 1); };
         _beacon.begin(rnd, now);
         _sender.begin([this](const uint8_t* d, size_t n) { _mesh->broadcastFleetFrame(d, n); },
@@ -123,69 +140,99 @@ class FleetManager {
         if (len > 0) _rx.push(data, (size_t)len, rssi, mac);
     }
 
-    // Raw key edge. True: the fleet takes it (charging mode, standby wake,
-    // key test), so no other module sees it.
-    bool onKey(const char* role, bool pressed, uint32_t ms) {
+    // Raw key edge of button slot `index`. True: the fleet takes it
+    // (charging mode, standby wake, the key that woke the device, key test),
+    // so no other module sees it, and that key's actions stay muted until it
+    // has been up for kKeyQuietMs.
+    bool onKey(uint8_t index, const char* role, bool pressed, uint32_t ms) {
+        if (index >= MAX_BUTTONS) return false;
+        uint16_t bit = (uint16_t)(1u << index);
         game::Key k = game::keyFromName(role);
         if (k == game::Key::L1) _l1Down = pressed;
         if (k == game::Key::R1) _r1Down = pressed;
         if (pressed) {
-            _keysDown++;
-        } else if (_keysDown > 0) {
-            _keysDown--;
-            if (_keysDown == 0) _keysUpMs = ms;
+            _keysDown |= bit;
+        } else {
+            _keysDown &= (uint16_t)~bit;
+            _keyUpMs[index] = ms;
         }
+        bool take = false;
         if (_test.kind() == fleet::FactoryTest::Kind::Keys) {
             if (pressed && k != game::Key::None) _link.onTestKey(k);
-            _quietKeys = true;
-            return true;
+            take = true;
+        } else if (_managed() && _ps.state() != fleet::State::Active) {
+            // Charging mode takes every key; in standby a press wakes the device.
+            if (pressed && _ps.state() == fleet::State::Standby) _ps.interaction(millis());
+            take = true;
+        } else if (_managed() && pressed) {
+            // A press already held at the first loop pass woke the device:
+            // it keeps the device awake but is no interaction.
+            bool wakePress = !_ticked || ms - _firstTickMs < fleet::kBootPressGraceMs;
+            if (wakePress)
+                _ps.activity(millis());
+            else
+                _ps.interaction(millis());
+            take = wakePress;
         }
-        if (!_managed()) return false;
-        switch (_ps.state()) {
-            case fleet::State::Charging:
-                _quietKeys = true;
-                return true;
-            case fleet::State::Standby:
-                if (pressed) _ps.activity(millis());
-                _quietKeys = true;
-                return true;
-            default:
-                if (pressed) _ps.activity(millis());
-                return _quietKeys;
-        }
+        if (take && pressed) _quietMask |= bit;
+        return take || (_quietMask & bit);
     }
 
     // Every loop() pass, also during an update download.
     void tick(uint32_t now) {
+        if (!_ticked) {
+            _ticked = true;
+            _firstTickMs = now;
+        }
         game::RxRing::Frame f;
         while (_rx.pop(f)) _onFrameLoop(f, now);
 
         bool usb = _usb();
         bool session = _game->radioQuiet();
-        if (!session && _game->inviteVisible(now)) _ps.activity(now);
+        if (!session && _game->inviteVisible(now)) _ps.interaction(now);
+        uint32_t adcCount = _managed() ? _power->adcCount() : 0;
+        bool sample = adcCount != _lastAdcCount;
+        _lastAdcCount = adcCount;
+        uint16_t vbat = _managed() ? _vbatMv() : 0;
+
         fleet::PowerState::Inputs in;
         in.managed = _managed();
         in.usb = usb;
         in.hostLink = _game->linkActive() || _usbHost();
         in.session = session;
-        in.hold = _upd.running || _test.running();
+        in.hold = _upd.running || _test.running() || (_io.updateBusy && _io.updateBusy());
         in.battery = _batteryPercent();
+        in.vbatMv = vbat;
         fleet::State before = _ps.state();
         fleet::PowerState::Action action = _ps.tick(in, now);
         if (!_applied || _ps.state() != before) _apply(_ps.state());
-        if (action == fleet::PowerState::Action::Sleep && !in.hold) _sleep();
+        if (action == fleet::PowerState::Action::Sleep && !in.hold) _sleep(now, false);
 
-        fleet::ChargerFacts facts = _facts();
+        // The USB supply: too weak in charging mode, or VBAT low on USB.
+        const Bq25628::Adc& adc = _power->adc();
+        _usbSupply.tick(usb, _ps.state() == fleet::State::Charging, sample, adc.ibatValid,
+                        adc.ibatMa, vbat, now);
+        bool weak = _weakNow();
+        if (weak != _weakLogged) {
+            _weakLogged = weak;
+            if (weak) Logger::w("[fleet] USB supply too weak: LEDs off, radio low duty");
+        }
+        _setStandbyRadio(_ps.state() == fleet::State::Standby || weak);
+        if (_usbSupply.sleep(now) && !in.hold) _sleep(now, true);
+
+        fleet::ChargerFacts facts = _facts(vbat);
         _charge = fleet::chargeStatus(facts);
         _errors = fleet::chargerErrors(facts);
-        if (_charge != fleet::Charge::Full)
-            _fullSince = 0;
-        else if (_fullSince == 0)
-            _fullSince = now | 1;
+        if (_charge != fleet::Charge::Full) {
+            _full = false;
+        } else if (!_full) {
+            _full = true;
+            _fullSince = now;
+        }
 
         _sender.tick(now);
         _tickUpdate();
-        _tickTestSamples();
+        if (sample) _testSample();
         _link.tick(now);
         _tickCombo(now);
         SoftAp::tick(now);
@@ -198,7 +245,7 @@ class FleetManager {
             _startUpdate(_selfSource, _selfPr);
         }
 
-        if (!session) {
+        if (!session && _fleetDevice) {
             fleet::StatusBeacon::Snapshot s = _snapshot(usb);
             if (_beacon.tick(s, now)) _sendStatus(s, usb, now);
         }
@@ -226,11 +273,30 @@ class FleetManager {
             _test.frame(now, px);
         else if (_upd.running)
             fleet::renderUpdate(_upd.pct, now, px);
-        else if (_ps.state() == fleet::State::Charging)
+        else if (_ps.state() == fleet::State::Charging && !_weakNow())
             fleet::renderCharging(_chargeView(now), now, px);
         else
             fleet::clearFrame(px);
         _show(px);
+    }
+
+    enum class Overlay : uint8_t { None, Drawn, Ended };
+
+    // While the maintenance AP is open: the status dot pulses blue slowly
+    // over the normal pattern. Ended: the caller repaints the pattern.
+    Overlay renderOverlay(uint32_t now) {
+        if (!_led) return Overlay::None;
+        if (SoftAp::maintenanceOpen() && _ps.state() == fleet::State::Active) {
+            game::Rgb c = fleet::level(game::colorRgb(game::Color::Blue),
+                                       fleet::slowPulse(now, fleet::kApPulseMs));
+            _led->setPixel(game::kStatusDot, c.r, c.g, c.b);
+            _led->show();
+            _overlayOn = true;
+            return Overlay::Drawn;
+        }
+        if (!_overlayOn) return Overlay::None;
+        _overlayOn = false;
+        return Overlay::Ended;
     }
 
     // The update display while an update writes the flash (any trigger).
@@ -273,19 +339,32 @@ class FleetManager {
     fleet::Target _target = fleet::Target::Store;
     fleet::Charge _charge = fleet::Charge::None;
     uint16_t _errors = 0;
+    bool _full = false;
     uint32_t _fullSince = 0;
     bool _applied = false;
     bool _radioInactive = false;
     bool _standbyRadio = false;
     wifi_ps_type_t _psBefore = WIFI_PS_NONE;
     bool _ledsOwned = false;
+    bool _overlayOn = false;
+    bool _fleetDevice = false;  // a detected Buzzerboard: FleetStatus and fleet commands
+    uint32_t _bootMs = 0;
+    bool _ticked = false;
+    uint32_t _firstTickMs = 0;
+    uint32_t _sleptCarryS = 0;  // time in sleep before a key wake
+    bool _sleepTried = false;
+    uint32_t _lastSleepTry = 0;
+    fleet::UsbSupply _usbSupply;
+    bool _weakLogged = false;
 
-    uint8_t _keysDown = 0;
-    uint32_t _keysUpMs = 0;
-    bool _quietKeys = false;  // button actions stay off until all keys are up for kKeyQuietMs
-    int8_t _keysOn = -1;      // last value given to Io::keysEnabled
+    uint16_t _keysDown = 0;               // bit per button slot
+    uint32_t _keyUpMs[MAX_BUTTONS] = {};  // last release per slot
+    uint16_t _quietMask = 0;              // taken keys: muted until up for kKeyQuietMs
+    int8_t _keysOn = -1;                  // last value given to Io::keysEnabled
+    int32_t _mutedSent = -1;              // last mask given to Io::mutedKeys
     bool _l1Down = false;
     bool _r1Down = false;
+    bool _comboHeld = false;
     uint32_t _comboSince = 0;
     bool _comboFired = false;
 
@@ -329,7 +408,10 @@ class FleetManager {
         return r.valid ? r.vbatMv : 0;
     }
 
-    fleet::ChargerFacts _facts() const {
+    // Weak USB supply with its effects: in charging mode only.
+    bool _weakNow() const { return _usbSupply.weak() && _ps.state() == fleet::State::Charging; }
+
+    fleet::ChargerFacts _facts(uint16_t vbat) const {
         fleet::ChargerFacts f;
         f.enabled = Config::get().chargerEnabled;
         f.online = _managed();
@@ -347,8 +429,10 @@ class FleetManager {
         f.thermalShutdown = st.fault & Bq25628::FAULT_TSHUT;
         f.batteryFault = st.fault & Bq25628::FAULT_BAT;
         f.supplyFault = st.fault & (Bq25628::FAULT_VBUS | Bq25628::FAULT_SYS);
-        uint16_t vbat = _vbatMv();
         f.lowBattery = vbat != 0 && vbat < PowerManager::UPDATE_MIN_MV;
+        f.weakSupply = _weakNow();
+        f.vbatMv = vbat;
+        f.vregMv = _power->chargeVoltageMv();
         return f;
     }
 
@@ -356,7 +440,7 @@ class FleetManager {
         fleet::ChargeView v;
         v.charge = _charge;
         v.battery = _batteryPercent();
-        v.fullForMs = _fullSince ? now - _fullSince : 0;
+        v.fullForMs = _full ? now - _fullSince : 0;
         return v;
     }
 
@@ -382,8 +466,6 @@ class FleetManager {
         }
         if (inactive) SoftAp::off();
         _power->setLedRailWanted(s != fleet::State::Standby);
-        _setStandbyRadio(s == fleet::State::Standby);
-        if (s != fleet::State::Active) _quietKeys = true;
         Logger::i("[fleet] state %s", fleet::kStateNames[(uint8_t)s]);
     }
 
@@ -408,21 +490,34 @@ class FleetManager {
         }
     }
 
-    // Standby down to the storage level: deep sleep (src/fleet/DeepSleep.h).
-    void _sleep() {
-        if (!_managed() || _usb()) return;
-        Logger::i("[fleet] battery at %u %%, standby ends - deep sleep, timer wake every %lu s",
-                  _batteryPercent(), (unsigned long)fleet::kSleepWakeIntervalS);
+    // Deep sleep (src/fleet/DeepSleep.h): standby down to the storage level
+    // (on battery), or VBAT low on USB (usbLow). Skipped this pass if the
+    // LED rail does not read off.
+    void _sleep(uint32_t now, bool usbLow) {
+        if (!_managed() || (!usbLow && _usb())) return;
+        if (_sleepTried && now - _lastSleepTry < fleet::kSleepRetryMs) return;
+        _sleepTried = true;
+        _lastSleepTry = now;
+        if (!_power->prepareDeepSleep()) return;
+        if (usbLow)
+            Logger::w(
+                "[fleet] VBAT %u mV on USB - deep sleep while charging, timer wake every %lu s",
+                _vbatMv(), (unsigned long)fleet::kSleepWakeIntervalS);
+        else
+            Logger::i("[fleet] battery at %u %%, standby ends - deep sleep, timer wake every %lu s",
+                      _batteryPercent(), (unsigned long)fleet::kSleepWakeIntervalS);
         SoftAp::off();
         if (_led) {
             game::Rgb px[game::kLedCount];
             fleet::clearFrame(px);
             _show(px);
         }
-        _power->prepareDeepSleep();
         Serial.flush();
+        // Still on the short timeout of a key wake: the earlier sleep and
+        // this wake count toward ship mode.
+        uint32_t carry = _ps.shortWake() ? _sleptCarryS + (now - _bootMs) / 1000 : 0;
         auto& c = Config::get();
-        fleet::DeepSleep::enter(c.i2cSdaPin, c.i2cSclPin, _wakePins());
+        fleet::DeepSleep::enter(c.i2cSdaPin, c.i2cSclPin, _wakePins(), carry);
     }
 
     // The keys that wake the device from sleep (owner decision): BUZZ, UP,
@@ -444,24 +539,40 @@ class FleetManager {
     }
 
     // ── Keys ─────────────────────────────────────────────────────────────────
+    // Button actions: on in active state outside a key test; a taken key
+    // stays muted until it has been up for kKeyQuietMs, so a stuck key
+    // mutes only itself.
     void _tickKeys(uint32_t now) {
-        if (_quietKeys && _ps.state() == fleet::State::Active && !_test.running() &&
-            _keysDown == 0 && now - _keysUpMs >= fleet::kKeyQuietMs)
-            _quietKeys = false;
-        bool on = _ps.state() == fleet::State::Active && !_test.running() && !_quietKeys;
-        if ((int8_t)on == _keysOn) return;
-        _keysOn = on;
-        if (_io.keysEnabled) _io.keysEnabled(on);
+        bool on = _ps.state() == fleet::State::Active && !_test.running();
+        if (on) {
+            for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
+                uint16_t bit = (uint16_t)(1u << i);
+                if ((_quietMask & bit) && !(_keysDown & bit) &&
+                    now - _keyUpMs[i] >= fleet::kKeyQuietMs)
+                    _quietMask &= (uint16_t)~bit;
+            }
+        }
+        if ((int8_t)on != _keysOn) {
+            _keysOn = on;
+            if (_io.keysEnabled) _io.keysEnabled(on);
+        }
+        if ((int32_t)_quietMask != _mutedSent) {
+            _mutedSent = _quietMask;
+            if (_io.mutedKeys) _io.mutedKeys(_quietMask);
+        }
     }
 
     // L1 + R1 held kApComboMs: maintenance AP (active, outside a session).
     void _tickCombo(uint32_t now) {
         if (!(_l1Down && _r1Down)) {
-            _comboSince = 0;
+            _comboHeld = false;
             _comboFired = false;
             return;
         }
-        if (_comboSince == 0) _comboSince = now | 1;
+        if (!_comboHeld) {
+            _comboHeld = true;
+            _comboSince = now;
+        }
         if (_comboFired || now - _comboSince < fleet::kApComboMs) return;
         _comboFired = true;
         if (_ps.state() != fleet::State::Active || _game->radioQuiet()) return;
@@ -470,19 +581,27 @@ class FleetManager {
     }
 
     // ── Charge target ────────────────────────────────────────────────────────
-    void _setTarget(fleet::Target t) {
+    // Stores the target first and applies it then; false (nothing changed)
+    // if NVS does not take it. Lowering it below VBAT on USB trips the
+    // charger's battery over-voltage protection for a while, which
+    // chargerErrors() does not count (batteryOvpExpected).
+    bool _setTarget(fleet::Target t) {
         if (t != _target) {
-            _target = t;
             Preferences p;
-            if (p.begin(NVS_NS, false)) {
-                p.putUChar(KEY_TARGET, (uint8_t)t);
-                p.end();
+            bool stored = p.begin(NVS_NS, false) && p.putUChar(KEY_TARGET, (uint8_t)t) == 1;
+            p.end();
+            if (!stored) {
+                Logger::e("[fleet] charge target %s could not be stored",
+                          fleet::kTargetNames[(uint8_t)t]);
+                return false;
             }
+            _target = t;
         }
         // A running charge test restores the target when it ends.
         if (_test.kind() != fleet::FactoryTest::Kind::Charge) _power->setChargeVoltageMv(vregMv());
         Logger::i("[fleet] charge target %s (VREG %u mV)", fleet::kTargetNames[(uint8_t)t],
                   vregMv());
+        return true;
     }
 
     // ── Radio ────────────────────────────────────────────────────────────────
@@ -496,8 +615,8 @@ class FleetManager {
         }
         fleet::FleetCommandMsg m;
         if (!fleet::decodeFleetFrame(f.data, f.len, fleet::kMsgFleetCommand, m)) return;
-        // Devices in a game session ignore fleet commands.
-        if (_game->radioQuiet() || !_filter.accept(m, now)) return;
+        // Only Buzzerboards act on fleet commands, and not in a game session.
+        if (!_fleetDevice || _game->radioQuiet() || !_filter.accept(m, now)) return;
         switch ((fleet::Op)m.op) {
             case fleet::Op::Update:
                 _startUpdate((fleet::Source)m.arg, m.pr);
@@ -620,10 +739,7 @@ class FleetManager {
     }
 
     // ── Factory test ─────────────────────────────────────────────────────────
-    void _tickTestSamples() {
-        uint32_t n = _power->adcCount();
-        if (n == _lastAdcCount) return;
-        _lastAdcCount = n;
+    void _testSample() {
         const Bq25628::Adc& a = _power->adc();
         _test.onAdcSample(a.ibusMa, a.ibatMa, a.ibatValid, a.vbusMv);
     }
@@ -675,7 +791,7 @@ class FleetManager {
             return ok;
         };
         io.wifiCount = []() { return Config::wifiCount(); };
-        io.setTarget = [this](fleet::Target t) { _setTarget(t); };
+        io.setTarget = [this](fleet::Target t) { return _setTarget(t); };
         io.target = [this]() { return _target; };
         io.openAp = [](uint8_t minutes) {
             return SoftAp::openMaintenance(minutes, millis()) ? FleetLink::ApResult::Ok
@@ -685,7 +801,12 @@ class FleetManager {
         io.fwBuild = [this]() { return _game->fwBuild(); };
         io.radioBusy = [this]() { return _game->radioQuiet(); };
         io.nonce = []() { return (uint32_t)esp_random(); };
+        // A Buzzerboard bridge applies `charge` at once and `update` once the
+        // repeats are out; `off` and `ap` are for the other devices.
         io.sent = [this](const fleet::FleetCommandMsg& m) {
+            if (!_fleetDevice) return;
+            if ((fleet::Op)m.op == fleet::Op::Charge && m.arg <= (uint8_t)fleet::Target::Event)
+                _setTarget((fleet::Target)m.arg);
             if ((fleet::Op)m.op != fleet::Op::Update) return;
             _selfUpdate = true;
             _selfSource = (fleet::Source)m.arg;

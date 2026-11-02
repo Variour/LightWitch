@@ -8,11 +8,13 @@
 #include "FleetConfig.h"
 #include "PowerState.h"
 
-// ESP deep sleep of the transport protection (src/fleet/PowerState.h). Wake:
-// the LP-GPIO keys (ext1, any low), and a timer every kSleepWakeIntervalS that
-// checks USB and VBAT through the charger and decides between boot, sleep
-// and ship mode before anything else starts. What that check needs survives
-// in RTC memory.
+// ESP deep sleep of the transport protection (src/fleet/PowerState.h) and of
+// a weak USB supply. Wake: the LP-GPIO keys (ext1, any low), and a timer
+// every kSleepWakeIntervalS that checks USB and VBAT through the charger and
+// decides between boot, sleep and ship mode before anything else starts.
+// What that check needs survives in RTC memory. After a key wake the time in
+// sleep so far is handed to FleetManager, which carries it into the next
+// sleep unless a real interaction follows.
 namespace fleet {
 
 struct SleepMemory {
@@ -36,13 +38,22 @@ class DeepSleep {
     static void handleWake() {
         SleepMemory& m = sSleepMemory;
         if (m.magic != kSleepMagic) return;
-        if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) {
+        esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+        if (cause != ESP_SLEEP_WAKEUP_TIMER) {
             m.magic = 0;
+            if (cause == ESP_SLEEP_WAKEUP_EXT1) {
+                _keyWake = true;
+                _sleptS = m.sleptS;
+            }
             return;
         }
         m.sleptS += kSleepWakeIntervalS;
         Wire.begin(m.sda, m.scl);
-        PowerManager::WakeReading r = PowerManager::readForWake();
+        PowerManager::WakeReading r;
+        for (uint8_t i = 0; i < kWakeReadTries && !r.ok; i++) {
+            if (i > 0) delay(kWakeReadRetryMs);
+            r = PowerManager::readForWake();
+        }
         WakeDecision d = decideTimerWake(r.ok, r.powerGood, r.vbatMv, m.sleptS);
         if (d == WakeDecision::Sleep) {
             Wire.end();
@@ -55,12 +66,17 @@ class DeepSleep {
         m.magic = 0;
     }
 
+    // Booted by a wake key from sleep, and the time in sleep before it.
+    static bool keyWake() { return _keyWake; }
+    static uint32_t sleptS() { return _sleptS; }
+
     // Enters sleep; does not return. The caller has switched the LED rail
-    // off (PowerManager::prepareDeepSleep).
-    static void enter(uint8_t sda, uint8_t scl, uint64_t wakePins) {
+    // off (PowerManager::prepareDeepSleep). sleptS: time toward
+    // kSleepToShipS carried over from an earlier sleep.
+    static void enter(uint8_t sda, uint8_t scl, uint64_t wakePins, uint32_t sleptS) {
         SleepMemory& m = sSleepMemory;
         m.magic = kSleepMagic;
-        m.sleptS = 0;
+        m.sleptS = sleptS;
         m.sda = sda;
         m.scl = scl;
         m.wakePins = wakePins;
@@ -68,6 +84,9 @@ class DeepSleep {
     }
 
    private:
+    static inline bool _keyWake = false;
+    static inline uint32_t _sleptS = 0;
+
     static void _sleep() {
 #if !CONFIG_IDF_TARGET_ESP32  // the ESP32's ext1 has no "any low" mode
         uint64_t mask = 0;

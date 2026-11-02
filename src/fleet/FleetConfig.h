@@ -5,15 +5,48 @@
 // states, transport protection, charge target, fleet status and commands,
 // maintenance AP, LED display and factory test. "owner" marks a value the
 // project owner set, "spec" one from the fleet protocol (docs/usb-link.md,
-// docs/mesh-compatibility.md), "firmware" one chosen here.
+// docs/mesh-compatibility.md), "review" one from the safety review,
+// "decided" a project decision, "firmware" one chosen here.
+//
+// Build flags for a bring-up image with short times (defaults below):
+//   -DFLEET_INACTIVE_MS=...       kInactiveMs
+//   -DFLEET_WAKE_INACTIVE_MS=...  kWakeInactiveMs
+//   -DFLEET_SLEEP_TO_SHIP_S=...   kSleepToShipS
+//   -DFLEET_STORAGE_PERCENT=...   kStoragePercent
+//   -DFLEET_STORAGE_MV=...        kStorageMv
+#ifndef FLEET_INACTIVE_MS
+#define FLEET_INACTIVE_MS (8UL * 60UL * 60UL * 1000UL)
+#endif
+#ifndef FLEET_WAKE_INACTIVE_MS
+#define FLEET_WAKE_INACTIVE_MS (5UL * 60UL * 1000UL)
+#endif
+#ifndef FLEET_SLEEP_TO_SHIP_S
+#define FLEET_SLEEP_TO_SHIP_S (7UL * 24UL * 60UL * 60UL)
+#endif
+#ifndef FLEET_STORAGE_PERCENT
+#define FLEET_STORAGE_PERCENT 80
+#endif
+#ifndef FLEET_STORAGE_MV
+#define FLEET_STORAGE_MV 4020
+#endif
+
 namespace fleet {
 
 // ── Device states ────────────────────────────────────────────────────────────
 // owner: on battery without key, session, USB or host link for 8 h -> standby.
 // 8 h covers the breaks between talks on an event day.
-static constexpr uint32_t kInactiveMs = 8UL * 60UL * 60UL * 1000UL;
+static constexpr uint32_t kInactiveMs = FLEET_INACTIVE_MS;
+// review: after a key wake from sleep, 5 min until standby, unless a further
+// key press, an invite or session, USB or a host link follows (then 8 h).
+static constexpr uint32_t kWakeInactiveMs = FLEET_WAKE_INACTIVE_MS;
+// firmware: a key press within this time of the first loop pass was held at
+// boot (the press that woke the device); like PowerManager's boot grace.
+static constexpr uint32_t kBootPressGraceMs = 100;
 // owner: standby lasts until the battery is down to the storage level, then sleep.
-static constexpr uint8_t kStoragePercent = 80;
+static constexpr uint8_t kStoragePercent = FLEET_STORAGE_PERCENT;
+// firmware: the same level as VBAT, for a device without a battery
+// percentage: 4.02 V is 80 % on BatteryMonitor's curve.
+static constexpr uint16_t kStorageMv = FLEET_STORAGE_MV;
 // firmware: at boot on USB, how long to wait for the USB-Serial-JTAG to see
 // a host before booting into charging mode.
 static constexpr uint32_t kHostDetectMs = 200;
@@ -25,13 +58,38 @@ static constexpr uint32_t kKeyQuietMs = 500;
 
 // ── Sleep (ESP deep sleep) ───────────────────────────────────────────────────
 static constexpr uint32_t kSleepWakeIntervalS = 60;  // owner: check USB and VBAT every 60 s
-static constexpr uint32_t kSleepToShipS = 7UL * 24UL * 60UL * 60UL;  // owner: 7 days -> ship mode
-static constexpr uint16_t kSleepShipMv = 3500;  // owner: VBAT below ~3.5 V in sleep -> ship mode
+static constexpr uint32_t kSleepToShipS = FLEET_SLEEP_TO_SHIP_S;  // owner: 7 days -> ship mode
+static constexpr uint16_t kSleepShipMv = 3500;    // owner: VBAT below ~3.5 V in sleep -> ship mode
+static constexpr uint8_t kWakeReadTries = 3;      // review: charger reads at a timer wake
+static constexpr uint32_t kWakeReadRetryMs = 10;  // firmware: pause between those reads
+static constexpr uint32_t kSleepRetryMs = 1000;   // firmware: next try after a refused sleep
+
+// ── Weak USB supply ──────────────────────────────────────────────────────────
+// review: in charging mode, power good but the battery discharging (IBAT
+// below -kWeakIbatMa) for kWeakSupplyMs: the supply is too weak. LEDs off,
+// standby radio, error bit, until USB is unplugged.
+static constexpr uint32_t kWeakSupplyMs = 60000;
+static constexpr int16_t kWeakIbatMa = 40;  // firmware: above the IBAT noise around 0
+// review: on USB with VBAT below kUsbSleepMv for kUsbSleepHoldMs (any
+// state): deep sleep, the charger charges on. A timer wake on USB boots
+// again from kUsbWakeMv (firmware: hysteresis).
+static constexpr uint16_t kUsbSleepMv = 3300;
+static constexpr uint32_t kUsbSleepHoldMs = 30000;  // firmware: like the low-battery cut-off
+static constexpr uint16_t kUsbWakeMv = 3500;
 
 // ── Charge target (charger VREG) ─────────────────────────────────────────────
 // owner: ~80 %, 4.05 V; tune after measuring the real cells.
 static constexpr uint16_t kStoreVregMv = 4050;
 static constexpr uint16_t kEventVregMv = 4200;  // owner: 100 %
+// VREG has 10 mV steps over 3500-4800 mV (SLUSEG4C Table 8-10); Li-ion stays
+// at or below 4.20 V (checked against PowerManager in FleetManager.h).
+static_assert(kStoreVregMv % 10 == 0 && kEventVregMv % 10 == 0, "VREG has 10 mV steps");
+static_assert(kStoreVregMv >= 3500 && kStoreVregMv <= kEventVregMv && kEventVregMv <= 4200,
+              "charge targets within 3500-4200 mV");
+// review: lowering the target below VBAT on USB trips the charger's battery
+// over-voltage protection (VBAT_OVP 103-105 % of VREG, §7.5) until VBAT has
+// come down. Expected up to the event target plus this margin.
+static constexpr uint16_t kVregOvpMarginMv = 50;
 
 // ── FleetStatus beacon ───────────────────────────────────────────────────────
 static constexpr uint32_t kStatusPeriodMs = 30000;   // spec: about every 30 s
@@ -75,6 +133,9 @@ static constexpr uint32_t kRingChaseMs = 150;    // firmware: update ring, one s
 // firmware: ESP-NOW listens kStandbyWakeWindowMs of every kStandbyWakeIntervalMs.
 static constexpr uint16_t kStandbyWakeIntervalMs = 1000;
 static constexpr uint16_t kStandbyWakeWindowMs = 500;
+
+// ── Maintenance AP display ───────────────────────────────────────────────────
+static constexpr uint32_t kApPulseMs = 2000;  // decided: status dot pulses blue slowly
 
 // ── USB `config wifi` ────────────────────────────────────────────────────────
 static constexpr uint8_t kWifiNetworksMax =

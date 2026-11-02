@@ -69,7 +69,8 @@ class FleetLink : public game::Link::Extension {
         // config
         std::function<bool(const WifiNet* nets, uint8_t count)> setWifi;
         std::function<uint8_t()> wifiCount;
-        std::function<void(Target)> setTarget;
+        // Stores the target (NVS) and applies it; false if it could not be stored.
+        std::function<bool(Target)> setTarget;
         std::function<Target()> target;
         std::function<ApResult(uint8_t minutes)> openAp;
         std::function<uint16_t()> number;
@@ -229,7 +230,9 @@ class FleetLink : public game::Link::Extension {
             if (t < 0)
                 return _badField(link, id, "config", cmd, "target",
                                  "target must be store or event");
-            if (_io.setTarget) _io.setTarget((Target)t);
+            if (!_io.setTarget || !_io.setTarget((Target)t))
+                return link.error(id, "store_failed", "config", cmd, nullptr,
+                                  "the charge target could not be saved");
             JsonDocument d;
             Link::head(d, "config", "charge", id);
             _ok(d);

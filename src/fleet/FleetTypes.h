@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "FleetConfig.h"
+
 // Shared enums and pure helpers of the fleet package. Plain C++ with no
 // Arduino dependency, so the state machines and frames build on the host.
 namespace fleet {
@@ -50,6 +52,7 @@ static constexpr uint16_t kErrSafetyTimer = 1u << 5;     // charge safety timer 
 static constexpr uint16_t kErrSupply = 1u << 6;          // VBUS or VSYS fault
 static constexpr uint16_t kErrTsBias = 1u << 7;          // NTC bias fault (no NTC, open TS)
 static constexpr uint16_t kErrLowBattery = 1u << 8;      // on battery below 3.5 V
+static constexpr uint16_t kErrWeakSupply = 1u << 9;      // charging mode: USB cannot hold the load
 
 // FleetStatus.flags bits.
 static constexpr uint8_t kFlagUsb = 1u << 0;   // USB power present (charger power good)
@@ -69,7 +72,18 @@ struct ChargerFacts {
     bool supplyFault = false;      // VBUS_FAULT_STAT or SYS_FAULT_STAT
     bool safetyTimer = false;      // SAFETY_TMR_STAT, Table 8-26
     bool lowBattery = false;       // on battery below 3.5 V (PowerManager::UPDATE_MIN_MV)
+    bool weakSupply = false;       // WeakSupply::weak()
+    uint16_t vbatMv = 0;           // 0 = unknown
+    uint16_t vregMv = 0;           // the charge voltage set now
 };
+
+// BAT_FAULT on USB with VBAT above VREG but within the event target: the
+// battery over-voltage protection after the target was lowered (e.g. event
+// -> store). Charging resumes once VBAT is below VBAT_OVPZ; no error.
+inline bool batteryOvpExpected(const ChargerFacts& f) {
+    return f.powerGood && f.batteryFault && f.vbatMv != 0 && f.vregMv != 0 && f.vbatMv > f.vregMv &&
+           f.vbatMv <= kEventVregMv + kVregOvpMarginMv;
+}
 
 // TS_STAT zones (Table 8-28): 001 cold, 010 hot, 111 bias reference fault.
 // Cool, warm, pre-cool and pre-warm only reduce the charge current or voltage.
@@ -85,10 +99,11 @@ inline uint16_t chargerErrors(const ChargerFacts& f) {
     if (f.tsZone == kTsHot) e |= kErrTsHot;
     if (f.tsZone == kTsBiasFault) e |= kErrTsBias;
     if (f.thermalShutdown) e |= kErrThermal;
-    if (f.batteryFault) e |= kErrBattery;
+    if (f.batteryFault && !batteryOvpExpected(f)) e |= kErrBattery;
     if (f.safetyTimer) e |= kErrSafetyTimer;
     if (f.supplyFault) e |= kErrSupply;
     if (f.lowBattery && !f.powerGood) e |= kErrLowBattery;
+    if (f.weakSupply && f.powerGood) e |= kErrWeakSupply;
     return e;
 }
 
