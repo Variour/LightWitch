@@ -19,7 +19,7 @@ The skill holds no live state. The presenter announces, opens, closes and reveal
 
 For a single round, deliver right away once nothing had to be guessed: during a talk, speed matters more than a confirmation step. Ask first when a guess would change what the audience sees or what counts as right - which answer is correct, which of five answers to drop, a scale whose good end is the low end.
 
-For a session, show the overview table first and deliver after the presenter agrees. A session replaces the whole plan in the console, so the presenter should see it before it lands.
+For a session, show the overview table first and deliver after the presenter agrees. A session replaces the whole plan in the console, so the presenter should see it before it lands. When the presenter has already said to send it straight away and nothing had to be guessed, deliver and put the overview into the report.
 
 ## Translating
 
@@ -119,7 +119,7 @@ The question and the answers are read from the back of the room. Limits measured
 
 Count characters exactly with code when code execution is available (`[...text].length` in JavaScript, `len(text)` in Python); estimates by eye are often off by 10-20 %.
 
-When a text is over the upper limit, shorten it yourself: drop filler ("Was glaubt ihr eigentlich, ..."), keep the key terms, numbers and the question mark, keep the presenter's wording. The presenter can say the long version out loud; the screen carries the short one. Never shorten answers in a way that changes which one is right or makes two look alike. Report every shortened text as "lang → kurz" so the presenter can veto it.
+When a text is over the upper limit, shorten it yourself towards the aim, not just below the limit: drop filler ("Was glaubt ihr eigentlich, ..."), keep the key terms, numbers and the question mark, keep the presenter's wording. The presenter can say the long version out loud; the screen carries the short one. Never shorten answers in a way that changes which one is right or makes two look alike. Report every shortened text as "lang → kurz" so the presenter can veto it.
 
 ## Delivery
 
@@ -173,7 +173,7 @@ When the fix is clear (a colour zone outside the range, a text one character too
    | Nr | Titel | Art | Screen-Text | Antworten oder Skala |
    |---|---|---|---|---|
 
-4. After the presenter agrees, deliver the whole session as one `buzzer-session/0` file. Rounds sent one by one earlier in the conversation are replaced by it; mention that.
+4. After the presenter agrees, deliver the whole session as one `buzzer-session/0` file. It replaces every round planned in the console, also rounds sent one by one before; say so in the report.
 
 ## Wishes the format cannot fulfil
 
