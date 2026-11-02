@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { GatewayLink } from './link.js';
+import { redact } from './protocol.js';
 import { GameConsole } from './game.js';
 import { startServer } from './server.js';
 import { Inbox } from './inbox.js';
@@ -38,7 +39,7 @@ export async function startConsole({
   game.on('rejected', ({ source, result }) => log('error', `${source}: ${result.error}`));
   transport.on('status', (text) => log('link', text));
   if (trace) {
-    link.on('tx', (obj) => log('tx', JSON.stringify(obj)));
+    link.on('tx', (obj) => log('tx', JSON.stringify(redact(obj))));
     link.on('rx', (ev) => log('rx', JSON.stringify(ev)));
   }
 

@@ -4,6 +4,7 @@
 // running console over http://127.0.0.1:<port>/.
 
 import fs from 'node:fs/promises';
+import readline from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { startConsole, DEFAULT_HTTP_PORT, DEFAULT_INBOX } from '../src/app.js';
 
@@ -37,11 +38,24 @@ An die laufende Konsole:
   game-console admit-mode auto|manual | usb-number [n|none]
   game-console status                 Kurzer Zustand
   game-console ports                  Serielle Ports auflisten
+
+Ladeübersicht und Flotte (alle Geräte außerhalb einer Sitzung):
+  game-console fleet-view [on|off]    Ladeübersicht auf dem Bildschirm (Taste F)
+  game-console update-all [--pr <n>]  Update an alle: neuestes Release oder PR-Build
+  game-console charge store|event     Ladeziel an alle: Lagern (80 %) oder Event (100 %)
+  game-console off-all                Alle Geräte im Akkubetrieb ausschalten
+  game-console ap <n|mac>             Wartungs-WLAN eines Geräts für 10 Minuten öffnen
+  game-console fw-ref <hex|gateway>   Referenz-Firmware für "veraltet" (Standard: Gateway)
+
+Gerät am USB-Kabel:
+  game-console wifi-set               WLAN-Name und Passwort abfragen und speichern
+  game-console config-get             Konfiguration lesen
 `;
 
 const ACTIONS = new Set([
   'next', 'session-start', 'login-open', 'login-close', 'announce', 'open', 'close', 'reveal', 'idle',
   'winner', 'admit', 'renumber', 'release', 'end', 'admit-mode', 'usb-number',
+  'fleet-view', 'update-all', 'charge', 'off-all', 'ap', 'fw-ref', 'config-get',
 ]);
 
 function fail(text, code = 1) {
@@ -77,7 +91,7 @@ function printResult(result) {
   fail(result.error ?? 'Fehler.');
 }
 
-function argsFor(action, pos) {
+function argsFor(action, pos, v) {
   switch (action) {
     case 'announce': return pos[0] ? { id: pos[0] } : {};
     case 'winner': return { n: Number(pos[0]) };
@@ -86,8 +100,64 @@ function argsFor(action, pos) {
     case 'release': return { n: Number(pos[0]) };
     case 'admit-mode': return { mode: pos[0] };
     case 'usb-number': return pos[0] === undefined ? {} : { n: pos[0] === 'none' ? null : Number(pos[0]) };
+    case 'fleet-view': return pos[0] === undefined ? {} : { mode: pos[0] };
+    case 'update-all': return v.pr === undefined ? {} : { pr: int('pr', v.pr, 1, 99999) };
+    case 'charge': return { target: pos[0] };
+    case 'ap': return { to: pos[0] };
+    case 'fw-ref': return { fw: pos[0] };
     default: return {};
   }
+}
+
+// Reads the hidden password: no echo, Backspace deletes, Ctrl+C aborts.
+function askHidden(question) {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    process.stdout.write(question);
+    stdin.setRawMode(true);
+    stdin.setEncoding('utf8');
+    let value = '';
+    const finish = () => {
+      stdin.removeListener('data', onData);
+      stdin.setRawMode(false);
+      stdin.pause();
+      process.stdout.write('\n');
+    };
+    const onData = (chunk) => {
+      for (const ch of chunk) {
+        if (ch === '\r' || ch === '\n') {
+          finish();
+          resolve(value);
+          return;
+        }
+        if (ch === '\u0003') {
+          finish();
+          process.exit(130);
+        }
+        if (ch === '\u007f' || ch === '\b') value = value.slice(0, -1);
+        else if (ch >= ' ') value += ch;
+      }
+    };
+    stdin.on('data', onData);
+    stdin.resume();
+  });
+}
+
+// SSID and password for `wifi-set`: asked in the terminal, or two lines on
+// stdin when it is not a terminal. The password stays in this process and
+// the request to the console.
+async function askWifi() {
+  if (!process.stdin.isTTY) {
+    let text = '';
+    for await (const chunk of process.stdin) text += chunk;
+    const [ssid = '', pass = ''] = text.split('\n').map((l) => l.replace(/\r$/, ''));
+    return { ssid, pass };
+  }
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ssid = await rl.question('WLAN-Name (SSID): ');
+  rl.close();
+  const pass = await askHidden('Passwort (wird nicht angezeigt, leer für ein offenes Netz): ');
+  return { ssid, pass };
 }
 
 async function runConsole(v) {
@@ -142,6 +212,7 @@ async function main() {
         inbox: { type: 'string' },
         trace: { type: 'boolean' },
         file: { type: 'string' },
+        pr: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },
     });
@@ -156,6 +227,7 @@ async function main() {
   const [command, ...rest] = pos;
   const httpPort = v['http-port'] !== undefined ? int('http-port', v['http-port'], 1, 65535) : DEFAULT_HTTP_PORT;
 
+  if (v.pr !== undefined && command !== 'update-all') fail('--pr gibt es nur mit update-all.');
   if (!command || command === 'start') return runConsole(v);
 
   if (command === 'send' || command === 'round') {
@@ -179,6 +251,7 @@ async function main() {
       `Geräte:    ${s.counts.admitted} aufgenommen, ${s.counts.online} online, ${s.counts.waiting} warten`,
       `Runde:     ${s.round ? `${s.round.title || s.round.id || s.round.type} (${s.round.type}, ${s.round.phase ?? '-'})` : 'keine'}`,
       `Plan:      ${s.plan.count} Runde(n), als nächstes: ${s.plan.next ? s.plan.next.title || s.plan.next.id : '-'}`,
+      `Flotte:    ${s.fleet.counts.total} Gerät(e): ${s.fleet.counts.charging} laden, ${s.fleet.counts.full} voll, ${s.fleet.counts.outdated} veraltet, ${s.fleet.counts.errors} Fehler`,
     ];
     process.stdout.write(`${lines.join('\n')}\n`);
     return undefined;
@@ -200,8 +273,14 @@ async function main() {
     return undefined;
   }
 
+  if (command === 'wifi-set') {
+    await call(httpPort, 'GET', '/api/state'); // is the console running?
+    const { ssid, pass } = await askWifi();
+    return printResult(await call(httpPort, 'POST', '/api/action', JSON.stringify({ action: 'wifi-set', ssid, pass })));
+  }
+
   if (ACTIONS.has(command)) {
-    return printResult(await call(httpPort, 'POST', '/api/action', JSON.stringify({ action: command, ...argsFor(command, rest) })));
+    return printResult(await call(httpPort, 'POST', '/api/action', JSON.stringify({ action: command, ...argsFor(command, rest, v) })));
   }
   fail(`Unbekannter Befehl "${command}".\n\n${HELP}`);
   return undefined;
