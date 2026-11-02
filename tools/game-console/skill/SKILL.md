@@ -1,6 +1,6 @@
 ---
 name: buzzer-rounds
-description: Turns a presenter's plain-language description of buzzer rounds into round data for the LightWitch quiz buzzers (buzzer-round/0, buzzer-session/0) and hands it to the game console on the laptop. Use whenever someone describes a round for the buzzers ("Runde 4: ...", Quizfrage, Abstimmung, Skala, Umfrage, wer zuerst drückt, Pause), wants a talk or workshop prepared with buzzer rounds from an outline, wants to change a round, or asks what a console rejection means - even without saying JSON, skill or console.
+description: Turns a presenter's plain-language description of buzzer rounds into round data for the LightWitch quiz buzzers (buzzer-round/0, buzzer-session/0) and hands it to the game console on the laptop. Use whenever someone describes a round for the buzzers ("Runde 4: ...", Quizfrage, Abstimmung, Skala, Umfrage, wer zuerst drückt, Pause), wants a talk or workshop prepared with buzzer rounds from an outline, wants to change a round, or asks what a console rejection means - even without saying JSON, skill or console. Also use when buzzer slides are made or changed in a PowerPoint deck: there the round goes into the slide notes as a block "Buzzer".
 ---
 
 # Buzzer rounds
@@ -14,7 +14,7 @@ The skill holds no live state. The presenter announces, opens, closes and reveal
 1. Work out what the presenter wants: one new round, a change to a round already sent, or a whole session from an outline.
 2. Translate into JSON (Translating, Round format).
 3. Fit the screen texts (Fitting the screen).
-4. Deliver to the console (Delivery).
+4. Deliver to the console (Delivery). When the talk runs from PowerPoint, write the round into the slide notes instead (PowerPoint).
 5. Read the console's answer and report back in German (Reporting back).
 
 For a single round, deliver right away once nothing had to be guessed: during a talk, speed matters more than a confirmation step. Ask first when a guess would change what the audience sees or what counts as right - which answer is correct, which of five answers to drop, a scale whose good end is the low end.
@@ -135,6 +135,52 @@ Write the JSON with two-space indentation.
   - Still in the inbox after about 5 seconds: the console is not running or watches another folder. Say so. The file stays and is taken as soon as the console starts with this folder.
 
 **CLI.** When your shell runs on the laptop that runs the console (Claude Code), deliver with `npx --no-install game-console send file.json` from the folder `tools/game-console` of the LightWitch repo. `--no-install` keeps npx from fetching a package of that name from the internet. Exit code 0 is accepted (the console's message on stdout, e.g. the queue position), 1 rejected (German reason on stderr), 2 the console is not running.
+
+## PowerPoint
+
+When the presenter talks from PowerPoint, the rounds live in the deck. A bridge program on the laptop watches the slide show. When a slide appears it reads the slide's notes, drives the console and writes live results into shapes on the slide. No AI takes part during the talk, so the file has to be right.
+
+Each buzzer slide carries one block at the very end of its notes:
+
+```
+Buzzer
+öffnen
+{"format":"buzzer-round/0","id":"runde-4","title":"Runde 4","question":"Wie viel Zustimmung?","type":"scale","min":0,"max":9,"redMax":3,"greenMin":7}
+```
+
+- First line exactly `Buzzer`. Other notes blocks such as Sprechtext or Regie stay above it, word for word. When the notes already end with a block `Buzzer`, replace that block.
+- Second line the step, in lowercase German as below.
+- After `öffnen` and `ankündigen` the round as JSON in one compact line. Translating, Round format and Fitting the screen apply as for every delivery. The id stands only in the JSON.
+- One block per slide.
+
+The bridge sees slide changes, not clicks within a slide. So the steps of a round run over slides:
+
+| Slide | Step | What the bridge does |
+|---|---|---|
+| Join | `anmeldung` | starts the session and keeps login open while the slide shows. Put one before the first round |
+| Question | `öffnen` | loads the round, announces and opens it. Leaving the slide closes it |
+| Question, keys locked | `ankündigen` | loads and announces the round |
+| Result | `ergebnis <id>` | closes the round if it is still open and shows its final values |
+| Reveal | `auflösen <id>` | closes the round and reveals the right answer. Only for `choice` with `correct` |
+
+`ergebnis` and `auflösen` name the id of a round that an earlier slide opened. A quiz takes two slides: the question with `öffnen`, the reveal with `auflösen <id>`. A scale or a poll needs no second slide, its question slide shows the values live.
+
+The bridge fills shapes on the slide by their name in the selection pane and skips names that are missing:
+
+| Name | Content | Rounds |
+|---|---|---|
+| `buzzer-dabei` | number of joined buzzers | `anmeldung` |
+| `buzzer-stimmen` | "38 von 50 haben abgestimmt" (geantwortet, gedrückt) | all |
+| `buzzer-mittelwert` | mean value | `scale` |
+| `buzzer-zahl-<k>` | count for value or answer k | `scale`, `choice` |
+| `buzzer-spur-<k>` | fixed track, gives the full size of the bar, never changed | `scale`, `choice` |
+| `buzzer-balken-<k>` | bar inside its track: a tall track grows from the bottom, a wide one from the left | `scale`, `choice` |
+| `buzzer-richtig-<k>` | "richtig" after the reveal | `choice` |
+| `buzzer-sieger`, `buzzer-rang-1` to `buzzer-rang-5` | winner and ranking | `race` |
+
+k is the scale value (0 to 9 on the default scale) or the answer number 1 to 4. The look of the slides comes from the deck's template and the presenter's slide skill, not from this skill.
+
+Nothing checks the rounds against the console until the check before the talk, which reads the deck on the laptop like the bridge does. Report per slide in German (Folie, Schritt, Runde) and remind the presenter of that check.
 
 ## Reporting back
 
