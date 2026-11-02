@@ -167,7 +167,7 @@ test('choice: only the count while open, distribution after closing, then the re
   link.emitEvent(value(2, id, 2));
   link.emitEvent(value(3, id, 1));
   let v = game.snapshot().round;
-  assert.deepEqual(v.results, { answered: 3, participants: 0 });
+  assert.deepEqual(v.results, { answered: 3, participants: 0, ready: null });
   assert.equal(v.correct, null);
   await game.act('next'); // close
   v = game.snapshot().round;

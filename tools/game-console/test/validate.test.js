@@ -27,7 +27,7 @@ test('every example of the round format passes', () => {
 
 test('defaults are filled in', () => {
   const r = validateInput({ format: 'buzzer-round/0', id: 'a', type: 'scale' });
-  assert.deepEqual(r.value, { format: 'buzzer-round/0', id: 'a', title: '', question: '', type: 'scale', min: 0, max: 9, redMax: 3, greenMin: 7 });
+  assert.deepEqual(r.value, { format: 'buzzer-round/0', id: 'a', title: '', question: '', type: 'scale', hold: 'frei', min: 0, max: 9, redMax: 3, greenMin: 7 });
   const c = validateInput({ format: 'buzzer-round/0', id: 'b', type: 'choice', answers: ['x', 'y'] });
   assert.equal(c.value.correct, null);
   const s = validateInput({ format: 'buzzer-session/0' });
@@ -81,12 +81,10 @@ test('choice rules', () => {
 test('move rules and defaults', () => {
   assert.deepEqual(validateInput(ROUNDS.move).value, { ...ROUNDS.move, cols: 22, rows: 10 });
   assert.deepEqual(validateInput({ format: 'buzzer-round/0', id: 'm', type: 'move' }).value,
-    { format: 'buzzer-round/0', id: 'm', title: '', question: '', type: 'move', hold: 'quer', goal: 'right', cols: 22, rows: 10 });
+    { format: 'buzzer-round/0', id: 'm', title: '', question: '', type: 'move', hold: 'frei', goal: 'right', cols: 22, rows: 10 });
   const sized = validateInput({ ...ROUNDS.move, hold: 'hochkant', cols: 40, rows: 1 });
   assert.deepEqual([sized.value.hold, sized.value.cols, sized.value.rows], ['hochkant', 40, 1]);
   assert.equal(validateInput({ ...ROUNDS.move, cols: 2, rows: 20 }).ok, true);
-  fails({ ...ROUNDS.move, hold: 'quer-links' }, 'hold', /"hold" muss "quer" oder "hochkant" sein/);
-  fails({ ...ROUNDS.move, hold: 1 }, 'hold', /"quer" oder "hochkant"/);
   fails({ ...ROUNDS.move, goal: 'left' }, 'goal', /"goal" muss "right" sein/);
   fails({ ...ROUNDS.move, cols: 1 }, 'cols', /"cols" muss zwischen 2 und 40 liegen \(ist 1\)/);
   fails({ ...ROUNDS.move, cols: 41 }, 'cols', /zwischen 2 und 40/);
@@ -96,9 +94,25 @@ test('move rules and defaults', () => {
   fails({ ...ROUNDS.move, rows: '10' }, 'rows', /ganze Zahl/);
   fails({ ...ROUNDS.move, question: 'x'.repeat(201) }, 'question', /200/);
   fails({ ...ROUNDS.move, answers: ['a', 'b'] }, 'answers', /gehört nicht zum Rundentyp "move" \(Spielfeld\)/);
-  fails({ ...ROUNDS.race, hold: 'quer' }, 'hold', /gehört nicht zum Rundentyp "race"/);
+  fails({ ...ROUNDS.race, goal: 'right' }, 'goal', /gehört nicht zum Rundentyp "race"/);
   fails({ ...ROUNDS.move, speed: 2 }, 'speed', /Unbekanntes Feld "speed"/);
   fails({ format: 'buzzer-round/0', id: 'a', type: 'board' }, 'type', /"move"/);
+});
+
+test('hold: every round with inputs, default frei, five values, not for idle', () => {
+  for (const r of [ROUNDS.scale, ROUNDS.race, ROUNDS.choice]) {
+    assert.equal(validateInput(r).value.hold, 'frei', r.type);
+    for (const hold of ['frei', 'hochkant', 'quer', 'liegend', 'fest']) {
+      assert.equal(validateInput({ ...r, hold }).value.hold, hold, `${r.type} ${hold}`);
+    }
+  }
+  assert.equal(validateInput({ ...ROUNDS.move, hold: 'fest' }).value.hold, 'fest');
+  for (const hold of ['quer-links', 'Quer', '', 1, null]) {
+    fails({ ...ROUNDS.race, hold }, 'hold', /"hold" muss "frei", "hochkant", "quer", "liegend" oder "fest" sein/);
+  }
+  fails({ ...ROUNDS.move, hold: 'quer-links' }, 'hold', /"frei", "hochkant", "quer", "liegend" oder "fest"/);
+  fails({ ...ROUNDS.idle, hold: 'quer' }, 'hold', /Feld "hold" gehört nicht zum Rundentyp "idle" \(Ruhe\)/);
+  assert.equal('hold' in validateInput(ROUNDS.idle).value, false);
 });
 
 test('idle has no question', () => {

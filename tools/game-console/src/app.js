@@ -35,11 +35,11 @@ export async function startConsole({
   const link = new GatewayLink(transport);
   const game = new GameConsole({ link, channel, fleet, autoAdmit, mode: simulate > 0 ? 'sim' : 'serial' });
   if (simulate > 0) {
-    // The simulated people see the board of a move round in PowerPoint: how
-    // to hold the buzzer and who is in the goal.
+    // The simulated people see the board of a move round in PowerPoint:
+    // who is in the goal.
     transport.world.board = () => {
       const r = game.round;
-      return r && r.type === 'move' && !r.adopted ? { hold: r.hold, finished: r.order } : null;
+      return r && r.type === 'move' && !r.adopted ? { finished: r.order } : null;
     };
   }
 

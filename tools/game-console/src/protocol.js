@@ -19,6 +19,10 @@ export const CHOICE_COLORS = ['yellow', 'blue', 'magenta', 'cyan'];
 // Move rounds free the four direction keys. Provisional: the firmware has no
 // move rounds yet. Each press reaches the console as its own `game key` line
 // (n, round, key, kseq); kseq counts the presses of one device in one round.
+//
+// Orientation, provisional until the buzzers read their sensor: `game round`
+// carries `hold` (absent means "frei"); `join`, `device`, `value` and `key`
+// lines carry the buzzer's `lage`. A `key` line with a lage has a logical key.
 export const MOVE_KEYS = ['up', 'right', 'down', 'left'];
 export const MOVE_COLOR = 'white';
 
@@ -127,6 +131,7 @@ export const cmd = {
       c.redMax = r.redMax;
       c.greenMin = r.greenMin;
     }
+    if (r.hold && r.hold !== 'frei') c.hold = r.hold;
     if (openInMs !== undefined && r.phase === 'open') c.openInMs = openInMs;
     if (r.type === 'race' && r.winner) c.winner = r.winner;
     if (r.type === 'choice' && r.phase === 'closed' && r.revealed && r.correct) c.correct = r.correct;

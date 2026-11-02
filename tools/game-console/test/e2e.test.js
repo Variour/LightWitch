@@ -179,12 +179,15 @@ test('lossy radio, a device restart and a gateway restart in the middle of a rou
   }
 });
 
+// Turning into a required lage, shortened: most within 0.1-0.6 s, then 0.3 s still.
+const FAST_TURN = { lageSettleMs: 300, turnMin: 100, turnMax: 600, turnSlowMin: 3000, turnSlowMax: 5000 };
+
 test('move round: the simulated players reach the goal, the keyboard drives one buzzer', { timeout: 90000 }, async () => {
   const FAST_MOVE = { movePaceMin: 60, movePaceMax: 140, moveFirstMin: 50, moveFirstMax: 300 };
-  const { app, act, gw, game } = await start({ simulate: 20, simTiming: { endRelease: 1000, ...FAST_MOVE } });
+  const { app, act, gw, game } = await start({ simulate: 20, simTiming: { endRelease: 1000, ...FAST_MOVE, ...FAST_TURN } });
   const keys = []; // key lines of the keyboard's buzzer
   app.link.on('rx', (ev) => {
-    if (ev.ns === 'game' && ev.ev === 'key' && ev.n === 1) keys.push(ev.key);
+    if (ev.ns === 'game' && ev.ev === 'key' && ev.n === 1) keys.push(`${ev.key} ${ev.lage}`);
   });
   try {
     await waitFor(() => app.link.connected, { what: 'link' });
@@ -214,14 +217,16 @@ test('move round: the simulated players reach the goal, the keyboard drives one 
     assert.deepEqual([at(1).col, at(1).row], [0, 0]); // the keyboard's buzzer waits
     assert.equal(keys.length, 0);
 
-    // Arrow right: the quer buzzer presses up, the figure goes right (a
-    // figure still in the way blocks a step).
+    // Arrow right: the buzzer sends right in the required lage quer, the
+    // figure goes right (a figure still in the way blocks a step).
     for (let i = 0; i < 40 && at(1).col < 5; i++) {
       kb.feed('\x1b[C');
       await sleep(150);
     }
     assert.deepEqual([at(1).col, at(1).row], [5, 0]);
-    assert.ok(keys.length >= 5 && keys.every((k) => k === 'up'), keys.join());
+    assert.ok(keys.length >= 5 && keys.every((k) => k === 'right quer'), keys.join());
+
+    assert.equal(gw.devices.find((d) => d.number === 1).lage, 'quer');
 
     // Tab hands buzzer 1 back to its person.
     kb.feed('\t');
@@ -231,6 +236,46 @@ test('move round: the simulated players reach the goal, the keyboard drives one 
     res = view().results;
     await sleep(500);
     assert.deepEqual(view().results, res); // frozen
+  } finally {
+    await app.close();
+  }
+});
+
+test('lage: the people turn their buzzers, a race that requires liegend counts only lying presses', { timeout: 90000 }, async () => {
+  // More slow and never-turning people than usual, so some stay behind.
+  const { app, act, gw, game } = await start({ simulate: 20, simTiming: { endRelease: 1000, ...FAST_TURN, turnSlow: 0.15, turnNever: 0.1 } });
+  const values = [];
+  app.link.on('rx', (ev) => {
+    if (ev.ns === 'game' && ev.ev === 'value') values.push(ev);
+  });
+  try {
+    await waitFor(() => app.link.connected, { what: 'link' });
+    game.load({ kind: 'round', value: validRound({ ...ROUNDS.race, hold: 'liegend' }) });
+    await act('next');
+    await waitFor(() => game.snapshot().counts.admitted === 20, { timeoutMs: 30000, what: '20 admits' });
+    await waitFor(() => game.snapshot().participants.every((p) => p.lage !== null), { what: 'every lage known' });
+    const members = () => gw.devices.filter((d) => d.state === 'member');
+    const lying = () => members().filter((d) => d.lage === 'liegend').length;
+    const view = () => game.snapshot().round;
+
+    await act('next'); // announce
+    assert.equal(view().hold, 'liegend');
+    await waitFor(() => members().every((d) => d.round && d.round.hold === 'liegend'), { what: 'the round on every buzzer' });
+    assert.ok(view().results.ready < 20, 'some buzzers do not lie yet');
+    await waitFor(() => view().results.ready >= 12, { timeoutMs: 5000, what: 'most turned' });
+    const behind = members().filter((d) => d.physLage !== 'liegend' || d.turn);
+    assert.ok(behind.length >= 1, 'a few take long or never turn');
+    await waitFor(() => view().results.ready === lying(), { what: 'the console follows every new lage' });
+    assert.ok(view().results.ready < 20);
+
+    await act('next'); // open
+    await waitFor(() => view().winner, { timeoutMs: 6000, what: 'race winner' });
+    await sleep(1500);
+    const ranking = view().results.ranking;
+    assert.ok(ranking.length >= 10);
+    assert.ok(values.length >= ranking.length && values.every((v) => v.lage === 'liegend'), 'every press came lying');
+    const never = members().filter((d) => d.physLage !== 'liegend').map((d) => d.number);
+    assert.equal(ranking.filter((e) => never.includes(e.n)).length, 0);
   } finally {
     await app.close();
   }

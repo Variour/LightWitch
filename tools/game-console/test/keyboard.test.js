@@ -8,7 +8,7 @@ function keyboard({ participants = [3, 7, 12], hold = 'quer' } = {}) {
   const kb = new SimKeyboard({
     participants: () => env.participants,
     hold: () => env.hold,
-    press: (n, key) => log.presses.push([n, key]),
+    press: (n, dir, lage) => log.presses.push([n, dir, lage]),
     control: (n) => log.control.push(n),
     say: (text) => log.said.push(text),
     quit: () => {
@@ -28,19 +28,21 @@ test('terminal input: arrows in both cursor modes and with modifiers, Tab, Ctrl+
   assert.deepEqual(parseKeys('\x1b\x1b[B'), { keys: ['down'], rest: '' }); // a lone Esc before an arrow
 });
 
-test('the first arrow takes the lowest number and presses the key that points that way', () => {
+test('the first arrow takes the lowest number and sends the direction in the required lage', () => {
   const { kb, log } = keyboard();
-  kb.feed('\x1b[A'); // board up: quer buzzer key left
+  kb.feed('\x1b[A');
   assert.deepEqual(log.said, ['Tastatur steuert Nr. 3']);
   assert.deepEqual(log.control, [3]);
   kb.feed('\x1b[C\x1b[B\x1b[D');
-  assert.deepEqual(log.presses, [[3, 'left'], [3, 'up'], [3, 'right'], [3, 'down']]);
+  assert.deepEqual(log.presses, [[3, 'up', 'quer'], [3, 'right', 'quer'], [3, 'down', 'quer'], [3, 'left', 'quer']]);
 });
 
-test('hochkant: the arrows are the buzzer keys', () => {
-  const { kb, log } = keyboard({ hold: 'hochkant' });
-  kb.feed('\x1b[A\x1b[C\x1b[B\x1b[D');
-  assert.deepEqual(log.presses.map(([, k]) => k), ['up', 'right', 'down', 'left']);
+test('the lage: the required one, else quer', () => {
+  for (const [hold, lage] of [['hochkant', 'hochkant'], ['liegend', 'liegend'], ['frei', 'quer'], ['fest', 'quer']]) {
+    const { kb, log } = keyboard({ hold });
+    kb.feed('\x1b[C');
+    assert.deepEqual(log.presses, [[3, 'right', lage]], hold);
+  }
 });
 
 test('Tab walks through the admitted numbers and wraps', () => {
@@ -53,7 +55,7 @@ test('Tab walks through the admitted numbers and wraps', () => {
   assert.equal(log.said.length, 4); // still 3, nothing new to say
   env.participants = [5, 9];
   kb.feed('\x1b[C'); // 3 is gone: the arrow takes the lowest number
-  assert.deepEqual(log.presses, [[5, 'up']]);
+  assert.deepEqual(log.presses, [[5, 'right', 'quer']]);
 });
 
 test('arrows do nothing without a move round; keys split across reads still count', () => {
@@ -64,7 +66,7 @@ test('arrows do nothing without a move round; keys split across reads still coun
   kb.feed('\x1b');
   kb.feed('[');
   kb.feed('C');
-  assert.deepEqual(log.presses, [[3, 'up']]);
+  assert.deepEqual(log.presses, [[3, 'right', 'quer']]);
 });
 
 test('Ctrl+C quits', () => {

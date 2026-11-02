@@ -1,10 +1,11 @@
-// The board of a `move` round: cells, start cells and how a buzzer key
-// turns into a step on the board. The console owns the game state; the
-// buzzers only report their real keys.
+// The board of a `move` round: cells, start cells and steps. The console owns
+// the game state; the buzzers only report their keys.
 
-export const HOLDS = ['quer', 'hochkant'];
+import { toLogical } from './lage.js';
+
 export const GOALS = ['right'];
-export const MOVE_DEFAULTS = { hold: 'quer', goal: 'right', cols: 22, rows: 10 };
+export const MOVE_DEFAULTS = { goal: 'right', cols: 22, rows: 10 };
+export const DIRECTIONS = ['up', 'right', 'down', 'left'];
 
 const STEP = {
   up: { dc: 0, dr: -1 },
@@ -13,24 +14,13 @@ const STEP = {
   left: { dc: -1, dr: 0 },
 };
 
-// Board direction of a buzzer key. "quer": the buzzer is turned 90° clockwise,
-// buzzer on the right, so its up key points right. "hochkant": as printed.
-const BOARD_DIR = {
-  quer: { left: 'up', up: 'right', right: 'down', down: 'left' },
-  hochkant: { up: 'up', right: 'right', down: 'down', left: 'left' },
-};
-
-export function boardDirection(hold, key) {
-  const map = BOARD_DIR[hold];
-  return map ? map[key] ?? null : null;
-}
-
-// The buzzer key that moves a figure in this board direction.
-export function deviceKey(hold, dir) {
-  const map = BOARD_DIR[hold];
-  if (!map) return null;
-  for (const [key, d] of Object.entries(map)) if (d === dir) return key;
-  return null;
+// Board direction of a key line. A line with a lage carries a logical key.
+// Without one the key is the physical button: until the buzzers remap
+// themselves, the console turns them for "quer" (left is up, up is right,
+// right is down, down is left) and takes them as printed otherwise.
+export function boardDirection(hold, key, lage) {
+  const logical = lage ? key : hold === 'quer' ? toLogical('quer', key) : key;
+  return DIRECTIONS.includes(logical) ? logical : null;
 }
 
 export function step(cell, dir) {

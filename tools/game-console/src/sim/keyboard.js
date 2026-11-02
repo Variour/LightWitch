@@ -1,9 +1,9 @@
 // Keyboard test aid for `--simulate`: the arrow keys move one simulated
 // buzzer on the board of a move round, Tab picks the next participant. An
-// arrow names the direction on the board; the buzzer gets the key that points
-// there the way it is held, so the hold mapping runs as with real presses.
+// arrow names the direction on the board: the buzzer sends it as a logical
+// input with a lage, the one the round requires or else "quer".
 
-import { deviceKey } from '../move.js';
+import { requiredLage } from '../lage.js';
 
 const ARROWS = { A: 'up', B: 'down', C: 'right', D: 'left' };
 
@@ -38,9 +38,10 @@ export function parseKeys(text) {
 }
 
 // participants(): admitted numbers, ascending. hold(): the hold of the
-// running move round, or null. press(n, key): the buzzer with number n
-// presses this key. control(n): the keyboard takes buzzer n, the others play
-// on their own. say(text): one line in the terminal. quit(): Ctrl+C.
+// running move round, or null. press(n, dir, lage): the buzzer with number n
+// sends this logical direction in this lage. control(n): the keyboard takes
+// buzzer n, the others play on their own. say(text): one line in the
+// terminal. quit(): Ctrl+C.
 export class SimKeyboard {
   constructor({ participants, hold, press, control, say, quit }) {
     Object.assign(this, { participants, hold, press, control, say, quit });
@@ -67,7 +68,7 @@ export class SimKeyboard {
     const hold = this.hold();
     if (!hold) return;
     if (this.n === null || !ns.includes(this.n)) this._take(ns[0]);
-    if (this.n !== null && ns.includes(this.n)) this.press(this.n, deviceKey(hold, k));
+    if (this.n !== null && ns.includes(this.n)) this.press(this.n, k, requiredLage(hold) ?? 'quer');
   }
 
   _take(n) {
@@ -88,9 +89,11 @@ export function simKeyboard(app, { say, quit }) {
       const r = app.game.round;
       return r && r.type === 'move' && !r.adopted ? r.hold : null;
     },
-    press: (n, key) => {
+    press: (n, dir, lage) => {
       const d = member(n);
-      if (d) d.press(key, gw.now(), gw.now());
+      if (!d) return;
+      d.setLage(lage, gw.now()); // turned at once, so the buzzer is not locked
+      d.press(dir, gw.now(), gw.now(), lage);
     },
     control: (n) => {
       for (const d of gw.devices) d.manual = d.number === n;

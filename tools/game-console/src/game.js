@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { cmd, keysFor, normalizeMac, FW_RE, seq8Newer } from './protocol.js';
 import { FleetTable } from './fleet.js';
 import { boardDirection, startCell, step, inside, atGoal, MOVE_DEFAULTS } from './move.js';
+import { isLage, requiredLage } from './lage.js';
 
 // Fixed values in v0 (round format, "Feste Werte in v0", console part).
 export const TIMING = {
@@ -247,12 +248,16 @@ export class GameConsole extends EventEmitter {
       invalid: false,
       adopted: false,
     };
+    if (type !== 'idle') {
+      // lageAtOpen: n -> lage at the open, the round's lage with hold "fest".
+      Object.assign(run, { hold: def.hold, lageAtOpen: new Map() });
+    }
     if (type === 'scale') Object.assign(run, { min: def.min, max: def.max, redMax: def.redMax, greenMin: def.greenMin });
     if (type === 'choice') Object.assign(run, { answers: def.answers, correct: def.correct });
     if (type === 'move') {
       // pos: n -> { col, row }; order: numbers in the goal, first is the
       // winner; kseq: the last press counter applied per number.
-      Object.assign(run, { hold: def.hold, goal: def.goal, cols: def.cols, rows: def.rows, pos: new Map(), order: [], kseq: new Map() });
+      Object.assign(run, { goal: def.goal, cols: def.cols, rows: def.rows, pos: new Map(), order: [], kseq: new Map() });
     }
     this.prevRound = this.round;
     this.round = run;
@@ -264,6 +269,8 @@ export class GameConsole extends EventEmitter {
     const r = this._needRound();
     if (r.phase !== 'announced') throw new ActionError('Öffnen geht nur bei einer angekündigten Runde.');
     r.phase = 'open';
+    r.lageAtOpen.clear();
+    for (const d of this.devices.values()) if (d.n && d.admitted) r.lageAtOpen.set(d.n, d.lage);
     if (r.type === 'move') {
       // Everybody back to the start cell; _changed() places them.
       r.pos.clear();
@@ -581,7 +588,7 @@ export class GameConsole extends EventEmitter {
     if (!d) {
       d = {
         mac, n: null, storedN: null, admitted: false, admitting: false, waiting: false,
-        fw: null, proto: null, bat: null, chg: false, rssi: null, lastSeen: 0, pressedAt: 0,
+        fw: null, proto: null, bat: null, chg: false, rssi: null, lage: null, lastSeen: 0, pressedAt: 0,
         lastRound: null, seq: null,
       };
       this.devices.set(mac, d);
@@ -713,7 +720,7 @@ export class GameConsole extends EventEmitter {
           startAt: typeof ev.sinceOpenMs === 'number' ? this.now() - ev.sinceOpenMs : null,
           firstPressAt: null, winnerDue: false, invalid: false, adopted: true,
           min: 0, max: 9, redMax: 3, greenMin: 7, answers: [], correct: null,
-          ...MOVE_DEFAULTS, pos: new Map(), order: [], kseq: new Map(),
+          hold: 'frei', lageAtOpen: new Map(), ...MOVE_DEFAULTS, pos: new Map(), order: [], kseq: new Map(),
         };
         this._msg('warn', 'Laufende Runde vom Gateway übernommen; Titel und Frage sind unbekannt.');
       }
@@ -794,6 +801,27 @@ export class GameConsole extends EventEmitter {
     if (ev.bat !== undefined) d.bat = ev.bat;
     if (ev.chg !== undefined) d.chg = ev.chg;
     if (ev.rssi !== undefined) d.rssi = ev.rssi;
+    if (ev.lage !== undefined) d.lage = isLage(ev.lage) ? ev.lage : null;
+  }
+
+  // The lage a participant has for this round: with hold "fest" the one at
+  // the open (a participant admitted later: the one when first asked), else
+  // the newest from its status. null: unknown.
+  _lageOf(run, n) {
+    let live = null;
+    for (const d of this.devices.values()) if (d.n === n && d.admitted) live = d.lage;
+    if (run.hold !== 'fest' || run.phase === 'announced') return live;
+    if (!run.lageAtOpen.has(n)) run.lageAtOpen.set(n, live);
+    return run.lageAtOpen.get(n);
+  }
+
+  // An input made in another lage than the round requires does not count.
+  // The input's own lage decides, else the participant's; unknown passes.
+  _wrongLage(run, n, inputLage) {
+    const need = requiredLage(run.hold);
+    if (!need) return false;
+    const lage = isLage(inputLage) ? inputLage : this._lageOf(run, n);
+    return lage !== null && lage !== need;
   }
 
   _onValue(ev) {
@@ -808,6 +836,7 @@ export class GameConsole extends EventEmitter {
     if (this.round && this.round.roundId === ev.round) run = this.round;
     else if (this.prevRound && this.prevRound.roundId === ev.round) run = this.prevRound;
     if (!run || run.type === 'idle') return this._changed();
+    if (this._wrongLage(run, ev.n, ev.lage)) return this._changed();
     // Every line is the gateway's newest value for this device. No vseq
     // filter: a device restarts its vseq after a rejoin.
     run.values.set(ev.n, { v: ev.v, t: ev.t, arr: ev.arr, late: !!ev.late, vseq: ev.vseq, at: this.now() });
@@ -816,7 +845,8 @@ export class GameConsole extends EventEmitter {
   }
 
   // One press of a device in a move round (provisional `game key` line).
-  // A kseq that is not newer than the last applied one is a resend.
+  // A kseq that is not newer than the last applied one is a resend. With a
+  // lage the key is logical, without one the physical button.
   _onKey(ev) {
     for (const d of this.devices.values()) if (d.n === ev.n) d.lastSeen = this.now();
     const r = this.round;
@@ -824,18 +854,17 @@ export class GameConsole extends EventEmitter {
     const last = r.kseq.get(ev.n);
     if (last !== undefined && !seq8Newer(ev.kseq, last)) return this._changed();
     r.kseq.set(ev.n, ev.kseq);
-    if (r.phase === 'open') {
+    if (r.phase === 'open' && !this._wrongLage(r, ev.n, ev.lage)) {
       this._moveSync();
-      this._moveStep(r, ev.n, ev.key);
+      this._moveStep(r, ev.n, boardDirection(r.hold, ev.key, isLage(ev.lage) ? ev.lage : null));
     }
     return this._changed();
   }
 
   // One cell in the mapped direction. Ignored past the border, onto an
   // occupied cell and for a device already in the goal.
-  _moveStep(r, n, key) {
+  _moveStep(r, n, dir) {
     const from = r.pos.get(n);
-    const dir = boardDirection(r.hold, key);
     if (!from || !dir || r.order.includes(n)) return;
     const to = step(from, dir);
     if (!inside(to, r.cols, r.rows)) return;
@@ -862,6 +891,12 @@ export class GameConsole extends EventEmitter {
       r.pos.set(n, c);
       taken.add(cellKey(c));
     }
+  }
+
+  // Admitted participants in the lage the round requires; null without one.
+  _readyCount(r) {
+    if (r.type === 'idle' || !requiredLage(r.hold)) return null;
+    return this._admittedNumbers().filter((n) => this._lageOf(r, n) === r.hold).length;
   }
 
   _admittedNumbers() {
@@ -1013,7 +1048,7 @@ export class GameConsole extends EventEmitter {
       .sort((a, b) => a.n - b.n)
       .map((d) => ({
         n: d.n, mac: d.mac, admitted: d.admitted, online: d.admitted && now - d.lastSeen < TIMING.offlineMs,
-        bat: d.bat, chg: d.chg, rssi: d.rssi, fw: d.fw,
+        bat: d.bat, chg: d.chg, rssi: d.rssi, fw: d.fw, lage: d.lage,
         pressed: !!this.lastPressed && this.lastPressed.mac === d.mac && now - d.pressedAt < PRESS_HIGHLIGHT_MS,
       }));
     const waiting = [...this.devices.values()]
@@ -1061,7 +1096,7 @@ export class GameConsole extends EventEmitter {
       waiting,
       counts: { admitted: admitted.length, online: admitted.filter((p) => p.online).length, waiting: waiting.length },
       lastPressed,
-      round: r ? roundView(r, admitted.map((p) => p.n)) : null,
+      round: r ? roundView(r, admitted.map((p) => p.n), this._readyCount(r)) : null,
       messages: this.messages.slice(-5),
       warning: this.warning,
       fleet: { ref, ...this.fleet.snapshot(ref.fw) },
@@ -1097,7 +1132,7 @@ export function raceRanking(run) {
   return entries;
 }
 
-function roundView(r, admitted) {
+function roundView(r, admitted, ready) {
   const participants = admitted.length;
   const base = {
     roundId: r.roundId,
@@ -1109,20 +1144,22 @@ function roundView(r, admitted) {
     adopted: r.adopted,
     startAt: r.startAt,
   };
+  if (r.type === 'idle') return base;
+  base.hold = r.hold;
   const valid = [...r.values.entries()].filter(([, v]) => !v.late);
   if (r.type === 'scale') {
     const entries = valid.map(([n, v]) => ({ n, v: v.v, zone: zoneOf(r, v.v) })).sort((a, b) => a.n - b.n);
     const counts = [];
     for (let v = r.min; v <= r.max; v++) counts.push({ v, zone: zoneOf(r, v), count: entries.filter((e) => e.v === v).length });
     const mean = entries.length ? entries.reduce((s, e) => s + e.v, 0) / entries.length : null;
-    return { ...base, min: r.min, max: r.max, redMax: r.redMax, greenMin: r.greenMin, results: { entries, counts, mean, voters: entries.length, participants } };
+    return { ...base, min: r.min, max: r.max, redMax: r.redMax, greenMin: r.greenMin, results: { entries, counts, mean, voters: entries.length, participants, ready } };
   }
   if (r.type === 'race') {
-    return { ...base, winner: r.winner || null, invalid: r.invalid, results: { ranking: raceRanking(r), participants } };
+    return { ...base, winner: r.winner || null, invalid: r.invalid, results: { ranking: raceRanking(r), participants, ready } };
   }
   if (r.type === 'choice') {
     const answered = valid.length;
-    const results = { answered, participants };
+    const results = { answered, participants, ready };
     if (r.phase === 'closed') {
       results.counts = r.answers.map((_, i) => valid.filter(([, v]) => v.v === i + 1).length);
       if (r.answers.length === 0) results.counts = [1, 2, 3, 4].map((a) => valid.filter(([, v]) => v.v === a).length);
@@ -1137,8 +1174,8 @@ function roundView(r, admitted) {
       return { n, col: c ? c.col : null, row: c ? c.row : null, place: i >= 0 ? i + 1 : null };
     });
     return {
-      ...base, hold: r.hold, goal: r.goal, cols: r.cols, rows: r.rows,
-      results: { players, order: [...r.order], winner: r.order[0] ?? null, finished: r.order.length, participants },
+      ...base, goal: r.goal, cols: r.cols, rows: r.rows,
+      results: { players, order: [...r.order], winner: r.order[0] ?? null, finished: r.order.length, participants, ready },
     };
   }
   return base;

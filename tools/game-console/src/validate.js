@@ -3,22 +3,23 @@
 // rejected and named: the skill is a language model, so fail loudly.
 // Messages are German, ready to show to the presenter.
 
-import { HOLDS, GOALS, MOVE_DEFAULTS } from './move.js';
+import { GOALS, MOVE_DEFAULTS } from './move.js';
+import { HOLDS } from './lage.js';
 
 export const ROUND_FORMAT = 'buzzer-round/0';
 export const SESSION_FORMAT = 'buzzer-session/0';
 
 const COMMON_FIELDS = ['format', 'id', 'title', 'question', 'type'];
 const TYPE_FIELDS = {
-  scale: ['min', 'max', 'redMax', 'greenMin'],
-  race: [],
-  choice: ['answers', 'correct'],
+  scale: ['hold', 'min', 'max', 'redMax', 'greenMin'],
+  race: ['hold'],
+  choice: ['hold', 'answers', 'correct'],
   move: ['hold', 'goal', 'cols', 'rows'],
   idle: [],
 };
 const TYPE_NAMES = { scale: 'Skala', race: 'Buzzer-Rennen', choice: 'Auswahl', move: 'Spielfeld', idle: 'Ruhe' };
 const MOVE_SIZE = { cols: [2, 40], rows: [1, 20] };
-const ALL_TYPE_FIELDS = Object.values(TYPE_FIELDS).flat();
+const ALL_TYPE_FIELDS = [...new Set(Object.values(TYPE_FIELDS).flat())];
 const SESSION_FIELDS = ['format', 'title', 'rounds'];
 const ID_RE = /^[a-z0-9-]{1,32}$/;
 
@@ -108,6 +109,15 @@ export function validateRound(input, prefix = '') {
     type,
   };
 
+  // How the buzzer is held: every round with inputs.
+  if (typeOk && type !== 'idle') {
+    round.hold = 'frei';
+    if ('hold' in input) {
+      if (HOLDS.includes(input.hold)) round.hold = input.hold;
+      else errors.push({ path: at(prefix, 'hold'), message: '"hold" muss "frei", "hochkant", "quer", "liegend" oder "fest" sein.' });
+    }
+  }
+
   if (type === 'scale') {
     const s = { min: 0, max: 9, redMax: 3, greenMin: 7 };
     let intsOk = true;
@@ -162,10 +172,6 @@ export function validateRound(input, prefix = '') {
     }
   } else if (type === 'move') {
     Object.assign(round, MOVE_DEFAULTS);
-    if ('hold' in input) {
-      if (HOLDS.includes(input.hold)) round.hold = input.hold;
-      else errors.push({ path: at(prefix, 'hold'), message: '"hold" muss "quer" oder "hochkant" sein.' });
-    }
     if ('goal' in input && !GOALS.includes(input.goal)) {
       errors.push({ path: at(prefix, 'goal'), message: '"goal" muss "right" sein (in v0 liegt das Ziel rechts).' });
     }

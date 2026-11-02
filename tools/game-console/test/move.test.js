@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameConsole } from '../src/game.js';
-import { boardDirection, deviceKey, startCell } from '../src/move.js';
+import { boardDirection, startCell } from '../src/move.js';
 import { validateInput } from '../src/validate.js';
 import { FakeLink, join, flush, ROUNDS } from './helpers.js';
 
@@ -34,13 +34,20 @@ async function board(numbers, round = {}, { open = true } = {}) {
   return { link, game, press, keyEv, seq, view, cell };
 }
 
-test('quer turns the buzzer 90° clockwise, hochkant keeps its keys', () => {
-  assert.deepEqual(['left', 'up', 'right', 'down'].map((k) => boardDirection('quer', k)), ['up', 'right', 'down', 'left']);
-  assert.deepEqual(['up', 'right', 'down', 'left'].map((k) => boardDirection('hochkant', k)), ['up', 'right', 'down', 'left']);
-  for (const hold of ['quer', 'hochkant']) {
-    for (const dir of ['up', 'right', 'down', 'left']) assert.equal(boardDirection(hold, deviceKey(hold, dir)), dir);
+test('physical keys: quer turns them 90° clockwise, every other hold takes them as printed', () => {
+  assert.deepEqual(['left', 'up', 'right', 'down'].map((k) => boardDirection('quer', k, null)), ['up', 'right', 'down', 'left']);
+  for (const hold of ['frei', 'hochkant', 'liegend', 'fest']) {
+    assert.deepEqual(['up', 'right', 'down', 'left'].map((k) => boardDirection(hold, k, null)), ['up', 'right', 'down', 'left'], hold);
   }
-  assert.equal(boardDirection('quer', 'buzz'), null);
+  assert.equal(boardDirection('quer', 'buzz', null), null);
+});
+
+test('logical keys (a line with a lage) are never turned', () => {
+  for (const hold of ['frei', 'hochkant', 'quer', 'liegend', 'fest']) {
+    assert.deepEqual(['up', 'right', 'down', 'left'].map((k) => boardDirection(hold, k, 'quer')), ['up', 'right', 'down', 'left'], hold);
+  }
+  assert.equal(boardDirection('quer', 'buzzer', 'quer'), null);
+  assert.equal(boardDirection('quer', 'triggerLeft', 'quer'), null);
 });
 
 test('start cells fill the board column by column', () => {
@@ -54,6 +61,7 @@ test('the round state of a move round with three players', async () => {
   const { link, game, view } = await board([1, 2, 11]);
   assert.deepEqual(link.cmds('round').map((c) => [c.type, c.phase]), [['move', 'announced'], ['move', 'open']]);
   assert.deepEqual(link.cmds('round').at(-1).keys, { up: 'white', right: 'white', down: 'white', left: 'white' });
+  assert.equal(link.cmds('round').at(-1).hold, 'quer');
   assert.equal(game.snapshot().view, 'move');
   assert.deepEqual(view(), {
     roundId: game.round.roundId, id: 'lauf-ins-ziel', title: 'Spiel', question: 'Wer ist zuerst im Ziel?',
@@ -61,12 +69,12 @@ test('the round state of a move round with three players', async () => {
     hold: 'quer', goal: 'right', cols: 22, rows: 10,
     results: {
       players: [{ n: 1, col: 0, row: 0, place: null }, { n: 2, col: 0, row: 1, place: null }, { n: 11, col: 1, row: 0, place: null }],
-      order: [], winner: null, finished: 0, participants: 3,
+      order: [], winner: null, finished: 0, participants: 3, ready: 0,
     },
   });
 });
 
-test('quer: each device key moves one cell in the turned direction', async () => {
+test('hold quer, physical keys: each key moves one cell in the turned direction', async () => {
   const { press, cell } = await board([5]); // start (0,4)
   press(5, 'up');
   assert.deepEqual(cell(5), [1, 4]); // up is right
@@ -80,7 +88,7 @@ test('quer: each device key moves one cell in the turned direction', async () =>
   assert.deepEqual(cell(5), [0, 4]);
 });
 
-test('hochkant: the device keys move as printed', async () => {
+test('hold hochkant, physical keys: the keys move as printed', async () => {
   const { press, cell } = await board([5], { hold: 'hochkant' });
   press(5, 'right', 'right', 'down', 'up', 'up', 'left');
   assert.deepEqual(cell(5), [1, 3]);
