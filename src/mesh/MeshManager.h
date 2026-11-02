@@ -16,6 +16,10 @@
 #include "MeshTypes.h"
 #include "PeerRegistry.h"
 
+#ifndef FEATURE_GAME
+#error "set FEATURE_GAME to 0 or 1 in the env's build_flags (platformio.ini)"
+#endif
+
 class MeshManager {
    public:
     PeerRegistry peers;
@@ -91,10 +95,15 @@ class MeshManager {
     // itself already lives in peers (PeerInfo::helloOnly).
     using HelloCb =
         std::function<void(const uint8_t* mac, const char* name, const char* fwVersion)>;
+#if FEATURE_GAME
     // Called from the receive task with every framed quiz frame (game
     // session, see src/game/GameFrames.h) and its RSSI. The receiver copies
     // it out and processes it in loop().
     using QuizFrameCb = std::function<void(const uint8_t* data, int len, int8_t rssi)>;
+    // The same for fleet frames (src/fleet/FleetFrames.h), with the sender.
+    using FleetFrameCb =
+        std::function<void(const uint8_t* mac, const uint8_t* data, int len, int8_t rssi)>;
+#endif
 
     void setOnPeerHeard(PeerHeardCb cb) { _onPeerHeard = cb; }
     void setOnLightConfig(LightConfigCb cb) { _onLightConfig = cb; }
@@ -136,7 +145,9 @@ class MeshManager {
     void setBatteryStatusProvider(BatteryStatusCb cb) { _batteryStatusProvider = cb; }
     void setOnGenericEvent(GenericEventCb cb) { _onGenericEvent = cb; }
     void setOnHelloPeer(HelloCb cb) { _onHelloPeer = cb; }
+#if FEATURE_GAME
     void setOnQuizFrame(QuizFrameCb cb) { _onQuizFrame = cb; }
+    void setOnFleetFrame(FleetFrameCb cb) { _onFleetFrame = cb; }
 
     // Quiet: a game session owns the radio. Only quiz frames are sent and
     // handled; tick() sends nothing (no Presence, Hello, MeshPolicy,
@@ -144,6 +155,13 @@ class MeshManager {
     // proximity sniffer is off. Leaving a session restarts the device.
     void setQuiet(bool quiet) { _quiet = quiet; }
     bool quiet() const { return _quiet; }
+
+    // Fleet-only: charging mode and standby (src/fleet/). Only fleet frames
+    // are sent; fleet frames and quiz invites are handled; tick() sends
+    // nothing, like quiet. Quiet wins while both are set.
+    void setFleetOnly(bool on) { _fleetOnly = on; }
+    bool fleetOnly() const { return _fleetOnly; }
+#endif
 
     void begin() {
         _instance = this;
@@ -162,10 +180,12 @@ class MeshManager {
 
     void tick() {
         if (!_ready) return;
-        if (_quiet) {
+#if FEATURE_GAME
+        if (_quiet || _fleetOnly) {
             _setSnifferEnabled(false);
             return;
         }
+#endif
         peers.tick();
         uint32_t now = millis();
 
@@ -522,12 +542,20 @@ class MeshManager {
         _send(&msg, sizeof(msg));
     }
 
+#if FEATURE_GAME
     // Sends one quiz frame (game session) after the same framing check the
     // receive path applies.
     void broadcastQuizFrame(const uint8_t* data, size_t len) {
         if (!_ready || !game::quizFrameLenOk(data, len)) return;
         _send(data, len);
     }
+
+    // Sends one fleet frame after the same framing check the receive path applies.
+    void broadcastFleetFrame(const uint8_t* data, size_t len) {
+        if (!_ready || !fleet::fleetFrameLenOk(data, len)) return;
+        _send(data, len);
+    }
+#endif
 
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
@@ -538,7 +566,10 @@ class MeshManager {
 
    private:
     bool _ready = false;
+#if FEATURE_GAME
     bool _quiet = false;
+    bool _fleetOnly = false;
+#endif
     bool _snifferRunning = false;
     uint32_t _lastHeartbeat = 0;
     uint32_t _lastMeshPolicySync = 0;
@@ -587,7 +618,10 @@ class MeshManager {
     WifiRetryCb _onWifiRetry;
     MeshSearchCb _onMeshSearch;
     HelloCb _onHelloPeer;
+#if FEATURE_GAME
     QuizFrameCb _onQuizFrame;
+    FleetFrameCb _onFleetFrame;
+#endif
 
     // ── Config push encryption (issue #252) ───────────────────────────────────
     static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 3000;
@@ -624,9 +658,22 @@ class MeshManager {
 
     void _send(const void* data, size_t len) {
         static const uint8_t bcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-        if (_quiet && !game::isQuizType(((const uint8_t*)data)[0])) return;
+#if FEATURE_GAME
+        uint8_t type = ((const uint8_t*)data)[0];
+        if (_quiet && !game::isQuizType(type)) return;
+        if (!_quiet && _fleetOnly && !fleet::isFleetType(type)) return;
+#endif
         esp_now_send(bcast, (uint8_t*)data, len);
     }
+
+#if FEATURE_GAME
+    // What a device in a game session or in fleet-only mode handles.
+    bool _receives(uint8_t type) const {
+        if (_quiet) return game::isQuizType(type);
+        if (_fleetOnly) return fleet::isFleetType(type) || type == game::kMsgQuizInvite;
+        return true;
+    }
+#endif
 
     void _addBroadcastPeer() {
         esp_now_peer_info_t peer{};
@@ -939,7 +986,9 @@ class MeshManager {
         if (len < 1 || !_instance) return;
         const uint8_t* mac = info->src_addr;
         MsgType type = (MsgType)data[0];
-        if (_instance->_quiet && !game::isQuizType(data[0])) return;
+#if FEATURE_GAME
+        if (!_instance->_receives(data[0])) return;
+#endif
 
         switch (type) {
             case MsgType::Presence: {
@@ -1255,6 +1304,7 @@ class MeshManager {
                     _instance->_onGenericEvent(mac, m->eventType, m->payload);
                 break;
             }
+#if FEATURE_GAME
             case MsgType::QuizInvite:
             case MsgType::QuizState:
             case MsgType::QuizReport:
@@ -1267,6 +1317,19 @@ class MeshManager {
                 if (_instance->_onQuizFrame) _instance->_onQuizFrame(data, len, rssi);
                 break;
             }
+            case MsgType::FleetStatus:
+            case MsgType::FleetCommand: {
+                if (!fleet::fleetFrameLenOk(data, (size_t)len)) return;
+                // A FleetStatus counts as "peer heard" for the channel lock,
+                // like Presence and Hello: devices in charging mode send
+                // nothing else.
+                if (type == MsgType::FleetStatus && _instance->_onPeerHeard)
+                    _instance->_onPeerHeard(mac);
+                int8_t rssi = info->rx_ctrl ? (int8_t)info->rx_ctrl->rssi : 0;
+                if (_instance->_onFleetFrame) _instance->_onFleetFrame(mac, data, len, rssi);
+                break;
+            }
+#endif
             default:
                 Logger::w("[mesh] unknown msg type %u len %d", (uint8_t)type, len);
                 break;
