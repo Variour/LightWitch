@@ -177,6 +177,29 @@ class Updater {
         xTaskCreate(_applyPrTask, "fw_applypr", 8192, nullptr, 1, nullptr);
     }
 
+    // Fleet "update all" (src/fleet/): installs the latest release (tag "")
+    // or one PR build (tag "pr-<n>") unless this device runs it already, and
+    // ends Idle then. An explicit operator command naming its source, so it
+    // does not need Config::prOtaEnabled; the start guard (battery) applies.
+    // Checking while it looks up the release, Downloading once it flashes.
+    static void installSourceAsync(const String& tag) {
+        if (_status.state == State::Checking || _status.state == State::Downloading) return;
+        _status = Status{};
+        if (WiFi.status() != WL_CONNECTED) {
+            _status.state = State::Error;
+            _status.error = "not connected to WiFi";
+            return;
+        }
+        if (const char* why = _startGuard ? _startGuard() : nullptr) {
+            _status.state = State::Error;
+            _status.error = why;
+            return;
+        }
+        _pendingTag = tag;
+        _status.state = State::Checking;
+        xTaskCreate(_installSourceTask, "fw_source", 8192, nullptr, 1, nullptr);
+    }
+
    private:
     static Status _status;
     static PrListStatus _prListStatus;
@@ -532,6 +555,53 @@ class Updater {
             Config::save();
             Logger::i("[upd] PR install complete (tag=%s) — rebooting",
                       tag.isEmpty() ? "latest" : tag.c_str());
+            _status.state = State::Done;
+            delay(500);
+            ESP.restart();
+        } else {
+            _status.state = State::Error;
+        }
+        vTaskDelete(nullptr);
+    }
+
+    static void _installSourceTask(void*) {
+        String tag = _pendingTag;
+        String tagName;
+        if (!_fetchRelease(tag, tagName)) {
+            _status.state = State::Error;
+            vTaskDelete(nullptr);
+            return;
+        }
+        auto& c = Config::get();
+        String version = tagName[0] == 'v' ? tagName.substring(1) : tagName;
+        bool installed = tag.isEmpty() ? strlen(c.prTrack) == 0 && version == FW_VERSION
+                                       : tag == c.prTrack && _firmwareAssetId != 0 &&
+                                             _firmwareAssetId == c.prTrackAssetId;
+        _status.latestVersion = tag.isEmpty() ? version : tag;
+        if (installed) {
+            Logger::i("[upd] %s already installed", tag.isEmpty() ? "latest release" : tag.c_str());
+            _status.state = State::Idle;
+            vTaskDelete(nullptr);
+            return;
+        }
+        if (!_firmwareAssetId) {
+            _status.error = "no firmware asset found for that build";
+            _status.state = State::Error;
+            vTaskDelete(nullptr);
+            return;
+        }
+        _status.hasUpdate = true;
+        _status.state = State::Downloading;
+        _status.progress = 0;
+
+        bool ok = _flashAndMaybeReboot();
+
+        if (ok) {
+            strlcpy(c.prTrack, tag.c_str(), sizeof(c.prTrack));
+            c.prTrackAssetId = tag.isEmpty() ? 0 : _firmwareAssetId;
+            Config::save();
+            Logger::i("[upd] fleet install complete (%s) — rebooting",
+                      tag.isEmpty() ? "latest release" : tag.c_str());
             _status.state = State::Done;
             delay(500);
             ESP.restart();
