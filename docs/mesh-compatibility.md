@@ -126,8 +126,8 @@ While a device is in a game session (participant from join until release, bridge
 The `Fleet*` types belong to the fleet package (`src/fleet/`: charging mode, transport protection, "update all"). Like the quiz frames, their layouts live in `src/fleet/FleetFrames.h`; `MeshTypes.h` mirrors the type numbers and `static_assert`s that both agree. Builds with `FEATURE_GAME=0` (esp32c3) have neither the quiz nor the fleet frames and log them as unknown types.
 
 - Packed, little-endian, at most 250 bytes. Both start with `type` and `proto` (1 in v0); the fleet package drops other `proto` values, the mesh layer only checks framing.
-- `FleetStatus`: device number, state (`active`, `charging`, `standby`), battery percent and mV, charge status, charge target, USB and WiFi flags, firmware build, fleet update state, percent and error, error bits. A device in a game session sends none.
-- `FleetCommand`: a nonce (receivers act once per nonce, for 10 s), an op (`update` with source release or PR number, `charge` with target, `off`, `ap` with minutes) and 0-32 target MACs (0 = every device). Devices in a game session ignore it.
+- `FleetStatus`: device number, state (`active`, `charging`, `standby`), battery percent and mV, charge status, charge target, USB and WiFi flags, firmware build, fleet update state, percent and error, error bits. Only a detected Buzzerboard sends it, and not in a game session.
+- `FleetCommand`: a nonce (receivers act once per nonce, for 10 s), an op (`update` with source release or PR number, `charge` with target, `off`, `ap` with minutes) and 0-32 target MACs (0 = every device). Only a detected Buzzerboard acts on it, and not in a game session; any device can be the bridge that sends it.
 - A received `FleetStatus` counts as "peer heard" for `ChannelManager`'s channel lock, like `Presence` and `Hello`: devices in charging mode send nothing else.
 - The USB side (the bridge's `fleet` namespace) is in [usb-link.md](usb-link.md).
 

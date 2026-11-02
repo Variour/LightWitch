@@ -41,7 +41,7 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
 |---|---|
 | `no_hello` | `game` or `fleet` without a `link hello` |
 | `unsupported` | `config ap` on a device that runs a fallback AP (every board except the Buzzerboard) |
-| `store_failed` | the WiFi list could not be saved |
+| `store_failed` | the WiFi list or the charge target could not be saved |
 | `busy` | `fleet`: earlier commands are still being repeated; `test`: another test runs |
 | `no_usb` | `test charge` without USB power and a charger |
 | `session_active` | `fleet` while the bridge runs a game session; `test leds/keys/charge` on a participant in a session |
@@ -55,12 +55,39 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
 | `standby` | on battery, 8 h without key, session, USB or host link | LEDs and LED rail off, radio listens 500 ms of every second, fleet frames only |
 
 - From `standby` a key, a session invite, USB power or a host link brings the device back.
-- `standby` ends in ESP deep sleep once the battery is at 80 % or below. In
-  sleep the device wakes on BUZZ, UP, DOWN, LEFT, ENTER or POWER, and every
-  60 s on a timer: with USB it boots (charging mode), with VBAT below 3.5 V
-  or after 7 days it enters ship mode (wake: POWER about 1 s, or USB).
-- The low-battery cut-off (below 3.3 V for 30 s → ship mode) applies in every state.
+- `standby` ends in ESP deep sleep once the battery is at 80 % or below
+  (without a battery percentage: VBAT at or below 4.02 V). In sleep the
+  device wakes on BUZZ, UP, DOWN, LEFT, ENTER or POWER, and every 60 s on a
+  timer: with USB it boots (charging mode), with VBAT below 3.5 V or after 7
+  days in sleep it enters ship mode (wake: POWER about 1 s, or USB).
+- After a key wake from sleep the device goes to standby after 5 min instead
+  of 8 h, unless a further key press, a session invite, USB power or a host
+  link follows; then the 8 h apply. Going back to sleep from there keeps
+  counting toward the 7 days. A device taken off USB always gets the 8 h.
+- Weak USB supply: in charging mode, if the battery keeps discharging (IBAT
+  below -40 mA) for 60 s while USB power is present, the device turns its
+  LEDs off, lets the radio listen 500 ms of every second and sets error bit
+  9, until USB is unplugged.
+- VBAT below 3.3 V for 30 s on USB (any state): ESP deep sleep while the
+  charger charges on; the 60 s timer wake boots again from VBAT 3.5 V.
+- The low-battery cut-off (below 3.3 V for 30 s on battery → ship mode)
+  applies in every state.
 - A device without a charger is always `active`.
+- Only a detected Buzzerboard sends FleetStatus and acts on fleet commands.
+
+### Build flags for a bring-up image
+
+The times and levels above can be shortened with `-D` build flags (defaults
+in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
+`build_flags` line, without changing `platformio.ini`:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `FLEET_INACTIVE_MS` | 28800000 (8 h) | on battery without activity until standby |
+| `FLEET_WAKE_INACTIVE_MS` | 300000 (5 min) | the same after a key wake from sleep |
+| `FLEET_SLEEP_TO_SHIP_S` | 604800 (7 days) | time in sleep until ship mode |
+| `FLEET_STORAGE_PERCENT` | 80 | battery percentage at which standby ends in sleep |
+| `FLEET_STORAGE_MV` | 4020 | the same as VBAT, without a battery percentage |
 
 ## `config` (any device)
 
@@ -76,11 +103,16 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
   long entries do not fit one 512-byte line. The list takes effect at the
   next connection (an update, a restart).
 - `charge`: `store` (charger VREG 4.05 V, about 80 %) or `event` (4.20 V,
-  100 %). Stored in NVS, default `store`, applied at once.
+  100 %). Stored in NVS, default `store`, applied at once; `store_failed`
+  (nothing changed) if NVS does not take it. Lowering the target while VBAT
+  is above the new VREG on USB trips the charger's battery over-voltage
+  protection: it stops charging until VBAT has come down. That is expected
+  and not reported as an error (up to 4.25 V).
 - `ap`: the maintenance AP (SSID = device name, password = the AP password
   from the device config) for `minutes` (1-60, default 10), on the current
   radio channel. Buzzerboard only; it has no fallback AP. Holding L1 + R1 for
-  3 s in active state opens it for 10 minutes as well.
+  3 s in active state opens it for 10 minutes as well. While it is open the
+  status LED pulses blue slowly.
 - `get`: `number` is `null` without a device number; `fw` is the firmware
   build (first 4 bytes of the app image's SHA-256, as in `link hello`).
 
@@ -96,21 +128,24 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
 
 Each is answered with `{"ns":"fleet","ev":"sent","id":…}` once queued. The
 bridge sends every command three times, 300-700 ms apart, with one nonce;
-devices act once per nonce. Devices in a game session ignore fleet commands.
+devices act once per nonce. Only Buzzerboards act on fleet commands, and
+not while in a game session.
 
 - `update`: a device needs a WiFi network and, on battery, VBAT of at least
   3.5 V. It connects WiFi for the update (also from charging mode), shows the
   update on its LEDs, installs and restarts. A device that runs the requested
   build already stays as it is. The fleet command does not need the device's
-  "PR installs" setting. The bridge updates itself too, after its three
-  repeats are out; the console reconnects after the bridge's restart.
-- `ap`: ignored by a device in charging mode.
+  "PR installs" setting. A Buzzerboard bridge updates itself too, after its
+  three repeats are out; the console reconnects after the bridge's restart.
+- `charge`: a Buzzerboard bridge sets its own charge target too.
+- `off`, `ap`: not applied to the bridge itself (it runs on USB). A device
+  in charging mode ignores `ap`.
 
 ### `status` event
 
 One line per device that sent a FleetStatus frame, the latest value per
 device (like `game value`): after every new frame, and all of them again
-after `link hello`. The bridge lists itself too (`rssi` 0).
+after `link hello`. A Buzzerboard bridge lists itself too (`rssi` 0).
 
 `{"ns":"fleet","ev":"status","mac":"02:00:00:00:00:11","n":12,"state":"charging","bat":64,"vbat":3912,"chg":"charging","target":"store","usb":true,"wifi":true,"fw":"4a45fc32","upd":"idle","pct":0,"updErr":"","err":0,"rssi":-48,"age":2}`
 
@@ -146,8 +181,10 @@ after `link hello`. The bridge lists itself too (`rssi` 0).
 | 6 | supply fault | VBUS over-voltage or VSYS short/over-voltage |
 | 7 | TS bias fault | NTC bias reference fault, e.g. no NTC (on USB only) |
 | 8 | low battery | on battery below 3.5 V |
+| 9 | weak supply | charging mode: USB power present but the battery discharges (see above) |
 
-Bits 0-7 make `chg` `fault` while USB power is present.
+Bits 0-7 make `chg` `fault` while USB power is present. Bit 4 is left out
+while VBAT is between a lowered charge voltage and 4.25 V (see `config charge`).
 
 ## `test` (any device, factory test)
 
