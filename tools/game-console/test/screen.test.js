@@ -109,7 +109,8 @@ test('every view renders without console errors', { timeout: 180000 }, async (t)
     await waitFor(() => app.link.connected, { what: 'link' });
     const move = validateInput(ROUNDS.move).value;
     const lying = validateInput({ ...ROUNDS.race, id: 'liegend', title: 'Rennen im Liegen', hold: 'liegend' }).value;
-    game.load({ kind: 'session', value: { title: 'Workshop am Nachmittag', rounds: [ROUNDS.scale, ROUNDS.race, ROUNDS.choice, move, lying] } });
+    const modes = ['team', 'erste', 'gruppen'].map((play) => validateInput({ ...ROUNDS.move, id: `lauf-${play}`, hold: 'frei', play }).value);
+    game.load({ kind: 'session', value: { title: 'Workshop am Nachmittag', rounds: [ROUNDS.scale, ROUNDS.race, ROUNDS.choice, move, lying, ...modes] } });
     await shot('start', '.hero h1');
 
     await act('next');
@@ -170,6 +171,34 @@ test('every view renders without console errors', { timeout: 180000 }, async (t)
     assert.equal(await page.isVisible('#ready'), true);
     await page.waitForSelector('#ready', { state: 'hidden', timeout: 3000 });
     await waitFor(() => game.snapshot().round.winner, { timeoutMs: 8000, what: 'winner lying' });
+
+    // Play modes of the move round: team, erste, gruppen.
+    await act('next'); // close the race
+    await act('next');
+    await act('next');
+    await page.waitForSelector('#finished .answered');
+    assert.match(await page.textContent('#finished'), /^\d+von 5 Teams im Ziel$/);
+    await waitFor(() => game.snapshot().round.results.winner, { timeoutMs: 20000, what: 'a team in the goal' });
+    await page.waitForSelector('#first .winner.wide');
+    assert.equal(await page.textContent('#first .winner'), `Team ${game.snapshot().round.results.winner}`);
+    await shot('spielfeld-team', '#first .winner.wide');
+
+    await act('next');
+    await act('next'); // erste, announced
+    await page.waitForSelector('#finished .answered');
+    assert.equal(await page.textContent('#finished'), '0von 10 Plätzen vergeben');
+    await act('next'); // open
+    await waitFor(() => game.snapshot().round.results.chosen.length === 10, { timeoutMs: 10000, what: 'ten places' });
+    await page.waitForFunction('/von 10 im Ziel$/.test(document.getElementById("finished").textContent)');
+
+    await act('next');
+    await act('next');
+    await act('next'); // gruppen, open
+    await page.waitForSelector('#finished .big-note');
+    assert.match(await page.textContent('#finished'), /^Gruppe 1 ist dran\d+von 50 im Ziel$/);
+    await game.act('group', { k: 5 });
+    await page.waitForFunction('/^Gruppe 5 ist dran/.test(document.getElementById("finished").textContent)');
+    await shot('spielfeld-gruppen', '#finished .big-note');
 
     await act('idle');
     await shot('ruhe', '.tiles.small .tile');

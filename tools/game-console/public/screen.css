@@ -318,6 +318,8 @@ body {
 
 /* ── Move (the board itself is in PowerPoint) ───────────────────────── */
 .move-side { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: calc(2.5 * var(--u)); }
+.move-side .big-note b { color: var(--text); }
+.winner.wide { width: auto; align-self: flex-start; padding: 0 calc(5 * var(--u)); font-size: calc(11 * var(--u)); }
 
 /* ── Charging overview ──────────────────────────────────────────────────
    Colours as on the buzzer's charging display: yellow charging, green

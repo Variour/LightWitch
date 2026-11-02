@@ -560,17 +560,24 @@
           </div>`;
       },
       update: (s) => {
-        const res = s.round.results;
-        const fin = `<div class="answered"><b>${res.finished}</b><span>von ${res.participants} im Ziel</span></div>`;
+        const r = s.round;
+        const res = r.results;
+        const count = (n, text) => `<div class="answered"><b>${n}</b><span>${text}</span></div>`;
+        let fin;
+        if (res.play === 'team') fin = count(res.finished, `von ${res.teams.length} Teams im Ziel`);
+        else if (res.play === 'erste' && res.chosen.length < r.rows) fin = count(res.chosen.length, `von ${r.rows} Plätzen vergeben`);
+        else fin = count(res.finished, `von ${res.play === 'erste' ? res.chosen.length : res.participants} im Ziel`);
+        if (res.play === 'gruppen' && res.group) fin = `<p class="big-note">Gruppe <b>${esc(res.group)}</b> ist dran</p>${fin}`;
         const finEl = document.getElementById('finished');
         if (finEl.dataset.html !== fin) {
           finEl.innerHTML = fin;
           finEl.dataset.html = fin;
         }
         const w = res.winner;
-        const first = w === null ? '' : `<div class="winner-label">Zuerst im Ziel</div><div class="winner${lastWinner !== w ? ' reveal' : ''}">${esc(w)}</div>`;
+        const team = res.play === 'team';
+        const first = w === null ? '' : `<div class="winner-label">Zuerst im Ziel</div><div class="winner${team ? ' wide' : ''}${lastWinner !== w ? ' reveal' : ''}">${team ? `Team ${esc(w)}` : esc(w)}</div>`;
         const firstEl = document.getElementById('first');
-        const key = w === null ? '' : String(w);
+        const key = w === null ? '' : `${res.play}:${w}`;
         if (firstEl.dataset.key !== key) {
           firstEl.dataset.key = key;
           firstEl.innerHTML = first;
