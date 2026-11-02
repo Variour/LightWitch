@@ -3,6 +3,8 @@
 // rejected and named: the skill is a language model, so fail loudly.
 // Messages are German, ready to show to the presenter.
 
+import { HOLDS, GOALS, MOVE_DEFAULTS } from './move.js';
+
 export const ROUND_FORMAT = 'buzzer-round/0';
 export const SESSION_FORMAT = 'buzzer-session/0';
 
@@ -11,9 +13,11 @@ const TYPE_FIELDS = {
   scale: ['min', 'max', 'redMax', 'greenMin'],
   race: [],
   choice: ['answers', 'correct'],
+  move: ['hold', 'goal', 'cols', 'rows'],
   idle: [],
 };
-const TYPE_NAMES = { scale: 'Skala', race: 'Buzzer-Rennen', choice: 'Auswahl', idle: 'Ruhe' };
+const TYPE_NAMES = { scale: 'Skala', race: 'Buzzer-Rennen', choice: 'Auswahl', move: 'Spielfeld', idle: 'Ruhe' };
+const MOVE_SIZE = { cols: [2, 40], rows: [1, 20] };
 const ALL_TYPE_FIELDS = Object.values(TYPE_FIELDS).flat();
 const SESSION_FIELDS = ['format', 'title', 'rounds'];
 const ID_RE = /^[a-z0-9-]{1,32}$/;
@@ -81,9 +85,9 @@ export function validateRound(input, prefix = '') {
   const type = input.type;
   const typeOk = typeof type === 'string' && type in TYPE_FIELDS;
   if (!('type' in input)) {
-    errors.push({ path: at(prefix, 'type'), message: 'Pflichtfeld "type" fehlt: "scale", "race", "choice" oder "idle".' });
+    errors.push({ path: at(prefix, 'type'), message: 'Pflichtfeld "type" fehlt: "scale", "race", "choice", "move" oder "idle".' });
   } else if (!typeOk) {
-    errors.push({ path: at(prefix, 'type'), message: '"type" muss "scale", "race", "choice" oder "idle" sein.' });
+    errors.push({ path: at(prefix, 'type'), message: '"type" muss "scale", "race", "choice", "move" oder "idle" sein.' });
   }
 
   for (const field of Object.keys(input)) {
@@ -154,6 +158,23 @@ export function validateRound(input, prefix = '') {
         errors.push({ path: at(prefix, 'correct'), message: `"correct" muss zwischen 1 und ${n || 4} liegen (Nummer der richtigen Antwort) oder null sein.` });
       } else {
         round.correct = input.correct;
+      }
+    }
+  } else if (type === 'move') {
+    Object.assign(round, MOVE_DEFAULTS);
+    if ('hold' in input) {
+      if (HOLDS.includes(input.hold)) round.hold = input.hold;
+      else errors.push({ path: at(prefix, 'hold'), message: '"hold" muss "quer" oder "hochkant" sein.' });
+    }
+    if ('goal' in input && !GOALS.includes(input.goal)) {
+      errors.push({ path: at(prefix, 'goal'), message: '"goal" muss "right" sein (in v0 liegt das Ziel rechts).' });
+    }
+    for (const [f, [lo, hi]] of Object.entries(MOVE_SIZE)) {
+      if (!(f in input) || !checkInt(input, f, errors, prefix)) continue;
+      if (input[f] < lo || input[f] > hi) {
+        errors.push({ path: at(prefix, f), message: `"${f}" muss zwischen ${lo} und ${hi} liegen (ist ${input[f]}).` });
+      } else {
+        round[f] = input[f];
       }
     }
   } else if (type === 'idle') {

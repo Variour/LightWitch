@@ -87,5 +87,6 @@ export const ROUNDS = {
   scale: { format: 'buzzer-round/0', id: 'runde-4', title: 'Runde 4', question: 'Wie viele Punkte Zustimmung?', type: 'scale', min: 0, max: 9, redMax: 3, greenMin: 7 },
   race: { format: 'buzzer-round/0', id: 'schnellrunde', title: 'Schnellrunde', question: 'Wie heißt die Hauptstadt von Australien?', type: 'race' },
   choice: { format: 'buzzer-round/0', id: 'quiz-3', title: 'Quizfrage 3', question: 'Wie funken die Buzzer untereinander?', type: 'choice', answers: ['ESP-NOW', 'Bluetooth', 'WLAN mit Router', 'Zigbee'], correct: 1 },
+  move: { format: 'buzzer-round/0', id: 'lauf-ins-ziel', title: 'Spiel', question: 'Wer ist zuerst im Ziel?', type: 'move', hold: 'quer', goal: 'right' },
   idle: { format: 'buzzer-round/0', id: 'pause', title: 'Pause', type: 'idle' },
 };

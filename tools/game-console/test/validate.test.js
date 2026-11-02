@@ -78,6 +78,29 @@ test('choice rules', () => {
   fails({ format: 'buzzer-round/0', id: 'q', type: 'choice' }, 'answers', /Pflichtfeld "answers"/);
 });
 
+test('move rules and defaults', () => {
+  assert.deepEqual(validateInput(ROUNDS.move).value, { ...ROUNDS.move, cols: 22, rows: 10 });
+  assert.deepEqual(validateInput({ format: 'buzzer-round/0', id: 'm', type: 'move' }).value,
+    { format: 'buzzer-round/0', id: 'm', title: '', question: '', type: 'move', hold: 'quer', goal: 'right', cols: 22, rows: 10 });
+  const sized = validateInput({ ...ROUNDS.move, hold: 'hochkant', cols: 40, rows: 1 });
+  assert.deepEqual([sized.value.hold, sized.value.cols, sized.value.rows], ['hochkant', 40, 1]);
+  assert.equal(validateInput({ ...ROUNDS.move, cols: 2, rows: 20 }).ok, true);
+  fails({ ...ROUNDS.move, hold: 'quer-links' }, 'hold', /"hold" muss "quer" oder "hochkant" sein/);
+  fails({ ...ROUNDS.move, hold: 1 }, 'hold', /"quer" oder "hochkant"/);
+  fails({ ...ROUNDS.move, goal: 'left' }, 'goal', /"goal" muss "right" sein/);
+  fails({ ...ROUNDS.move, cols: 1 }, 'cols', /"cols" muss zwischen 2 und 40 liegen \(ist 1\)/);
+  fails({ ...ROUNDS.move, cols: 41 }, 'cols', /zwischen 2 und 40/);
+  fails({ ...ROUNDS.move, rows: 0 }, 'rows', /"rows" muss zwischen 1 und 20 liegen \(ist 0\)/);
+  fails({ ...ROUNDS.move, rows: 21 }, 'rows', /zwischen 1 und 20/);
+  fails({ ...ROUNDS.move, cols: 22.5 }, 'cols', /ganze Zahl/);
+  fails({ ...ROUNDS.move, rows: '10' }, 'rows', /ganze Zahl/);
+  fails({ ...ROUNDS.move, question: 'x'.repeat(201) }, 'question', /200/);
+  fails({ ...ROUNDS.move, answers: ['a', 'b'] }, 'answers', /gehört nicht zum Rundentyp "move" \(Spielfeld\)/);
+  fails({ ...ROUNDS.race, hold: 'quer' }, 'hold', /gehört nicht zum Rundentyp "race"/);
+  fails({ ...ROUNDS.move, speed: 2 }, 'speed', /Unbekanntes Feld "speed"/);
+  fails({ format: 'buzzer-round/0', id: 'a', type: 'board' }, 'type', /"move"/);
+});
+
 test('idle has no question', () => {
   fails({ ...ROUNDS.idle, question: 'Kaffee?' }, 'question', /keine Frage/);
   assert.equal(validateInput({ ...ROUNDS.idle, question: '' }).ok, true);

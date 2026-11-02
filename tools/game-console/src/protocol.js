@@ -6,7 +6,7 @@
 export const LINE_MAX = 512; // bytes per line, both directions
 export const LINK_VERSION = 0;
 
-export const ROUND_TYPES = ['idle', 'race', 'scale', 'choice'];
+export const ROUND_TYPES = ['idle', 'race', 'scale', 'choice', 'move'];
 export const PHASES = ['announced', 'open', 'closed'];
 export const KEY_NAMES = ['buzz', 'up', 'down', 'left', 'right', 'enter'];
 export const COLOR_NAMES = ['white', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'orange'];
@@ -15,6 +15,12 @@ export const COLOR_NAMES = ['white', 'red', 'green', 'yellow', 'blue', 'magenta'
 // "Erlaubte Tasten"; round format proposal 9 for the colours).
 export const CHOICE_KEYS = ['up', 'right', 'down', 'left'];
 export const CHOICE_COLORS = ['yellow', 'blue', 'magenta', 'cyan'];
+
+// Move rounds free the four direction keys. Provisional: the firmware has no
+// move rounds yet. Each press reaches the console as its own `game key` line
+// (n, round, key, kseq); kseq counts the presses of one device in one round.
+export const MOVE_KEYS = ['up', 'right', 'down', 'left'];
+export const MOVE_COLOR = 'white';
 
 // Keys a round of this type frees on the devices, with their colours.
 export function keysFor(type, answerCount = 0) {
@@ -25,6 +31,7 @@ export function keysFor(type, answerCount = 0) {
     for (let i = 0; i < answerCount; i++) keys[CHOICE_KEYS[i]] = CHOICE_COLORS[i];
     return keys;
   }
+  if (type === 'move') return Object.fromEntries(MOVE_KEYS.map((k) => [k, MOVE_COLOR]));
   return null;
 }
 

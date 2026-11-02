@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
-import { cmd, keysFor, normalizeMac, FW_RE } from './protocol.js';
+import { cmd, keysFor, normalizeMac, FW_RE, seq8Newer } from './protocol.js';
 import { FleetTable } from './fleet.js';
+import { boardDirection, startCell, step, inside, atGoal, MOVE_DEFAULTS } from './move.js';
 
 // Fixed values in v0 (round format, "Feste Werte in v0", console part).
 export const TIMING = {
@@ -248,6 +249,11 @@ export class GameConsole extends EventEmitter {
     };
     if (type === 'scale') Object.assign(run, { min: def.min, max: def.max, redMax: def.redMax, greenMin: def.greenMin });
     if (type === 'choice') Object.assign(run, { answers: def.answers, correct: def.correct });
+    if (type === 'move') {
+      // pos: n -> { col, row }; order: numbers in the goal, first is the
+      // winner; kseq: the last press counter applied per number.
+      Object.assign(run, { hold: def.hold, goal: def.goal, cols: def.cols, rows: def.rows, pos: new Map(), order: [], kseq: new Map() });
+    }
     this.prevRound = this.round;
     this.round = run;
     this._pushRound();
@@ -258,6 +264,11 @@ export class GameConsole extends EventEmitter {
     const r = this._needRound();
     if (r.phase !== 'announced') throw new ActionError('Öffnen geht nur bei einer angekündigten Runde.');
     r.phase = 'open';
+    if (r.type === 'move') {
+      // Everybody back to the start cell; _changed() places them.
+      r.pos.clear();
+      r.order = [];
+    }
     const openInMs = r.type === 'race' ? TIMING.raceOpenInMs : 0;
     r.startAt = this.now() + openInMs;
     this._pushRound({ openInMs });
@@ -643,6 +654,7 @@ export class GameConsole extends EventEmitter {
       case 'join': return this._onJoin(ev);
       case 'device': return this._onDevice(ev);
       case 'value': return this._onValue(ev);
+      case 'key': return this._onKey(ev);
       case 'admitted': return this._changed();
       default: return undefined;
     }
@@ -701,6 +713,7 @@ export class GameConsole extends EventEmitter {
           startAt: typeof ev.sinceOpenMs === 'number' ? this.now() - ev.sinceOpenMs : null,
           firstPressAt: null, winnerDue: false, invalid: false, adopted: true,
           min: 0, max: 9, redMax: 3, greenMin: 7, answers: [], correct: null,
+          ...MOVE_DEFAULTS, pos: new Map(), order: [], kseq: new Map(),
         };
         this._msg('warn', 'Laufende Runde vom Gateway übernommen; Titel und Frage sind unbekannt.');
       }
@@ -716,6 +729,11 @@ export class GameConsole extends EventEmitter {
     if (!mac || this._justReleased(mac)) return;
     const d = this._device(mac);
     this._status(d, ev);
+    const r = this.round;
+    if (r && r.type === 'move') {
+      // A joining device starts its press counter again.
+      for (const n of [ev.n, d.n]) if (n) r.kseq.delete(n);
+    }
     d.storedN = typeof ev.n === 'number' ? ev.n : null;
     if (ev.pressed) {
       d.pressedAt = this.now();
@@ -795,6 +813,61 @@ export class GameConsole extends EventEmitter {
     run.values.set(ev.n, { v: ev.v, t: ev.t, arr: ev.arr, late: !!ev.late, vseq: ev.vseq, at: this.now() });
     if (run.type === 'race' && run === this.round) this._raceUpdate(run);
     return this._changed();
+  }
+
+  // One press of a device in a move round (provisional `game key` line).
+  // A kseq that is not newer than the last applied one is a resend.
+  _onKey(ev) {
+    for (const d of this.devices.values()) if (d.n === ev.n) d.lastSeen = this.now();
+    const r = this.round;
+    if (!r || r.type !== 'move' || r.adopted || r.roundId !== ev.round || !Number.isInteger(ev.kseq)) return this._changed();
+    const last = r.kseq.get(ev.n);
+    if (last !== undefined && !seq8Newer(ev.kseq, last)) return this._changed();
+    r.kseq.set(ev.n, ev.kseq);
+    if (r.phase === 'open') {
+      this._moveSync();
+      this._moveStep(r, ev.n, ev.key);
+    }
+    return this._changed();
+  }
+
+  // One cell in the mapped direction. Ignored past the border, onto an
+  // occupied cell and for a device already in the goal.
+  _moveStep(r, n, key) {
+    const from = r.pos.get(n);
+    const dir = boardDirection(r.hold, key);
+    if (!from || !dir || r.order.includes(n)) return;
+    const to = step(from, dir);
+    if (!inside(to, r.cols, r.rows)) return;
+    for (const c of r.pos.values()) if (c.col === to.col && c.row === to.row) return;
+    r.pos.set(n, to);
+    if (atGoal(to, r.goal, r.cols)) r.order.push(n);
+  }
+
+  // Keeps the board in step with the participants: one figure per admitted
+  // participant, a newcomer on its start cell as soon as that is free. A
+  // start cell beyond the board or in the goal column gives no figure.
+  _moveSync() {
+    const r = this.round;
+    if (!r || r.type !== 'move' || r.adopted) return;
+    const present = this._admittedNumbers();
+    const keep = new Set(present);
+    for (const n of r.pos.keys()) if (!keep.has(n)) r.pos.delete(n);
+    const cellKey = (c) => `${c.col},${c.row}`;
+    const taken = new Set([...r.pos.values()].map(cellKey));
+    for (const n of present) {
+      if (r.pos.has(n)) continue;
+      const c = startCell(n, r.rows);
+      if (!inside(c, r.cols, r.rows) || atGoal(c, r.goal, r.cols) || taken.has(cellKey(c))) continue;
+      r.pos.set(n, c);
+      taken.add(cellKey(c));
+    }
+  }
+
+  _admittedNumbers() {
+    const ns = [];
+    for (const d of this.devices.values()) if (d.n && d.admitted) ns.push(d.n);
+    return ns.sort((a, b) => a - b);
   }
 
   _raceUpdate(run) {
@@ -927,6 +1000,7 @@ export class GameConsole extends EventEmitter {
   }
 
   _changed() {
+    this._moveSync();
     this.emit('change');
   }
 
@@ -987,7 +1061,7 @@ export class GameConsole extends EventEmitter {
       waiting,
       counts: { admitted: admitted.length, online: admitted.filter((p) => p.online).length, waiting: waiting.length },
       lastPressed,
-      round: r ? roundView(r, admitted.length) : null,
+      round: r ? roundView(r, admitted.map((p) => p.n)) : null,
       messages: this.messages.slice(-5),
       warning: this.warning,
       fleet: { ref, ...this.fleet.snapshot(ref.fw) },
@@ -1023,7 +1097,8 @@ export function raceRanking(run) {
   return entries;
 }
 
-function roundView(r, participants) {
+function roundView(r, admitted) {
+  const participants = admitted.length;
   const base = {
     roundId: r.roundId,
     id: r.def ? r.def.id : null,
@@ -1054,6 +1129,17 @@ function roundView(r, participants) {
     }
     if (r.revealed) results.right = valid.filter(([, v]) => v.v === r.correct).map(([n]) => n).sort((a, b) => a - b);
     return { ...base, answers: r.answers, correct: r.revealed ? r.correct : null, hasCorrect: !!r.correct, revealed: r.revealed, results };
+  }
+  if (r.type === 'move') {
+    const players = admitted.map((n) => {
+      const c = r.pos.get(n);
+      const i = r.order.indexOf(n);
+      return { n, col: c ? c.col : null, row: c ? c.row : null, place: i >= 0 ? i + 1 : null };
+    });
+    return {
+      ...base, hold: r.hold, goal: r.goal, cols: r.cols, rows: r.rows,
+      results: { players, order: [...r.order], winner: r.order[0] ?? null, finished: r.order.length, participants },
+    };
   }
   return base;
 }
