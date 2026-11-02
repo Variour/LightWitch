@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { startConsole } from '../src/app.js';
+import { validateInput } from '../src/validate.js';
 import { ROUNDS, waitFor, sleep } from './helpers.js';
 
 async function launch() {
@@ -83,7 +84,7 @@ test('every view renders without console errors', { timeout: 180000 }, async (t)
   }
   const dir = process.env.SCREENSHOT_DIR;
   if (dir) await fs.mkdir(dir, { recursive: true });
-  const app = await startConsole({ simulate: 50, httpPort: 0, inbox: null, simTiming: { endRelease: 1000 } });
+  const app = await startConsole({ simulate: 50, httpPort: 0, inbox: null, simTiming: { endRelease: 1000, movePaceMin: 60, movePaceMax: 140 } });
   const game = app.game;
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   const errors = [];
@@ -105,7 +106,8 @@ test('every view renders without console errors', { timeout: 180000 }, async (t)
   try {
     await page.goto(app.url);
     await waitFor(() => app.link.connected, { what: 'link' });
-    game.load({ kind: 'session', value: { title: 'Workshop am Nachmittag', rounds: [ROUNDS.scale, ROUNDS.race, ROUNDS.choice] } });
+    const move = validateInput(ROUNDS.move).value;
+    game.load({ kind: 'session', value: { title: 'Workshop am Nachmittag', rounds: [ROUNDS.scale, ROUNDS.race, ROUNDS.choice, move] } });
     await shot('start', '.hero h1');
 
     await act('next');
@@ -139,6 +141,15 @@ test('every view renders without console errors', { timeout: 180000 }, async (t)
     await act('next');
     await act('next');
     await shot('auswahl-aufloesung', '.answer.right');
+
+    await act('next');
+    await act('next');
+    await page.waitForSelector('#finished .answered');
+    assert.match(await page.textContent('#finished'), /0von 50 im Ziel/);
+    await waitFor(() => game.snapshot().round.results.finished >= 3, { timeoutMs: 20000, what: 'three in the goal' });
+    await shot('spielfeld', '#first .winner');
+    assert.equal(await page.textContent('#first .winner'), String(game.snapshot().round.results.winner));
+    assert.match(await page.textContent('.question'), /Wer ist zuerst im Ziel\?/);
 
     await act('idle');
     await shot('ruhe', '.tiles.small .tile');

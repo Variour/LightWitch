@@ -316,6 +316,9 @@ body {
 .right-list { font-size: calc(3 * var(--u)); color: var(--muted); line-height: 1.35; }
 .right-list b { color: var(--text); }
 
+/* ── Move (the board itself is in PowerPoint) ───────────────────────── */
+.move-side { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: calc(2.5 * var(--u)); }
+
 /* ── Charging overview ──────────────────────────────────────────────────
    Colours as on the buzzer's charging display: yellow charging, green
    full, blue update, violet outdated firmware, red fault. */

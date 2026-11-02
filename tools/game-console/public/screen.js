@@ -528,6 +528,37 @@
         }
       },
     },
+
+    // The board itself is in PowerPoint; the screen shows the count and the winner.
+    move: {
+      build: (s) => {
+        const r = s.round;
+        const [pt, pc] = phaseLabel(r);
+        return `${head(r.title, pt, pc, r.question)}
+          <div class="body">
+            <div class="move-side" id="finished"></div>
+            <div class="move-side" id="first"></div>
+          </div>`;
+      },
+      update: (s) => {
+        const res = s.round.results;
+        const fin = `<div class="answered"><b>${res.finished}</b><span>von ${res.participants} im Ziel</span></div>`;
+        const finEl = document.getElementById('finished');
+        if (finEl.dataset.html !== fin) {
+          finEl.innerHTML = fin;
+          finEl.dataset.html = fin;
+        }
+        const w = res.winner;
+        const first = w === null ? '' : `<div class="winner-label">Zuerst im Ziel</div><div class="winner${lastWinner !== w ? ' reveal' : ''}">${esc(w)}</div>`;
+        const firstEl = document.getElementById('first');
+        const key = w === null ? '' : String(w);
+        if (firstEl.dataset.key !== key) {
+          firstEl.dataset.key = key;
+          firstEl.innerHTML = first;
+          if (w !== null) lastWinner = w;
+        }
+      },
+    },
   };
 
   function renderStrip() {
