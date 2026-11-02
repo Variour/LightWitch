@@ -927,9 +927,16 @@ export class GameConsole extends EventEmitter {
     if (!from || !dir || r.order.includes(n)) return;
     const to = step(from, dir);
     if (!inside(to, r.cols, r.rows)) return;
-    for (const c of r.pos.values()) if (c.col === to.col && c.row === to.row) return;
+    for (const [m, c] of r.pos) if (c.col === to.col && c.row === to.row && this._blocks(r, m, n)) return;
     r.pos.set(n, to);
     if (atGoal(to, r.goal, r.cols)) r.order.push(n);
+  }
+
+  // Whether the figure of m keeps the figure of n off its cell. In
+  // "gruppen" only figures of the same group block each other: the active
+  // group moves through the waiting ones.
+  _blocks(r, m, n) {
+    return r.play !== 'gruppen' || groupOf(m) === groupOf(n);
   }
 
   // Keeps the board in step with the participants: one figure per admitted
@@ -949,14 +956,12 @@ export class GameConsole extends EventEmitter {
     const playing = r.play === 'erste' ? r.chosen.filter((n) => present.includes(n)) : present;
     const keep = new Set(playing);
     for (const n of r.pos.keys()) if (!keep.has(n)) r.pos.delete(n);
-    const cellKey = (c) => `${c.col},${c.row}`;
-    const taken = new Set([...r.pos.values()].map(cellKey));
+    const taken = (c, n) => [...r.pos].some(([m, p]) => p.col === c.col && p.row === c.row && this._blocks(r, m, n));
     for (const n of playing) {
       if (r.pos.has(n)) continue;
       const c = r.play === 'erste' ? { col: 0, row: r.chosen.indexOf(n) } : startCell(n, r.rows);
-      if (!inside(c, r.cols, r.rows) || atGoal(c, r.goal, r.cols) || taken.has(cellKey(c))) continue;
+      if (!inside(c, r.cols, r.rows) || atGoal(c, r.goal, r.cols) || taken(c, n)) continue;
       r.pos.set(n, c);
-      taken.add(cellKey(c));
     }
   }
 

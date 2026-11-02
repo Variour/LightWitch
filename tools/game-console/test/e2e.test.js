@@ -323,34 +323,37 @@ test('move play modes: team, erste and gruppen with 30 simulated buzzers', { tim
     assert.equal(keyLines.filter((k) => !chosen.has(k.n) && k.at > fullAt + 1000).length, 0, 'watchers stop pressing');
     await act('next'); // close
 
-    // Gruppen: group 1 starts, the others wait; the keyboard takes only the
-    // active group. With 30 on 10 rows each group fills a column, so group 1
-    // is boxed in until the groups in front have moved.
+    // Gruppen: group 1 starts and moves through the waiting groups, the
+    // others wait; the keyboard takes only the active group.
     await act('next');
     await act('next');
     assert.equal(res().group, 1);
     await sleep(1500);
     const moved = (p) => p.col !== Math.floor((p.n - 1) / 10) || p.row !== (p.n - 1) % 10;
     const of = (k) => res().players.filter((p) => Math.floor((p.n - 1) / 10) + 1 === k);
+    assert.ok(of(1).filter(moved).length >= 5, 'group 1 moves');
+    assert.ok(of(1).some((p) => p.col >= 2), 'through the columns of groups 2 and 3');
     assert.ok(of(2).every((p) => !moved(p)) && of(3).every((p) => !moved(p)), 'the other groups wait');
     const said = [];
     const kb = simKeyboard(app, { say: (t) => said.push(t), quit: () => {} });
     kb.feed('\t\t');
     assert.deepEqual(said, ['Tastatur steuert Nr. 1', 'Tastatur steuert Nr. 2']);
-    const cli = await run(process.execPath, [BIN, 'group', '3', '--http-port', String(port)]);
-    assert.match(cli.stdout, /Gruppe 3 ist dran\./);
-    await sleep(1500);
-    assert.ok(of(3).some(moved), 'group 3 moves');
-    assert.ok(of(2).every((p) => !moved(p)), 'group 2 waits');
-    await act('group', { k: 2 });
-    const group3 = JSON.stringify(of(3));
+    const cli = await run(process.execPath, [BIN, 'group', '2', '--http-port', String(port)]);
+    assert.match(cli.stdout, /Gruppe 2 ist dran\./);
+    const group1 = JSON.stringify(of(1));
     await sleep(1500);
     assert.equal(res().group, 2);
     assert.ok(of(2).some(moved), 'group 2 moves');
-    assert.equal(JSON.stringify(of(3)), group3, 'group 3 keeps its places');
+    assert.ok(of(3).every((p) => !moved(p)), 'group 3 waits');
+    assert.equal(JSON.stringify(of(1)), group1, 'group 1 keeps its places');
     kb.feed('\x1b[C'); // Nr. 2 cannot move now: the arrow takes the first of group 2
     assert.equal(said.at(-1), 'Tastatur steuert Nr. 11');
     assert.equal(gw.devices.find((d) => d.number === 11).manual, true);
+    await act('group', { k: 3 });
+    await sleep(1000);
+    assert.ok(of(3).some(moved), 'group 3 moves');
+    const own = (k) => new Set(of(k).filter((p) => p.col !== null).map((p) => `${p.col},${p.row}`)).size === of(k).length;
+    assert.ok([1, 2, 3].every(own), 'no two figures of one group on a cell');
   } finally {
     await app.close();
   }

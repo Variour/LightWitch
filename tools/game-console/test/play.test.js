@@ -165,6 +165,35 @@ test('gruppen: only the active group moves, the presenter switches, positions st
   assert.deepEqual([cell(3), cell(12), cell(14), res().group], [[1, 2], [2, 1], [2, 3], 2]);
 });
 
+test('gruppen: the active group moves through waiting figures, its own figures still block', async () => {
+  const { press, cell, game } = await board([1, 2, 11, 12], { play: 'gruppen', cols: 3 });
+  press(1, 'right'); // onto 11, which waits
+  press(2, 'up');
+  press(2, 'right'); // onto 1: same group
+  assert.deepEqual([cell(1), cell(2), cell(11)], [[1, 0], [0, 0], [1, 0]]);
+  press(1, 'up'); // border as before
+  assert.deepEqual(cell(1), [1, 0]);
+  await game.act('group', { k: 2 });
+  press(12, 'up'); // onto 1 and 11: 1 waits, 11 is of its own group
+  assert.deepEqual(cell(12), [1, 1]);
+  press(11, 'right');
+  press(12, 'up');
+  assert.deepEqual([cell(11), cell(12), cell(1)], [[2, 0], [1, 0], [1, 0]]);
+  assert.deepEqual(game.snapshot().round.results.order, [11]);
+});
+
+test('gruppen: a late joiner waits only for a figure of its own group', async () => {
+  const { press, cell, admit } = await board([1], { play: 'gruppen' });
+  press(1, 'right'); // onto the start cell of 11
+  await admit(11);
+  assert.deepEqual([cell(1), cell(11)], [[1, 0], [1, 0]]);
+  press(1, 'left', 'down'); // onto the start cell of 2
+  await admit(2);
+  assert.deepEqual(cell(2), [null, null]);
+  press(1, 'right');
+  assert.deepEqual([cell(1), cell(2)], [[1, 1], [0, 1]]);
+});
+
 test('gruppen: the lowest group with members starts; the group action checks its round', async () => {
   const { game, res } = await board([12, 25], { play: 'gruppen' });
   assert.equal(res().group, 2);
