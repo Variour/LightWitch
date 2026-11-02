@@ -11,7 +11,11 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startConsole } from '../src/app.js';
 import { prFirmware } from '../src/sim/power.js';
+import { simKeyboard } from '../src/sim/keyboard.js';
+import { validateInput } from '../src/validate.js';
 import { ROUNDS, waitFor, sleep } from './helpers.js';
+
+const validRound = (r) => validateInput(r).value;
 
 const run = promisify(execFile);
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'game-console.js');
@@ -170,6 +174,63 @@ test('lossy radio, a device restart and a gateway restart in the middle of a rou
     await waitFor(() => [...held.keys()].every((d) => d.round.phase === 'closed'), { timeoutMs: 8000, what: 'close on every buzzer' });
     const entries = game.snapshot().round.results.entries;
     for (const [d, v] of held) assert.equal(entries.find((e) => e.n === d.number).v, v, `console value of ${d.number}`);
+  } finally {
+    await app.close();
+  }
+});
+
+test('move round: the simulated players reach the goal, the keyboard drives one buzzer', { timeout: 90000 }, async () => {
+  const FAST_MOVE = { movePaceMin: 60, movePaceMax: 140, moveFirstMin: 50, moveFirstMax: 300 };
+  const { app, act, gw, game } = await start({ simulate: 20, simTiming: { endRelease: 1000, ...FAST_MOVE } });
+  const keys = []; // key lines of the keyboard's buzzer
+  app.link.on('rx', (ev) => {
+    if (ev.ns === 'game' && ev.ev === 'key' && ev.n === 1) keys.push(ev.key);
+  });
+  try {
+    await waitFor(() => app.link.connected, { what: 'link' });
+    game.load({ kind: 'round', value: validRound(ROUNDS.move) });
+    await act('next');
+    await waitFor(() => game.snapshot().counts.admitted === 20, { timeoutMs: 30000, what: '20 admits' });
+    const said = [];
+    const kb = simKeyboard(app, { say: (t) => said.push(t), quit: () => {} });
+    kb.feed('\t');
+    assert.deepEqual(said, ['Tastatur steuert Nr. 1']);
+    await act('next'); // announce
+    await act('next'); // open
+    await waitFor(() => gw.round.type === 'move' && gw.round.phase === 'open', { what: 'move round on the gateway' });
+    const view = () => game.snapshot().round;
+    const at = (n) => view().results.players.find((p) => p.n === n);
+
+    // 20 players, 10 rows: the goal column takes 10.
+    await waitFor(() => view().results.finished === 10, { timeoutMs: 40000, what: '10 in the goal' });
+    let res = view().results;
+    assert.equal(res.players.length, 20);
+    assert.equal(res.winner, res.order[0]);
+    assert.equal(new Set(res.players.map((p) => `${p.col},${p.row}`)).size, 20);
+    for (const p of res.players) {
+      assert.equal(p.place === null ? null : res.order[p.place - 1], p.place === null ? null : p.n);
+      if (p.place) assert.equal(p.col, 21, `player ${p.n} in the goal`);
+    }
+    assert.deepEqual([at(1).col, at(1).row], [0, 0]); // the keyboard's buzzer waits
+    assert.equal(keys.length, 0);
+
+    // Arrow right: the quer buzzer presses up, the figure goes right (a
+    // figure still in the way blocks a step).
+    for (let i = 0; i < 40 && at(1).col < 5; i++) {
+      kb.feed('\x1b[C');
+      await sleep(150);
+    }
+    assert.deepEqual([at(1).col, at(1).row], [5, 0]);
+    assert.ok(keys.length >= 5 && keys.every((k) => k === 'up'), keys.join());
+
+    // Tab hands buzzer 1 back to its person.
+    kb.feed('\t');
+    assert.equal(said.at(-1), 'Tastatur steuert Nr. 2');
+    assert.deepEqual(gw.devices.filter((d) => d.manual).map((d) => d.number), [2]);
+    await act('close');
+    res = view().results;
+    await sleep(500);
+    assert.deepEqual(view().results, res); // frozen
   } finally {
     await app.close();
   }

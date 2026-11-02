@@ -2,9 +2,11 @@
 // src/game/Participant.h on the game-session branch at 723472b (join, admit,
 // echo, resend, status, rejoin after a restart, following the round across a
 // bridge restart); a small "person" on top presses keys like a participant
-// would. Power and fleet behaviour live in power.js.
+// would. Power and fleet behaviour live in power.js. Move rounds are
+// provisional: the firmware has none yet.
 
-import { seq16Newer } from '../protocol.js';
+import { seq8Newer, seq16Newer } from '../protocol.js';
+import { deviceKey } from '../move.js';
 import { SimPower } from './power.js';
 
 export const T = {
@@ -18,6 +20,13 @@ export const T = {
   noGatewaySearch: 10000,
   searchDwell: 600,
 };
+
+// Move rounds: each person presses at a pace of their own.
+export const MOVE_T = {
+  movePaceMin: 450, movePaceMax: 1000, // mean time between two presses
+  moveFirstMin: 300, moveFirstMax: 1500, // first press after the open
+};
+const MOVE_LOG = 8; // unconfirmed presses a buzzer keeps and sends again
 
 const NO_NUMBER = 0xffff;
 const CHOICE_KEYS = ['up', 'right', 'down', 'left'];
@@ -42,6 +51,7 @@ export class SimDevice {
     this._resetValue();
     this.lastGateway = 0;
     this.searching = false;
+    this.manual = false; // the keyboard controls this buzzer, the person pauses
     this.power = new SimPower(world, this, power);
   }
 
@@ -150,6 +160,15 @@ export class SimDevice {
       this.round.justOpened = false;
       this.world.person.onOpen(this, this.round);
     }
+    if (this.round.type === 'move') {
+      // The echo carries the last press counter the gateway passed on.
+      const echo = this.number ? f.echo[this.number - f.echoFirst] : undefined;
+      if (echo !== undefined && echo !== null && this.keyLog.length) {
+        this.keyLog = this.keyLog.filter((p) => seq8Newer(p.s, echo));
+        if (!this.keyLog.length) this.keyRetryMs = 0;
+      }
+      return;
+    }
     if (!this.number || this.val === null) return;
     const echo = f.echo[this.number - f.echoFirst];
     if (echo === undefined) return;
@@ -190,6 +209,8 @@ export class SimDevice {
     } else if (r.type === 'choice') {
       const a = CHOICE_KEYS.indexOf(key) + 1;
       if (a > 0 && a !== this.val) this._setValue(a, ms, now, 0);
+    } else if (r.type === 'move') {
+      this._pressKey(key, now);
     } else if (r.type === 'scale') {
       const steps = r.max - r.min + 1;
       let v;
@@ -218,6 +239,28 @@ export class SimDevice {
     this.confirmed = false;
     this.sendArmed = false;
     this.retryMs = 0;
+    this.keySeq = 0;
+    this.keyLog = [];
+    this.keyRetryMs = 0;
+    this.nextKeysAt = 0;
+  }
+
+  // Move rounds: every press counts. The buzzer numbers its presses (8 bit,
+  // per round) and sends all unconfirmed ones until the echo shows the newest.
+  _pressKey(key, now) {
+    this.keySeq = (this.keySeq + 1) & 0xff;
+    this.keyLog.push({ s: this.keySeq, k: key });
+    if (this.keyLog.length > MOVE_LOG) this.keyLog.shift();
+    this.keyRetryMs = 0;
+    this.nextKeysAt = now;
+    this._serviceKeys(now);
+  }
+
+  _serviceKeys(now) {
+    if (!this.keyLog.length || !this.round || now < this.nextKeysAt) return;
+    this._send({ type: 'keys', origin: this.number, session: this.session, roundId: this.round.id, presses: this.keyLog.slice() });
+    this.keyRetryMs = this.keyRetryMs === 0 ? this.world.rnd.int(T.retryMin, T.retryMax) : Math.min(this.keyRetryMs * 2, T.retryCap);
+    this.nextKeysAt = now + this.keyRetryMs;
   }
 
   // ── Time ─────────────────────────────────────────────────────────────────
@@ -225,7 +268,8 @@ export class SimDevice {
     this.power.tick(now);
     while (this.presses.length && this.presses[0].at <= now) {
       const p = this.presses.shift();
-      this.press(p.key, p.at, now);
+      if (p.move) this.world.person.onMoveTurn(this, p.at, now);
+      else this.press(p.key, p.at, now);
     }
     switch (this.state) {
       case 'normal':
@@ -266,6 +310,7 @@ export class SimDevice {
       this.searchNextAt = now + T.searchDwell;
     }
     this._serviceSend(now);
+    this._serviceKeys(now);
     if (now >= this.nextStatusAt) {
       this._sendStatus(0);
       this.nextStatusAt = now + this._statusInterval();
@@ -435,7 +480,30 @@ export class Person {
         at += rnd.int(1000, 3000);
         add(at, pick());
       }
+    } else if (round.type === 'move') {
+      const mt = this.world.mt;
+      if (dev.pace === undefined) dev.pace = rnd.int(mt.movePaceMin, mt.movePaceMax);
+      dev.presses.push({ at: Math.max(start, this.world.now()) + rnd.int(mt.moveFirstMin, mt.moveFirstMax), move: true });
     }
+    dev.presses.sort((a, b) => a.at - b.at);
+  }
+
+  // One turn in a move round: a step in a random direction with a clear pull
+  // towards the goal, pressed as the key that points there the way the buzzer
+  // is held. The person sees the board: no board, no play; in the goal, done.
+  // While the keyboard controls the buzzer the person waits their turn.
+  onMoveTurn(dev, at, now) {
+    const r = dev.round;
+    const board = this.world.board();
+    if (!r || r.type !== 'move' || r.phase !== 'open' || !board || board.finished.includes(dev.number)) return;
+    const rnd = this.world.rnd;
+    if (!dev.manual) {
+      const x = rnd();
+      const dir = x < 0.6 ? 'right' : x < 0.75 ? 'up' : x < 0.9 ? 'down' : 'left';
+      dev.press(deviceKey(board.hold, dir), at, now);
+    }
+    const next = at + Math.round(dev.pace * (0.6 + rnd() * 0.8));
+    dev.presses.push({ at: Math.max(next, now + 1), move: true });
     dev.presses.sort((a, b) => a.at - b.at);
   }
 }

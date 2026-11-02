@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import readline from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { startConsole, DEFAULT_HTTP_PORT, DEFAULT_INBOX } from '../src/app.js';
+import { simKeyboard } from '../src/sim/keyboard.js';
 
 const HELP = `game-console - Konsole für die LightWitch-Quiz-Buzzer
 
@@ -27,6 +28,9 @@ Konsole starten:
   --http-port <n>   Port für Bildschirm und API (Standard ${DEFAULT_HTTP_PORT}).
   --inbox <ordner>  Eingangsordner für Runden (Standard ${DEFAULT_INBOX}).
   --trace           Jede Protokollzeile im Terminal mitschreiben.
+
+  Simulator im Terminal: die Pfeiltasten bewegen einen simulierten Buzzer auf
+  dem Spielfeld (Rundentyp move), Tab wechselt den Buzzer, Strg+C beendet.
 
 An die laufende Konsole:
   game-console send <datei.json>      Runde oder Sitzung laden
@@ -168,6 +172,7 @@ async function runConsole(v) {
   if (simulate && v.port) fail('--port und --simulate schließen sich aus.');
   const stamp = () => new Date().toLocaleTimeString('de-DE');
   const tags = { info: '', warn: 'Achtung: ', error: 'Fehler: ', link: 'USB: ', tx: '> ', rx: '< ' };
+  const log = (level, text) => process.stdout.write(`${stamp()} ${tags[level] ?? ''}${text}\n`);
   const app = await startConsole({
     port: v.port ?? null,
     simulate,
@@ -180,18 +185,29 @@ async function runConsole(v) {
     httpPort: v['http-port'] !== undefined ? int('http-port', v['http-port'], 1, 65535) : DEFAULT_HTTP_PORT,
     inbox: v.inbox ?? DEFAULT_INBOX,
     trace: !!v.trace,
-    log: (level, text) => process.stdout.write(`${stamp()} ${tags[level] ?? ''}${text}\n`),
+    log,
   }).catch((err) => fail(err.code === 'EADDRINUSE' ? `Port ${v['http-port'] ?? DEFAULT_HTTP_PORT} ist belegt. Läuft die Konsole schon?` : err.message));
   process.stdout.write(`Bildschirm: ${app.url}\nEingang:    ${app.inbox.dir}\n`);
   let closing = false;
+  const keyboard = simulate > 0 && process.stdin.isTTY;
   const shutdown = async () => {
     if (closing) process.exit(0);
     closing = true;
+    if (keyboard) process.stdin.setRawMode(false);
     await app.close();
     process.exit(0);
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  if (keyboard) {
+    // Raw mode: Ctrl+C arrives as a key, not as SIGINT.
+    const kb = simKeyboard(app, { say: (text) => log('info', text), quit: shutdown });
+    process.stdin.setRawMode(true);
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => kb.feed(chunk));
+    process.stdin.resume();
+    process.stdout.write('Tastatur: Pfeiltasten bewegen einen simulierten Buzzer auf dem Spielfeld, Tab wechselt, Strg+C beendet.\n');
+  }
 }
 
 async function main() {
