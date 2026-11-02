@@ -15,6 +15,7 @@ const MAX_NUMBER = 999;
 const MAX_MESSAGES = 30;
 const PRESS_HIGHLIGHT_MS = 8000;
 const RELEASE_GRACE_MS = 5000;
+const FW_CHANGE_SHOW_MS = 60000; // the screen names a new gateway build this long
 const TARGET_NAMES = { store: 'Lagern (80 %)', event: 'Event (100 %)' };
 const SSID_MAX_BYTES = 32;
 
@@ -50,6 +51,8 @@ export class GameConsole extends EventEmitter {
     this.fleet = new FleetTable({ now });
     this.fleetView = false; // screen shows the charging overview
     this.fwRef = null; // reference firmware set in the console, else the gateway's
+    this.gatewayFw = null; // build of the last hello
+    this.gatewayFwChange = null; // { from, to, at } after a hello with another build
 
     link.on('hello', (ev) => this._onHello(ev));
     link.on('event', (ev) => this._onEvent(ev));
@@ -434,7 +437,7 @@ export class GameConsole extends EventEmitter {
       if (!Number.isInteger(num) || num < 1 || num > 99999) throw new ActionError('PR-Nummer: ganze Zahl ab 1.');
     }
     const note = await this._fleetSend(cmd.fleetUpdate(num), 'Update an alle');
-    const msg = `Update an alle gesendet (${num ? `PR ${num}` : 'neuestes Release'}).${note}`;
+    const msg = `Update an alle gesendet (${num ? `PR ${num}` : 'neuestes Release'}). Das Gateway aktualisiert sich mit und startet bei einer neuen Firmware neu.${note}`;
     this._msg('info', msg);
     return msg;
   }
@@ -611,6 +614,14 @@ export class GameConsole extends EventEmitter {
   _onHello(ev) {
     if (!ev.spaces || ev.spaces.game !== 0) {
       this._msg('error', `Gateway spricht game-Version ${ev.spaces && ev.spaces.game}, die Konsole 0.`);
+    }
+    const prev = this.gatewayFw;
+    this.gatewayFw = ev.fw ?? null;
+    if (prev && ev.fw && prev !== ev.fw) {
+      // `update-all` updates the gateway too: it restarts with the new build.
+      this.gatewayFwChange = { from: prev, to: ev.fw, at: this.now() };
+      this._msg('info', `Gateway wieder verbunden, neue Firmware ${ev.fw} (vorher ${prev}).`);
+      return;
     }
     this._msg('info', `Gateway verbunden (fw ${ev.fw}, ${ev.mac}).`);
   }
@@ -961,6 +972,7 @@ export class GameConsole extends EventEmitter {
         fw: link.hello ? link.hello.fw : null,
         mac: link.hello ? link.hello.mac : null,
         counters: link.counters,
+        fwChange: this.gatewayFwChange && now - this.gatewayFwChange.at < FW_CHANGE_SHOW_MS ? { ...this.gatewayFwChange } : null,
       },
       settings: { ...this.settings },
       session: s ? { id: s.id, channel: s.channel, fleet: s.fleet, login: s.login, ending: s.ending } : null,

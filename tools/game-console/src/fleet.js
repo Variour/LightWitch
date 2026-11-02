@@ -19,6 +19,14 @@ export const ERROR_BITS = [
   'Akku schwach',
 ];
 
+// `updErr` of the firmware (UpdateError, '' when none).
+export const UPDATE_ERRORS = {
+  no_wifi: 'kein WLAN',
+  wifi_failed: 'WLAN nicht erreichbar',
+  low_battery: 'Akku zu schwach',
+  failed: 'Download oder Installation',
+};
+
 export function errorTexts(err) {
   const out = [];
   for (let bit = 0; bit < 16; bit++) {
@@ -47,9 +55,11 @@ export function parseFleetStatus(ev) {
     chg: oneOf(CHARGE_STATES, ev.chg),
     target: oneOf(CHARGE_TARGETS, ev.target),
     usb: typeof ev.usb === 'boolean' ? ev.usb : null,
+    wifi: typeof ev.wifi === 'boolean' ? ev.wifi : null, // null: not reported
     fw,
     upd: oneOf(UPDATE_STATES, ev.upd),
     pct: int(ev.pct),
+    updErr: typeof ev.updErr === 'string' && ev.updErr ? ev.updErr : null,
     err: int(ev.err) ?? 0,
     rssi: int(ev.rssi),
     ageMs: Number.isFinite(ev.age) && ev.age >= 0 ? ev.age * 1000 : 0,
@@ -116,7 +126,8 @@ export class FleetTable {
         const error = d.err !== 0 || d.chg === 'fault' || d.upd === 'failed';
         return {
           mac: d.mac, n: d.n, state: d.state, bat: d.bat, vbat: d.vbat, chg: d.chg, target: d.target,
-          usb: d.usb, fw: d.fw, fwStatus, upd: d.upd, pct: d.pct, updating,
+          usb: d.usb, wifi: d.wifi, fw: d.fw, fwStatus, upd: d.upd, pct: d.pct, updating,
+          updErr: d.updErr, updErrText: d.updErr ? (UPDATE_ERRORS[d.updErr] ?? d.updErr) : null,
           err: d.err, errors: errorTexts(d.err), error, rssi: d.rssi, lastSeen: d.heardAt, ageS: Math.max(0, Math.round((now - d.heardAt) / 1000)), stale,
         };
       });

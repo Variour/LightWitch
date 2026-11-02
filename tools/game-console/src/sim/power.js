@@ -1,5 +1,5 @@
 // Power, charging and fleet behaviour of a simulated Buzzerboard, following
-// the fleet protocol v0 draft: charging in the transport case, active,
+// the fleet protocol v0 draft: charging on a USB power supply, active,
 // standby, ship mode after `off`, the charge target, and updates with
 // progress. Fleet status goes out only outside a game session.
 
@@ -10,7 +10,7 @@ export const FLEET_T = {
   fleetDownloadMin: 24000, fleetDownloadMax: 48000,
   fleetInstallMin: 3000, fleetInstallMax: 6000,
   fleetRebootMs: 2000,
-  fleetTakeOutMin: 300, fleetTakeOutMax: 4000, // people take the buzzers out of the case
+  fleetUnplugMin: 300, fleetUnplugMax: 4000, // people unplug the buzzers from their power supplies
 };
 
 const TARGET_PCT = { store: 80, event: 100 };
@@ -33,7 +33,7 @@ function ocvMv(pct) {
 }
 
 export class SimPower {
-  // state: charging (in the case on USB), active or standby (on battery).
+  // state: charging (on a USB power supply), active or standby (on battery).
   constructor(world, dev, { state = 'charging', bat = 60, fw, fault = false }) {
     this.world = world;
     this.dev = dev;
@@ -45,10 +45,12 @@ export class SimPower {
     this.fault = fault;
     this.upd = 'idle';
     this.pct = 0;
+    this.updErr = ''; // reason of the last failed update, '' for none
+    this.wifi = true; // a WiFi network is configured
     this.update = null; // { phase, until, dlStart, dlEnd, fw }
     this.silentUntil = 0; // restarting after an update
     this.apUntil = 0;
-    this.takeOutAt = 0;
+    this.unplugAt = 0;
     this.nonces = [];
     this.lastTick = null;
     this.dirty = false;
@@ -87,15 +89,15 @@ export class SimPower {
     }
   }
 
-  // Someone pulls the buzzer out of the case.
-  planTakeOut(now) {
-    if (!this.usb || this.takeOutAt) return;
+  // Someone unplugs the buzzer from its power supply.
+  planUnplug(now) {
+    if (!this.usb || this.unplugAt) return;
     const t = this.world.ft;
-    this.takeOutAt = now + this.world.rnd.int(t.fleetTakeOutMin, t.fleetTakeOutMax);
+    this.unplugAt = now + this.world.rnd.int(t.fleetUnplugMin, t.fleetUnplugMax);
   }
 
   _unplug() {
-    this.takeOutAt = 0;
+    this.unplugAt = 0;
     this.usb = false;
     this.fault = false;
     this.state = 'active';
@@ -169,7 +171,7 @@ export class SimPower {
     const dt = this.lastTick === null ? 0 : (now - this.lastTick) / 1000;
     this.lastTick = now;
     if (this.state === 'off') return;
-    if (this.takeOutAt && now >= this.takeOutAt) this._unplug();
+    if (this.unplugAt && now >= this.unplugAt) this._unplug();
     if (this.usb) {
       const limit = TARGET_PCT[this.target];
       if (!this.fault && this.bat < limit) this.bat = Math.min(limit, this.bat + dt * (this.bat < 80 ? CHARGE_RATE : CHARGE_RATE_CV));
@@ -194,7 +196,7 @@ export class SimPower {
     this.world.radio.fleetFromDevice(this.dev, {
       type: 'fleetStatus', origin: this.dev.number || 0, mac: this.dev.mac, number: this.dev.number || 0,
       state: this.state, battery: Math.round(this.bat), vbat: this.vbat, charge: this.chg, target: this.target,
-      usbPresent: this.usb, fw: this.fw, upd: this.upd, pct: this.pct, err: this.err,
+      usbPresent: this.usb, wifi: this.wifi, fw: this.fw, upd: this.upd, pct: this.pct, updErr: this.updErr, err: this.err,
     });
   }
 }

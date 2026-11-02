@@ -322,6 +322,11 @@ body {
 .fleet-title { font-size: calc(4.4 * var(--u)); font-weight: 800; letter-spacing: -0.01em; }
 .fleet-ref { font-size: calc(2.2 * var(--u)); color: var(--muted); }
 .fleet-ref b { color: var(--text); font-weight: 700; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.fleet-link { font-size: calc(2.6 * var(--u)); font-weight: 700; padding: calc(0.8 * var(--u)) calc(2 * var(--u)); border-radius: calc(1 * var(--u)); background: var(--surface); }
+.fleet-link[hidden] { display: none; }
+.fleet-link.bad { color: var(--red); box-shadow: inset calc(0.6 * var(--u)) 0 0 var(--red); }
+.fleet-link.ok { color: var(--green); box-shadow: inset calc(0.6 * var(--u)) 0 0 var(--green); }
+.fleet-link b { font-family: ui-monospace, Menlo, Consolas, monospace; }
 .fleet-counts { display: flex; flex-wrap: wrap; align-items: baseline; gap: calc(1.4 * var(--u)) calc(4 * var(--u)); font-size: calc(3 * var(--u)); color: var(--muted); }
 .fc { display: inline-flex; align-items: baseline; gap: calc(1 * var(--u)); }
 .fc b { font-size: calc(4.6 * var(--u)); font-weight: 850; color: var(--text); line-height: 1; }
@@ -390,7 +395,8 @@ body {
 .ft-upd { color: var(--blue); font-weight: 700; align-items: center; }
 .ft-ubar { flex: 1; height: calc(0.7 * var(--fs) * var(--u)); border-radius: 99px; background: var(--led-off); overflow: hidden; }
 .ft-ubar i { display: block; height: 100%; background: var(--blue); transition: width .6s ease-out; }
-.ft-err { color: var(--red); font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.ft-err { color: var(--red); font-weight: 700; white-space: normal; line-height: 1.2; }
+.ft-nowifi { color: var(--text); font-weight: 700; }
 .ft-age { color: var(--muted); font-size: .9em; }
 
 /* ── Presenter strip ────────────────────────────────────────────────── */

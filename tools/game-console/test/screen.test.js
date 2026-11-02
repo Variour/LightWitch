@@ -44,6 +44,7 @@ test('the charging overview renders and its keys reach the console', { timeout: 
     await page.waitForFunction('document.querySelectorAll(".fleet-grid .ftile").length === 50');
     assert.equal(await page.locator('.ftile.error').count(), 1);
     assert.equal(await page.locator('.ftile.outdated').count(), 1);
+    assert.ok(await page.locator('.ft-state', { hasText: 'am Netz' }).count() >= 30);
 
     // U twice sends the update; the outdated device shows its progress.
     await page.keyboard.press('u');
@@ -58,6 +59,12 @@ test('the charging overview renders and its keys reach the console', { timeout: 
     // E and L set the charge target, F leads back to the game.
     await page.keyboard.press('e');
     await waitFor(() => game.snapshot().fleet.devices.filter((d) => d.target === 'event').length >= 45, { timeoutMs: 40000, what: 'target event' });
+
+    // The gateway restarts with another build (as after update-all): the overview says so.
+    app.transport.fw = 'abcdef01';
+    app.transport.restart();
+    await page.waitForSelector('.fleet-link.ok');
+    assert.match(await page.textContent('#flink'), /Gateway wieder verbunden, neue Firmware abcdef01 \(vorher 1a2b3c4d\)/);
     await page.keyboard.press('f');
     await waitFor(() => game.snapshot().view === 'start', { what: 'F closes the overview' });
     await page.waitForSelector('.hero h1');

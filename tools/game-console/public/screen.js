@@ -219,7 +219,7 @@
     ? `<span class="bat${bat < 20 ? ' low' : ''}"><i style="width:${Math.max(4, Math.min(100, bat))}%"></i></span>`
     : '');
 
-  const STATE_NAMES = { active: 'aktiv', charging: 'lädt', standby: 'Standby' };
+  const STATE_NAMES = { active: 'aktiv', charging: 'am Netz', standby: 'Standby' };
   const CHARGE_NAMES = { none: 'ohne Lader', charging: 'lädt', full: 'voll', discharging: 'Akku', fault: 'Ladefehler' };
   const TARGETS = { store: ['Lagern', 80], event: ['Event', 100] };
 
@@ -237,7 +237,7 @@
     if (d.stale) cls.push('stale');
     const bat = typeof d.bat === 'number' ? d.bat : null;
     const target = TARGETS[d.target];
-    const chgWord = d.chg && !(d.chg === 'charging' && d.state === 'charging') ? CHARGE_NAMES[d.chg] : '';
+    const chgWord = d.chg ? CHARGE_NAMES[d.chg] : '';
     let fw = `<span class="ft-fw">${esc(d.fw || '?')}</span>`;
     if (d.fwStatus === 'outdated') fw += '<span class="ft-old">veraltet</span>';
     else if (d.fwStatus === 'current') fw += '<span class="ft-ok">aktuell</span>';
@@ -248,9 +248,10 @@
       extra = `<div class="ft-row ft-upd"><span>${label}</span><span class="ft-ubar"><i style="width:${pct}%"></i></span></div>`;
     }
     const problems = [];
-    if (d.upd === 'failed') problems.push('Update fehlgeschlagen');
+    if (d.upd === 'failed') problems.push(d.updErrText ? `Update fehlgeschlagen: ${d.updErrText}` : 'Update fehlgeschlagen');
     problems.push(...d.errors);
     if (problems.length) extra += `<div class="ft-row ft-err">${esc(problems.join(', '))}</div>`;
+    if (d.wifi === false && !(d.upd === 'failed' && d.updErr === 'no_wifi')) extra += '<div class="ft-row ft-nowifi">kein WLAN</div>';
     const html = `<div class="ft-row ft-top"><span class="ft-n">${d.n ? esc(d.n) : '-'}</span><span class="ft-state st-${d.state || 'none'}">${esc(STATE_NAMES[d.state] || '?')}</span></div>
       <div class="ft-row ft-bat"><b>${bat === null ? '?' : bat}<small> %</small></b><span class="ft-chg">${esc(chgWord)}</span></div>
       <div class="ft-row ft-barrow"><span class="ft-bar"><i style="width:${bat ?? 0}%"></i>${target ? `<em style="left:${target[1]}%"></em>` : ''}</span><span class="ft-target">${target ? `→ ${target[0]}` : '?'}</span></div>
@@ -261,6 +262,7 @@
   const VIEWS = {
     fleet: {
       build: () => `<header class="head"><div class="head-row"><div class="fleet-title">Ladeübersicht</div><div class="fleet-ref" id="fref"></div></div>
+          <div class="fleet-link" id="flink" hidden></div>
           <div class="fleet-counts" id="fcounts"></div></header>
         <div class="fleet-grid" id="fgrid"></div>`,
       update: (s) => {
@@ -271,6 +273,23 @@
         if (refEl.dataset.html !== ref) {
           refEl.innerHTML = ref;
           refEl.dataset.html = ref;
+        }
+        // The gateway updates itself with `update-all` and restarts: say so plainly.
+        const linkEl = document.getElementById('flink');
+        let linkHtml = '';
+        let linkCls = 'fleet-link';
+        if (s.link.state !== 'connected') {
+          linkHtml = 'Gateway getrennt. Nach einem Update startet es neu und meldet sich gleich wieder.';
+          linkCls += ' bad';
+        } else if (s.link.fwChange) {
+          linkHtml = `Gateway wieder verbunden, neue Firmware <b>${esc(s.link.fwChange.to)}</b> (vorher ${esc(s.link.fwChange.from)}).`;
+          linkCls += ' ok';
+        }
+        if (linkEl.dataset.html !== linkHtml || linkEl.className !== linkCls) {
+          linkEl.innerHTML = linkHtml;
+          linkEl.dataset.html = linkHtml;
+          linkEl.className = linkCls;
+          linkEl.hidden = !linkHtml;
         }
         const counts = [
           `<span class="fc fc-charging"><i></i><b>${c.charging}</b> laden</span>`,

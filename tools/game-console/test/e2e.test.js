@@ -10,6 +10,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startConsole } from '../src/app.js';
+import { prFirmware } from '../src/sim/power.js';
 import { ROUNDS, waitFor, sleep } from './helpers.js';
 
 const run = promisify(execFile);
@@ -218,6 +219,24 @@ test('fleet: charge target, update-all, ap, config, wifi-set and off-all against
       return f.counts.outdated === 0 && f.counts.updating === 0 && f.devices.length === 12 && f.devices.every((d) => d.fw === f.ref.fw);
     }, { timeoutMs: 15000, what: 'every device on the new firmware' });
     assert.ok(gw.devices.every((d) => d.power.fw === gw.fw));
+    assert.equal(app.game.snapshot().link.fwChange, null); // the gateway was on the release already
+
+    // A PR build: the gateway updates itself too, restarts and comes back
+    // with the new build; the reference follows and every device is current.
+    let drops = 0;
+    app.link.on('disconnected', () => {
+      drops++;
+    });
+    const pr = await cli(['update-all', '--pr', '481']);
+    assert.match(pr.stdout, /Update an alle gesendet \(PR 481\)/);
+    const prFw = prFirmware(481);
+    await waitFor(() => drops === 1 && app.link.connected && app.game.snapshot().fleet.ref.fw === prFw, { timeoutMs: 15000, what: 'gateway back on the PR build' });
+    const change = app.game.snapshot().link.fwChange;
+    assert.deepEqual([change.from, change.to], [gw.world.releaseFw, prFw]);
+    await waitFor(() => {
+      const f = app.game.snapshot().fleet;
+      return f.counts.outdated === 0 && f.counts.updating === 0 && f.devices.length === 12 && f.devices.every((d) => d.fw === prFw);
+    }, { timeoutMs: 15000, what: 'every device on the PR build' });
 
     // Maintenance AP for one device, by MAC; a shared number is refused.
     const one = (await state()).fleet.devices[0];
@@ -231,7 +250,7 @@ test('fleet: charge target, update-all, ap, config, wifi-set and off-all against
     assert.match(wifi.stdout, /WLAN "Halle 3" auf dem Gerät am USB-Kabel gespeichert/);
     assert.deepEqual(gw.wifi, ['Halle 3']);
     const got = await cli(['config-get']);
-    assert.match(got.stdout, /Firmware 1a2b3c4d, Nummer keine, 1 WLAN-Netz\(e\), Ladeziel Lagern/);
+    assert.match(got.stdout, new RegExp(`Firmware ${prFw}, Nummer keine, 1 WLAN-Netz\\(e\\), Ladeziel Lagern`));
     assert.ok(logs.some((l) => l.startsWith('tx ') && l.includes('"cmd":"wifi"')), 'the trace shows the command');
     assert.equal(logs.some((l) => l.includes(secret)), false, 'password in the log');
     assert.equal(JSON.stringify(await state()).includes(secret), false, 'password in the state');

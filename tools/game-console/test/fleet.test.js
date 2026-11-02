@@ -33,6 +33,39 @@ test('a fleet status line is checked and normalised', () => {
   assert.equal(parseFleetStatus(fleetStatus(MAC(1), { chg: 'none', bat: null })).chg, 'none'); // no charger
 });
 
+test('wifi and updErr: read when present, the reason of a failed update gets a German name', () => {
+  const { link, game } = setup();
+  link.emitEvent(fleetStatus(MAC(1), { n: 1, wifi: false, upd: 'failed', updErr: 'no_wifi' }));
+  link.emitEvent(fleetStatus(MAC(2), { n: 2, wifi: true, updErr: '' }));
+  link.emitEvent(fleetStatus(MAC(3), { n: 3, upd: 'failed', updErr: 'something_new' }));
+  link.emitEvent(fleetStatus(MAC(4), { n: 4 })); // older firmware without the fields
+  const d = devices(game);
+  assert.deepEqual(d.map((x) => [x.wifi, x.updErr, x.updErrText]), [
+    [false, 'no_wifi', 'kein WLAN'],
+    [true, null, null],
+    [null, 'something_new', 'something_new'],
+    [null, null, null],
+  ]);
+  assert.equal(game.snapshot().fleet.counts.errors, 2);
+});
+
+test('after the gateway restarts with a new build, the reference follows and the change is shown', () => {
+  const { link, game, clock } = setup();
+  link.emitEvent(fleetStatus(MAC(1), { n: 1, fw: '4a45fc32' }));
+  link.emit('hello', link.hello);
+  assert.equal(game.snapshot().link.fwChange, null);
+  assert.equal(devices(game)[0].fwStatus, 'outdated');
+  link.hello = { ...link.hello, fw: '4a45fc32' };
+  link.emit('hello', link.hello);
+  const snap = game.snapshot();
+  assert.deepEqual(snap.fleet.ref, { fw: '4a45fc32', source: 'gateway' });
+  assert.equal(snap.fleet.devices[0].fwStatus, 'current');
+  assert.deepEqual({ ...snap.link.fwChange, at: 0 }, { from: '1a2b3c4d', to: '4a45fc32', at: 0 });
+  assert.match(game.messages.at(-1).text, /neue Firmware 4a45fc32 \(vorher 1a2b3c4d\)/);
+  clock.advance(61000);
+  assert.equal(game.snapshot().link.fwChange, null);
+});
+
 test('error bits get the names of the firmware (FleetTypes.h)', () => {
   assert.deepEqual(errorTexts(0), []);
   assert.deepEqual(errorTexts(0x104), ['Akku zu heiß', 'Akku schwach']);

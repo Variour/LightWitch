@@ -2,13 +2,14 @@
 // that speaks the same NDJSON as the firmware (src/game/Link.h and Bridge.h
 // on the game-session branch) and runs N simulated Buzzerboards over a
 // simulated radio with optional loss, latency and restarts. The `fleet` and
-// `config` namespaces follow the fleet protocol v0 draft.
+// `config` namespaces follow the fleet protocol v0 draft; like the firmware,
+// the gateway applies `fleet update` to itself and restarts on a new build.
 
 import { EventEmitter } from 'node:events';
 import { LineSplitter, LINE_MAX, KEY_NAMES, COLOR_NAMES, ROUND_TYPES, PHASES, CHOICE_KEYS, CHARGE_TARGETS, normalizeMac, seq8Newer } from '../protocol.js';
 import { makeRandom } from './random.js';
 import { SimDevice, Person } from './devices.js';
-import { FLEET_T } from './power.js';
+import { FLEET_T, prFirmware } from './power.js';
 
 export const GW = {
   stateRepeat1: 50, stateRepeat2: 150, statePeriodOpen: 250, statePeriodIdle: 1000, stateMinGap: 50,
@@ -131,6 +132,7 @@ export class FakeGateway extends EventEmitter {
     this.fleetTable = new Map(); // mac -> { st, heardAt, rssi, dirty }
     this.fleetOut = []; // { at, frame } repeats of fleet commands
     this.fleetNonce = 1;
+    this.selfUpdate = null; // { phase, until, fw } while the gateway updates itself
     this.wifi = []; // SSIDs of the gateway's own WiFi list
     this.ownTarget = 'store';
 
@@ -158,9 +160,9 @@ export class FakeGateway extends EventEmitter {
 
   _makeDevices(n) {
     const rnd = this.rnd;
-    // The transport case: most buzzers charge in it, some already full. From
-    // five buzzers on, one has a charger fault, one runs an old firmware, two
-    // are out on battery and one sleeps in standby.
+    // Most buzzers charge on USB power supplies, some already full. From five
+    // buzzers on, one has a charger fault, one runs an old firmware, two are
+    // out on battery and one sleeps in standby.
     const at = (f) => (n >= 5 ? Math.ceil(n * f) : 0);
     const fault = at(0.26);
     const old = at(0.14);
@@ -213,7 +215,7 @@ export class FakeGateway extends EventEmitter {
     Object.assign(this, {
       active: false, closing: false, everBridge: false, bActive: false, ending: false, session: 0,
       round: this._emptyRound(), devs: new Map(), maxNumber: 0, admits: [], releases: [], login: false,
-      fleetTable: new Map(), fleetOut: [],
+      fleetTable: new Map(), fleetOut: [], selfUpdate: null,
       pendingChannel: 0, offChannel: false, radioChannel: 0, bootAt: this.now(),
       lastStateAt: -Infinity, nextStateAt: 0, burstStep: 0, rxFrames: 0, txFrames: 0,
       input: [], out: [], splitter: new LineSplitter(LINE_MAX + 1),
@@ -359,7 +361,29 @@ export class FakeGateway extends EventEmitter {
       { at: now + this.rnd.int(t.fleetRepeat2Min, t.fleetRepeat2Max), frame: f },
       { at: now + this.rnd.int(t.fleetRepeat3Min, t.fleetRepeat3Max), frame: f },
     );
+    if (frame.op === 'update' && !this.selfUpdate) {
+      const fw = frame.source === 'pr' ? prFirmware(frame.pr) : this.world.releaseFw;
+      const ft = this.world.ft;
+      this.selfUpdate = { phase: 'checking', until: now + t.fleetRepeat3Max + this.rnd.int(ft.fleetCheckMin, ft.fleetCheckMax), fw };
+    }
     return this._ev('fleet', 'sent', id);
+  }
+
+  // The gateway's own update: check, download, install, then restart with
+  // the new build. The USB port goes away and comes back.
+  _serviceSelfUpdate(now) {
+    const u = this.selfUpdate;
+    if (!u || now < u.until) return;
+    const ft = this.world.ft;
+    if (u.phase === 'checking') {
+      if (u.fw === this.fw) this.selfUpdate = null;
+      else Object.assign(u, { phase: 'downloading', until: now + this.rnd.int(ft.fleetDownloadMin, ft.fleetDownloadMax) });
+    } else if (u.phase === 'downloading') {
+      Object.assign(u, { phase: 'installing', until: now + this.rnd.int(ft.fleetInstallMin, ft.fleetInstallMax) });
+    } else {
+      this.fw = u.fw;
+      this.restart();
+    }
   }
 
   // The simulator answers the config commands the console uses: wifi, get.
@@ -401,7 +425,7 @@ export class FakeGateway extends EventEmitter {
       const f = e.st;
       this._ev('fleet', 'status', undefined, {
         mac, n: f.number || null, state: f.state, bat: f.battery, vbat: f.vbat, chg: f.charge, target: f.target,
-        usb: f.usbPresent, fw: f.fw, upd: f.upd, pct: f.pct, err: f.err, rssi: e.rssi,
+        usb: f.usbPresent, wifi: f.wifi, fw: f.fw, upd: f.upd, pct: f.pct, updErr: f.updErr, err: f.err, rssi: e.rssi,
         age: Math.floor((now - e.heardAt) / 1000),
       });
     }
@@ -460,13 +484,13 @@ export class FakeGateway extends EventEmitter {
       this.nextInviteAt = now;
       this.nextHopAt = now + this.t.inviteHopPeriod;
       this.hopIdx = o.channel;
-      if (o.login) this._takeOutAll(now);
+      if (o.login) this._unplugAll(now);
     } else {
       this.fleet = fleet;
       if (o.login && !this.login) {
         this.nextInviteAt = now;
         this.nextHopAt = now + this.t.inviteHopPeriod;
-        this._takeOutAll(now);
+        this._unplugAll(now);
       }
       this.login = o.login;
       if (o.channel !== this.channel && o.channel !== this.pendingChannel) {
@@ -695,9 +719,9 @@ export class FakeGateway extends EventEmitter {
     for (const e of this.fleetTable.values()) e.dirty = true;
   }
 
-  // Login opens: the crew takes every buzzer out of the transport case.
-  _takeOutAll(now) {
-    for (const d of this.devices) d.power.planTakeOut(now);
+  // Login opens: the people unplug every buzzer from its power supply.
+  _unplugAll(now) {
+    for (const d of this.devices) d.power.planUnplug(now);
   }
 
   onFrame(f, rssi) {
@@ -892,6 +916,7 @@ export class FakeGateway extends EventEmitter {
     for (const d of this.devices) d.tick(now);
     this._bridgeTick(now);
     this._serviceFleet(now);
+    this._serviceSelfUpdate(now);
     this._flushTable();
     this._flushFleet(now);
     if (this.closing) this.active = false;
