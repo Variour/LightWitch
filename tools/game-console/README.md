@@ -79,7 +79,7 @@ Every buzzer outside a game session reports its state about every 30 s; the gate
 | Screen key (overview) | CLI | Action |
 |---|---|---|
 | `F`, `→`, `Esc` | `fleet-view [on\|off]` | Back to the game screen. Without an argument the CLI toggles. |
-| `U` twice within 4 s | `update-all [--pr <n>]` | Update every buzzer: newest release, or the build of pull request n. |
+| `U` twice within 4 s | `update-all [--pr <n>]` | Update every buzzer and the gateway itself: newest release, or the build of pull request n. |
 | `E` | `charge event` | Charge target Event: 100 %. |
 | `L` | `charge store` | Charge target Lagern (store): about 80 %. |
 | | `off-all` | Buzzers on battery go to ship mode now and leave the overview. Buzzers on USB stay on. |
@@ -88,11 +88,13 @@ Every buzzer outside a game session reports its state about every 30 s; the gate
 | | `wifi-set` | The device on the USB cable: ask for SSID and password in the terminal, store them on the device. |
 | | `config-get` | The device on the USB cable: firmware, number, number of WiFi networks, charge target. |
 
-The overview shows per buzzer its number, state (aktiv, lädt, Standby), battery, charge state, charge target (a mark on the battery bar), firmware with "aktuell" or "veraltet", update progress and errors, in the colours of the buzzer's charging display: yellow charging, green full, blue update, violet outdated, red error. At the top: how many charge, are full, run outdated firmware, update, and have an error. A buzzer silent for 90 s is dimmed and leaves the counts.
+The overview shows per buzzer its number, state (aktiv, am Netz, Standby), battery, charge state (lädt, voll, Akku, Ladefehler), charge target (a mark on the battery bar), firmware with "aktuell" or "veraltet", update progress, the reason of a failed update, errors, and "kein WLAN" for a buzzer that cannot take `update-all`. Colours as on the buzzer's charging display: yellow charging, green full, blue update, violet outdated, red error. At the top: how many charge, are full, run outdated firmware, update, and have an error. A buzzer silent for 90 s is dimmed and leaves the counts.
+
+`update-all` updates the gateway too. On a new build it restarts: the overview shows "Gateway getrennt" until the link is back, then "Gateway wieder verbunden, neue Firmware ..." for a minute. The reference firmware follows the new hello.
 
 - `wifi-set` reads two lines (SSID, password) from stdin when stdin is not a terminal. The password goes to the device only: the console does not store, show or log it, and `--trace` prints `***`. Password: 8 to 63 characters, 64 hex characters, or empty for an open network.
 - The console sends fleet commands only when the gateway names `fleet` in the `spaces` of its hello, and config commands only with `config` there.
-- `/api/state` carries `fleet`: `ref` (`fw`, `source`: `gateway` or `console`), `counts` and `devices[]` with `mac`, `n`, `state`, `bat`, `vbat`, `chg`, `target`, `usb`, `fw`, `fwStatus`, `upd`, `pct`, `err`, `errors` (German names of the error bits), `rssi`, `lastSeen` (ms since 1970, when the gateway heard the buzzer), `ageS` and `stale`.
+- `/api/state` carries `fleet`: `ref` (`fw`, `source`: `gateway` or `console`), `counts` and `devices[]` with `mac`, `n`, `state`, `bat`, `vbat`, `chg`, `target`, `usb`, `wifi`, `fw`, `fwStatus`, `upd`, `pct`, `updErr`, `updErrText`, `err`, `errors` (German names of the error bits), `rssi`, `lastSeen` (ms since 1970, when the gateway heard the buzzer), `ageS` and `stale`. `link.fwChange` (`from`, `to`, `at`) names a new gateway build for a minute after the reconnect.
 - Factory test: the test script talks to the device under test on its own serial port and reads number, battery, firmware and RSSI of the buzzers from `/api/state` (`fleet.devices[]`: `n`, `bat`, `fw`, `rssi`). With two Espressif devices plugged in, start the console with `--port` for the gateway.
 
 HTTP actions: `{"action": "update-all", "pr": 481}`, `{"action": "charge", "target": "event"}`, `{"action": "off-all"}`, `{"action": "ap", "to": 12}` (or a MAC), `{"action": "fw-ref", "fw": "1a2b3c4d"}`, `{"action": "fleet-view", "mode": "on"}`, `{"action": "config-get"}`, `{"action": "wifi-set", "ssid": "Halle 3", "pass": "..."}`.
@@ -200,7 +202,7 @@ The presenter strip at the bottom shows the USB link, online buzzers, the gatewa
 
 `--simulate N` replaces the serial port with an in-process gateway that speaks the same NDJSON and follows the firmware's bridge and participant logic: channel hopping invites, admit and release repeats, echo, resend with back-off, status every 15 s, rejoin after a restart. Its people join a few seconds after the invite, tap towards a value on scale rounds, press after a human reaction time in races (with a few near ties), pick answers with a popular favourite in choice rounds, and sometimes change their mind. Most buzzers carry the stored numbers 1 to N, a few none, and one shares its number with another.
 
-The simulated buzzers start in the transport case: most charge, some are full at 80 %, one has a charger fault, one runs an old firmware, two are out on battery and one is in standby. They answer the fleet commands: an update takes 30-60 s with progress and ends with the gateway's build (or a build per PR number), a new charge target makes full buzzers charge on, `off` switches the buzzers on battery off. When login opens, the people take every buzzer out of the case. The simulated gateway also answers `wifi-set` and `config-get`.
+The simulated buzzers start on USB power supplies: most charge, some are full at 80 %, one has a charger fault, one runs an old firmware, two are out on battery and one is in standby. They answer the fleet commands: an update takes 30-60 s with progress and ends with the release build (or a build per PR number), a new charge target makes full buzzers charge on, `off` switches the buzzers on battery off. The simulated gateway updates itself as well and restarts on a new build. When login opens, the people unplug every buzzer. The simulated gateway also answers `wifi-set` and `config-get`.
 
 ## Tests
 
@@ -220,12 +222,12 @@ The screen check runs Chromium through Playwright and skips when no browser is i
 5. `L` öffnet oder schließt die Anmeldung, `S` blendet die Leiste aus, `T` wechselt hell und dunkel.
 6. Zum Schluss `npx game-console end`: alle Buzzer werden freigegeben und starten neu. Den Gateway-Buzzer danach einmal aus- und einschalten, dann ist er wieder ein normales LightWitch-Gerät.
 
-## Für die Crew: Ladekoffer (Deutsch)
+## Für die Crew: Laden und Lagern (Deutsch)
 
-1. Gateway-Buzzer per USB-C an den Laptop, Konsole starten, Bildschirm öffnen, `F` drücken: die Ladeübersicht. Oben steht, wie viele laden, voll sind, veraltete Firmware haben oder einen Fehler melden. Rot umrandet: Fehler, violett: Firmware veraltet, blau: Update läuft.
+1. Buzzer laden an jedem USB-Netzteil. Gateway-Buzzer per USB-C an den Laptop, Konsole starten, Bildschirm öffnen, `F` drücken: die Ladeübersicht. Oben steht, wie viele laden, voll sind, veraltete Firmware haben oder einen Fehler melden. Rot umrandet: Fehler, violett: Firmware veraltet, blau: Update läuft. "am Netz" heißt: der Buzzer hängt am Netzteil.
 2. Vor dem Event `E`: alle Buzzer laden auf 100 %. Zum Lagern danach `L`: alle laden nur bis etwa 80 %.
-3. Firmware veraltet: zweimal `U` (oder `npx game-console update-all`). Die Buzzer holen das Update übers WLAN. Solange die Säule am Buzzer blau läuft, nicht abziehen.
-4. WLAN für Updates: den Buzzer per USB-C anschließen und `npx game-console wifi-set` eingeben. Name und Passwort werden im Terminal abgefragt, das Passwort bleibt unsichtbar. Einen Buzzer, der nicht das Gateway ist, danach einmal aus- und einschalten.
-5. Zum Einpacken `npx game-console off-all`: alle Buzzer im Akkubetrieb gehen aus. Buzzer im Koffer am Strom bleiben an und laden weiter.
+3. Firmware veraltet: zweimal `U` (oder `npx game-console update-all`). Die Buzzer holen das Update übers WLAN, das Gateway auch. Solange die Säule am Buzzer blau läuft, nicht abziehen. Das Gateway startet danach neu, die Übersicht zeigt das und verbindet sich von selbst wieder.
+4. WLAN für Updates: den Buzzer per USB-C an den Laptop und `npx game-console wifi-set` eingeben. Name und Passwort werden im Terminal abgefragt, das Passwort bleibt unsichtbar. Einen Buzzer, der nicht das Gateway ist, danach einmal aus- und einschalten. "kein WLAN" auf einer Kachel heißt: dieser Buzzer braucht das noch.
+5. Zum Einpacken `npx game-console off-all`: alle Buzzer im Akkubetrieb gehen aus. Buzzer am Netzteil bleiben an und laden weiter.
 6. Ein einzelner Buzzer braucht Wartung: `npx game-console ap 12` öffnet sein Wartungs-WLAN für 10 Minuten.
 7. `F` oder Pfeil rechts führt zurück zum Spielbildschirm.
