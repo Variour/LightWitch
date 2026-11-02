@@ -94,6 +94,8 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `QuizAdmit` | `QuizAdmitMsg` fixed-size, 22 bytes | exact `sizeof(QuizAdmitMsg)` | Game session. Bridge to one device, target filtering after parse. |
 | `QuizRelease` | `QuizReleaseMsg` fixed-size, 20 bytes | exact `sizeof(QuizReleaseMsg)` | Game session. Bridge to one device or all (`ff:ff:ff:ff:ff:ff`). |
 | `QuizChannel` | `QuizChannelMsg` fixed-size, 17 bytes | exact `sizeof(QuizChannelMsg)` | Game session. Bridge to all, announces a channel change. |
+| `FleetStatus` | `FleetStatusMsg` fixed-size, 20 bytes | exact `sizeof(FleetStatusMsg)` | Fleet package, see below. Every device to all, about every 30 s and on a change. |
+| `FleetCommand` | `FleetCommandMsg` variable-length (11-byte head + `targetCount` MACs) | head must be present, `targetCount <= 32`, and `len` must equal head + 6 × `targetCount` | Fleet package. Bridge to all or to the listed MACs, three times with one nonce. |
 
 ## The `Hello` exception
 
@@ -118,6 +120,20 @@ The `Quiz*` types belong to the game session module (`src/game/`). Their layouts
 ### Quiet mode and the Hello rule
 
 While a device is in a game session (participant from join until release, bridge from its first session until restart), `MeshManager::setQuiet(true)` makes it send and handle only `Quiz*` frames. It sends no `Presence`, no `Hello`, no `MeshPolicy`, `GroupSync`, `AudioGroupSync`, `PhaseSync` or proximity pings, and it ignores every other received type. This is a deliberate exception to the unconditional `Hello` cadence above, for the duration of a session only. A participant leaves a session by restarting into normal operation.
+
+## Fleet frames (`Fleet*`)
+
+The `Fleet*` types belong to the fleet package (`src/fleet/`: charging mode, transport protection, "update all"). Like the quiz frames, their layouts live in `src/fleet/FleetFrames.h`; `MeshTypes.h` mirrors the type numbers and `static_assert`s that both agree. Builds with `FEATURE_GAME=0` (esp32c3) have neither the quiz nor the fleet frames and log them as unknown types.
+
+- Packed, little-endian, at most 250 bytes. Both start with `type` and `proto` (1 in v0); the fleet package drops other `proto` values, the mesh layer only checks framing.
+- `FleetStatus`: device number, state (`active`, `charging`, `standby`), battery percent and mV, charge status, charge target, USB and WiFi flags, firmware build, fleet update state, percent and error, error bits. A device in a game session sends none.
+- `FleetCommand`: a nonce (receivers act once per nonce, for 10 s), an op (`update` with source release or PR number, `charge` with target, `off`, `ap` with minutes) and 0-32 target MACs (0 = every device). Devices in a game session ignore it.
+- A received `FleetStatus` counts as "peer heard" for `ChannelManager`'s channel lock, like `Presence` and `Hello`: devices in charging mode send nothing else.
+- The USB side (the bridge's `fleet` namespace) is in [usb-link.md](usb-link.md).
+
+### Fleet-only mode and the Hello rule
+
+In charging mode and standby, `MeshManager::setFleetOnly(true)` makes a device send only `Fleet*` frames and handle only `Fleet*` frames and `QuizInvite` (an invite wakes a device from standby). Like quiet mode it sends no `Presence`, no `Hello` and none of the periodic syncs; this is a second deliberate exception to the unconditional `Hello` cadence, for as long as the device is in charging mode or standby. Quiet mode wins while both are set.
 
 ## Audit conclusions
 
