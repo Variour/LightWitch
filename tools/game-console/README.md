@@ -2,7 +2,7 @@
 
 The laptop side of the LightWitch quiz buzzers. It talks to the gateway buzzer over USB, keeps the session, the participants and every value, serves a live screen for the projector, and takes rounds from the Claude skill. With `--simulate 50` it runs the whole system against 50 simulated buzzers, so sessions can be rehearsed and tested without hardware.
 
-Contract: gateway protocol v0 (`gateway-protokoll-v0.md`), round format v0 (`runden-format-v0.md`) and, for the charging overview and the fleet commands, the fleet protocol v0 draft (`protokoll-fleet-v0-entwurf.md`). Where the firmware on the `claude/game-session` branch (`src/game/Link.h`, `Bridge.h`) differs from the docs, the console follows the firmware.
+Contract: the firmware's USB link, documented in [docs/usb-link.md](../../docs/usb-link.md) and implemented in `src/game/Link.h`, `src/game/Bridge.h` and `src/fleet/FleetLink.h`. The round format is defined by `src/validate.js`.
 
 ## Run it
 
@@ -218,7 +218,7 @@ For a skill that can only write files into a shared folder.
 ### CLI
 
 ```sh
-npx game-console send round.json
+npx --no-install game-console send round.json
 npx game-console round --file round.json
 ```
 
@@ -287,7 +287,7 @@ The screen check runs Chromium through Playwright and skips when no browser is i
 
 1. Gateway-Buzzer per USB-C an den Laptop, dann im Ordner `tools/game-console` einmal `npm install` und `npx game-console` starten. Zum Üben ohne Hardware: `npx game-console --simulate 50`.
 2. Im Browser <http://127.0.0.1:4711/> öffnen, auf den Beamer ziehen, F11 für Vollbild.
-3. Runden kommen vom Skill: als Datei in den Ordner `buzzer-inbox` in deinem Benutzerordner oder per `npx game-console send runde.json`. Ist etwas falsch, steht der Grund in der Leiste unten und in `buzzer-inbox/failed/<name>.error.json`.
+3. Runden kommen vom Skill: als Datei in den Ordner `buzzer-inbox` in deinem Benutzerordner oder per `npx --no-install game-console send runde.json`. Ist etwas falsch, steht der Grund in der Leiste unten und in `buzzer-inbox/failed/<name>.error.json`.
 4. Mit Pfeil rechts oder dem Presenter weiterschalten: Sitzung starten, Anmeldung (Buzzer drücken), dann je Runde ankündigen, öffnen, schließen, bei Quizfragen auflösen.
 5. `L` öffnet oder schließt die Anmeldung, `S` blendet die Leiste aus, `T` wechselt hell und dunkel.
 6. Zum Schluss `npx game-console end`: alle Buzzer werden freigegeben und starten neu. Den Gateway-Buzzer danach einmal aus- und einschalten, dann ist er wieder ein normales LightWitch-Gerät.
