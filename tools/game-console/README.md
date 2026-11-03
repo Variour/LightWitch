@@ -2,7 +2,7 @@
 
 The laptop side of the LightWitch quiz buzzers. It talks to the gateway buzzer over USB, keeps the session, the participants and every value, serves a live screen for the projector, and takes rounds from the Claude skill. With `--simulate 50` it runs the whole system against 50 simulated buzzers, so sessions can be rehearsed and tested without hardware.
 
-Contract: gateway protocol v0 (`gateway-protokoll-v0.md`) and round format v0 (`runden-format-v0.md`). Where the firmware on the `claude/game-session` branch (`src/game/Link.h`, `Bridge.h`) differs from the docs, the console follows the firmware.
+Contract: the firmware's USB link, documented in [docs/usb-link.md](../../docs/usb-link.md) and implemented in `src/game/Link.h`, `src/game/Bridge.h` and `src/fleet/FleetLink.h`. The round format is defined by `src/validate.js`.
 
 ## Run it
 
@@ -42,6 +42,7 @@ Every control is an action of the running console. The same actions work from th
 |---|---|---|
 | `→`, `PageDown`, `Space`, `Enter` | `next` | The next step (see below). Presenter clickers send `PageDown`. |
 | `L` | `login-open`, `login-close` | Open or close login. |
+| `F` | `fleet-view [on\|off]` | Show or hide the charging overview (see below). |
 | `A` | `admit all` | Admit every waiting buzzer (manual admission). |
 | `S` | | Show or hide the presenter strip. |
 | `T` | | Light or dark theme (also `?theme=light` in the URL). |
@@ -70,6 +71,33 @@ Every control is an action of the running console. The same actions work from th
 The race winner is set 1 s after the first press arrives and corrected if an earlier press arrives later. `winner <n>` overrides it.
 
 Admission: while login is open, every joining buzzer is admitted with the number it has stored, or the smallest free number if it has none or the number is taken. A buzzer that rejoins after a restart is admitted again without a press, also with login closed. With `--manual-admit`, joining buzzers wait on the login screen until `admit all` or `admit <mac>`.
+
+## Charging overview and fleet
+
+Every buzzer outside a game session reports its state about every 30 s; the gateway passes each report on as a `fleet status` line. The console keeps the latest report per MAC. Fleet commands go to the gateway, which broadcasts them to every buzzer outside a game session; buzzers in a running session ignore them.
+
+| Screen key (overview) | CLI | Action |
+|---|---|---|
+| `F`, `→`, `Esc` | `fleet-view [on\|off]` | Back to the game screen. Without an argument the CLI toggles. |
+| `U` twice within 4 s | `update-all [--pr <n>]` | Update every buzzer and the gateway itself: newest release, or the build of pull request n. |
+| `E` | `charge event` | Charge target Event: 100 %. |
+| `L` | `charge store` | Charge target Lagern (store): about 80 %. |
+| | `off-all` | Buzzers on battery go to ship mode now and leave the overview. Buzzers on USB stay on. |
+| | `ap <n\|mac>` | Open the maintenance WiFi of one buzzer for 10 minutes. A number must be unique in the overview. |
+| | `fw-ref <hex\|gateway>` | Firmware the overview compares with. Default: the gateway's own build from `link hello`. |
+| | `wifi-set` | The device on the USB cable: ask for SSID and password in the terminal, store them on the device. |
+| | `config-get` | The device on the USB cable: firmware, number, number of WiFi networks, charge target. |
+
+The overview shows per buzzer its number, state (aktiv, am Netz, Standby), battery, charge state (lädt, voll, Akku, Ladefehler), charge target (a mark on the battery bar), firmware with "aktuell" or "veraltet", update progress, the reason of a failed update, errors, and "kein WLAN" for a buzzer that cannot take `update-all`. Colours as on the buzzer's charging display: yellow charging, green full, blue update, violet outdated, red error. At the top: how many charge, are full, run outdated firmware, update, and have an error. A buzzer silent for 90 s is dimmed and leaves the counts.
+
+`update-all` updates the gateway too. On a new build it restarts: the overview shows "Gateway getrennt" until the link is back, then "Gateway wieder verbunden, neue Firmware ..." for a minute. The reference firmware follows the new hello.
+
+- `wifi-set` reads two lines (SSID, password) from stdin when stdin is not a terminal. The password goes to the device only: the console does not store, show or log it, and `--trace` prints `***`. Password: 8 to 63 printable ASCII characters, or empty for an open network.
+- The console sends fleet commands only when the gateway names `fleet` in the `spaces` of its hello, and config commands only with `config` there.
+- `/api/state` carries `fleet`: `ref` (`fw`, `source`: `gateway` or `console`), `counts` and `devices[]` with `mac`, `n`, `state`, `bat`, `vbat`, `chg`, `target`, `usb`, `wifi`, `fw`, `fwStatus`, `upd`, `pct`, `updErr`, `updErrText`, `err`, `errors` (German names of the error bits), `rssi`, `lastSeen` (ms since 1970, when the gateway heard the buzzer), `ageS` and `stale`. `link.fwChange` (`from`, `to`, `at`) names a new gateway build for a minute after the reconnect.
+- Factory test: the test script talks to the device under test on its own serial port and reads number, battery, firmware and RSSI of the buzzers from `/api/state` (`fleet.devices[]`: `n`, `bat`, `fw`, `rssi`). With two Espressif devices plugged in, start the console with `--port` for the gateway.
+
+HTTP actions: `{"action": "update-all", "pr": 481}`, `{"action": "charge", "target": "event"}`, `{"action": "off-all"}`, `{"action": "ap", "to": 12}` (or a MAC), `{"action": "fw-ref", "fw": "1a2b3c4d"}`, `{"action": "fleet-view", "mode": "on"}`, `{"action": "config-get"}`, `{"action": "wifi-set", "ssid": "Halle 3", "pass": "..."}`.
 
 ## Input for the Claude skill
 
@@ -128,7 +156,7 @@ For a skill that can only write files into a shared folder.
 ### CLI
 
 ```sh
-npx game-console send round.json
+npx --no-install game-console send round.json
 npx game-console round --file round.json
 ```
 
@@ -141,7 +169,7 @@ The console listens on `127.0.0.1:4711` only. Requests need a `Host` of `127.0.0
 | Request | Body | Answer |
 |---|---|---|
 | `POST /api/load` | a round or a session | `200` with `{ok: true, message}`, `422` rejected, `400` not JSON, `413` larger than 256 KB |
-| `POST /api/action` | `{"action": "next"}`, with arguments as in the CLI: `{"action": "announce", "id": "quiz-3"}`, `{"action": "winner", "n": 17}`, `{"action": "admit", "mac": "all"}`, `{"action": "renumber", "n": 3, "to": 30}`, `{"action": "release", "n": 4}`, `{"action": "admit-mode", "mode": "manual"}`, `{"action": "usb-number", "n": 17}` | `200` with `{ok: true, message}`, `409` with `{ok: false, error}` |
+| `POST /api/action` | `{"action": "next"}`, with arguments as in the CLI (fleet actions above): `{"action": "announce", "id": "quiz-3"}`, `{"action": "winner", "n": 17}`, `{"action": "admit", "mac": "all"}`, `{"action": "renumber", "n": 3, "to": 30}`, `{"action": "release", "n": 4}`, `{"action": "admit-mode", "mode": "manual"}`, `{"action": "usb-number", "n": 17}` | `200` with `{ok: true, message}`, `409` with `{ok: false, error}` |
 | `GET /api/state` | | the full state the screen gets |
 | `GET /ws` | | WebSocket, the same state on every change and once per second |
 
@@ -182,11 +210,13 @@ The presenter strip at the bottom shows the USB link, online buzzers, the gatewa
 
 `--simulate N` replaces the serial port with an in-process gateway that speaks the same NDJSON and follows the firmware's bridge and participant logic: channel hopping invites, admit and release repeats, echo, resend with back-off, status every 15 s, rejoin after a restart. Its people join a few seconds after the invite, tap towards a value on scale rounds, press after a human reaction time in races (with a few near ties), pick answers with a popular favourite in choice rounds, and sometimes change their mind. Most buzzers carry the stored numbers 1 to N, a few none, and one shares its number with another.
 
+The simulated buzzers start on USB power supplies: most charge, some are full at 80 %, one has a charger fault, one runs an old firmware, two are out on battery and one is in standby. They answer the fleet commands: an update takes 30-60 s with progress and ends with the release build (or a build per PR number), a new charge target makes full buzzers charge on, `off` switches the buzzers on battery off. The simulated gateway updates itself as well and restarts on a new build. When login opens, the people unplug every buzzer. The simulated gateway also answers `wifi-set` and `config-get`.
+
 ## Tests
 
 ```sh
 npm test                                  # all tests, including the screen check
-SCREENSHOT_DIR=/some/dir npm test         # also save a 1920x1080 screenshot per view
+SCREENSHOT_DIR=/some/dir npm test         # also save a 1920x1080 screenshot per view, the charging overview as screen-ladeuebersicht.png
 ```
 
 The screen check runs Chromium through Playwright and skips when no browser is installed (`npx playwright install chromium`).
@@ -195,7 +225,17 @@ The screen check runs Chromium through Playwright and skips when no browser is i
 
 1. Gateway-Buzzer per USB-C an den Laptop, dann im Ordner `tools/game-console` einmal `npm install` und `npx game-console` starten. Zum Üben ohne Hardware: `npx game-console --simulate 50`.
 2. Im Browser <http://127.0.0.1:4711/> öffnen, auf den Beamer ziehen, F11 für Vollbild.
-3. Runden kommen vom Skill: als Datei in den Ordner `buzzer-inbox` in deinem Benutzerordner oder per `npx game-console send runde.json`. Ist etwas falsch, steht der Grund in der Leiste unten und in `buzzer-inbox/failed/<name>.error.json`.
+3. Runden kommen vom Skill: als Datei in den Ordner `buzzer-inbox` in deinem Benutzerordner oder per `npx --no-install game-console send runde.json`. Ist etwas falsch, steht der Grund in der Leiste unten und in `buzzer-inbox/failed/<name>.error.json`.
 4. Mit Pfeil rechts oder dem Presenter weiterschalten: Sitzung starten, Anmeldung (Buzzer drücken), dann je Runde ankündigen, öffnen, schließen, bei Quizfragen auflösen.
 5. `L` öffnet oder schließt die Anmeldung, `S` blendet die Leiste aus, `T` wechselt hell und dunkel.
 6. Zum Schluss `npx game-console end`: alle Buzzer werden freigegeben und starten neu. Den Gateway-Buzzer danach einmal aus- und einschalten, dann ist er wieder ein normales LightWitch-Gerät.
+
+## Für die Crew: Laden und Lagern (Deutsch)
+
+1. Buzzer laden an jedem USB-Netzteil. Gateway-Buzzer per USB-C an den Laptop, Konsole starten, Bildschirm öffnen, `F` drücken: die Ladeübersicht. Oben steht, wie viele laden, voll sind, veraltete Firmware haben oder einen Fehler melden. Rot umrandet: Fehler, violett: Firmware veraltet, blau: Update läuft. "am Netz" heißt: der Buzzer hängt am Netzteil.
+2. Vor dem Event `E`: alle Buzzer laden auf 100 %. Zum Lagern danach `L`: alle laden nur bis etwa 80 %.
+3. Firmware veraltet: zweimal `U` (oder `npx game-console update-all`). Die Buzzer holen das Update übers WLAN, das Gateway auch. Solange die Säule am Buzzer blau läuft, nicht abziehen. Das Gateway startet danach neu, die Übersicht zeigt das und verbindet sich von selbst wieder.
+4. WLAN für Updates: den Buzzer per USB-C an den Laptop und `npx game-console wifi-set` eingeben. Name und Passwort werden im Terminal abgefragt, das Passwort bleibt unsichtbar. Einen Buzzer, der nicht das Gateway ist, danach einmal aus- und einschalten. "kein WLAN" auf einer Kachel heißt: dieser Buzzer braucht das noch.
+5. Zum Einpacken `npx game-console off-all`: alle Buzzer im Akkubetrieb gehen aus. Buzzer am Netzteil bleiben an und laden weiter.
+6. Ein einzelner Buzzer braucht Wartung: `npx game-console ap 12` öffnet sein Wartungs-WLAN für 10 Minuten.
+7. `F` oder Pfeil rechts führt zurück zum Spielbildschirm.

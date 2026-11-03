@@ -83,9 +83,17 @@ export function parseLine(line) {
 export function serialize(obj) {
   const line = JSON.stringify(obj) + '\n';
   if (Buffer.byteLength(line, 'utf8') > LINE_MAX) {
-    throw new Error(`line longer than ${LINE_MAX} bytes: ${line.slice(0, 60)}...`);
+    throw new Error(`line longer than ${LINE_MAX} bytes: ${obj.ns} ${obj.cmd}`);
   }
   return line;
+}
+
+// A command as it may appear in a log: WiFi passwords replaced.
+export function redact(obj) {
+  if (obj && obj.ns === 'config' && Array.isArray(obj.networks)) {
+    return { ...obj, networks: obj.networks.map((n) => ({ ...n, pass: n && n.pass ? '***' : n && n.pass })) };
+  }
+  return obj;
 }
 
 // Builders for every command the console sends. `id` is filled in by the link.
@@ -117,7 +125,21 @@ export const cmd = {
     if (r.type === 'choice' && r.phase === 'closed' && r.revealed && r.correct) c.correct = r.correct;
     return c;
   },
+  // Fleet (bridge broadcasts to every device not in a game session) and
+  // config (the device on the USB cable), fleet protocol v0 draft.
+  fleetUpdate: (pr) => (pr ? { ns: 'fleet', cmd: 'update', source: 'pr', pr } : { ns: 'fleet', cmd: 'update', source: 'release' }),
+  fleetCharge: (target) => ({ ns: 'fleet', cmd: 'charge', target }),
+  fleetOff: () => ({ ns: 'fleet', cmd: 'off' }),
+  fleetAp: (mac) => ({ ns: 'fleet', cmd: 'ap', mac }),
+  configWifi: (networks) => ({ ns: 'config', cmd: 'wifi', networks }),
+  configGet: () => ({ ns: 'config', cmd: 'get' }),
 };
+
+export const FLEET_STATES = ['active', 'charging', 'standby'];
+export const CHARGE_STATES = ['none', 'charging', 'full', 'discharging', 'fault']; // none: no charger
+export const CHARGE_TARGETS = ['store', 'event'];
+export const UPDATE_STATES = ['idle', 'checking', 'downloading', 'installing', 'failed'];
+export const FW_RE = /^[0-9a-f]{8}$/;
 
 export const MAC_RE = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/;
 

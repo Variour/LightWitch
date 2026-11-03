@@ -21,7 +21,7 @@ export class FakeLink extends EventEmitter {
     this.connected = true;
     this.state = 'connected';
     this.port = { path: 'fake' };
-    this.hello = { fw: '1a2b3c4d', mac: '02:00:00:00:00:01' };
+    this.hello = { fw: '1a2b3c4d', mac: '02:00:00:00:00:01', spaces: { link: 0, game: 0, fleet: 0, config: 0 } };
     this.counters = null;
     this.transportStatus = '';
     this.sent = [];
@@ -52,6 +52,9 @@ export class FakeLink extends EventEmitter {
 }
 
 export function defaultReply(c) {
+  if (c.ns === 'fleet') return { ns: 'fleet', ev: 'sent' };
+  if (c.ns === 'config' && c.cmd === 'wifi') return { ns: 'config', ev: 'wifi', ok: true, count: c.networks.length };
+  if (c.ns === 'config' && c.cmd === 'get') return { ns: 'config', ev: 'config', wifiCount: 1, target: 'store', number: 12, fw: '1a2b3c4d' };
   if (c.cmd === 'session') return { ns: 'game', ev: 'session', session: c.session, channel: c.channel, fleet: c.fleet, login: c.login, active: true };
   if (c.cmd === 'admit') return { ns: 'game', ev: 'admitted', mac: c.mac, n: c.n };
   if (c.cmd === 'round') return { ns: 'game', ev: 'state', round: c.round, seq: 1, type: c.type, phase: c.phase ?? null, changed: true, sinceOpenMs: null, closedAtMs: null };
@@ -71,6 +74,11 @@ export const value = (n, round, v, extra = {}) => ({
 
 export const device = (n, mac, extra = {}) => ({
   ns: 'game', ev: 'device', n, mac, fw: '1a2b3c4d', proto: 1, bat: 80, chg: false, rssi: -60, round: 0, seq: 1, ...extra,
+});
+
+export const fleetStatus = (mac, extra = {}) => ({
+  ns: 'fleet', ev: 'status', mac, n: 12, state: 'charging', bat: 64, vbat: 3912, chg: 'charging', target: 'store',
+  usb: true, fw: '1a2b3c4d', upd: 'idle', pct: 0, err: 0, rssi: -48, age: 0, ...extra,
 });
 
 export const flush = () => new Promise((resolve) => setImmediate(resolve));

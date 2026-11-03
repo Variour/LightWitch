@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
-import { cmd, keysFor, normalizeMac } from './protocol.js';
+import { cmd, keysFor, normalizeMac, FW_RE } from './protocol.js';
+import { FleetTable } from './fleet.js';
 
 // Fixed values in v0 (round format, "Feste Werte in v0", console part).
 export const TIMING = {
@@ -14,6 +15,9 @@ const MAX_NUMBER = 999;
 const MAX_MESSAGES = 30;
 const PRESS_HIGHLIGHT_MS = 8000;
 const RELEASE_GRACE_MS = 5000;
+const FW_CHANGE_SHOW_MS = 60000; // the screen names a new gateway build this long
+const TARGET_NAMES = { store: 'Lagern (80 %)', event: 'Event (100 %)' };
+const SSID_MAX_BYTES = 32;
 
 export class ActionError extends Error {}
 
@@ -44,6 +48,11 @@ export class GameConsole extends EventEmitter {
     this.queue = Promise.resolve();
     this.winnerTimer = null;
     this.released = new Map(); // mac -> time of the release
+    this.fleet = new FleetTable({ now });
+    this.fleetView = false; // screen shows the charging overview
+    this.fwRef = null; // reference firmware set in the console, else the gateway's
+    this.gatewayFw = null; // build of the last hello
+    this.gatewayFwChange = null; // { from, to, at } after a hello with another build
 
     link.on('hello', (ev) => this._onHello(ev));
     link.on('event', (ev) => this._onEvent(ev));
@@ -111,6 +120,14 @@ export class GameConsole extends EventEmitter {
       end: this._end,
       'usb-number': ({ n }) => this._usbNumber(n),
       'admit-mode': ({ mode }) => this._admitMode(mode),
+      'fleet-view': ({ mode } = {}) => this._fleetView(mode),
+      'update-all': ({ pr } = {}) => this._updateAll(pr),
+      charge: ({ target } = {}) => this._charge(target),
+      'off-all': this._offAll,
+      ap: ({ to } = {}) => this._ap(to),
+      'wifi-set': ({ ssid, pass } = {}) => this._wifiSet(ssid, pass),
+      'config-get': this._configGet,
+      'fw-ref': ({ fw } = {}) => this._setFwRef(fw),
     };
   }
 
@@ -384,6 +401,144 @@ export class GameConsole extends EventEmitter {
     }
   }
 
+  // ── Fleet and config (fleet protocol v0 draft) ───────────────────────────
+  _fleetView(mode) {
+    if (mode !== undefined && mode !== 'on' && mode !== 'off') throw new ActionError('Ladeübersicht: "on" oder "off".');
+    this.fleetView = mode === undefined ? !this.fleetView : mode === 'on';
+    this._changed();
+    return this.fleetView ? 'Ladeübersicht an.' : 'Ladeübersicht aus.';
+  }
+
+  // The gateway names every namespace it speaks in its hello.
+  _needSpace(ns, what) {
+    this._needLink();
+    const spaces = this.link.hello && this.link.hello.spaces;
+    const v = spaces ? spaces[ns] : undefined;
+    if (v !== 0) {
+      const fw = this.link.hello && this.link.hello.fw ? `, Firmware ${this.link.hello.fw}` : '';
+      throw new ActionError(`Das Gerät am USB-Kabel kennt ${what} nicht (Namensraum "${ns}" Version 0 fehlt im hello${fw}).`);
+    }
+  }
+
+  async _fleetSend(command, what) {
+    this._needSpace('fleet', 'die Flottenbefehle');
+    try {
+      await this.link.request(command);
+    } catch (err) {
+      throw new ActionError(`${what}: ${err.message}`);
+    }
+    return this.session && !this.session.ending ? ' Geräte in der laufenden Sitzung ignorieren den Befehl.' : '';
+  }
+
+  async _updateAll(pr) {
+    let num;
+    if (pr !== undefined && pr !== null && pr !== '') {
+      num = Number(pr);
+      if (!Number.isInteger(num) || num < 1 || num > 65535) throw new ActionError('PR-Nummer: ganze Zahl von 1 bis 65535.');
+    }
+    const note = await this._fleetSend(cmd.fleetUpdate(num), 'Update an alle');
+    const msg = `Update an alle gesendet (${num ? `PR ${num}` : 'neuestes Release'}). Das Gateway aktualisiert sich mit und startet bei einer neuen Firmware neu.${note}`;
+    this._msg('info', msg);
+    return msg;
+  }
+
+  async _charge(target) {
+    if (!TARGET_NAMES[target]) throw new ActionError('Ladeziel: "store" (Lagern, 80 %) oder "event" (Event, 100 %).');
+    const note = await this._fleetSend(cmd.fleetCharge(target), 'Ladeziel');
+    const msg = `Ladeziel ${TARGET_NAMES[target]} an alle gesendet.${note}`;
+    this._msg('info', msg);
+    return msg;
+  }
+
+  async _offAll() {
+    const note = await this._fleetSend(cmd.fleetOff(), 'Ausschalten');
+    const gone = this.fleet.removeOnBattery();
+    this._changed();
+    const msg = `Ausschalten an alle gesendet. ${gone} Gerät(e) im Akkubetrieb aus der Ladeübersicht genommen, Geräte am USB-Strom bleiben an.${note}`;
+    this._msg('info', msg);
+    return msg;
+  }
+
+  async _ap(to) {
+    let mac = normalizeMac(to);
+    let label;
+    if (mac) {
+      const d = this.fleet.devices.get(mac);
+      label = d && d.n ? `Gerät ${d.n} (${mac})` : `Gerät ${mac}`;
+    } else {
+      const n = Number(to);
+      if (to === undefined || to === null || to === '' || !Number.isInteger(n) || n < 1 || n > MAX_NUMBER) {
+        throw new ActionError('Wartungs-WLAN: Nummer 1-999 oder MAC wie 02:00:00:00:00:11 angeben.');
+      }
+      const found = this.fleet.byNumber(n);
+      if (!found.length) throw new ActionError(`Kein Gerät mit der Nummer ${n} in der Ladeübersicht. Mit MAC angeben.`);
+      if (found.length > 1) throw new ActionError(`Die Nummer ${n} haben mehrere Geräte: ${found.map((d) => d.mac).join(', ')}. Mit MAC angeben.`);
+      mac = found[0].mac;
+      label = `Gerät ${n} (${mac})`;
+    }
+    const note = await this._fleetSend(cmd.fleetAp(mac), 'Wartungs-WLAN');
+    const msg = `Wartungs-WLAN für ${label} angefordert (10 Minuten).${note}`;
+    this._msg('info', msg);
+    return msg;
+  }
+
+  // The password goes to the device on the USB cable and nowhere else: not
+  // into messages, not into the state, not into the trace.
+  async _wifiSet(ssid, pass) {
+    if (typeof ssid !== 'string' || !ssid.length || Buffer.byteLength(ssid, 'utf8') > SSID_MAX_BYTES) {
+      throw new ActionError('WLAN-Name: 1 bis 32 Bytes.');
+    }
+    if (typeof pass !== 'string') throw new ActionError('WLAN-Passwort fehlt (leer für ein offenes Netz).');
+    const printable = /^[\x20-\x7e]*$/.test(pass);
+    if (pass.length && !(printable && pass.length >= 8 && pass.length <= 63)) {
+      throw new ActionError('WLAN-Passwort: 8 bis 63 Zeichen (ohne Umlaute) oder leer für ein offenes Netz.');
+    }
+    this._needSpace('config', 'die Konfiguration über USB');
+    let ev;
+    try {
+      ev = await this.link.request(cmd.configWifi([{ ssid, pass }]));
+    } catch (err) {
+      throw new ActionError(`WLAN setzen: ${err.message}`);
+    }
+    if (ev.ok === false) throw new ActionError('WLAN setzen: das Gerät hat abgelehnt.');
+    const msg = `WLAN "${ssid}" auf dem Gerät am USB-Kabel gespeichert (${ev.count ?? 1} Netz).`;
+    this._msg('info', msg);
+    return msg;
+  }
+
+  async _configGet() {
+    this._needSpace('config', 'die Konfiguration über USB');
+    let ev;
+    try {
+      ev = await this.link.request(cmd.configGet());
+    } catch (err) {
+      throw new ActionError(`Konfiguration lesen: ${err.message}`);
+    }
+    const target = TARGET_NAMES[ev.target] ?? (ev.target ? String(ev.target) : '?');
+    const number = Number.isInteger(ev.number) && ev.number > 0 ? ev.number : 'keine';
+    return `Gerät am USB-Kabel: Firmware ${ev.fw ?? '?'}, Nummer ${number}, ${ev.wifiCount ?? '?'} WLAN-Netz(e), Ladeziel ${target}.`;
+  }
+
+  _setFwRef(fw) {
+    if (fw === undefined || fw === null || fw === '' || fw === 'gateway') {
+      this.fwRef = null;
+      this._changed();
+      const gw = this.link.hello && this.link.hello.fw;
+      return `Referenz-Firmware ist die des Gateways${gw ? ` (${gw})` : ''}.`;
+    }
+    const v = String(fw).toLowerCase();
+    if (!FW_RE.test(v)) throw new ActionError('Referenz-Firmware: 8 Hex-Zeichen wie 1a2b3c4d oder "gateway".');
+    this.fwRef = v;
+    this._changed();
+    return `Referenz-Firmware ${v}.`;
+  }
+
+  _refFw() {
+    if (this.fwRef) return { fw: this.fwRef, source: 'console' };
+    const gw = this.link.hello && typeof this.link.hello.fw === 'string' ? this.link.hello.fw.toLowerCase() : null;
+    return { fw: gw, source: gw ? 'gateway' : null };
+  }
+
   // ── Participants and numbers ─────────────────────────────────────────────
   _deviceByNumber(n) {
     const num = Number(n);
@@ -460,6 +615,14 @@ export class GameConsole extends EventEmitter {
     if (!ev.spaces || ev.spaces.game !== 0) {
       this._msg('error', `Gateway spricht game-Version ${ev.spaces && ev.spaces.game}, die Konsole 0.`);
     }
+    const prev = this.gatewayFw;
+    this.gatewayFw = ev.fw ?? null;
+    if (prev && ev.fw && prev !== ev.fw) {
+      // `update-all` updates the gateway too: it restarts with the new build.
+      this.gatewayFwChange = { from: prev, to: ev.fw, at: this.now() };
+      this._msg('info', `Gateway wieder verbunden, neue Firmware ${ev.fw} (vorher ${prev}).`);
+      return;
+    }
     this._msg('info', `Gateway verbunden (fw ${ev.fw}, ${ev.mac}).`);
   }
 
@@ -467,6 +630,10 @@ export class GameConsole extends EventEmitter {
     if (ev.ns === 'link' && ev.ev === 'error') {
       if (ev.id === undefined) this._msg('error', `Gateway meldet ${ev.code}: ${ev.msg || ''}`);
       else if (!['admit_timeout'].includes(ev.code)) this._msg('error', `Gateway lehnt ${ev.refNs || ''} ${ev.refCmd || ''} ab: ${ev.code}${ev.field ? ` (${ev.field})` : ''} ${ev.msg || ''}`);
+      return;
+    }
+    if (ev.ns === 'fleet') {
+      if (ev.ev === 'status' && this.fleet.onStatus(ev)) this._changed();
       return;
     }
     if (ev.ns !== 'game') return;
@@ -791,7 +958,9 @@ export class GameConsole extends EventEmitter {
     else if (s && s.login) view = 'login';
     else if (s && r && r.type !== 'idle') view = r.type;
     else if (s) view = 'idle';
+    if (this.fleetView) view = 'fleet';
     const next = this._nextDef();
+    const ref = this._refFw();
     return {
       now,
       view,
@@ -803,6 +972,7 @@ export class GameConsole extends EventEmitter {
         fw: link.hello ? link.hello.fw : null,
         mac: link.hello ? link.hello.mac : null,
         counters: link.counters,
+        fwChange: this.gatewayFwChange && now - this.gatewayFwChange.at < FW_CHANGE_SHOW_MS ? { ...this.gatewayFwChange } : null,
       },
       settings: { ...this.settings },
       session: s ? { id: s.id, channel: s.channel, fleet: s.fleet, login: s.login, ending: s.ending } : null,
@@ -820,6 +990,7 @@ export class GameConsole extends EventEmitter {
       round: r ? roundView(r, admitted.length) : null,
       messages: this.messages.slice(-5),
       warning: this.warning,
+      fleet: { ref, ...this.fleet.snapshot(ref.fw) },
     };
   }
 }

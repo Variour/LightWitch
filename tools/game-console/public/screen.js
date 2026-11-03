@@ -15,6 +15,7 @@
   let frame = 0;
   let flash = null; // { text, level, until }
   let lastWinner = null;
+  let updateArmedUntil = 0; // U pressed once in the charging overview
 
   const store = {
     get(k) {
@@ -87,10 +88,37 @@
     setTimeout(schedule, 4100);
   }
 
+  // Keys of the charging overview. The presenter keys lead back to the game.
+  function fleetKey(e) {
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (k === 'f' || k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Enter' || k === 'Escape') {
+      e.preventDefault();
+      act('fleet-view', { mode: 'off' });
+    } else if (k === 'e') {
+      act('charge', { target: 'event' });
+    } else if (k === 'l') {
+      act('charge', { target: 'store' });
+    } else if (k === 'u') {
+      if (Date.now() < updateArmedUntil) {
+        updateArmedUntil = 0;
+        act('update-all');
+      } else {
+        updateArmedUntil = Date.now() + 4000;
+        showFlash('Nochmal U: Update an alle senden.', 'ok');
+      }
+    } else {
+      return false;
+    }
+    return true;
+  }
+
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key;
-    if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Enter') {
+    if (state && state.view === 'fleet' && fleetKey(e)) return;
+    if (k === 'f' || k === 'F') {
+      act('fleet-view', { mode: 'on' });
+    } else if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Enter') {
       e.preventDefault();
       act('next');
     } else if (k === 'l' || k === 'L') {
@@ -118,7 +146,7 @@
     if (!state) return;
     const s = state;
     const r = s.round;
-    const key = [s.view, r ? r.roundId : '', r ? r.phase : '', r && r.revealed ? 'rev' : ''].join(':');
+    const key = s.view === 'fleet' ? 'fleet' : [s.view, r ? r.roundId : '', r ? r.phase : '', r && r.revealed ? 'rev' : ''].join(':');
     if (key !== viewKey) {
       viewKey = key;
       fresh = true;
@@ -191,7 +219,103 @@
     ? `<span class="bat${bat < 20 ? ' low' : ''}"><i style="width:${Math.max(4, Math.min(100, bat))}%"></i></span>`
     : '');
 
+  const STATE_NAMES = { active: 'aktiv', charging: 'am Netz', standby: 'Standby' };
+  const CHARGE_NAMES = { none: 'ohne Lader', charging: 'lädt', full: 'voll', discharging: 'Akku', fault: 'Ladefehler' };
+  const TARGETS = { store: ['Lagern', 80], event: ['Event', 100] };
+
+  const duration = (sec) => {
+    if (sec < 60) return `${sec} s`;
+    if (sec < 3600) return `${Math.floor(sec / 60)} min`;
+    return `${Math.floor(sec / 3600)} h`;
+  };
+
+  function fleetTile(d) {
+    const cls = ['ftile', `chg-${d.chg || 'none'}`];
+    if (d.error) cls.push('error');
+    else if (d.updating) cls.push('updating');
+    else if (d.fwStatus === 'outdated') cls.push('outdated');
+    if (d.stale) cls.push('stale');
+    const bat = typeof d.bat === 'number' ? d.bat : null;
+    const target = TARGETS[d.target];
+    const chgWord = d.chg ? CHARGE_NAMES[d.chg] : '';
+    let fw = `<span class="ft-fw">${esc(d.fw || '?')}</span>`;
+    if (d.fwStatus === 'outdated') fw += '<span class="ft-old">veraltet</span>';
+    else if (d.fwStatus === 'current') fw += '<span class="ft-ok">aktuell</span>';
+    let extra = d.stale ? `<div class="ft-row ft-age">keine Meldung seit ${duration(d.ageS)}</div>` : '';
+    if (d.updating) {
+      const label = d.upd === 'checking' ? 'prüft' : d.upd === 'installing' ? 'installiert' : `Update ${d.pct ?? 0} %`;
+      const pct = d.upd === 'checking' ? 0 : d.upd === 'installing' ? 100 : (d.pct ?? 0);
+      extra = `<div class="ft-row ft-upd"><span>${label}</span><span class="ft-ubar"><i style="width:${pct}%"></i></span></div>`;
+    }
+    const problems = [];
+    if (d.upd === 'failed') problems.push(d.updErrText ? `Update fehlgeschlagen: ${d.updErrText}` : 'Update fehlgeschlagen');
+    problems.push(...d.errors);
+    if (problems.length) extra += `<div class="ft-row ft-err">${esc(problems.join(', '))}</div>`;
+    if (d.wifi === false && !(d.upd === 'failed' && d.updErr === 'no_wifi')) extra += '<div class="ft-row ft-nowifi">kein WLAN</div>';
+    const html = `<div class="ft-row ft-top"><span class="ft-n">${d.n ? esc(d.n) : '-'}</span><span class="ft-state st-${d.state || 'none'}">${esc(STATE_NAMES[d.state] || '?')}</span></div>
+      <div class="ft-row ft-bat"><b>${bat === null ? '?' : bat}<small> %</small></b><span class="ft-chg">${esc(chgWord)}</span></div>
+      <div class="ft-row ft-barrow"><span class="ft-bar"><i style="width:${bat ?? 0}%"></i>${target ? `<em style="left:${target[1]}%"></em>` : ''}</span><span class="ft-target">${target ? `→ ${target[0]}` : '?'}</span></div>
+      <div class="ft-row ft-fwrow">${fw}</div>${extra}`;
+    return [cls.join(' '), html];
+  }
+
   const VIEWS = {
+    fleet: {
+      build: () => `<header class="head"><div class="head-row"><div class="fleet-title">Ladeübersicht</div><div class="fleet-ref" id="fref"></div></div>
+          <div class="fleet-link" id="flink" hidden></div>
+          <div class="fleet-counts" id="fcounts"></div></header>
+        <div class="fleet-grid" id="fgrid"></div>`,
+      update: (s) => {
+        const f = s.fleet;
+        const c = f.counts;
+        const ref = f.ref.fw ? `Referenz-Firmware <b>${esc(f.ref.fw)}</b> (${f.ref.source === 'console' ? 'in der Konsole gesetzt' : 'Gateway'})` : 'Referenz-Firmware unbekannt';
+        const refEl = document.getElementById('fref');
+        if (refEl.dataset.html !== ref) {
+          refEl.innerHTML = ref;
+          refEl.dataset.html = ref;
+        }
+        // The gateway updates itself with `update-all` and restarts: say so plainly.
+        const linkEl = document.getElementById('flink');
+        let linkHtml = '';
+        let linkCls = 'fleet-link';
+        if (s.link.state !== 'connected') {
+          linkHtml = 'Gateway getrennt. Nach einem Update startet es neu und meldet sich gleich wieder.';
+          linkCls += ' bad';
+        } else if (s.link.fwChange) {
+          linkHtml = `Gateway wieder verbunden, neue Firmware <b>${esc(s.link.fwChange.to)}</b> (vorher ${esc(s.link.fwChange.from)}).`;
+          linkCls += ' ok';
+        }
+        if (linkEl.dataset.html !== linkHtml || linkEl.className !== linkCls) {
+          linkEl.innerHTML = linkHtml;
+          linkEl.dataset.html = linkHtml;
+          linkEl.className = linkCls;
+          linkEl.hidden = !linkHtml;
+        }
+        const counts = [
+          `<span class="fc fc-charging"><i></i><b>${c.charging}</b> laden</span>`,
+          `<span class="fc fc-full"><i></i><b>${c.full}</b> voll</span>`,
+          `<span class="fc fc-outdated${c.outdated ? '' : ' zero'}"><i></i><b>${c.outdated}</b> veraltet</span>`,
+          c.updating ? `<span class="fc fc-updating"><i></i><b>${c.updating}</b> Update läuft</span>` : '',
+          `<span class="fc fc-error${c.errors ? '' : ' zero'}"><i></i><b>${c.errors}</b> Fehler</span>`,
+          `<span class="fc fc-total">${c.total} Gerät${c.total === 1 ? '' : 'e'}${c.silent ? `, ${c.silent} ohne Meldung` : ''}</span>`,
+        ].join('');
+        const cEl = document.getElementById('fcounts');
+        if (cEl.dataset.html !== counts) {
+          cEl.innerHTML = counts;
+          cEl.dataset.html = counts;
+        }
+        const grid = document.getElementById('fgrid');
+        const n = f.devices.length;
+        grid.className = `fleet-grid${n > 50 ? ' tiny' : n > 30 ? ' small' : n > 12 ? ' mid' : ''}`;
+        if (!n) {
+          grid.innerHTML = '<p class="big-note">Noch kein Gerät gemeldet. Geräte außerhalb einer Sitzung melden sich etwa alle 30 s.</p>';
+          return;
+        }
+        if (grid.querySelector('.big-note')) grid.innerHTML = '';
+        syncTiles(grid, f.devices, (d) => d.mac, fleetTile);
+      },
+    },
+
     start: {
       build: () => '<section class="hero"><h1 id="title"></h1><p id="sub"></p></section>',
       update: (s) => {
@@ -435,7 +559,8 @@
       else if (s.warning) parts.push(`<span class="msg warn">${esc(s.warning)}</span>`);
       else if (last && last.level !== 'info' && s.now - last.at < 60000) parts.push(`<span class="msg ${last.level === 'error' ? 'bad' : 'warn'}">${esc(last.text)}</span>`);
     }
-    parts.push('<span><kbd>→</kbd> Weiter <kbd>L</kbd> Anmeldung <kbd>S</kbd> Leiste <kbd>T</kbd> Hell/Dunkel</span>');
+    if (s && s.view === 'fleet') parts.push('<span><kbd>F</kbd> Zurück <kbd>E</kbd> Ziel Event <kbd>L</kbd> Ziel Lagern <kbd>U</kbd> Update an alle <kbd>T</kbd> Hell/Dunkel</span>');
+    else parts.push('<span><kbd>→</kbd> Weiter <kbd>L</kbd> Anmeldung <kbd>F</kbd> Ladeübersicht <kbd>S</kbd> Leiste <kbd>T</kbd> Hell/Dunkel</span>');
     const html = parts.join('');
     if (strip.dataset.html !== html) {
       strip.innerHTML = html;

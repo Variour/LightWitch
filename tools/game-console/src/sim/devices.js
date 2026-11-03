@@ -2,9 +2,10 @@
 // src/game/Participant.h on the game-session branch at 723472b (join, admit,
 // echo, resend, status, rejoin after a restart, following the round across a
 // bridge restart); a small "person" on top presses keys like a participant
-// would.
+// would. Power and fleet behaviour live in power.js.
 
 import { seq16Newer } from '../protocol.js';
+import { SimPower } from './power.js';
 
 export const T = {
   joinRepeatMin: 300, joinRepeatMax: 600, // join request every 300-600 ms
@@ -22,14 +23,13 @@ const NO_NUMBER = 0xffff;
 const CHOICE_KEYS = ['up', 'right', 'down', 'left'];
 
 export class SimDevice {
-  constructor(world, { index, mac, storedN, channel, battery, rssi }) {
+  constructor(world, { index, mac, storedN, channel, rssi, power }) {
     this.world = world;
     this.index = index;
     this.mac = mac;
     this.number = storedN || 0;
     this.homeChannel = channel; // channel in normal operation
     this.channel = channel;
-    this.battery = battery;
     this.rssiBase = rssi;
     this.state = 'normal'; // normal | booting | rejoinListen | joining | member
     this.session = 0;
@@ -42,6 +42,11 @@ export class SimDevice {
     this._resetValue();
     this.lastGateway = 0;
     this.searching = false;
+    this.power = new SimPower(world, this, power);
+  }
+
+  get battery() {
+    return Math.round(this.power.bat);
   }
 
   get rssi() {
@@ -51,8 +56,14 @@ export class SimDevice {
   // ── Radio in ─────────────────────────────────────────────────────────────
   onFrame(f, now) {
     if (f.origin !== 0 || this.state === 'booting') return;
+    if (f.type === 'fleetCommand') {
+      if (this.state === 'normal') this.power.onCommand(f, now); // members ignore fleet commands
+      return;
+    }
+    if (this.power.blocksGame(now)) return;
     if (this.state === 'normal') {
       if (f.type === 'invite' && (f.fleet === 0)) {
+        this.power.wake();
         this.invite = { at: now, session: f.session, channel: f.channel };
         if (!this.joinPlanned && this.world.person.wantsToJoin(this)) {
           this.joinPlanned = true;
@@ -163,6 +174,8 @@ export class SimDevice {
 
   // ── Keys ─────────────────────────────────────────────────────────────────
   press(key, ms, now) {
+    if (this.power.blocksGame(now)) return;
+    this.power.wake();
     if (this.state === 'normal') {
       if (key === 'buzz' && this.invite && now - this.invite.at < T.inviteVisible) this._joinFromInvite(now);
       return;
@@ -209,6 +222,7 @@ export class SimDevice {
 
   // ── Time ─────────────────────────────────────────────────────────────────
   tick(now) {
+    this.power.tick(now);
     while (this.presses.length && this.presses[0].at <= now) {
       const p = this.presses.shift();
       this.press(p.key, p.at, now);
@@ -290,6 +304,7 @@ export class SimDevice {
 
   // Leaving always ends in a restart into normal operation.
   _leave() {
+    this.power.dirty = true; // fleet status again right away
     this.state = 'normal';
     this.session = 0;
     this.channel = this.homeChannel;
@@ -321,7 +336,7 @@ export class SimDevice {
     const f = flags || {};
     this._send({
       type: 'status', origin: this.number || NO_NUMBER, fleet: 0, session: this.session, mac: this.mac,
-      fw: this.world.fw, battery: this.battery, charging: false,
+      fw: this.power.fw, battery: this.battery, charging: this.power.chg === 'charging',
       join: !!f.join, pressed: !!f.pressed, rejoin: !!f.rejoin,
       lastRoundId: this.round ? this.round.id : 0, lastStateSeq: this.round ? this.round.seq : 0,
     });
