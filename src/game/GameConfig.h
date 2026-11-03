@@ -87,6 +87,18 @@ static constexpr uint32_t kLeaveRestartDelayMs = 200;
 static constexpr bool kChoiceChangeAllowed = true;  // proposal 8: last press counts
 static constexpr bool kPulseUntilConfirmed = true;  // proposal 11: pulse until the echo matches
 
+// ── Orientation and move rounds (firmware spec "Lage v0") ────────────────────
+static constexpr uint32_t kLageSettleMs = 2000;  // decided: a new orientation counts after 2 s
+static constexpr uint8_t kKeyLogDepth = 8;       // decided: unacknowledged presses a device keeps
+// firmware: accepted presses the bridge holds until their USB line is written.
+static constexpr uint8_t kKeyQueueBridge = 64;
+// firmware: change animation. The direction colours move one key per step,
+// below 3 changes per second; then one LED runs through the column.
+static constexpr uint32_t kLageAnimStepMs = 350;
+static constexpr uint32_t kLageAnimColumnMs = 720;
+// firmware: status dot pulse while the round's hold locks the device (0.5 Hz).
+static constexpr uint32_t kLockPulseMs = 2000;
+
 // ── LEDs (Buzzerboard rev A0) ────────────────────────────────────────────────
 // One chain of 34 SK6812MINI-E. Verified against the routed board
 // (buzzerboard.kicad_pcb: LEDn DIN = LED_D(n-1), positions) and
