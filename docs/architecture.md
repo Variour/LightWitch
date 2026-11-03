@@ -14,6 +14,7 @@ codebase for the first time. For build/flash/update instructions see
 | `battery` | `BatteryMonitor` samples the battery ADC pin (or reads VBAT from the charger, see `power`) and derives a charge percentage plus on-battery/charging state. |
 | `buttons` | `ButtonManager` debounces GPIO/TCA9555-expander buttons (short/long press, double-click), fires the matching action into `ActionExecutor`, and reports raw press/release edges. Keys carry a stable role (`ButtonRoles.h`) other modules look them up by. |
 | `config` | Shared config types (`Color`, `LightConfig`, `GroupConfig`, `DeviceConfig`, ...) and the `Config` singleton that persists them to LittleFS/NVS. |
+| `game` | Game session (quiz buzzer): `Participant` joins a session on a buzz press during an invite and runs as a quiet participant until released, `Bridge` repeats the console's session and round state over ESP-NOW, and `Link` speaks NDJSON with the presenter's laptop over USB serial. `GameManager` wires them to NVS, serial, radio channel and LEDs; frames are in `GameFrames.h`, every tunable in `GameConfig.h`. |
 | `io` | Generic hardware building blocks not specific to one feature, currently the `Tca9555Expander` I2C GPIO expander wrapper. See `src/io/README.md`. |
 | `led` | `LedDriver` interface plus `Ws2801Driver`/`Ws2812bDriver` implementations that actually push pixel data to the strip/matrix. |
 | `logging` | `Logger`, a static leveled logger fanning out to pluggable sinks (serial, web UI). |

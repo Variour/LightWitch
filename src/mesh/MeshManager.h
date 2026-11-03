@@ -91,6 +91,10 @@ class MeshManager {
     // itself already lives in peers (PeerInfo::helloOnly).
     using HelloCb =
         std::function<void(const uint8_t* mac, const char* name, const char* fwVersion)>;
+    // Called from the receive task with every framed quiz frame (game
+    // session, see src/game/GameFrames.h) and its RSSI. The receiver copies
+    // it out and processes it in loop().
+    using QuizFrameCb = std::function<void(const uint8_t* data, int len, int8_t rssi)>;
 
     void setOnPeerHeard(PeerHeardCb cb) { _onPeerHeard = cb; }
     void setOnLightConfig(LightConfigCb cb) { _onLightConfig = cb; }
@@ -132,6 +136,14 @@ class MeshManager {
     void setBatteryStatusProvider(BatteryStatusCb cb) { _batteryStatusProvider = cb; }
     void setOnGenericEvent(GenericEventCb cb) { _onGenericEvent = cb; }
     void setOnHelloPeer(HelloCb cb) { _onHelloPeer = cb; }
+    void setOnQuizFrame(QuizFrameCb cb) { _onQuizFrame = cb; }
+
+    // Quiet: a game session owns the radio. Only quiz frames are sent and
+    // handled; tick() sends nothing (no Presence, Hello, MeshPolicy,
+    // GroupSync, AudioGroupSync, PhaseSync, proximity pings) and the
+    // proximity sniffer is off. Leaving a session restarts the device.
+    void setQuiet(bool quiet) { _quiet = quiet; }
+    bool quiet() const { return _quiet; }
 
     void begin() {
         _instance = this;
@@ -150,6 +162,10 @@ class MeshManager {
 
     void tick() {
         if (!_ready) return;
+        if (_quiet) {
+            _setSnifferEnabled(false);
+            return;
+        }
         peers.tick();
         uint32_t now = millis();
 
@@ -506,6 +522,13 @@ class MeshManager {
         _send(&msg, sizeof(msg));
     }
 
+    // Sends one quiz frame (game session) after the same framing check the
+    // receive path applies.
+    void broadcastQuizFrame(const uint8_t* data, size_t len) {
+        if (!_ready || !game::quizFrameLenOk(data, len)) return;
+        _send(data, len);
+    }
+
     void broadcastAllGroups() {
         for (uint8_t i = 0; i < MAX_GROUPS; i++)
             if (Config::get().groups[i].exists) broadcastGroupSync(Config::get().groups[i]);
@@ -515,6 +538,7 @@ class MeshManager {
 
    private:
     bool _ready = false;
+    bool _quiet = false;
     bool _snifferRunning = false;
     uint32_t _lastHeartbeat = 0;
     uint32_t _lastMeshPolicySync = 0;
@@ -563,6 +587,7 @@ class MeshManager {
     WifiRetryCb _onWifiRetry;
     MeshSearchCb _onMeshSearch;
     HelloCb _onHelloPeer;
+    QuizFrameCb _onQuizFrame;
 
     // ── Config push encryption (issue #252) ───────────────────────────────────
     static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 3000;
@@ -599,6 +624,7 @@ class MeshManager {
 
     void _send(const void* data, size_t len) {
         static const uint8_t bcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        if (_quiet && !game::isQuizType(((const uint8_t*)data)[0])) return;
         esp_now_send(bcast, (uint8_t*)data, len);
     }
 
@@ -913,6 +939,7 @@ class MeshManager {
         if (len < 1 || !_instance) return;
         const uint8_t* mac = info->src_addr;
         MsgType type = (MsgType)data[0];
+        if (_instance->_quiet && !game::isQuizType(data[0])) return;
 
         switch (type) {
             case MsgType::Presence: {
@@ -1226,6 +1253,18 @@ class MeshManager {
                 auto* m = (GenericEventMsg*)data;
                 if (_instance->_onGenericEvent)
                     _instance->_onGenericEvent(mac, m->eventType, m->payload);
+                break;
+            }
+            case MsgType::QuizInvite:
+            case MsgType::QuizState:
+            case MsgType::QuizReport:
+            case MsgType::QuizStatus:
+            case MsgType::QuizAdmit:
+            case MsgType::QuizRelease:
+            case MsgType::QuizChannel: {
+                if (!game::quizFrameLenOk(data, (size_t)len)) return;
+                int8_t rssi = info->rx_ctrl ? (int8_t)info->rx_ctrl->rssi : 0;
+                if (_instance->_onQuizFrame) _instance->_onQuizFrame(data, len, rssi);
                 break;
             }
             default:

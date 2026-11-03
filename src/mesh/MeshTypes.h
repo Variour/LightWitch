@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "../config/Config.h"
+#include "../game/GameFrames.h"
 
 // Mesh wire protocol policy:
 // - On-wire payloads are the native C++ struct layouts declared in this header.
@@ -46,7 +47,23 @@ enum class MsgType : uint8_t {
     SetVolume = 34,
     GenericEvent = 35,
     Hello = 36,
+    // Game session frames: layouts in src/game/GameFrames.h (gateway protocol v0).
+    QuizInvite = 37,
+    QuizState = 38,
+    QuizReport = 39,
+    QuizStatus = 40,
+    QuizAdmit = 41,
+    QuizRelease = 42,
+    QuizChannel = 43,
 };
+static_assert((uint8_t)MsgType::QuizInvite == game::kMsgQuizInvite &&
+                  (uint8_t)MsgType::QuizState == game::kMsgQuizState &&
+                  (uint8_t)MsgType::QuizReport == game::kMsgQuizReport &&
+                  (uint8_t)MsgType::QuizStatus == game::kMsgQuizStatus &&
+                  (uint8_t)MsgType::QuizAdmit == game::kMsgQuizAdmit &&
+                  (uint8_t)MsgType::QuizRelease == game::kMsgQuizRelease &&
+                  (uint8_t)MsgType::QuizChannel == game::kMsgQuizChannel,
+              "quiz MsgTypes must match src/game/GameFrames.h");
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
 
