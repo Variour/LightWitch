@@ -70,11 +70,16 @@ the device:
   orange, right blue, down purple, left light blue) run once around the D-pad
   and on to their keys, then one LED runs through the column in its new
   reading direction. Then the new key mapping applies.
-- Until an orientation is known the device behaves as `hochkant`. Devices
-  other than the Buzzerboard have no sensor and never report one.
-- Key colours in `game round` belong to logical keys: `"keys":{"up":"yellow"}`
+- Until an orientation is known the device reads its keys as in
+  `hochkant`. Devices other than the Buzzerboard have no sensor and never
+  report one.
+- Key colours in `game round` belong to logical keys: `"keys":{"up":"green"}`
   lights the key that is up as the device is held (in `hochkant` and
-  `liegend` the UP key, as before). Choice answers 1-4 stay up, right, down, left.
+  `liegend` the UP key, as before).
+- Choice rounds: answers 1-4 stay up, right, down, left, and their keys
+  light in the direction colours above, by logical direction. The console
+  may keep sending colour names in `keys`; for choice the device ignores
+  them and takes only the key names.
 - The LED column fills in reading direction: from the bottom in `hochkant`
   and `liegend`, from the left in `quer` and in `quer-links` (as held).
 
@@ -100,8 +105,9 @@ orientation, and leave it out otherwise:
 - A locked device, while the round is announced or open: key LEDs, ring
   and column off, the status dot pulses slowly white (provisional). A closed
   round shows its result in any orientation.
-- A device without a known orientation counts as `hochkant`, so `quer` and
-  `liegend` lock it.
+- Only a known orientation that does not match locks a device. A device
+  without a known orientation (no sensor, or none accepted yet) is never
+  locked; its inputs carry no `lage`.
 
 ### Move rounds (`"type":"move"`)
 
@@ -110,10 +116,11 @@ orientation, and leave it out otherwise:
 - `keys`: exactly `up`, `right`, `down` and `left`. Phases as for other rounds.
 - While open, each press of a direction key is one key event (no
   auto-repeat); buzz and enter do nothing. The device numbers its presses
-  with `kseq`: 8 bit, per device and round, from 1, wrapping at 256 (255 is
-  followed by 0); a new join starts again at 1. It keeps up to 8
+  with `kseq`: 8 bit, per device and round, 1-255, after 255 comes 1 (0
+  never occurs); a new join starts again at 1. It keeps up to 8
   unacknowledged presses and sends them again until the bridge's echo
-  shows them.
+  shows them. A `kseq` is new when it is 1-127 ahead of the last one, mod
+  256.
 - The bridge writes each press exactly once, in order per device:
 
 `{"ns":"game","ev":"key","n":7,"round":23417,"key":"right","kseq":12,"lage":"quer"}`

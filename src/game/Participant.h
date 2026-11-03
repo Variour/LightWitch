@@ -260,9 +260,11 @@ class Participant {
     const Press& press(uint8_t i) const { return _log[i]; }
 
     // The round requires another orientation: keys do nothing, nothing is
-    // reported (announced and open; a closed round shows its result).
+    // reported (announced and open; a closed round shows its result). An
+    // unknown orientation never locks.
     bool locked() const {
-        if (!_round.known || _round.type == RoundType::Idle || _round.phase == Phase::Closed)
+        if (!_round.known || _round.type == RoundType::Idle || _round.phase == Phase::Closed ||
+            _shown == Lage::Unknown)
             return false;
         Lage need = requiredLage(_round.hold);
         return need != Lage::Unknown && !lageFits(_shown, need);
@@ -505,9 +507,8 @@ class Participant {
         if (_number == 0 || _number < m.echoFirst || _number >= m.echoFirst + m.echoCount) return;
         uint8_t echo = m.echo[_number - m.echoFirst];
         if (_round.type == RoundType::Move) {
-            // The last press the bridge passed on; kNoValue = none (kseq 255
-            // goes with the next press's echo).
-            if (echo == kNoValue || _logCount == 0) return;
+            // The last press the bridge passed on.
+            if (echo == kNoKeySeq || _logCount == 0) return;
             uint8_t keep = 0;
             for (uint8_t i = 0; i < _logCount; i++)
                 if (seq8Newer(_log[i].kseq, echo)) _log[keep++] = _log[i];
@@ -598,8 +599,8 @@ class Participant {
     }
 
     void _pressKey(Key k, Key phys, uint32_t now) {
-        _kseq = (uint8_t)(_kseq + 1);
-        if (_logCount == kKeyLogDepth) {  // keep the newest kKeyLogDepth
+        _kseq = (uint8_t)(_kseq % 255 + 1);  // 1-255, then 1: 0 means none
+        if (_logCount == kKeyLogDepth) {     // keep the newest kKeyLogDepth
             for (uint8_t i = 1; i < _logCount; i++) _log[i - 1] = _log[i];
             _logCount--;
         }

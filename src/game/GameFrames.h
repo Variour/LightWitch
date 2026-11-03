@@ -61,8 +61,8 @@ struct __attribute__((packed)) QuizStateMsg {
     uint8_t hold;          // Hold (Lage.h)
     uint16_t echoFirst;    // first number covered by echo
     uint8_t echoCount;     // entries in echo, at most kEchoPageSize
-    // Per number: the value the bridge holds; in a move round the last key
-    // press counter (kseq) it passed on. kNoValue = none.
+    // Per number: the value the bridge holds (kNoValue = none); in a move
+    // round the last key press counter (kseq) it passed on (kNoKeySeq = none).
     uint8_t echo[kEchoPageSize];
 };
 static constexpr size_t kQuizStateHeadLen = offsetof(QuizStateMsg, echo);
@@ -121,7 +121,7 @@ static_assert(sizeof(QuizChannelMsg) == 17, "QuizChannelMsg layout");
 
 // One key press of a move round.
 struct __attribute__((packed)) QuizKey {
-    uint8_t kseq;  // press counter, per device and round, from 1, wraps at 256
+    uint8_t kseq;  // press counter, per device and round: 1-255, after 255 comes 1
     uint8_t key;   // Key Up, Down, Left or Right: logical with lage, else physical
     uint8_t lage;  // Lage the press was read in, 0 = unknown
 };

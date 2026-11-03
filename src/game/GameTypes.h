@@ -51,6 +51,7 @@ static constexpr uint8_t kStatusPressed = 1 << 2;
 static constexpr uint8_t kStatusRejoin = 1 << 3;
 
 static constexpr uint8_t kNoValue = 0xFF;    // echo / report: no value
+static constexpr uint8_t kNoKeySeq = 0;      // echo in a move round: no press passed on
 static constexpr uint8_t kNoBattery = 0xFF;  // battery percent unknown
 
 struct Rgb {

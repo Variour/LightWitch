@@ -57,8 +57,7 @@ inline Lage effectiveLage(Lage l) { return l == Lage::Unknown ? Lage::Hochkant :
 
 // Whether a device in orientation l meets the required one; quer-links counts as quer.
 inline bool lageFits(Lage l, Lage required) {
-    Lage e = effectiveLage(l);
-    return e == required || (required == Lage::Quer && e == Lage::QuerLinks);
+    return l == required || (required == Lage::Quer && l == Lage::QuerLinks);
 }
 
 // Logical inputs. Up, right, down and left are the round's direction keys

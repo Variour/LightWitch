@@ -73,8 +73,7 @@ class Bridge {
         uint16_t lastSeq;
         uint8_t lage;       // from the last status, 0 = unknown
         uint8_t valueLage;  // the value's input orientation, 0 = unknown
-        bool keySeqKnown;   // move round: a press was passed on since the round or join
-        uint8_t keySeq;     // its counter, echoed to the device
+        uint8_t keySeq;     // move round: last kseq passed on, kNoKeySeq = none
         bool dirtyValue;
         bool dirtyDevice;
     };
@@ -559,7 +558,7 @@ class Bridge {
             for (uint8_t i = 0; i < count; i++) {
                 const Device& dv = _devs[first + i];
                 if (move)
-                    m.echo[i] = dv.keySeqKnown ? dv.keySeq : kNoValue;
+                    m.echo[i] = dv.keySeq;
                 else
                     m.echo[i] = dv.hasValue ? dv.value : kNoValue;
             }
@@ -672,17 +671,18 @@ class Bridge {
         if (n < 1 || n > kMaxNumber) return;
         if (m.roundId != _round.id || _round.type != RoundType::Move) return;
         for (uint8_t i = 0; i < m.count; i++)
-            if (!_isDirection((Key)m.keys[i].key) || m.keys[i].lage >= kLageCount) return;
+            if (m.keys[i].kseq == kNoKeySeq || !_isDirection((Key)m.keys[i].key) ||
+                m.keys[i].lage >= kLageCount)
+                return;
         _noteNumber(n);
         Device& dv = _devs[n];
         for (uint8_t i = 0; i < m.count; i++) {
             const QuizKey& p = m.keys[i];
-            if (dv.keySeqKnown && !seq8Newer(p.kseq, dv.keySeq)) continue;
+            if (dv.keySeq != kNoKeySeq && !seq8Newer(p.kseq, dv.keySeq)) continue;
             if (_keyCount >= kKeyQueueBridge) return;
             _keys[(_keyHead + _keyCount) % kKeyQueueBridge] =
                 KeyEvent{n, _round.id, p.kseq, p.key, p.lage};
             _keyCount++;
-            dv.keySeqKnown = true;
             dv.keySeq = p.kseq;
         }
     }
@@ -702,7 +702,7 @@ class Bridge {
                 if (m.flags & kStatusRejoin) _devs[n].vseqReset = true;
                 // A joining device (it holds no round) restarts its press
                 // counter; a member's own report during login does not.
-                if (m.lastRoundId != _round.id) _devs[n].keySeqKnown = false;
+                if (m.lastRoundId != _round.id) _devs[n].keySeq = kNoKeySeq;
             }
             if (!_listener) return;
             JoinInfo j{};
@@ -779,8 +779,7 @@ class Bridge {
         dv.arr = 0;
         dv.t = 0;
         dv.valueLage = 0;
-        dv.keySeqKnown = false;
-        dv.keySeq = 0;
+        dv.keySeq = kNoKeySeq;
     }
 
     void _clearDevice(uint16_t n) {

@@ -8,11 +8,12 @@
 // Turns the participant's state into the 34 Buzzerboard LEDs (round format
 // v0, "Verhalten am Gerät"). Plain C++, no driver access.
 //
-// Orientation (firmware spec "Lage v0"): the round's key colours belong to
-// logical keys; each lights the physical key that gives that input in the
-// orientation whose mapping applies (Participant::inputLage()). The column
-// fills in reading direction. Nothing blinks faster than 3 Hz, pulses are
-// soft, nothing blinks red.
+// Orientation (firmware spec "Lage v0"): colours belong to logical keys;
+// each lights the physical key that gives that input in the orientation
+// whose mapping applies (Participant::inputLage()). Choice answers take the
+// direction colours (owner decision), the other rounds the round's key
+// colours. The column fills in reading direction. Nothing blinks faster than
+// 3 Hz, pulses are soft, nothing blinks red.
 namespace game {
 
 // LED of a physical key; 0xFF for keys without one.
@@ -36,10 +37,10 @@ inline uint8_t keyLed(Key k) {
 // LED of a logical key (round key slot) in orientation l.
 inline uint8_t logicalLed(Lage l, Key logical) { return keyLed(physicalKey(l, inputOf(logical))); }
 
-// Direction colours, by logical direction (firmware spec "Lage v0"): up
-// light orange, right blue, down purple, left light blue. At full level the
-// four draw about 78 mA together (12 mA per channel at 255, Buzzerboard
-// hardware/README.md current budget), well inside the 300 mA LED cap.
+// Direction colours, by logical direction (firmware spec "Lage v0"), for the
+// choice answers and the change animation: up light orange, right blue, down
+// purple, left light blue. At full level the four draw about 78 mA together (12 mA per channel at
+// 255, Buzzerboard hardware/README.md current budget), well inside the 300 mA LED cap.
 inline Rgb directionRgb(Key logical) {
     switch (logical) {
         case Key::Up:
@@ -200,10 +201,11 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                 break;
             }
             case RoundType::Choice: {
+                // Answer colours belong to the direction, not to the round.
                 const Key answers[4] = {Key::Up, Key::Right, Key::Down, Key::Left};
                 if (r.phase == Phase::Closed && r.correct >= 1 && r.correct <= 4) {
                     Key ck = answers[r.correct - 1];
-                    px[logicalLed(l, ck)] = colorRgb(keyColor(ck));
+                    px[logicalLed(l, ck)] = directionRgb(ck);
                     if (val != kNoValue)
                         fillScore(px, kScoreCount,
                                   colorRgb(val == r.correct ? Color::Green : Color::Red));
@@ -212,7 +214,7 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                 for (uint8_t i = 0; i < 4; i++) {
                     Key k = answers[i];
                     if (!inMask(k)) continue;
-                    Rgb c = colorRgb(keyColor(k));
+                    Rgb c = directionRgb(k);
                     if (val == i + 1)
                         px[logicalLed(l, k)] = scaleRgb(c, inputLevel);
                     else if (r.phase == Phase::Open)
