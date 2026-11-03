@@ -228,10 +228,14 @@ test('move round: the simulated players reach the goal, the keyboard drives one 
 
     assert.equal(gw.devices.find((d) => d.number === 1).lage, 'quer');
 
-    // Tab hands buzzer 1 back to its person.
+    // Tab hands buzzer 1 back to its person and takes the next buzzer that
+    // can still move; a buzzer already in the goal is skipped.
+    const next = game.snapshot().participants
+      .filter((p) => p.admitted && p.n > 1 && game.moveRole(p.n) === 'play')
+      .map((p) => p.n)[0];
     kb.feed('\t');
-    assert.equal(said.at(-1), 'Tastatur steuert Nr. 2');
-    assert.deepEqual(gw.devices.filter((d) => d.manual).map((d) => d.number), [2]);
+    assert.equal(said.at(-1), `Tastatur steuert Nr. ${next}`);
+    assert.deepEqual(gw.devices.filter((d) => d.manual).map((d) => d.number), [next]);
     await act('close');
     res = view().results;
     await sleep(500);
