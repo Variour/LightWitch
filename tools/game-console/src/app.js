@@ -34,6 +34,14 @@ export async function startConsole({
     : new SerialTransport({ path: port });
   const link = new GatewayLink(transport);
   const game = new GameConsole({ link, channel, fleet, autoAdmit, mode: simulate > 0 ? 'sim' : 'serial' });
+  if (simulate > 0) {
+    // The simulated people see the board of a move round in PowerPoint:
+    // the play mode and who can move now.
+    transport.world.board = () => {
+      const r = game.round;
+      return r && r.type === 'move' && !r.adopted ? { play: r.play, role: (n) => game.moveRole(n) } : null;
+    };
+  }
 
   game.on('message', ({ level, text }) => log(level, text));
   game.on('rejected', ({ source, result }) => log('error', `${source}: ${result.error}`));

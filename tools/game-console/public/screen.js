@@ -153,12 +153,31 @@
       stage.innerHTML = VIEWS[s.view].build(s);
     }
     VIEWS[s.view].update(s);
+    updateReady(s);
     fresh = false;
+  }
+
+  // A round that requires a lage: how many hold their buzzer that way, while
+  // announced and, in a race, until the release.
+  function updateReady(s) {
+    const el = document.getElementById('ready');
+    if (!el) return;
+    const r = s.round;
+    const res = r && r.results;
+    const waiting = r && (r.phase === 'announced' || (r.type === 'race' && r.phase === 'open' && r.startAt && r.startAt > Date.now()));
+    const html = res && typeof res.ready === 'number' && waiting
+      ? `<b>${res.ready}</b> von ${res.participants} ${r.hold === 'liegend' ? 'liegen bereit' : 'bereit'}`
+      : '';
+    if (el.dataset.html !== html) {
+      el.innerHTML = html;
+      el.dataset.html = html;
+      el.hidden = !html;
+    }
   }
 
   function head(title, phaseText, phaseClass, question) {
     const q = question ? `<h2 class="question${question.length > 110 ? ' long' : ''}">${esc(question)}</h2>` : '';
-    return `<header class="head"><div class="head-row"><div class="round-title">${esc(title)}</div>${phaseText ? `<span class="phase ${phaseClass || ''}" id="phase">${esc(phaseText)}</span>` : ''}</div>${q}</header>`;
+    return `<header class="head"><div class="head-row"><div class="round-title">${esc(title)}</div>${phaseText ? `<span class="phase ${phaseClass || ''}" id="phase">${esc(phaseText)}</span>` : ''}</div>${q}<p class="stat" id="ready" hidden></p></header>`;
   }
 
   function phaseLabel(r) {
@@ -525,6 +544,44 @@
             row.querySelector('.fill').style.width = `${(c / total) * 100}%`;
             row.querySelector('.cnt').innerHTML = `${c}<small>${de((c / total) * 100)} %</small>`;
           });
+        }
+      },
+    },
+
+    // The board itself is in PowerPoint; the screen shows the count and the winner.
+    move: {
+      build: (s) => {
+        const r = s.round;
+        const [pt, pc] = phaseLabel(r);
+        return `${head(r.title, pt, pc, r.question)}
+          <div class="body">
+            <div class="move-side" id="finished"></div>
+            <div class="move-side" id="first"></div>
+          </div>`;
+      },
+      update: (s) => {
+        const r = s.round;
+        const res = r.results;
+        const count = (n, text) => `<div class="answered"><b>${n}</b><span>${text}</span></div>`;
+        let fin;
+        if (res.play === 'team') fin = count(res.finished, `von ${res.teams.length} Teams im Ziel`);
+        else if (res.play === 'erste' && res.chosen.length < r.rows) fin = count(res.chosen.length, `von ${r.rows} Plätzen vergeben`);
+        else fin = count(res.finished, `von ${res.play === 'erste' ? res.chosen.length : res.participants} im Ziel`);
+        if (res.play === 'gruppen' && res.group) fin = `<p class="big-note">Gruppe <b>${esc(res.group)}</b> ist dran</p>${fin}`;
+        const finEl = document.getElementById('finished');
+        if (finEl.dataset.html !== fin) {
+          finEl.innerHTML = fin;
+          finEl.dataset.html = fin;
+        }
+        const w = res.winner;
+        const team = res.play === 'team';
+        const first = w === null ? '' : `<div class="winner-label">Zuerst im Ziel</div><div class="winner${team ? ' wide' : ''}${lastWinner !== w ? ' reveal' : ''}">${team ? `Team ${esc(w)}` : esc(w)}</div>`;
+        const firstEl = document.getElementById('first');
+        const key = w === null ? '' : `${res.play}:${w}`;
+        if (firstEl.dataset.key !== key) {
+          firstEl.dataset.key = key;
+          firstEl.innerHTML = first;
+          if (w !== null) lastWinner = w;
         }
       },
     },

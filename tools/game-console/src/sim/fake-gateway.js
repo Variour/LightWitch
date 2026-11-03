@@ -4,11 +4,17 @@
 // simulated radio with optional loss, latency and restarts. The `fleet` and
 // `config` namespaces follow the fleet protocol v0 draft; like the firmware,
 // the gateway applies `fleet update` to itself and restarts on a new build.
+// Move rounds are provisional (no firmware yet): the buzzers send their key
+// presses with a counter, the gateway writes one `game key` line per new press
+// and echoes the last counter per buzzer in its state frames. Orientation is
+// provisional too: the round's `hold` goes out in the state frames, the
+// buzzers' `lage` comes back in status, report and key frames.
 
 import { EventEmitter } from 'node:events';
-import { LineSplitter, LINE_MAX, KEY_NAMES, COLOR_NAMES, ROUND_TYPES, PHASES, CHOICE_KEYS, CHARGE_TARGETS, normalizeMac, seq8Newer } from '../protocol.js';
+import { LineSplitter, LINE_MAX, KEY_NAMES, COLOR_NAMES, ROUND_TYPES, PHASES, CHOICE_KEYS, MOVE_KEYS, CHARGE_TARGETS, normalizeMac, seq8Newer } from '../protocol.js';
 import { makeRandom } from './random.js';
-import { SimDevice, Person } from './devices.js';
+import { SimDevice, Person, MOVE_T, LAGE_T } from './devices.js';
+import { HOLDS } from '../lage.js';
 import { FLEET_T, prFirmware } from './power.js';
 
 export const GW = {
@@ -141,6 +147,13 @@ export class FakeGateway extends EventEmitter {
       fw,
       releaseFw: fw, // the gateway runs the newest release
       ft: { ...FLEET_T, ...timing },
+      mt: { ...MOVE_T, ...timing },
+      lt: { ...LAGE_T, ...timing },
+      lrnd: makeRandom(seed + 7919), // orientation and turning, apart from the rest
+      // What the people see of a move round on the projected board
+      // ({ play, role(n) }: 'play', 'wait' or 'out'), or null. Set by the
+      // console app.
+      board: () => null,
       now: () => this.now(),
       gateway: this,
       devices: [],
@@ -541,10 +554,10 @@ export class FakeGateway extends EventEmitter {
       this._error(id, 'bad_field', 'game', 'round', field, msg);
       return null;
     };
-    const c = { winner: 0, correct: 0, min: 0, max: 0, redMax: 0, greenMin: 0, keys: {}, openInMs: undefined };
+    const c = { winner: 0, correct: 0, min: 0, max: 0, redMax: 0, greenMin: 0, hold: 'frei', keys: {}, openInMs: undefined };
     if (!Number.isInteger(o.round) || o.round < 1 || o.round > 65535) return bad('round', 'round must be 1-65535');
     c.round = o.round;
-    if (!ROUND_TYPES.includes(o.type)) return bad('type', 'type must be idle, race, scale or choice');
+    if (!ROUND_TYPES.includes(o.type)) return bad('type', 'type must be idle, race, scale, choice or move');
     c.type = o.type;
     const idle = c.type === 'idle';
     if (idle) {
@@ -570,6 +583,9 @@ export class FakeGateway extends EventEmitter {
       } else if (c.type === 'scale') {
         ok = names === 'down,up';
         rule = 'scale takes exactly up and down';
+      } else if (c.type === 'move') {
+        ok = names === [...MOVE_KEYS].sort().join(',');
+        rule = 'move takes exactly up, right, down and left';
       } else {
         ok = [2, 3, 4].some((k) => CHOICE_KEYS.slice(0, k).sort().join(',') === names);
         rule = 'choice takes up, right, down, left in this order, 2-4 keys';
@@ -587,6 +603,11 @@ export class FakeGateway extends EventEmitter {
       if (!int('redMax', o.min, o.max)) return bad('redMax', 'redMax must be >= min');
       if (!int('greenMin', o.redMax + 1, o.max)) return bad('greenMin', 'greenMin must be > redMax and <= max');
       Object.assign(c, { min: o.min, max: o.max, redMax: o.redMax, greenMin: o.greenMin });
+    }
+    if ('hold' in o) {
+      if (idle) return bad('hold', 'omit hold for idle');
+      if (!HOLDS.includes(o.hold)) return bad('hold', 'hold must be frei, hochkant, quer, liegend or fest');
+      c.hold = o.hold;
     }
     if ('openInMs' in o) {
       if (!Number.isInteger(o.openInMs) || o.openInMs < 0 || o.openInMs > 5000) return bad('openInMs', 'openInMs must be 0-5000');
@@ -618,7 +639,7 @@ export class FakeGateway extends EventEmitter {
     const keysEqual = JSON.stringify(Object.entries(c.keys).sort()) === JSON.stringify(Object.entries(r.keys).sort());
     if (c.round !== r.id) {
       this.round = {
-        ...this._emptyRound(), id: c.round, seq: 1, type: c.type, phase: c.phase, keys: c.keys,
+        ...this._emptyRound(), id: c.round, seq: 1, type: c.type, phase: c.phase, keys: c.keys, hold: c.hold,
         min: c.min, max: c.max, redMax: c.redMax, greenMin: c.greenMin, winner: c.winner, correct: c.correct,
       };
       if (c.type !== 'idle') this._enterPhase(c.phase, c, now);
@@ -627,8 +648,8 @@ export class FakeGateway extends EventEmitter {
       changed = true;
       this._markStateChanged(now);
     } else {
-      if (c.type !== r.type || !keysEqual || c.min !== r.min || c.max !== r.max || c.redMax !== r.redMax || c.greenMin !== r.greenMin) {
-        return this._error(id, 'round_fixed', 'game', 'round', null, 'type, keys and scale of a running round are fixed');
+      if (c.type !== r.type || !keysEqual || c.hold !== r.hold || c.min !== r.min || c.max !== r.max || c.redMax !== r.redMax || c.greenMin !== r.greenMin) {
+        return this._error(id, 'round_fixed', 'game', 'round', null, 'type, keys, hold and scale of a running round are fixed');
       }
       const phase = r.type === 'idle' ? 'closed' : c.phase;
       if (PHASES.indexOf(phase) < PHASES.indexOf(r.phase)) return this._error(id, 'bad_phase', 'game', 'round', null, 'phases only move forward');
@@ -669,7 +690,7 @@ export class FakeGateway extends EventEmitter {
   // ── Bridge ───────────────────────────────────────────────────────────────
   _emptyRound() {
     return {
-      id: 0, seq: 1, type: 'idle', phase: 'closed', keys: {}, min: 0, max: 0, redMax: 0, greenMin: 0,
+      id: 0, seq: 1, type: 'idle', phase: 'closed', keys: {}, hold: 'frei', min: 0, max: 0, redMax: 0, greenMin: 0,
       winner: 0, correct: 0, opened: false, openAt: 0, closedValid: false, closedAtMs: 0,
     };
   }
@@ -694,7 +715,7 @@ export class FakeGateway extends EventEmitter {
   _dev(n) {
     let d = this.devs.get(n);
     if (!d) {
-      d = { mac: null, hasValue: false, vseqReset: false, late: false, value: null, vseq: 0, t: 0, arr: 0, hasStatus: false, dirtyValue: false, dirtyDevice: false };
+      d = { mac: null, hasValue: false, vseqReset: false, late: false, value: null, vseq: 0, t: 0, arr: 0, keySeq: null, hasStatus: false, dirtyValue: false, dirtyDevice: false };
       this.devs.set(n, d);
     }
     if (n > this.maxNumber) this.maxNumber = n;
@@ -704,7 +725,7 @@ export class FakeGateway extends EventEmitter {
   _clearValue(n) {
     const d = this.devs.get(n);
     if (!d) return;
-    Object.assign(d, { hasValue: false, vseqReset: false, late: false, value: null, vseq: 0, arr: 0, t: 0, dirtyValue: false });
+    Object.assign(d, { hasValue: false, vseqReset: false, late: false, value: null, vseq: 0, arr: 0, t: 0, keySeq: null, dirtyValue: false });
   }
 
   _clearDevice(n) {
@@ -729,6 +750,7 @@ export class FakeGateway extends EventEmitter {
     if (f.type === 'fleetStatus') return this._onFleetStatus(f, rssi, this.now());
     if (!this.bActive || this.ending || f.origin === 0 || f.session !== this.session) return;
     if (f.type === 'report') this._onReport(f, rssi);
+    else if (f.type === 'keys') this._onKeys(f);
     else if (f.type === 'status') this._onStatus(f, rssi);
   }
 
@@ -742,8 +764,24 @@ export class FakeGateway extends EventEmitter {
     Object.assign(d, {
       hasValue: true, vseqReset: false, value: f.value, vseq: f.valueSeq, t: f.pressOffsetMs,
       late: this.round.closedValid && f.pressOffsetMs > this.round.closedAtMs,
-      valueRssi: rssi, valueBattery: f.battery, dirtyValue: true,
+      valueRssi: rssi, valueBattery: f.battery, valueLage: f.lage, dirtyValue: true,
     });
+  }
+
+  // The unconfirmed presses of a buzzer, oldest first. Every press with a
+  // counter newer than the last one passed on becomes one `game key` line.
+  _onKeys(f) {
+    const n = f.origin;
+    if (n < 1 || n > 999 || !Array.isArray(f.presses)) return;
+    if (f.roundId !== this.round.id || this.round.type !== 'move') return;
+    const d = this._dev(n);
+    for (const p of f.presses) {
+      if (d.keySeq !== null && !seq8Newer(p.s, d.keySeq)) continue;
+      d.keySeq = p.s;
+      const line = { n, round: this.round.id, key: p.k, kseq: p.s };
+      if (p.l) line.lage = p.l;
+      this._ev('game', 'key', undefined, line);
+    }
   }
 
   _onStatus(f, rssi) {
@@ -751,11 +789,14 @@ export class FakeGateway extends EventEmitter {
     const hasNumber = n >= 1 && n <= 999;
     if (f.join) {
       const existing = this.devs.get(n);
+      if (hasNumber && existing && existing.mac === f.mac) existing.keySeq = null; // its counter starts again
       if (hasNumber && f.rejoin && existing && existing.mac === f.mac) existing.vseqReset = true;
-      this._ev('game', 'join', undefined, {
+      const line = {
         mac: f.mac, n: hasNumber ? n : null, fw: f.fw, proto: 1, fleet: f.fleet,
         bat: f.battery, chg: f.charging, rssi, pressed: f.pressed, rejoin: f.rejoin,
-      });
+      };
+      if (f.lage) line.lage = f.lage;
+      this._ev('game', 'join', undefined, line);
       return;
     }
     if (!hasNumber) return;
@@ -764,7 +805,7 @@ export class FakeGateway extends EventEmitter {
     if (prev && prev.mac && prev.mac !== f.mac) this._clearDevice(n);
     const d = this._dev(n);
     Object.assign(d, {
-      mac: f.mac, hasStatus: true, fw: f.fw, battery: f.battery, charging: f.charging, rssi,
+      mac: f.mac, hasStatus: true, fw: f.fw, battery: f.battery, charging: f.charging, rssi, lage: f.lage,
       lastRound: f.lastRoundId, lastSeq: f.lastStateSeq, dirtyDevice: true,
     });
     const i = this.admits.findIndex((a) => a.mac === f.mac && a.n === n);
@@ -785,10 +826,11 @@ export class FakeGateway extends EventEmitter {
     const echo = [];
     for (let n = 1; n <= this.maxNumber; n++) {
       const d = this.devs.get(n);
-      echo.push(d && d.hasValue ? d.value : 0xff);
+      if (r.type === 'move') echo.push(d ? d.keySeq : null); // last press counter
+      else echo.push(d && d.hasValue ? d.value : 0xff);
     }
     this._send({
-      type: 'state', roundId: r.id, stateSeq: r.seq, roundType: r.type, phase: r.phase, keys: r.keys,
+      type: 'state', roundId: r.id, stateSeq: r.seq, roundType: r.type, phase: r.phase, keys: r.keys, hold: r.hold,
       min: r.min, max: r.max, redMax: r.redMax, greenMin: r.greenMin, winner: r.winner, correct: r.correct,
       openOffsetMs: r.opened ? now - r.openAt : 0, echoFirst: 1, echo,
     });
@@ -893,15 +935,15 @@ export class FakeGateway extends EventEmitter {
     for (const [n, d] of [...this.devs.entries()].sort((a, b) => a[0] - b[0])) {
       if (d.dirtyDevice) {
         d.dirtyDevice = false;
-        this._ev('game', 'device', undefined, {
-          n, mac: d.mac, fw: d.fw, proto: 1, bat: d.battery, chg: !!d.charging, rssi: d.rssi, round: d.lastRound, seq: d.lastSeq,
-        });
+        const line = { n, mac: d.mac, fw: d.fw, proto: 1, bat: d.battery, chg: !!d.charging, rssi: d.rssi, round: d.lastRound, seq: d.lastSeq };
+        if (d.lage) line.lage = d.lage;
+        this._ev('game', 'device', undefined, line);
       }
       if (d.dirtyValue) {
         d.dirtyValue = false;
-        this._ev('game', 'value', undefined, {
-          n, round: this.round.id, v: d.value, vseq: d.vseq, t: d.t, arr: d.arr, late: d.late, rssi: d.valueRssi, bat: d.valueBattery,
-        });
+        const line = { n, round: this.round.id, v: d.value, vseq: d.vseq, t: d.t, arr: d.arr, late: d.late, rssi: d.valueRssi, bat: d.valueBattery };
+        if (d.valueLage) line.lage = d.valueLage;
+        this._ev('game', 'value', undefined, line);
       }
     }
   }

@@ -50,6 +50,7 @@ Every control is an action of the running console. The same actions work from th
 | | `announce [id]` | Announce the next planned round, or the round with this id. |
 | | `open`, `close`, `reveal` | Phase of the running round; `reveal` shows the right answer of a choice round. |
 | | `winner <n>` | Set the race winner by hand (0 clears it). |
+| | `group <k>` | Move round with `"play": "gruppen"`: group k moves now. |
 | | `idle` | Start an idle round. |
 | | `admit <mac> [n]` | Admit one waiting buzzer, optionally with a number. |
 | | `renumber <n> <new>` | Give a participant another number; the buzzer stores it. |
@@ -71,6 +72,67 @@ Every control is an action of the running console. The same actions work from th
 The race winner is set 1 s after the first press arrives and corrected if an earlier press arrives later. `winner <n>` overrides it.
 
 Admission: while login is open, every joining buzzer is admitted with the number it has stored, or the smallest free number if it has none or the number is taken. A buzzer that rejoins after a restart is admitted again without a press, also with login closed. With `--manual-admit`, joining buzzers wait on the login screen until `admit all` or `admit <mac>`.
+
+## Orientation and `hold`
+
+A buzzer can be held upright (`hochkant`), across with the buzzer on the right (`quer`) or on the left (`quer-links`), or lie flat on the table (`liegend`). Provisional until the firmware reads its orientation sensor: the buzzer takes a new orientation after holding still for 2 s, remaps its buttons and reports logical inputs (`up`, `right`, `down`, `left`, `triggerLeft`, `triggerRight`, `buzzer`, `enter`) together with its orientation `lage`. Upside down or face down is no orientation; the last one stays.
+
+| `lage` | up | right | down | left | triggerLeft / triggerRight |
+|---|---|---|---|---|---|
+| `hochkant` | Up | Right | Down | Left | - |
+| `quer` | Left | Up | Right | Down | L2 / L1 |
+| `quer-links` | Right | Down | Left | Up | R1 / R2 |
+| `liegend` | Up | Right | Down | Left | - |
+
+Every round with inputs (scale, race, choice, move) takes an optional `hold`:
+
+- `frei` (default): the buzzer follows its orientation.
+- `hochkant`, `quer`, `liegend`: the round requires this orientation; `quer-links` counts as `quer`. A buzzer in another one is locked. The screen shows "x von y bereit" (`liegend`: "x von y liegen bereit") while the round is announced and, in a race, until the release.
+- `fest`: the orientation at the open stays for the whole round.
+
+The console:
+
+- Keeps each participant's `lage` from its `join` and `device` lines (null: unknown, as with today's firmware).
+- Counts `results.ready`: the admitted participants whose `lage` meets the required one. Unknown counts as not ready. null for `frei` and `fest`.
+- Ignores inputs (values, race presses, move keys) made in another orientation than the round requires. The input's own `lage` decides, else the participant's. An unknown orientation passes, so today's firmware keeps working.
+- With `fest`, notes each participant's `lage` at the open and uses that one for the round.
+
+## Move rounds
+
+A `move` round is a small board game: PowerPoint draws the board, the console keeps the game state, and each buzzer moves its figure with its four direction keys.
+
+```json
+{"format": "buzzer-round/0", "id": "lauf-ins-ziel", "title": "Spiel", "question": "Wer ist zuerst im Ziel?", "type": "move", "hold": "quer", "goal": "right"}
+```
+
+- `hold` as above, default `frei`. `goal`: `right`, the only goal for now. `cols` 2-40 (default 22) and `rows` 1-20 (default 10): the PowerPoint bridge measures the field and sends them when loading; authors leave them out.
+- Cells are 0-based (col, row), col 0 left, row 0 top. Number n starts at col = floor((n-1)/rows), row = (n-1) mod rows: with 10 rows the numbers 1-10 start in col 0, 11-20 in col 1.
+- Opening puts every participant on its start cell and clears the order. A buzzer admitted later gets its start cell once that cell is free. A start cell in the goal column or beyond the board gives no figure (`col` and `row` null).
+- While the round is open, each press moves the figure one cell. A key line with a `lage` carries the logical direction. A key line without one carries the physical button: with `hold` `quer` the console turns it (left is up, up is right, right is down, down is left), otherwise it takes it as printed. A press that would leave the board or land on an occupied cell leaves the figure where it is.
+- A figure that reaches the last column is in the goal and gets the next place; its further presses do nothing. The first in the goal wins. Figures in the goal keep their cell, so at most `rows` buzzers get into the goal.
+- Closing freezes the board. Announcing and opening the round again starts over.
+
+`round` in `/api/state` carries `hold`, `goal`, `cols`, `rows` and `results`: `players` (every admitted participant by number: `n`, `col`, `row`, `place` from 1 or null), `order` (the numbers in the goal), `winner` (a number or null), `finished` (how many are in the goal), `participants`, `ready` and `play`.
+
+### Play modes
+
+PowerPoint redraws a figure in about 17 ms, so 50 moving figures are too slow. `play` picks how many move; the modes other than `alle` move about ten. A buzzer's group is its transport case: numbers 1-10 group 1, 11-20 group 2, and so on.
+
+- `alle` (default): a figure per participant, as above.
+- `team`: a figure per group with at least one admitted member. Team k starts at col 0, row min((k-1)*2, rows-1). Each press of a member moves the team by 1/members of a cell in that direction, members counted at that moment. Positions are fractions, kept within the board; teams do not block each other. A team at x = cols-1 is in the goal and stops. `results.teams` lists `team`, `members`, `x`, `y` (rounded to 3 decimals) and `place`, by team number. `order` and `winner` hold team numbers, `finished` counts teams. `players` have no cell.
+- `erste`: after the open, the first `rows` participants to press get a figure, in that order, at col 0 and rows 0, 1, 2 and so on. That first press only takes the place. Everybody else watches for the rest of the round. Moving and the goal as in `alle`. `results.chosen` lists the numbers in order, `watching` counts the admitted participants without a place.
+- `gruppen`: a figure per participant on its start cell, as in `alle`. Only the active group moves; the lowest group with members starts. Figures of waiting groups do not block: the active group moves through them and may share their cells. Figures of one group still block each other, and a late joiner waits only for a figure of its own group on its start cell. `group <k>` (`{"action": "group", "k": 2}`) switches while the round is open; the figures keep their cells. `results.group` names the active group.
+
+## Gateway lines for orientation and move rounds
+
+Provisional until the firmware has them:
+
+- `game round` carries `hold` (`hochkant`, `quer`, `liegend` or `fest`; absent means `frei`). It is fixed for a running round. The gateway passes it to the buzzers with the round state.
+- `game join` and `game device` carry the buzzer's `lage`. A buzzer sends its status right when it takes a new orientation, so the gateway writes a `device` line at once, and again with every regular status.
+- `game value` carries the `lage` the buzzer had when it made the value.
+- `game key`, one line per press in a move round: `{"ns":"game","ev":"key","n":7,"round":23417,"key":"right","kseq":12,"lage":"quer"}`. With `lage` the key is logical, without it the physical button. `kseq` is the buzzer's press counter (8 bit, per buzzer and round, from 1). The console applies each press once: a `kseq` that is not newer than the last applied one of that number (mod 256) is a resend. A `join` of the buzzer starts its count again.
+
+`participants[]` in `/api/state` carries `lage`; `round` carries `hold` and `results.ready` for every round with inputs.
 
 ## Charging overview and fleet
 
@@ -107,7 +169,7 @@ The skill delivers round and session definitions as JSON in the round format v0.
 
 One JSON object per file or request, UTF-8:
 
-- `{"format": "buzzer-round/0", ...}`: one round. Fields `id`, `title`, `question`, `type` and per type `min`, `max`, `redMax`, `greenMin` (scale) or `answers`, `correct` (choice), with the ranges and defaults of the round format.
+- `{"format": "buzzer-round/0", ...}`: one round. Fields `id`, `title`, `question`, `type`, `hold` (every type but idle, see above) and per type `min`, `max`, `redMax`, `greenMin` (scale), `answers`, `correct` (choice) or `goal`, `cols`, `rows` (move, see above), with the ranges and defaults of the round format.
 - `{"format": "buzzer-session/0", "title": "...", "rounds": [...]}`: a whole plan, up to 100 rounds.
 
 Unknown fields and fields of another round type are rejected and named. Only integers are numbers.
@@ -195,6 +257,8 @@ One page with a view per state, German texts, sized for 1920x1080 and readable f
 - Scale: per value a column of LED segments in its zone colour (red up to `redMax`, green from `greenMin`, yellow between), the count per value, the mean, how many voted, and a tile per buzzer with its value. Shown live while open and kept after closing.
 - Race: countdown to the start, then the ranking by press moment with ties under 5 ms marked "Gleichstand", and the winner.
 - Choice: answers with the symbol and colour of their key (triangle yellow, circle blue, cross magenta, square cyan). While open only "x von y haben geantwortet", after closing the count per answer, after the reveal the right answer and who had it.
+- Move: title, question, "x von y im Ziel" and the number of the first in the goal. The board itself is in PowerPoint. `team`: "x von y Teams im Ziel" and "Team k". `erste`: "x von 10 Plätzen vergeben" until every place is taken. `gruppen`: "Gruppe k ist dran".
+- A round that requires an orientation: "x von y bereit" under the question while announced and, in a race, until the release.
 
 The presenter strip at the bottom shows the USB link, online buzzers, the gateway's `dropped` and `rxOverflow` counters, channel and login, the next planned round and the latest warning. `S` hides it; a red dot in the corner then marks a lost link.
 
@@ -209,6 +273,12 @@ The presenter strip at the bottom shows the USB link, online buzzers, the gatewa
 ## Simulator
 
 `--simulate N` replaces the serial port with an in-process gateway that speaks the same NDJSON and follows the firmware's bridge and participant logic: channel hopping invites, admit and release repeats, echo, resend with back-off, status every 15 s, rejoin after a restart. Its people join a few seconds after the invite, tap towards a value on scale rounds, press after a human reaction time in races (with a few near ties), pick answers with a popular favourite in choice rounds, and sometimes change their mind. Most buzzers carry the stored numbers 1 to N, a few none, and one shares its number with another.
+
+The simulated buzzers already do what the firmware will do with orientation. Each starts in a random orientation, takes a new one after 2 s of holding still, and reports logical inputs with its `lage`; its person presses the physical button that points the right way as they hold it. In a round that requires an orientation, most people turn their buzzer into it after 1-6 s, about 6 % take 15-45 s and about 4 % never do, so "x von y bereit" stays below y for a while. Until then the buzzer is locked and its person waits: in a race with `liegend` they press only once their buzzer lies.
+
+In move rounds the people see the board: each presses at a pace of their own (one press every 0.45-1 s on average), mostly towards the goal. In `erste` everybody tries to get a place right after the open, with a race's reaction time; those without one stop. In `gruppen` the people press only while their group is active. With 20 buzzers on 22 columns the first reach the goal after about 20 s, the tenth after 30-50 s. The buzzers number their presses and send the unconfirmed ones again until the gateway's echo shows them; the gateway passes each press on once as a `game key` line.
+
+Keyboard: with `--simulate` in a terminal, the arrow keys move one simulated buzzer in the direction shown on the board, and Tab picks the next participant (in an open move round only one that can move now). The terminal names the buzzer ("Tastatur steuert Nr. 7"); its person pauses meanwhile. The buzzer sends the direction as a logical input, in the orientation the round requires (`quer` when it requires none), and is turned into that orientation at once. Ctrl+C quits.
 
 The simulated buzzers start on USB power supplies: most charge, some are full at 80 %, one has a charger fault, one runs an old firmware, two are out on battery and one is in standby. They answer the fleet commands: an update takes 30-60 s with progress and ends with the release build (or a build per PR number), a new charge target makes full buzzers charge on, `off` switches the buzzers on battery off. The simulated gateway updates itself as well and restarts on a new build. When login opens, the people unplug every buzzer. The simulated gateway also answers `wifi-set` and `config-get`.
 

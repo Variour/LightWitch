@@ -44,6 +44,19 @@ test('round command carries the whole state per type', () => {
   assert.deepEqual(cmd.round({ roundId: 7, type: 'idle', phase: null }), { ns: 'game', cmd: 'round', round: 7, type: 'idle' });
 });
 
+test('a move round frees the four direction keys and carries no board', () => {
+  assert.deepEqual(keysFor('move'), { up: 'white', right: 'white', down: 'white', left: 'white' });
+  const move = { roundId: 8, type: 'move', phase: 'open', keys: keysFor('move'), hold: 'quer', goal: 'right', cols: 22, rows: 10 };
+  assert.deepEqual(cmd.round(move), { ns: 'game', cmd: 'round', round: 8, type: 'move', phase: 'open', keys: { up: 'white', right: 'white', down: 'white', left: 'white' }, hold: 'quer' });
+});
+
+test('the round command carries hold, except frei', () => {
+  const race = { roundId: 5, type: 'race', phase: 'announced', keys: keysFor('race'), winner: 0 };
+  assert.equal('hold' in cmd.round({ ...race, hold: 'frei' }), false);
+  for (const hold of ['hochkant', 'quer', 'liegend', 'fest']) assert.equal(cmd.round({ ...race, hold }).hold, hold);
+  assert.equal('hold' in cmd.round({ roundId: 7, type: 'idle', phase: null, hold: 'quer' }), false);
+});
+
 test('choice keys go up, right, down, left with their colours', () => {
   assert.deepEqual(keysFor('choice', 2), { up: 'yellow', right: 'blue' });
   assert.deepEqual(keysFor('choice', 4), { up: 'yellow', right: 'blue', down: 'magenta', left: 'cyan' });
