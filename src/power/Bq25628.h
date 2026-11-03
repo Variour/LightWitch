@@ -227,6 +227,11 @@ class Bq25628 {
     // Resets the I2C watchdog (WD_RST, §8.4.1).
     bool kickWatchdog();
 
+    // Turns the I2C watchdog off (WATCHDOG = 00, Table 8-19) and reads it
+    // back. The charger then keeps its host-mode settings while the host
+    // sleeps. configure() turns the watchdog on again.
+    bool disableWatchdog();
+
     // Writes VREG alone and reads it back (Table 8-10). VREG is reset by
     // REG_RESET only, not by the watchdog, so it survives a fall-back to
     // default mode. False on an I2C error or a read-back mismatch.

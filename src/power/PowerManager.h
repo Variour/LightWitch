@@ -199,16 +199,23 @@ class PowerManager {
     }
 
     // Before ESP deep sleep: LED rail off, read back, one retry. False if
-    // OTG still reads on: no sleep then. In sleep the charger's watchdog
-    // expires and it falls back to default mode, where EN_OTG stays 0 (§8.4.1).
+    // OTG still reads on: no sleep then. Then the I2C watchdog off, so the
+    // charger keeps ICHG and the other host settings through the sleep and
+    // its timer wakes (each watchdog expiry halves ICHG, Table 8-9).
+    // configure() turns the watchdog on again at the next boot.
     bool prepareDeepSleep() {
         if (!_enabled || !_online) return false;
-        for (uint8_t i = 0; i < 2; i++) {
+        bool otgOff = false;
+        for (uint8_t i = 0; i < 2 && !otgOff; i++) {
             Bq25628::Status st;
-            if (_chg.setOtg(false) && _chg.readStatus(st) && !st.otgEnabled()) return true;
+            otgOff = _chg.setOtg(false) && _chg.readStatus(st) && !st.otgEnabled();
         }
-        Logger::w("[pwr] OTG still on - no sleep now");
-        return false;
+        if (!otgOff) {
+            Logger::w("[pwr] OTG still on - no sleep now");
+            return false;
+        }
+        if (!_chg.disableWatchdog()) Logger::w("[pwr] charger watchdog still on");
+        return true;
     }
 
     // Charger ADC interval; ADC_INTERVAL_MS unless changed (factory test).

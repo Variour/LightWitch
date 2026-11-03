@@ -118,6 +118,12 @@ bool Bq25628::configure(const Settings& s) {
 
 bool Bq25628::kickWatchdog() { return _update8(REG_CHG_CTRL_0, CTRL0_WD_RST, CTRL0_WD_RST); }
 
+bool Bq25628::disableWatchdog() {
+    uint8_t v;
+    return _update8(REG_CHG_CTRL_0, CTRL0_WATCHDOG_MASK, 0) && _read8(REG_CHG_CTRL_0, v) &&
+           (v & CTRL0_WATCHDOG_MASK) == 0;
+}
+
 bool Bq25628::setChargeVoltage(uint16_t mv) {
     uint16_t vreg = mv / VREG_STEP_MV;
     if (!_write16(REG_VREG, (uint16_t)(vreg << VREG_SHIFT) & VREG_MASK)) return false;
