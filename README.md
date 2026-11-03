@@ -17,6 +17,8 @@ Nothing says a device may only have one job. A row of garden lamps lights the pa
 
 Hardware, wiring and configs are meant to be shared. Publish yours, borrow someone else's, change everything about it. Firmware, editor and design files are open. Nothing to subscribe to.
 
+**Where it stands today:** devices sync lights, scenes, groups and sound over the mesh and react to buttons, MQTT and mesh events; the [Buzzerboard](#buzzerboard-quiz-buzzer) runs quiz rounds from a laptop. The visual block editor and behaviours like the egg timer, the doorbell and torches that light each other are planned, see [docs/lightwitch-rework-plan.md](docs/lightwitch-rework-plan.md).
+
 ---
 
 ## First install from a GitHub release (no tools required)
@@ -90,7 +92,7 @@ Continue with [First boot](#first-boot) below.
 
 ## First boot
 
-Each device starts as a WiFi access point named after its MAC address (e.g. `light-a1b2c3`).
+Each device starts as a WiFi access point named after its MAC address (e.g. `light-a1b2c3`). The Buzzerboard is set up over USB instead, see [Buzzerboard](#buzzerboard-quiz-buzzer).
 
 | Setting | Value |
 |---------|-------|
@@ -105,6 +107,30 @@ Each device starts as a WiFi access point named after its MAC address (e.g. `lig
 After reboot the device joins your WiFi and is reachable at **http://\<devicename\>.local** (e.g. http://lightwitch1.local). The AP turns off automatically once connected.
 
 > If WiFi is unreachable the device falls back to AP mode so you can always reach it at http://192.168.4.1.
+
+---
+
+## Buzzerboard (quiz buzzer)
+
+The Buzzerboard is a handheld quiz buzzer: ESP32-C5, a BQ25628 charger with two 18650 cells, 34 LEDs and 11 keys (BUZZ, a D-pad with ENTER, L1, L2, R1, R2, POWER). Its board design files are not in this repository.
+
+**Install:** flash the ESP32-C5 files from a release as described [above](#first-install-from-a-github-release-no-tools-required), after one **Erase Flash**. At boot the firmware finds the board by its charger and sets up keys, LEDs and charging on its own; there is nothing to configure in the web UI.
+
+**Set up over USB:** the Buzzerboard opens no WiFi access point of its own. Connect it by USB-C and send one JSON line at a time from a serial terminal (line ending LF), full reference in [docs/usb-link.md](docs/usb-link.md):
+
+| What | Line |
+|---|---|
+| Check charger, IMU and voltages | `{"ns":"test","cmd":"info","id":1}` |
+| Light every LED in turn | `{"ns":"test","cmd":"leds","id":2}` |
+| Light each key's LED while pressed | `{"ns":"test","cmd":"keys","id":3}`, end with `{"ns":"test","cmd":"keys-end","id":4}` |
+| WiFi for updates | `{"ns":"config","cmd":"wifi","id":5,"networks":[{"ssid":"MyWiFi","pass":"…"}]}` |
+| GitHub token for updates | `{"ns":"config","cmd":"token","id":6,"token":"github_pat_…"}` |
+
+For the web UI, hold L1 + R1 for 3 s: a maintenance access point opens for 10 minutes (name = device name, password = the AP password, `lightwitch` until changed).
+
+**Charging and storage:** on USB without a laptop the buzzer only charges. On battery it goes to standby after 8 hours unused and later to sleep, and it switches itself off below 3.3 V. The charge target is 80 % for storage or 100 % before an event. Details in [docs/usb-link.md](docs/usb-link.md#device-states-buzzerboard-outside-a-game-session).
+
+**Run a quiz:** plug one buzzer into the laptop as the bridge and start the game console, see [tools/game-console/README.md](tools/game-console/README.md). `npx game-console --simulate 20` rehearses a session without hardware. The skill in `tools/game-console/skill/` turns rounds described in plain language into round files for the console.
 
 ---
 
