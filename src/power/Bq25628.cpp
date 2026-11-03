@@ -40,7 +40,8 @@ bool Bq25628::probe() {
                   part, pn);
         return false;
     }
-    Logger::i("[pwr] BQ25628 found at 0x%02X, revision %u", I2C_ADDRESS, part & 0x07);
+    _revision = part & 0x07;
+    Logger::i("[pwr] BQ25628 found at 0x%02X, revision %u", I2C_ADDRESS, _revision);
     return true;
 }
 
@@ -116,6 +117,20 @@ bool Bq25628::configure(const Settings& s) {
 }
 
 bool Bq25628::kickWatchdog() { return _update8(REG_CHG_CTRL_0, CTRL0_WD_RST, CTRL0_WD_RST); }
+
+bool Bq25628::setChargeVoltage(uint16_t mv) {
+    uint16_t vreg = mv / VREG_STEP_MV;
+    if (!_write16(REG_VREG, (uint16_t)(vreg << VREG_SHIFT) & VREG_MASK)) return false;
+    uint8_t b[2];
+    if (!_read(REG_VREG, b, 2)) return false;
+    uint16_t readMv = (((uint16_t)(b[0] | (b[1] << 8)) & VREG_MASK) >> VREG_SHIFT) * VREG_STEP_MV;
+    if (readMv != mv) {
+        Logger::e("[pwr] VREG reads %u mV, not %u mV", readMv, mv);
+        return false;
+    }
+    Logger::i("[pwr] VREG %u mV", readMv);
+    return true;
+}
 
 bool Bq25628::setOtg(bool enable) {
     return _update8(REG_CHG_CTRL_2, CTRL2_EN_OTG | CTRL2_EN_BYPASS_OTG, enable ? CTRL2_EN_OTG : 0);

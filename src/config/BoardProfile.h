@@ -17,3 +17,13 @@ bool applyBoardProfile(DeviceConfig& cfg);
 // configuredMa: on a detected board whose LED rail has a supply limit, at most
 // that board's cap, also when the setting is off; elsewhere the setting.
 uint16_t boardLedCurrentLimitMa(uint16_t configuredMa);
+
+// Whether detectBoard() found the board this build targets at this boot (the
+// Buzzerboard on esp32c5 builds; false on every other build).
+bool boardDetected();
+
+// Whether the device opens its fallback softAP by itself (no WiFi network
+// configured or reachable). False on a detected Buzzerboard: 50 open APs at
+// an event saturate the channel and let anyone reconfigure the devices, so
+// the Buzzerboard opens a maintenance AP on request only (src/mesh/SoftAp.h).
+bool boardHasFallbackAp();

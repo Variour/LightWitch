@@ -862,6 +862,14 @@ bool Config::addWifiNetwork(const char* ssid, const char* password) {
     return saveWifi();
 }
 
+bool Config::replaceWifiNetworks(const WifiNetwork* nets, uint8_t count) {
+    if (count > MAX_WIFI_NETWORKS) return false;
+    for (uint8_t i = 0; i < count; i++) _wifiNetworks[i] = nets[i];
+    _wifiCount = count;
+    _wifiLast = 0;
+    return saveWifi();
+}
+
 bool Config::deleteWifiNetwork(const char* ssid) {
     for (uint8_t i = 0; i < _wifiCount; i++) {
         if (strcmp(_wifiNetworks[i].ssid, ssid) == 0) {

@@ -137,6 +137,9 @@ bool applyBoardProfile(DeviceConfig& cfg) {
     return true;
 }
 
+bool boardDetected() { return sDetected; }
+bool boardHasFallbackAp() { return !sDetected; }
+
 // Every light: the Buzzerboard's LEDs all hang on the PMID rail.
 uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) {
     if (!sDetected) return configuredMa;
@@ -149,5 +152,7 @@ uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) {
 void detectBoard() {}
 bool applyBoardProfile(DeviceConfig&) { return false; }
 uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) { return configuredMa; }
+bool boardDetected() { return false; }
+bool boardHasFallbackAp() { return true; }
 
 #endif

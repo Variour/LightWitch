@@ -610,6 +610,8 @@ class Config {
     static bool addWifiNetwork(const char* ssid, const char* password);
     static bool deleteWifiNetwork(const char* ssid);
     static bool moveWifiNetwork(const char* ssid, int8_t direction);
+    // Replaces the whole list (USB `config wifi`); count 0 clears it.
+    static bool replaceWifiNetworks(const WifiNetwork* nets, uint8_t count);
 
     static WifiNetwork* wifiNetworks() { return _wifiNetworks; }
     static uint8_t wifiCount() { return _wifiCount; }

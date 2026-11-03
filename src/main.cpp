@@ -16,12 +16,12 @@
 #include "config/BoardProfile.h"
 #include "config/Config.h"
 #include "events/EventLog.h"
-#include "game/GameManager.h"
 #include "led/Ws2801Driver.h"
 #include "led/Ws2812bDriver.h"
 #include "logging/Logger.h"
 #include "mesh/ChannelManager.h"
 #include "mesh/MeshManager.h"
+#include "mesh/SoftAp.h"
 #include "mesh/WifiElection.h"
 #include "mqtt/MqttManager.h"
 #include "patterns/PatternRunner.h"
@@ -34,6 +34,15 @@
 #include "timesync/TimeSync.h"
 #include "version.h"
 #include "web/WebServer.h"
+
+#ifndef FEATURE_GAME
+#error "set FEATURE_GAME to 0 or 1 in the env's build_flags (platformio.ini)"
+#endif
+#if FEATURE_GAME
+#include "fleet/DeepSleep.h"
+#include "fleet/FleetManager.h"
+#include "game/GameManager.h"
+#endif
 
 static Ws2812bDriver _ws2812bPool[MAX_LIGHTS];
 static Ws2801Driver _ws2801Pool[MAX_LIGHTS];
@@ -56,7 +65,10 @@ static AutomationManager automationManager;
 static EventLog eventLog;
 static BatteryMonitor battery;
 static PowerManager power;
+#if FEATURE_GAME
 static GameManager gameSession;
+static FleetManager fleetManager;
+#endif
 static bool _otaActive = false;
 
 // Last-published battery reading, so mqtt/mesh-telemetry pushes only fire on
@@ -103,7 +115,9 @@ static String _cfgSyncBuf;
 static uint16_t _cfgSyncExpected = 0;
 
 static void serialSink(LogLevel level, const char* msg) {
-    if (gameSession.logMuted()) return;  // the bridge's NDJSON link owns the port
+#if FEATURE_GAME
+    if (gameSession.logMuted()) return;  // the NDJSON link owns the port
+#endif
     const char* p = level == LogLevel::ERROR     ? "[E]"
                     : level == LogLevel::WARN    ? "[W]"
                     : level == LogLevel::INFO    ? "[I]"
@@ -360,10 +374,11 @@ static void keepWifiOn24GHz() {
 #endif
 }
 
+// Boards without a fallback AP (SoftAp.h) run WiFi as a station only.
 static void setupWifi() {
     auto& c = Config::get();
 
-    WiFi.mode(WIFI_AP_STA);
+    WiFi.mode(SoftAp::fallbackAllowed() ? WIFI_AP_STA : WIFI_STA);
     keepWifiOn24GHz();
     WiFi.setAutoReconnect(false);
     ensureWifiPolicyStateInitialized();
@@ -372,8 +387,12 @@ static void setupWifi() {
     uint8_t count = Config::wifiCount();
 
     if (count == 0) {
-        WiFi.softAP(c.deviceName, c.apPassword, 1);
-        WiFi.setTxPower(WIFI_TX_POWER);
+        if (!SoftAp::fallbackAllowed()) {
+            WiFi.setTxPower(WIFI_TX_POWER);
+            Logger::i("[wifi] No networks configured, no fallback AP on this board");
+            return;
+        }
+        SoftAp::startFallback();
         Logger::i("[wifi] No networks configured, AP: %s  IP: %s", c.deviceName,
                   WiFi.softAPIP().toString().c_str());
         return;
@@ -385,7 +404,7 @@ static void setupWifi() {
     // reachability and let WifiElection (ticked once mesh.begin() has run)
     // decide non-blockingly whether/when this device should actually connect.
     if (c.wifiSingleClientMode) {
-        WiFi.softAP(c.deviceName, c.apPassword, 1);
+        SoftAp::startFallback();
         WiFi.setTxPower(WIFI_TX_POWER);
         Logger::i(
             "[wifi] single-client mode: deferring connect decision to WifiElection, AP: %s  IP: %s",
@@ -410,7 +429,7 @@ static void setupWifi() {
             uint32_t start = millis();
             while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) delay(250);
             if (WiFi.status() == WL_CONNECTED) {
-                WiFi.softAPdisconnect(false);
+                SoftAp::stopFallback();
                 Logger::i("[wifi] Connected to %s, IP: %s  (AP off)", ssid,
                           WiFi.localIP().toString().c_str());
                 if (ni != last) {
@@ -424,20 +443,26 @@ static void setupWifi() {
 
     WiFi.disconnect(false);
     delay(100);
+    if (!SoftAp::fallbackAllowed()) {
+        WiFi.setTxPower(WIFI_TX_POWER);
+        Logger::w("[wifi] All networks failed, no fallback AP on this board");
+        return;
+    }
     Logger::w("[wifi] All networks failed, falling back to AP");
-    WiFi.softAP(c.deviceName, c.apPassword, 1);
-    WiFi.setTxPower(WIFI_TX_POWER);
+    SoftAp::startFallback();
     Logger::i("[wifi] AP: %s  IP: %s", c.deviceName, WiFi.softAPIP().toString().c_str());
 }
 
-// Boot with a stored game session entry (see GameManager::quietBoot): WiFi
-// runs for ESP-NOW only, with no softAP and no connection.
-static void setupWifiQuiet() {
+#if FEATURE_GAME
+// Boot with a stored game session entry (see GameManager::quietBoot), or on
+// USB power without a host (charging mode, src/fleet/): WiFi runs for
+// ESP-NOW only, with no softAP and no connection.
+static void setupWifiQuiet(const char* why) {
     WiFi.mode(WIFI_STA);
     keepWifiOn24GHz();
     WiFi.setAutoReconnect(false);
     WiFi.setTxPower(WIFI_TX_POWER);
-    Logger::i("[wifi] game session: no AP, no WiFi connection");
+    Logger::i("[wifi] %s: no AP, no WiFi connection", why);
 }
 
 // ── Game session ─────────────────────────────────────────────────────────────
@@ -449,12 +474,13 @@ static void setupWifiQuiet() {
 static void enterGameQuiet(bool participant) {
     if (!mesh.quiet()) {
         mesh.setQuiet(true);
-        WiFi.softAPdisconnect(true);
+        SoftAp::off();
         WiFi.disconnect(false, false);
         Logger::i("[game] radio quiet: no AP, no WiFi, no LightWitch mesh traffic");
     }
     if (participant) buttonManager.setExecutor(nullptr);
 }
+#endif
 
 // ── OTA ──────────────────────────────────────────────────────────────────────
 static void setupOta() {
@@ -478,9 +504,14 @@ static void setupOta() {
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 void setup() {
+#if FEATURE_GAME
+    // A timer wake from sleep (transport protection) decides here, before
+    // anything starts, whether to sleep on, enter ship mode or boot.
+    fleet::DeepSleep::handleWake();
     // Sized for the game bridge's NDJSON link (gateway protocol v0: ~4 KB send buffer).
     Serial.setRxBufferSize(game::kUsbRxBufferBytes);
     Serial.setTxBufferSize(game::kUsbTxBufferBytes);
+#endif
     Serial.begin(115200);
     Logger::addSink(serialSink);
 
@@ -538,6 +569,11 @@ void setup() {
     power.setUpdateBusy(
         []() { return _otaActive || Updater::status().state == Updater::State::Downloading; });
     Updater::setStartGuard([]() { return power.updateBlockReason(); });
+#if FEATURE_GAME
+    // The charger starts with the stored charge target (src/fleet/).
+    fleetManager.loadStored();
+    power.setChargeVoltageMv(fleetManager.vregMv());
+#endif
     power.begin(Config::get().chargerEnabled);
 
     // Auto-probe the onboard SD card reader, if this build targets a board
@@ -548,12 +584,22 @@ void setup() {
         battery.setChargerSource([]() { return power.batteryReading(); });
     battery.begin(Config::get().batteryMonitoringEnabled);
 
+#if FEATURE_GAME
     gameSession.loadStored();
     const bool gameQuietBoot = gameSession.quietBoot();
+    // USB power without a host: charging mode from the start, no WiFi connect.
+    const bool fleetChargingBoot = !gameQuietBoot && FleetManager::bootInCharging(power);
     if (gameQuietBoot)
-        setupWifiQuiet();
+        setupWifiQuiet("game session");
+    else if (fleetChargingBoot)
+        setupWifiQuiet("charging mode");
     else
         setupWifi();
+#else
+    const bool gameQuietBoot = false;
+    const bool fleetChargingBoot = false;
+    setupWifi();
+#endif
     TimeSync::begin(Config::get().timezone);
     if (!gameQuietBoot) channelMgr.begin(&mesh.peers);
 
@@ -578,7 +624,10 @@ void setup() {
         drv->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
         drv->setCurrentLimitMa(boardLedCurrentLimitMa(l.currentLimitMa));
         _leds[i] = drv;
+#if FEATURE_GAME
         gameSession.setLight(drv, numLeds);
+        fleetManager.setLight(drv, numLeds);
+#endif
         _runners[i].begin(*drv);
         _runners[i].setDimensions(l.width, l.height);
         _runners[i].setMatrixLayout(l.matrixStart, l.matrixDir, l.matrixSerpentine);
@@ -632,14 +681,20 @@ void setup() {
     actionExecutor.setSendEventFn([](const char* eventType, uint16_t payload) {
         mesh.broadcastGenericEvent(eventType, payload);
     });
-    buttonManager.setExecutor(gameQuietBoot ? nullptr : &actionExecutor);
+    buttonManager.setExecutor(gameQuietBoot || fleetChargingBoot ? nullptr : &actionExecutor);
     // The one raw key-edge consumer slot: fan out from here to every module
     // that needs press/release edges.
     buttonManager.setRawCallback([](uint8_t index, bool pressed, uint32_t ms) {
         power.onButtonRaw(index, pressed, ms);
+#if FEATURE_GAME
+        if (index >= MAX_BUTTONS) return;
+        const char* role = Config::get().buttons[index].role;
+        // Charging mode, a standby wake, the key that woke the device and the
+        // key test take the key.
+        if (fleetManager.onKey(index, role, pressed, ms)) return;
         // The game session finds its keys by role; it ignores "power" and "".
-        if (index < MAX_BUTTONS)
-            gameSession.onKey(game::keyFromName(Config::get().buttons[index].role), pressed, ms);
+        gameSession.onKey(game::keyFromName(role), pressed, ms);
+#endif
     });
     buttonManager.begin();
     automationManager.setExecutor(&actionExecutor);
@@ -648,7 +703,10 @@ void setup() {
         Logger::i("[mdns] http://%s.local", Config::get().deviceName);
 
     if (Config::get().otaEnabled && !gameQuietBoot) setupOta();
+#if FEATURE_GAME
     mesh.setQuiet(gameQuietBoot);
+    mesh.setFleetOnly(fleetChargingBoot);
+#endif
     mesh.begin();
     wifiElection.begin(&mesh.peers);
     mesh.setWifiAttemptingProvider([]() { return wifiElection.isAttempting(); });
@@ -674,6 +732,27 @@ void setup() {
     });
     mesh.setBatteryStatusProvider([]() { return battery.status(); });
 
+#if FEATURE_GAME
+    // Wire the fleet package (src/fleet/): device states, fleet frames, USB
+    // namespaces config/fleet/test on the game session's link.
+    mesh.setOnFleetFrame([](const uint8_t* mac, const uint8_t* data, int len, int8_t rssi) {
+        fleetManager.onFrame(mac, data, len, rssi);
+    });
+    FleetManager::Io fio;
+    fio.keysEnabled = [](bool enabled) {
+        // A participant's keys belong to its session.
+        bool on = enabled && !gameSession.ownsLeds();
+        buttonManager.setExecutor(on ? &actionExecutor : nullptr);
+    };
+    fio.mutedKeys = [](uint16_t mask) { buttonManager.setMuted(mask); };
+    fio.updateBusy = []() {
+        Updater::State s = Updater::status().state;
+        return _otaActive || s == Updater::State::Checking || s == Updater::State::Downloading ||
+               s == Updater::State::Done;
+    };
+    fleetManager.begin(fio, &power, &battery, &gameSession, &mesh, &wifiElection, fleetChargingBoot,
+                       millis());
+
     // Wire the game session (src/game/): participant, bridge and their radio frames.
     mesh.setOnQuizFrame([](const uint8_t* data, int len, int8_t rssi) {
         gameSession.onRadioFrame(data, len, rssi);
@@ -691,6 +770,7 @@ void setup() {
     // Only a device with a buzz key takes invites; the bridge role needs no keys.
     gameSession.setHasBuzzKey(Config::buttonIndexForRole(ButtonRole::BUZZ) >= 0);
     gameSession.begin(millis());
+#endif
 
     // Wire SceneSyncManager → MeshManager
     sceneSync.setBroadcastFns(
@@ -1022,7 +1102,9 @@ void setup() {
     });
     webServer.setOnButtonsChanged([]() {
         buttonManager.reconfigure();
+#if FEATURE_GAME
         gameSession.setHasBuzzKey(Config::buttonIndexForRole(ButtonRole::BUZZ) >= 0);
+#endif
     });
     webServer.setBatteryStatusProvider([]() { return battery.status(); });
     webServer.setOnMqttReconfigure([]() { mqtt.reconfigure(Config::get()); });
@@ -1032,17 +1114,11 @@ void setup() {
         mqtt.publishBatteryState();
     });
     // AP-mode SSID/password only take effect while this device is actually
-    // running its own AP (no WiFi networks configured, or all failed) — the
-    // many other WiFi.softAP() call sites already gate the same way (see
-    // setupWifi()/WifiElection.h). If it's currently connected as a station,
-    // the new password takes effect the next time it falls back to AP.
-    webServer.setOnApPasswordChanged([]() {
-        if (!WiFi.isConnected()) {
-            auto& c = Config::get();
-            WiFi.softAP(c.deviceName, c.apPassword, 1);
-            Logger::i("[wifi] AP password updated live");
-        }
-    });
+    // running its own AP (no WiFi networks configured, or all failed, or a
+    // maintenance AP) — see SoftAp::passwordChanged(). If it's currently
+    // connected as a station, the new password takes effect the next time
+    // it falls back to AP.
+    webServer.setOnApPasswordChanged([]() { SoftAp::passwordChanged(); });
     webServer.setOnTimezoneChanged([](const char* tz) { TimeSync::begin(tz); });
     webServer.setOnWifiConnectForConfirm([](std::function<void(bool)> onDone) {
         wifiElection.connectForConfirm([onDone](bool ok) {
@@ -1091,7 +1167,7 @@ void setup() {
     // consumer, so there's nothing for this callback to do yet.
 
     Logger::i("[sys] ready");
-    if (Config::get().checkUpdateOnStartup && !gameQuietBoot) {
+    if (Config::get().checkUpdateOnStartup && !gameQuietBoot && !fleetChargingBoot) {
         if (Config::get().wifiSingleClientMode) {
             _startupUpdateCheckPending = true;
             Logger::i("[upd] startup check armed; waiting for WiFi election");
@@ -1113,16 +1189,29 @@ void loop() {
     // the LED rail keep running during an HTTP update download.
     power.tick();
 
+#if FEATURE_GAME
     // Every pass: the bridge repeats state at 50 ms and hops channels for 30 ms.
     gameSession.tick(now);
     const bool gameQuiet = gameSession.radioQuiet();
+    // Device states, fleet frames, update all, factory test (src/fleet/).
+    fleetManager.tick(now);
+    // Charging mode and standby: no WiFi, AP, web, OTA, MQTT, time or
+    // scene/playlist sync; channel search and fleet frames go on.
+    const bool fleetInactive = fleetManager.radioInactive();
+    const bool fleetUpdate = fleetManager.updateRunning();
+#else
+    const bool gameQuiet = false;
+    const bool fleetInactive = false;
+    const bool fleetUpdate = false;
+#endif
+    const bool radioIdle = gameQuiet || fleetInactive;
 
     // Idle OTA polling is throttled with everything else; once a transfer is
     // actually in flight (_otaActive), run every pass so flashing isn't slowed.
-    if (Config::get().otaEnabled && !gameQuiet && (slowTick || _otaActive) &&
+    if (Config::get().otaEnabled && !radioIdle && (slowTick || _otaActive) &&
         !power.updateBlockReason())
         ArduinoOTA.handle();
-    if (slowTick && !gameQuiet) webServer.loop();
+    if (slowTick && !radioIdle) webServer.loop();
 
     Updater::State updState = Updater::status().state;
 
@@ -1137,10 +1226,21 @@ void loop() {
 
     if (updState == Updater::State::Downloading || updState == Updater::State::Done) {
         int progress = Updater::status().progress;
+#if FEATURE_GAME
+        // The Buzzerboard shows the fleet's update display, animated.
+        if (fleetManager.hasLight() && now - _lastPatternTickMs >= PATTERN_TICK_INTERVAL_MS) {
+            _lastPatternTickMs = now;
+            fleetManager.renderUpdate(now,
+                                      updState == Updater::State::Done ? 100 : (uint8_t)progress);
+        }
+#endif
         if (updState != _lastUpdateState || progress != _lastUpdateProgress) {
             _lastUpdateState = updState;
             _lastUpdateProgress = progress;
             mqtt.publishUpdateState();
+#if FEATURE_GAME
+            if (fleetManager.hasLight()) return;
+#endif
             for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
                 if (!_leds[i]) continue;
                 if (updState == Updater::State::Done)
@@ -1157,8 +1257,9 @@ void loop() {
     if (!_otaActive && slowTick) {
         if (!gameQuiet) channelMgr.tick();
         mesh.tick();
-        if (!gameQuiet) {
-            wifiElection.tick();
+        // A fleet update connects WiFi also from charging mode.
+        if (!gameQuiet && (!fleetInactive || fleetUpdate)) wifiElection.tick();
+        if (!radioIdle) {
             if (_startupUpdateCheckPending && wifiElection.isAdvertisableConnected()) {
                 _startupUpdateCheckPending = false;
                 Logger::i("[upd] WiFi election connected; running deferred startup check");
@@ -1181,7 +1282,7 @@ void loop() {
     }
     if (!_otaActive && backgroundTick) {
         buttonManager.tick();
-        if (!gameQuiet) {
+        if (!radioIdle) {
             sceneSync.tick();
             playlistSync.tick();
         }
@@ -1189,13 +1290,24 @@ void loop() {
 
     if (!_otaActive && now - _lastPatternTickMs >= PATTERN_TICK_INTERVAL_MS) {
         _lastPatternTickMs = now;
+#if FEATURE_GAME
         if (gameSession.ownsLeds()) {
             gameSession.render(now);
+        } else if (fleetManager.ownsLeds()) {
+            fleetManager.render(now);
         } else {
+            // The fleet's display ended: repaint from the config.
+            if (fleetManager.takeLedsReleased()) applyAllLights();
             for (uint8_t i = 0; i < MAX_LIGHTS; i++)
                 if (_leds[i]) _runners[i].tick();
             // Invite ring over the pattern; once it ends, repaint from the config.
             if (gameSession.renderOverlay(now) == GameManager::Overlay::Ended) applyAllLights();
+            // Maintenance AP open: the status dot pulses blue.
+            if (fleetManager.renderOverlay(now) == FleetManager::Overlay::Ended) applyAllLights();
         }
+#else
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+            if (_leds[i]) _runners[i].tick();
+#endif
     }
 }

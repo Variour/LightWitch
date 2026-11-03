@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "../config/Config.h"
+#include "../fleet/FleetFrames.h"
 #include "../game/GameFrames.h"
 
 // Mesh wire protocol policy:
@@ -55,6 +56,9 @@ enum class MsgType : uint8_t {
     QuizAdmit = 41,
     QuizRelease = 42,
     QuizChannel = 43,
+    // Fleet frames: layouts in src/fleet/FleetFrames.h (fleet protocol v0).
+    FleetStatus = 44,
+    FleetCommand = 45,
 };
 static_assert((uint8_t)MsgType::QuizInvite == game::kMsgQuizInvite &&
                   (uint8_t)MsgType::QuizState == game::kMsgQuizState &&
@@ -64,6 +68,9 @@ static_assert((uint8_t)MsgType::QuizInvite == game::kMsgQuizInvite &&
                   (uint8_t)MsgType::QuizRelease == game::kMsgQuizRelease &&
                   (uint8_t)MsgType::QuizChannel == game::kMsgQuizChannel,
               "quiz MsgTypes must match src/game/GameFrames.h");
+static_assert((uint8_t)MsgType::FleetStatus == fleet::kMsgFleetStatus &&
+                  (uint8_t)MsgType::FleetCommand == fleet::kMsgFleetCommand,
+              "fleet MsgTypes must match src/fleet/FleetFrames.h");
 
 enum class FwState : uint8_t { Idle = 0, Checking = 1, Downloading = 2, Error = 3, Done = 4 };
 
