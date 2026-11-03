@@ -20,17 +20,19 @@ uint8_t Config::_wifiLast = 0;
 static const char* _wifiPath = "/wifi.json";
 
 static constexpr char NVS_NS[] = "bl";
-// Config backup in NVS: the config JSON as a blob, so a filesystem reflash
-// keeps the config (see Config::load()). A blob, because NVS strings stop at
-// 4000 bytes and a Buzzerboard config is ~7 KB.
+// Config backup in NVS, so a filesystem reflash keeps the config (see
+// Config::load()). Stored as the string NVS_STRING_KEY while the JSON fits an
+// NVS string, the key older firmware reads, so a downgrade restores it too.
+// Above that (a Buzzerboard config is ~7 KB) stored as the blob NVS_BLOB_KEY.
+// Exactly one of the two keys holds the backup.
 static constexpr char NVS_BLOB_KEY[] = "cfgb";
-// The string key firmware before the blob used for the backup: read once to
-// migrate, removed by the first blob write.
-static constexpr char NVS_LEGACY_KEY[] = "cfg";
+static constexpr char NVS_STRING_KEY[] = "cfg";
+// NVS strings hold up to 4000 bytes including the terminator.
+static constexpr size_t NVS_STRING_MAX_LEN = 3999;
 static constexpr char NVS_WIFI_KEY[] = "wifi";
 
-// Hash of the JSON in the NVS backup blob (0 = no blob), so saves that
-// change nothing skip the NVS write. Read from NVS on the first save.
+// Hash of the JSON in the NVS backup (0 = no backup), so saves that change
+// nothing skip the NVS write. Read from NVS on the first save.
 static bool _nvsBackupHashKnown = false;
 static uint32_t _nvsBackupHash = 0;
 
@@ -41,8 +43,8 @@ static uint32_t backupHash(const char* data, size_t len) {
     return h ? h : 1;
 }
 
-// Reads the NVS config backup into doc: the blob, or else the string older
-// firmware wrote. True if one was found and parsed.
+// Reads the NVS config backup into doc: the blob, or else the string. True if
+// one was found and parsed.
 static bool readNvsBackup(JsonDocument& doc) {
     Preferences prefs;
     if (!prefs.begin(NVS_NS, /*readOnly=*/true)) return false;
@@ -52,24 +54,31 @@ static bool readNvsBackup(JsonDocument& doc) {
         std::unique_ptr<char[]> buf(new (std::nothrow) char[len]);
         if (len > 0 && buf && prefs.getBytes(NVS_BLOB_KEY, buf.get(), len) == len)
             ok = !deserializeJson(doc, (const char*)buf.get(), len);
-    } else if (prefs.getType(NVS_LEGACY_KEY) == PT_STR) {
-        String json = prefs.getString(NVS_LEGACY_KEY, "");
+    } else if (prefs.getType(NVS_STRING_KEY) == PT_STR) {
+        String json = prefs.getString(NVS_STRING_KEY, "");
         ok = json.length() > 0 && !deserializeJson(doc, json);
     }
     prefs.end();
     return ok;
 }
 
-// Hash of the blob NVS holds now, 0 if there is none.
+// Hash of the backup NVS holds now (blob or string), 0 if there is none.
 static uint32_t storedBackupHash(Preferences& prefs) {
-    if (prefs.getType(NVS_BLOB_KEY) != PT_BLOB) return 0;
-    size_t len = prefs.getBytesLength(NVS_BLOB_KEY);
-    std::unique_ptr<char[]> buf(new (std::nothrow) char[len]);
-    if (len == 0 || !buf || prefs.getBytes(NVS_BLOB_KEY, buf.get(), len) != len) return 0;
-    return backupHash(buf.get(), len);
+    if (prefs.getType(NVS_BLOB_KEY) == PT_BLOB) {
+        size_t len = prefs.getBytesLength(NVS_BLOB_KEY);
+        std::unique_ptr<char[]> buf(new (std::nothrow) char[len]);
+        if (len == 0 || !buf || prefs.getBytes(NVS_BLOB_KEY, buf.get(), len) != len) return 0;
+        return backupHash(buf.get(), len);
+    }
+    if (prefs.getType(NVS_STRING_KEY) == PT_STR) {
+        String json = prefs.getString(NVS_STRING_KEY, "");
+        return json.length() ? backupHash(json.c_str(), json.length()) : 0;
+    }
+    return 0;
 }
 
-// Stores json as the NVS backup blob unless the blob already holds it.
+// Stores json as the NVS backup unless NVS already holds it: as the string
+// while it fits, else as the blob.
 static void writeNvsBackup(const String& json) {
     Preferences prefs;
     if (!prefs.begin(NVS_NS, /*readOnly=*/false)) return;
@@ -83,8 +92,11 @@ static void writeNvsBackup(const String& json) {
         // new one is complete, and two copies of a ~7 KB config plus the PHY
         // calibration data already exceed the 20 KB NVS partition.
         if (prefs.getType(NVS_BLOB_KEY) != PT_INVALID) prefs.remove(NVS_BLOB_KEY);
-        if (prefs.getType(NVS_LEGACY_KEY) != PT_INVALID) prefs.remove(NVS_LEGACY_KEY);
-        if (prefs.putBytes(NVS_BLOB_KEY, json.c_str(), json.length()) == json.length()) {
+        if (prefs.getType(NVS_STRING_KEY) != PT_INVALID) prefs.remove(NVS_STRING_KEY);
+        bool asString = json.length() <= NVS_STRING_MAX_LEN;
+        size_t written = asString ? prefs.putString(NVS_STRING_KEY, json)
+                                  : prefs.putBytes(NVS_BLOB_KEY, json.c_str(), json.length());
+        if (written == json.length()) {
             _nvsBackupHash = hash;
         } else {
             _nvsBackupHash = 0;
@@ -288,6 +300,10 @@ void deserializeAudioGroup(JsonVariant o, AudioGroupConfig& g) {
 
 static bool migrateDoc(JsonDocument& doc) {
     uint8_t ver = doc["schemaVersion"] | (uint8_t)0;
+    // Unreleased builds wrote v6 for the additive Buzzerboard fields (see
+    // CONFIG_SCHEMA_VERSION); read those configs as v5. Remove this line with
+    // the next real bump to v6.
+    if (CONFIG_SCHEMA_VERSION == 5 && ver == 6) ver = 5;
     if (ver > CONFIG_SCHEMA_VERSION) {
         Logger::w("[cfg] schema version %u > firmware max %u — ignoring", ver,
                   CONFIG_SCHEMA_VERSION);
@@ -304,13 +320,6 @@ static bool migrateDoc(JsonDocument& doc) {
         // v4 -> v5: lights gained brightnessLimit/brightnessScale — additive
         // with `| default` fallbacks in applyDoc(), nothing to rewrite.
         Logger::i("[cfg] schema v%u -> v5", ver);
-    }
-    if (ver < 6) {
-        // v5 -> v6: buttons gained role, lights gained currentLimitMa, the
-        // device gained chargerEnabled — additive with `| default` fallbacks
-        // in applyDoc() (role "", no current cap, charger off), nothing to
-        // rewrite.
-        Logger::i("[cfg] schema v%u -> v6", ver < 5 ? 5 : ver);
     }
     return true;
 }

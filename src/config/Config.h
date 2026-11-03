@@ -242,10 +242,11 @@ static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
 // additive with `| default` fallbacks in applyDoc(), so the v4 -> v5 step
 // in migrateDoc() rewrites nothing; first bump to use the migration-step
 // convention above instead of the reset-to-defaults fallback.
-// v6: buttons gained role, lights gained currentLimitMa, the device gained
-// chargerEnabled (BQ25628 support) — additive with `| default` fallbacks in
-// applyDoc(), so the v5 -> v6 step in migrateDoc() rewrites nothing.
-static constexpr uint8_t CONFIG_SCHEMA_VERSION = 6;
+// Still v5: buttons gained role, lights gained currentLimitMa, the device
+// gained chargerEnabled (BQ25628 support), all additive with `| default`
+// fallbacks in applyDoc(). Keeping v5 lets firmware before them load the
+// config after a downgrade; it ignores the new fields.
+static constexpr uint8_t CONFIG_SCHEMA_VERSION = 5;
 
 // Parameters for a ButtonAction. Which member is meaningful depends on the
 // ActionId — numberValue covers steps/fixed values/enum ordinals,
