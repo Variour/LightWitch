@@ -1,5 +1,5 @@
 Import("env")
-import gzip as gz, shutil, subprocess, sys, os, socket, time
+import subprocess, sys, os, socket, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 HOSTS = [
@@ -15,26 +15,11 @@ C3_ENV   = "esp32c3"
 REBOOT_WAIT   = 10
 RETRY_ATTEMPTS = 1   # total attempts per device per phase
 RETRY_DELAY    = 6   # seconds between attempts
-COMPRESSIBLE  = {".html", ".css", ".js", ".json", ".svg", ".txt"}
 
 # ── filesystem builder ─────────────────────────────────────────────────────────
 
-def _gzip_assets(env):
-    data_dir = os.path.join(env.subst("$PROJECT_DIR"), "data")
-    if not os.path.isdir(data_dir):
-        return
-    for fname in os.listdir(data_dir):
-        if os.path.splitext(fname)[1].lower() not in COMPRESSIBLE:
-            continue
-        src = os.path.join(data_dir, fname)
-        dst = src + ".gz"
-        with open(src, "rb") as f_in, gz.open(dst, "wb", compresslevel=9) as f_out:
-            shutil.copyfileobj(f_in, f_out)
-        orig, comp = os.path.getsize(src), os.path.getsize(dst)
-        print(f"[ota-all] gzip {fname}: {orig} B → {comp} B ({comp * 100 // orig}%)")
-
+# buildfs packs gzipped copies of the web assets (scripts/pre_uploadfs.py).
 def _build_fs(env):
-    _gzip_assets(env)
     r = subprocess.run(
         ["pio", "run", "-e", env.subst("$PIOENV"), "-t", "buildfs"],
         cwd=env.subst("$PROJECT_DIR"), capture_output=True, text=True,
