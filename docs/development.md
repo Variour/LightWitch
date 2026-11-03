@@ -70,7 +70,7 @@ pio run -e lightwitch1_ota -t upload && pio run -e lightwitch1_ota -t uploadfs
 
 ## Installing PR firmware builds (experimental)
 
-CI publishes every open PR's `esp32dev`, `esp32s3` and `esp32c5` builds as a GitHub prerelease (tag `pr-<number>`), so a device can install and track it directly over the air — no PlatformIO needed. `esp32c3` is not built for PRs and stays unsupported.
+CI publishes every open PR's `esp32dev`, `esp32s3` and `esp32c5` builds as a GitHub prerelease (tag `pr-<number>`), so a device can install and track it directly over the air — no PlatformIO needed. `esp32c3` is built for PRs as a check but not published, so PR installs stay unsupported there.
 
 1. In the web UI, **Settings → Updates**: set `Repository` and a GitHub PAT, enable **"Allow installing PR builds"**, then click **Save** — none of these need a reboot to take effect. See [README: Firmware updates from GitHub releases](../README.md#firmware-updates-from-github-releases-device-web-ui) for the required token permissions.
 2. In **Firmware update**, click **"Load open PRs"**, pick the PR from the dropdown, then **"Install selected build"**.

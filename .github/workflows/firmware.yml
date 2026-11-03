@@ -35,7 +35,7 @@ jobs:
     steps:
       - id: matrix
         run: |
-          ENVIRONMENTS="${{ github.event_name == 'pull_request' && 'esp32dev,esp32s3,esp32c5' || github.event.inputs.environments || 'esp32dev,esp32c3,esp32s3,esp32c5' }}"
+          ENVIRONMENTS="${{ github.event_name == 'pull_request' && 'esp32dev,esp32c3,esp32s3,esp32c5' || github.event.inputs.environments || 'esp32dev,esp32c3,esp32s3,esp32c5' }}"
           JSON=$(echo "$ENVIRONMENTS" \
             | tr ',' '\n' | sed 's/[[:space:]]//g' | jq -R . | jq -sc .)
           echo "value={\"env\":${JSON}}" >> "$GITHUB_OUTPUT"
@@ -50,7 +50,7 @@ jobs:
   build:
     needs: setup
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 20
     strategy:
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
     steps:
@@ -92,7 +92,7 @@ jobs:
   build-fs:
     needs: setup
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -111,13 +111,7 @@ jobs:
       - name: Install PlatformIO
         run: pip install -r requirements.txt
 
-      - name: Gzip web assets
-        run: |
-          shopt -s nullglob
-          for f in data/*.html data/*.css data/*.js data/*.svg data/*.txt; do
-            gzip -9 -c "$f" > "${f}.gz" && rm "$f" && echo "Compressed: $f"
-          done
-
+      # scripts/pre_uploadfs.py packs gzipped copies of the web assets.
       - name: Build filesystem image
         run: pio run -e esp32dev -t buildfs
 
