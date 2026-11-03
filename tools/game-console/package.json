@@ -1,0 +1,25 @@
+{
+  "name": "lightwitch-game-console",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Laptop console for the LightWitch quiz buzzers: USB link to the gateway, live screen, round input and simulator",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "bin": {
+    "game-console": "bin/game-console.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node bin/game-console.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0",
+    "ws": "^8.22.1"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

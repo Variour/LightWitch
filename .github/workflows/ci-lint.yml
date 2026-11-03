@@ -10,6 +10,7 @@ on:
       - 'package-lock.json'
       - 'src/**'
       - '.clang-format'
+      - 'tools/game-console/**'
       - '.github/workflows/ci-lint.yml'
 
 concurrency:
@@ -64,3 +65,25 @@ jobs:
 
       - name: Check formatting
         run: find src \( -name '*.cpp' -o -name '*.h' \) -print0 | xargs -0 clang-format --dry-run --Werror
+
+  game-console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tools/game-console
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: tools/game-console/package-lock.json
+
+      - run: npm ci
+
+      # The screen test renders every view in Chromium.
+      - run: npx playwright install --with-deps chromium
+
+      - run: npm test
