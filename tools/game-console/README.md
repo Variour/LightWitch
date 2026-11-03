@@ -177,6 +177,14 @@ The console listens on `127.0.0.1:4711` only. Requests need a `Host` of `127.0.0
 curl -s -X POST http://127.0.0.1:4711/api/load -H 'Content-Type: application/json' -d @round.json
 ```
 
+### Claude skill
+
+`skill/SKILL.md` is the Claude skill `buzzer-rounds` that writes these files. It turns a presenter's description of a round ("Runde 4: ...", a quiz question, a vote, a talk outline) into round JSON, shortens texts to the measured screen limits, delivers through the inbox folder or `send`, and explains rejections in the presenter's words.
+
+- Claude app: add `SKILL.md` as a skill to the Claude account, then connect the folder the console watches with `--inbox`.
+- Claude Code: copy `skill/SKILL.md` to `~/.claude/skills/buzzer-rounds/SKILL.md`. The skill delivers with `npx --no-install game-console send` from this folder.
+- `npm test` checks every JSON example in the skill against the validator (`test/skill.test.js`). Update the skill together with the round format.
+
 ## The screen
 
 One page with a view per state, German texts, sized for 1920x1080 and readable from the back of a room:
