@@ -331,9 +331,9 @@ Every milestone is executed with the repo's own workflow and tooling
 - **Hardware testing via PR builds.** CI publishes every PR's `esp32dev`/
   `esp32s3` firmware as a `pr-<N>` prerelease installable OTA from the device
   web UI — milestone demos (M1's cross-device override, M7's proximity) are
-  verified on real devices from the PR before merge. `esp32c3` is excluded
-  from PR builds; C3-specific behavior is verified locally via
-  `pio run -e esp32c3` targets when relevant.
+  verified on real devices from the PR before merge. `esp32c3` is built for
+  every PR as a size and compile check but not published; C3-specific
+  behavior is verified locally via `pio run -e esp32c3`.
 - **UI review via PR previews.** Every PR gets an Azure-hosted mock-UI
   preview environment (URL posted on the PR) — GUI milestones (M3, M5, M8)
   are clickable for reviewers without any local setup.

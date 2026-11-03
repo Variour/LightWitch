@@ -96,12 +96,19 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
 | `{"ns":"config","cmd":"wifi","id":1,"networks":[{"ssid":"Office","pass":"…"}]}` | `{"ns":"config","ev":"wifi","id":1,"ok":true,"count":1}` |
 | `{"ns":"config","cmd":"charge","id":2,"target":"event"}` | `{"ns":"config","ev":"charge","id":2,"ok":true,"target":"event"}` |
 | `{"ns":"config","cmd":"ap","id":3,"minutes":10}` | `{"ns":"config","ev":"ap","id":3,"ok":true,"minutes":10}` |
-| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"target":"store","number":12,"fw":"4a45fc32"}` |
+| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"token":true,"target":"store","number":12,"fw":"4a45fc32"}` |
+| `{"ns":"config","cmd":"token","id":5,"token":"github_pat_…"}` | `{"ns":"config","ev":"token","id":5,"ok":true,"token":true}` |
 
 - `wifi` replaces the whole list: 0-5 networks, `ssid` 1-32 bytes, `pass` `""`
   (open network) or 8-63 bytes. Passwords are never echoed or logged. Five
   long entries do not fit one 512-byte line. The list takes effect at the
   next connection (an update, a restart).
+- `token`: the GitHub token the device sends with release and PR downloads
+  (0-127 bytes, `""` clears it), the same setting as **Personal access
+  token** in the web UI. Set it on every device before a fleet `update`:
+  GitHub allows 60 anonymous API requests per hour and IP address, and a
+  device makes up to 3 per update. The reply and `get` only say whether a
+  token is set; it is never echoed or logged.
 - `charge`: `store` (charger VREG 4.05 V, about 80 %) or `event` (4.20 V,
   100 %). Stored in NVS, default `store`, applied at once; `store_failed`
   (nothing changed) if NVS does not take it. Lowering the target while VBAT

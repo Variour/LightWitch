@@ -361,7 +361,13 @@ static void setLocalWifiPolicy(bool enabled) {
 
 // ── WiFi ─────────────────────────────────────────────────────────────────────
 // Call right after WiFi.mode().
-static void keepWifiOn24GHz() {
+static void configureWifiRadio() {
+    // Channels 1-13 (country DE), so a device without a WiFi connection can
+    // follow a mesh on channel 12 or 13 too. ESP-IDF 5 starts in world safe
+    // mode, channels 1-11. With 802.11d on, a connected station uses the
+    // country of its AP.
+    if (esp_err_t err = esp_wifi_set_country_code("DE", true); err != ESP_OK)
+        Logger::e("[wifi] country DE failed: %s", esp_err_to_name(err));
 #if SOC_WIFI_SUPPORT_5G
     // Dual-band chips (ESP32-C5): stay on 2.4 GHz, where ESP-NOW and the mesh
     // channel scan run, also when a configured network offers 5 GHz. The
@@ -379,7 +385,7 @@ static void setupWifi() {
     auto& c = Config::get();
 
     WiFi.mode(SoftAp::fallbackAllowed() ? WIFI_AP_STA : WIFI_STA);
-    keepWifiOn24GHz();
+    configureWifiRadio();
     WiFi.setAutoReconnect(false);
     ensureWifiPolicyStateInitialized();
 
@@ -459,7 +465,7 @@ static void setupWifi() {
 // ESP-NOW only, with no softAP and no connection.
 static void setupWifiQuiet(const char* why) {
     WiFi.mode(WIFI_STA);
-    keepWifiOn24GHz();
+    configureWifiRadio();
     WiFi.setAutoReconnect(false);
     WiFi.setTxPower(WIFI_TX_POWER);
     Logger::i("[wifi] %s: no AP, no WiFi connection", why);

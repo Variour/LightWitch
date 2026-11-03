@@ -144,6 +144,9 @@ static constexpr uint8_t kSsidMax = 32;  // IEEE 802.11: SSID of up to 32 bytes
 static constexpr uint8_t kPassMin = 8;   // WPA2 passphrase: 8-63 characters, or "" (open)
 static constexpr uint8_t kPassMax = 63;
 
+// ── USB `config token` ───────────────────────────────────────────────────────
+static constexpr uint8_t kTokenMax = 127;  // = sizeof(DeviceConfig::githubToken) - 1
+
 // ── Factory test (USB `test`) ────────────────────────────────────────────────
 static constexpr uint8_t kTestLevel = 20;            // spec: brightness about 20
 static constexpr uint32_t kTestColorMs = 600;        // firmware: each colour on all LEDs
