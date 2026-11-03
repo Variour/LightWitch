@@ -34,6 +34,8 @@
 
 static_assert(fleet::kWifiNetworksMax == MAX_WIFI_NETWORKS,
               "config wifi takes as many networks as Config stores");
+static_assert(fleet::kTokenMax + 1 == sizeof(DeviceConfig::githubToken),
+              "config token takes as long a token as Config stores");
 static_assert(fleet::kEventVregMv <= PowerManager::CHARGE_VOLTAGE_MV,
               "the event target stays at or below the board's charge voltage");
 static_assert(MAX_BUTTONS <= 16, "the muted-key mask holds one bit per button");
@@ -791,6 +793,13 @@ class FleetManager {
             return ok;
         };
         io.wifiCount = []() { return Config::wifiCount(); };
+        io.setToken = [](const char* token) {
+            strlcpy(Config::get().githubToken, token, sizeof(Config::get().githubToken));
+            bool ok = Config::save();
+            Logger::i("[fleet] GitHub token %s over USB", token[0] ? "set" : "cleared");
+            return ok;
+        };
+        io.hasToken = []() { return Config::get().githubToken[0] != '\0'; };
         io.setTarget = [this](fleet::Target t) { return _setTarget(t); };
         io.target = [this]() { return _target; };
         io.openAp = [](uint8_t minutes) {

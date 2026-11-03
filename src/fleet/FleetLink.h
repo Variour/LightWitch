@@ -69,6 +69,10 @@ class FleetLink : public game::Link::Extension {
         // config
         std::function<bool(const WifiNet* nets, uint8_t count)> setWifi;
         std::function<uint8_t()> wifiCount;
+        // Stores the GitHub token for updates ("" clears it); false if it
+        // could not be stored.
+        std::function<bool(const char* token)> setToken;
+        std::function<bool()> hasToken;
         // Stores the target (NVS) and applies it; false if it could not be stored.
         std::function<bool(Target)> setTarget;
         std::function<Target()> target;
@@ -225,6 +229,22 @@ class FleetLink : public game::Link::Extension {
     // ── config ───────────────────────────────────────────────────────────────
     void _config(Link& link, const char* cmd, JsonObjectConst o, const ReqId& id) {
         if (strcmp(cmd, "wifi") == 0) return _configWifi(link, o, id);
+        if (strcmp(cmd, "token") == 0) {
+            // Never echoed or logged.
+            const char* token = _str(o, "token");
+            if (!token || strlen(token) > kTokenMax)
+                return _badField(link, id, "config", cmd, "token",
+                                 "token must be a string of 0-127 bytes");
+            if (!_io.setToken || !_io.setToken(token))
+                return link.error(id, "store_failed", "config", cmd, nullptr,
+                                  "the token could not be saved");
+            JsonDocument d;
+            Link::head(d, "config", "token", id);
+            _ok(d);
+            d["token"] = token[0] != '\0';
+            link.emit(d);
+            return;
+        }
         if (strcmp(cmd, "charge") == 0) {
             int t = nameIndex(_str(o, "target"), kTargetNames, 2);
             if (t < 0)
@@ -260,6 +280,7 @@ class FleetLink : public game::Link::Extension {
             JsonDocument d;
             Link::head(d, "config", "config", id);
             d["wifiCount"] = _io.wifiCount ? _io.wifiCount() : 0;
+            d["token"] = _io.hasToken ? _io.hasToken() : false;
             Target t = _io.target ? _io.target() : Target::Store;
             d["target"] = kTargetNames[(uint8_t)t];
             uint16_t n = _io.number ? _io.number() : 0;
@@ -274,7 +295,7 @@ class FleetLink : public game::Link::Extension {
             return;
         }
         link.error(id, "unknown_cmd", "config", cmd, nullptr,
-                   "config commands: wifi, charge, ap, get");
+                   "config commands: wifi, token, charge, ap, get");
     }
 
     // Replaces the whole list. Passwords are never echoed or logged.
