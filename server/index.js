@@ -9,9 +9,9 @@ import { authRouter, requireAuth } from './auth.js';
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 const mockLights = [
-  { index: 0, name: 'Living room', ledType: 0, colorOrder: 2, dataPin: 13, clockPin: 14, width: 1,  height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 0, brightnessOverrideEnabled: false, brightnessOverride: 255, brightnessLimit: 255, brightnessScale: 255 },
-  { index: 1, name: 'Bedroom',     ledType: 1, colorOrder: 0, dataPin: 25, clockPin: 26, width: 8,  height: 8, matrixStart: 2, matrixDir: 1, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 1, brightnessOverrideEnabled: true,  brightnessOverride: 120, brightnessLimit: 255, brightnessScale: 255 },
-  { index: 2, name: 'Patio',       ledType: 0, colorOrder: 2, dataPin: 27, clockPin: 32, width: 12, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: true,  wrapHeight: false, groupId: 2, brightnessOverrideEnabled: false, brightnessOverride: 255, brightnessLimit: 128, brightnessScale: 180 },
+  { index: 0, name: 'Living room', ledType: 0, colorOrder: 2, dataPin: 13, clockPin: 14, width: 1,  height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 0, brightnessOverrideEnabled: false, brightnessOverride: 255, brightnessLimit: 255, brightnessScale: 255, currentLimitMa: 300 },
+  { index: 1, name: 'Bedroom',     ledType: 1, colorOrder: 0, dataPin: 25, clockPin: 26, width: 8,  height: 8, matrixStart: 2, matrixDir: 1, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 1, brightnessOverrideEnabled: true,  brightnessOverride: 120, brightnessLimit: 255, brightnessScale: 255, currentLimitMa: 0 },
+  { index: 2, name: 'Patio',       ledType: 0, colorOrder: 2, dataPin: 27, clockPin: 32, width: 12, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: true,  wrapHeight: false, groupId: 2, brightnessOverrideEnabled: false, brightnessOverride: 255, brightnessLimit: 128, brightnessScale: 180, currentLimitMa: 0 },
 ];
 
 // The real device derives self.lights in /api/peers straight from the live
@@ -56,6 +56,7 @@ const MOCK_CONFIG = {
   i2cSclPin: 22,
   expanderChip: 1,
   expanderAddress: 0x20,
+  chargerEnabled: true,
   mqttHost: 'mqtt.local',
   mqttPort: 1883,
   mqttUser: 'lights',
@@ -111,22 +112,34 @@ const mockPlaylists = new Map([
 // pin (8) but uses a different pin index (9) to exercise that overlap
 // without conflicting, same as the Waveshare board's real KEY1 wiring.
 const mockButtons = [
-  { index: 0, name: 'Wall switch', pin: 4, activeLow: true, viaExpander: false, exists: true,
+  { index: 0, name: 'Wall switch', pin: 4, activeLow: true, viaExpander: false, role: 'buzz', exists: true,
     onShortPress:  { action: 1, groupId: 0, lightIndex: 0, numberValue: 20, stringValue: '', r: 255, g: 255, b: 255 }, // BrightnessStep
     onLongPress:   { action: 6, groupId: 0, lightIndex: 0, numberValue: 0,  stringValue: '', r: 255, g: 255, b: 255 }, // PatternNext
     onDoubleClick: { action: 3, groupId: 0, lightIndex: 0, numberValue: 0,  stringValue: '', r: 0,   g: 150, b: 255 }, // ColorSet
   },
-  { index: 1, name: 'Nightstand', pin: 5, activeLow: true, viaExpander: false, exists: true,
+  { index: 1, name: 'Nightstand', pin: 5, activeLow: true, viaExpander: false, role: '', exists: true,
     onShortPress:  { action: 12, groupId: 1, lightIndex: 0, numberValue: 0, stringValue: '0002ee38f7ce6ab7acd6a859', r: 255, g: 255, b: 255 }, // SceneSet
     onLongPress:   { action: 5,  groupId: 1, lightIndex: 0, numberValue: 1, stringValue: '', r: 255, g: 255, b: 255 }, // ModeSet → Scene
     onDoubleClick: { action: 25, groupId: 0, lightIndex: 1, numberValue: 20, stringValue: '', r: 255, g: 255, b: 255 }, // LightBrightnessOverrideStep on Bedroom
   },
-  { index: 2, name: 'KEY1 (expander)', pin: 9, activeLow: true, viaExpander: true, exists: true,
+  { index: 2, name: 'KEY1 (expander)', pin: 9, activeLow: true, viaExpander: true, role: 'power', exists: true,
     onShortPress:  { action: 9, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 }, // SceneNext
     onLongPress:   { action: 0, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 },
     onDoubleClick: { action: 0, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 },
   },
 ];
+
+// Mirrors Config.h::MAX_BUTTONS and src/buttons/ButtonRoles.h.
+const MAX_BUTTONS = 11;
+const BUTTON_ROLES = ['buzz', 'up', 'down', 'left', 'right', 'enter', 'l1', 'l2', 'r1', 'r2', 'power'];
+
+// Mirrors WebServer.h::_buttonRoleConflict: role must be '' or a known role,
+// and a non-empty role belongs to one button only.
+function buttonRoleConflict(role, excludeIndex) {
+  if (role !== '' && !BUTTON_ROLES.includes(role)) return 'unknown role';
+  if (role !== '' && mockButtons.some(b => b.index !== excludeIndex && b.role === role)) return 'role already in use';
+  return null;
+}
 
 // Mirrors AutomationBinding/AutomationRule shape from WebServer.h::serializeAutomationBinding
 // (issue #439). triggerType 0 = GenericEvent (the only trigger type today).
@@ -353,10 +366,11 @@ app.post('/api/config', (req, res) => {
   if ('i2cSdaPin' in rest && 'i2cSclPin' in rest) {
     const disablingBus = rest.i2cSdaPin === PIN_UNUSED || rest.i2cSclPin === PIN_UNUSED;
     if (disablingBus) {
-      const busInUse = mockSounds.some(s => s.exists) || targetExpanderChip !== 0;
+      const targetCharger = 'chargerEnabled' in rest ? rest.chargerEnabled : MOCK_CONFIG.chargerEnabled;
+      const busInUse = mockSounds.some(s => s.exists) || targetExpanderChip !== 0 || targetCharger;
       if (busInUse) {
         return res.status(400).json({
-          error: 'I2C bus still used by a configured sound output, button, or the configured expander',
+          error: 'I2C bus still used by a configured sound output, button, the configured expander, or the charger',
         });
       }
     } else if (rest.i2cSdaPin === rest.i2cSclPin) {
@@ -381,6 +395,16 @@ app.post('/api/config', (req, res) => {
     }
   }
 
+  // Mirrors _postConfig's charger guard: enabling the BQ25628 charger needs
+  // the (possibly just-updated-above) I2C bus.
+  if (rest.chargerEnabled === true) {
+    const sda = 'i2cSdaPin' in rest ? rest.i2cSdaPin : MOCK_CONFIG.i2cSdaPin;
+    const scl = 'i2cSclPin' in rest ? rest.i2cSclPin : MOCK_CONFIG.i2cSclPin;
+    if (sda === PIN_UNUSED || scl === PIN_UNUSED) {
+      return res.status(400).json({ error: 'configure the device I2C bus first' });
+    }
+  }
+
   // Mirrors _postConfig's rebootNeeded logic: deviceName/otaPort/otaEnabled
   // are one-shot on the real device (mDNS/ArduinoOTA/AP SSID init at boot
   // only); the I2C bus and expander are too, since both are only ever
@@ -388,7 +412,7 @@ app.post('/api/config', (req, res) => {
   // Every other field applies live, no reboot.
   const rebooting = [
     'deviceName', 'otaPort', 'otaEnabled',
-    'i2cSdaPin', 'i2cSclPin', 'expanderChip', 'expanderAddress',
+    'i2cSdaPin', 'i2cSclPin', 'expanderChip', 'expanderAddress', 'chargerEnabled',
   ].some(k => k in rest && rest[k] !== MOCK_CONFIG[k]);
 
   Object.assign(MOCK_CONFIG, rest);
@@ -649,10 +673,10 @@ app.get('/api/lights', (_req, res) => res.json({ lights: mockLights, maxLights: 
 app.post('/api/lights/add', (req, res) => {
   const free = [0,1,2,3].find(i => !mockLights.find(l => l.index === i));
   if (free === undefined) return res.status(400).json({ error: 'light limit reached' });
-  const { name = '', ledType = 0, colorOrder, dataPin = 13, clockPin = 14, width = 1, height = 1, matrixStart = 0, matrixDir = 0, matrixSerpentine = false, wrapWidth = false, wrapHeight = false, groupId = 0, brightnessLimit = 255, brightnessScale = 255 } = req.body || {};
+  const { name = '', ledType = 0, colorOrder, dataPin = 13, clockPin = 14, width = 1, height = 1, matrixStart = 0, matrixDir = 0, matrixSerpentine = false, wrapWidth = false, wrapHeight = false, groupId = 0, brightnessLimit = 255, brightnessScale = 255, currentLimitMa = 0 } = req.body || {};
   // Mirrors Config.h::defaultColorOrder: WS2812B (0) is conventionally wired GRB (2), WS2801 (1) RGB (0).
   const resolvedColorOrder = colorOrder !== undefined ? colorOrder : (ledType === 0 ? 2 : 0);
-  const light = { index: free, name, ledType, colorOrder: resolvedColorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir, matrixSerpentine, wrapWidth, wrapHeight, groupId, brightnessLimit, brightnessScale };
+  const light = { index: free, name, ledType, colorOrder: resolvedColorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir, matrixSerpentine, wrapWidth, wrapHeight, groupId, brightnessLimit, brightnessScale, currentLimitMa };
   const conflict = lightPinConflict(light, free);
   if (conflict) return res.status(400).json({ error: conflict });
   mockLights.push(light);
@@ -914,16 +938,16 @@ app.post('/api/audio/stop', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/buttons', (_req, res) => res.json({ buttons: mockButtons, maxButtons: 4 }));
+app.get('/api/buttons', (_req, res) => res.json({ buttons: mockButtons, maxButtons: MAX_BUTTONS }));
 app.post('/api/buttons/add', (req, res) => {
-  const free = [0,1,2,3].find(i => !mockButtons.find(b => b.index === i));
+  const free = Array.from({ length: MAX_BUTTONS }, (_, i) => i).find(i => !mockButtons.find(b => b.index === i));
   if (free === undefined) return res.status(400).json({ error: 'button limit reached' });
-  const { name = '', pin = 0, activeLow = true, viaExpander = false, onShortPress, onLongPress, onDoubleClick } = req.body || {};
-  const conflict = buttonPinConflict({ pin, viaExpander }, free);
+  const { name = '', pin = 0, activeLow = true, viaExpander = false, role = '', onShortPress, onLongPress, onDoubleClick } = req.body || {};
+  const conflict = buttonPinConflict({ pin, viaExpander }, free) || buttonRoleConflict(role, free);
   if (conflict) return res.status(400).json({ error: conflict });
   const blankAction = () => ({ action: 0, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 });
   mockButtons.push({
-    index: free, name, pin, activeLow, viaExpander, exists: true,
+    index: free, name, pin, activeLow, viaExpander, role, exists: true,
     onShortPress:  onShortPress  || blankAction(),
     onLongPress:   onLongPress   || blankAction(),
     onDoubleClick: onDoubleClick || blankAction(),
@@ -934,6 +958,10 @@ app.post('/api/buttons/update', (req, res) => {
   const { index, ...fields } = req.body || {};
   const button = mockButtons.find(b => b.index === index);
   if (!button) return res.status(404).json({ error: 'not found' });
+  if (fields.role !== undefined) {
+    const roleConflict = buttonRoleConflict(fields.role, index);
+    if (roleConflict) return res.status(400).json({ error: roleConflict });
+  }
   const pinChanged = ['pin', 'viaExpander'].some(k => fields[k] !== undefined);
   if (pinChanged) {
     const candidate = { ...button, ...fields };

@@ -5,7 +5,11 @@
 #include <WiFi.h>
 #include <esp_mac.h>
 
+#include <memory>
+#include <new>
+
 #include "../logging/Logger.h"
+#include "BoardProfile.h"
 
 DeviceConfig Config::_cfg;
 const char* Config::_path = "/config.json";
@@ -16,8 +20,80 @@ uint8_t Config::_wifiLast = 0;
 static const char* _wifiPath = "/wifi.json";
 
 static constexpr char NVS_NS[] = "bl";
-static constexpr char NVS_KEY[] = "cfg";
+// Config backup in NVS: the config JSON as a blob, so a filesystem reflash
+// keeps the config (see Config::load()). A blob, because NVS strings stop at
+// 4000 bytes and a Buzzerboard config is ~7 KB.
+static constexpr char NVS_BLOB_KEY[] = "cfgb";
+// The string key firmware before the blob used for the backup: read once to
+// migrate, removed by the first blob write.
+static constexpr char NVS_LEGACY_KEY[] = "cfg";
 static constexpr char NVS_WIFI_KEY[] = "wifi";
+
+// Hash of the JSON in the NVS backup blob (0 = no blob), so saves that
+// change nothing skip the NVS write. Read from NVS on the first save.
+static bool _nvsBackupHashKnown = false;
+static uint32_t _nvsBackupHash = 0;
+
+// FNV-1a, never 0 (0 stands for "no blob").
+static uint32_t backupHash(const char* data, size_t len) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < len; i++) h = (h ^ (uint8_t)data[i]) * 16777619u;
+    return h ? h : 1;
+}
+
+// Reads the NVS config backup into doc: the blob, or else the string older
+// firmware wrote. True if one was found and parsed.
+static bool readNvsBackup(JsonDocument& doc) {
+    Preferences prefs;
+    if (!prefs.begin(NVS_NS, /*readOnly=*/true)) return false;
+    bool ok = false;
+    if (prefs.getType(NVS_BLOB_KEY) == PT_BLOB) {
+        size_t len = prefs.getBytesLength(NVS_BLOB_KEY);
+        std::unique_ptr<char[]> buf(new (std::nothrow) char[len]);
+        if (len > 0 && buf && prefs.getBytes(NVS_BLOB_KEY, buf.get(), len) == len)
+            ok = !deserializeJson(doc, (const char*)buf.get(), len);
+    } else if (prefs.getType(NVS_LEGACY_KEY) == PT_STR) {
+        String json = prefs.getString(NVS_LEGACY_KEY, "");
+        ok = json.length() > 0 && !deserializeJson(doc, json);
+    }
+    prefs.end();
+    return ok;
+}
+
+// Hash of the blob NVS holds now, 0 if there is none.
+static uint32_t storedBackupHash(Preferences& prefs) {
+    if (prefs.getType(NVS_BLOB_KEY) != PT_BLOB) return 0;
+    size_t len = prefs.getBytesLength(NVS_BLOB_KEY);
+    std::unique_ptr<char[]> buf(new (std::nothrow) char[len]);
+    if (len == 0 || !buf || prefs.getBytes(NVS_BLOB_KEY, buf.get(), len) != len) return 0;
+    return backupHash(buf.get(), len);
+}
+
+// Stores json as the NVS backup blob unless the blob already holds it.
+static void writeNvsBackup(const String& json) {
+    Preferences prefs;
+    if (!prefs.begin(NVS_NS, /*readOnly=*/false)) return;
+    if (!_nvsBackupHashKnown) {
+        _nvsBackupHash = storedBackupHash(prefs);
+        _nvsBackupHashKnown = true;
+    }
+    uint32_t hash = backupHash(json.c_str(), json.length());
+    if (hash != _nvsBackupHash) {
+        // One copy at a time: NVS keeps an updated blob's old copy until the
+        // new one is complete, and two copies of a ~7 KB config plus the PHY
+        // calibration data already exceed the 20 KB NVS partition.
+        if (prefs.getType(NVS_BLOB_KEY) != PT_INVALID) prefs.remove(NVS_BLOB_KEY);
+        if (prefs.getType(NVS_LEGACY_KEY) != PT_INVALID) prefs.remove(NVS_LEGACY_KEY);
+        if (prefs.putBytes(NVS_BLOB_KEY, json.c_str(), json.length()) == json.length()) {
+            _nvsBackupHash = hash;
+        } else {
+            _nvsBackupHash = 0;
+            Logger::w("[cfg] NVS backup not written (%u bytes, %u free NVS entries)", json.length(),
+                      (unsigned)prefs.freeEntries());
+        }
+    }
+    prefs.end();
+}
 
 void serializeLightConfig(JsonObject o, const LightConfig& l) {
     o["mode"] = (uint8_t)l.mode;
@@ -103,6 +179,7 @@ void serializeButton(JsonObject o, const ButtonHardwareConfig& b) {
     o["pin"] = b.pin;
     o["activeLow"] = b.activeLow;
     o["viaExpander"] = b.viaExpander;
+    o["role"] = b.role;
     o["exists"] = b.exists;
     serializeButtonAction(o["onShortPress"].to<JsonObject>(), b.onShortPress);
     serializeButtonAction(o["onLongPress"].to<JsonObject>(), b.onLongPress);
@@ -114,6 +191,7 @@ void deserializeButton(JsonVariant o, ButtonHardwareConfig& b) {
     b.pin = o["pin"] | (uint8_t)0;
     b.activeLow = o["activeLow"] | true;
     b.viaExpander = o["viaExpander"] | false;
+    strlcpy(b.role, o["role"] | "", sizeof(b.role));
     b.exists = o["exists"] | false;
     b.onShortPress = deserializeButtonAction(o["onShortPress"], b.onShortPress);
     b.onLongPress = deserializeButtonAction(o["onLongPress"], b.onLongPress);
@@ -227,6 +305,13 @@ static bool migrateDoc(JsonDocument& doc) {
         // with `| default` fallbacks in applyDoc(), nothing to rewrite.
         Logger::i("[cfg] schema v%u -> v5", ver);
     }
+    if (ver < 6) {
+        // v5 -> v6: buttons gained role, lights gained currentLimitMa, the
+        // device gained chargerEnabled — additive with `| default` fallbacks
+        // in applyDoc() (role "", no current cap, charger off), nothing to
+        // rewrite.
+        Logger::i("[cfg] schema v%u -> v6", ver < 5 ? 5 : ver);
+    }
     return true;
 }
 
@@ -251,6 +336,7 @@ static void applyDoc(JsonDocument& doc) {
     Config::get().expanderChip =
         (IoExpanderChip)(uint8_t)(doc["expanderChip"] | (uint8_t)IoExpanderChip::None);
     Config::get().expanderAddress = doc["expanderAddress"] | (uint8_t)0x20;
+    Config::get().chargerEnabled = doc["chargerEnabled"] | false;
     Config::get().wifiPolicyRevision = doc["wifiPolicyRevision"] | (uint32_t)0;
     for (uint8_t i = 0; i < 6; i++)
         Config::get().wifiPolicyOriginMac[i] = doc["wifiPolicyOriginMac"][i] | (uint8_t)0;
@@ -290,6 +376,7 @@ static void applyDoc(JsonDocument& doc) {
             l.brightnessOverride = v["brightnessOverride"] | (uint8_t)255;
             l.brightnessLimit = v["brightnessLimit"] | (uint8_t)255;
             l.brightnessScale = v["brightnessScale"] | (uint8_t)255;
+            l.currentLimitMa = v["currentLimitMa"] | (uint16_t)0;
             if (!v["name"].isNull()) strlcpy(l.name, v["name"] | "", sizeof(l.name));
         }
     }
@@ -352,6 +439,7 @@ static void applyDoc(JsonDocument& doc) {
 }
 
 bool Config::load() {
+    detectBoard();
     if (LittleFS.exists(_path)) {
         File f = LittleFS.open(_path, "r");
         if (f) {
@@ -368,20 +456,15 @@ bool Config::load() {
         }
     }
 
-    Preferences prefs;
-    if (prefs.begin(NVS_NS, /*readOnly=*/true)) {
-        String json = prefs.getString(NVS_KEY, "");
-        prefs.end();
-        if (json.length() > 0) {
-            JsonDocument doc;
-            if (!deserializeJson(doc, json) && migrateDoc(doc)) {
-                applyDoc(doc);
-                _ensureDefaultGroup();
-                _ensureDefaultAudioGroup();
-                Logger::i("[cfg] no LittleFS config — restored from NVS");
-                save();
-                return true;
-            }
+    {
+        JsonDocument doc;
+        if (readNvsBackup(doc) && migrateDoc(doc)) {
+            applyDoc(doc);
+            _ensureDefaultGroup();
+            _ensureDefaultAudioGroup();
+            Logger::i("[cfg] no LittleFS config — restored from NVS");
+            save();
+            return true;
         }
     }
 
@@ -392,6 +475,13 @@ bool Config::load() {
     esp_efuse_mac_get_default(mac);
     snprintf(_cfg.deviceName, sizeof(_cfg.deviceName), "light-%02x%02x%02x", mac[3], mac[4],
              mac[5]);
+    // First boot of an unconfigured device: a board-specific build seeds its
+    // board's hardware config when it finds that board, so identical devices
+    // work without setup.
+    if (applyBoardProfile(_cfg)) {
+        Logger::i("[cfg] seeded board hardware profile");
+        save();
+    }
     return false;
 }
 
@@ -415,6 +505,7 @@ bool Config::save() {
     doc["i2cSclPin"] = _cfg.i2cSclPin;
     doc["expanderChip"] = (uint8_t)_cfg.expanderChip;
     doc["expanderAddress"] = _cfg.expanderAddress;
+    doc["chargerEnabled"] = _cfg.chargerEnabled;
     doc["wifiPolicyRevision"] = _cfg.wifiPolicyRevision;
     {
         JsonArray origin = doc["wifiPolicyOriginMac"].to<JsonArray>();
@@ -453,6 +544,7 @@ bool Config::save() {
         o["brightnessOverride"] = l.brightnessOverride;
         o["brightnessLimit"] = l.brightnessLimit;
         o["brightnessScale"] = l.brightnessScale;
+        o["currentLimitMa"] = l.currentLimitMa;
     }
 
     JsonArray arr = doc["groups"].to<JsonArray>();
@@ -524,11 +616,7 @@ bool Config::save() {
 
     String json;
     serializeJson(doc, json);
-    Preferences prefs;
-    if (prefs.begin(NVS_NS, /*readOnly=*/false)) {
-        prefs.putString(NVS_KEY, json);
-        prefs.end();
-    }
+    writeNvsBackup(json);
 
     Logger::d("[cfg] saved (%u bytes)", json.length());
     return fsOk;
@@ -541,6 +629,7 @@ void Config::reset() {
         prefs.clear();
         prefs.end();
     }
+    _nvsBackupHashKnown = false;
 }
 
 uint8_t Config::createGroup(const char* name) {
@@ -874,6 +963,7 @@ bool Config::isExpanderPinInUse(uint8_t pin, int8_t excludeButtonIndex, bool exc
 
 bool Config::i2cBusInUse() {
     if (_cfg.expanderChip != IoExpanderChip::None) return true;
+    if (_cfg.chargerEnabled) return true;
     for (uint8_t i = 0; i < MAX_SOUNDS; i++) {
         if (_cfg.sounds[i].exists) return true;
     }

@@ -57,6 +57,11 @@ class Updater {
     static Status& status() { return _status; }
     static PrListStatus& prListStatus() { return _prListStatus; }
 
+    // Returns why an update must not start now, or nullptr; applyAsync() and
+    // applyPrAsync() end in State::Error with that reason (see main.cpp).
+    using StartGuard = const char* (*)();
+    static void setStartGuard(StartGuard guard) { _startGuard = guard; }
+
     // True for the board families CI publishes PR prerelease builds for
     // (esp32dev, esp32s3, esp32c5 — see .github/workflows/firmware.yml).
     // esp32c3 is not built for PRs, so it stays excluded.
@@ -92,6 +97,11 @@ class Updater {
         if (WiFi.status() != WL_CONNECTED) {
             _status.state = State::Error;
             _status.error = "not connected to WiFi";
+            return;
+        }
+        if (const char* why = _startGuard ? _startGuard() : nullptr) {
+            _status.state = State::Error;
+            _status.error = why;
             return;
         }
         _status.state = State::Downloading;
@@ -155,6 +165,11 @@ class Updater {
             _status.error = "not connected to WiFi";
             return;
         }
+        if (const char* why = _startGuard ? _startGuard() : nullptr) {
+            _status.state = State::Error;
+            _status.error = why;
+            return;
+        }
         _pendingTag = tag;
         _status = Status{};
         _status.state = State::Downloading;
@@ -167,6 +182,7 @@ class Updater {
     static PrListStatus _prListStatus;
     static std::atomic<bool> _triggerPending;
     static String _pendingTag;
+    static StartGuard _startGuard;
 
     // Opens a GET request against the GitHub API and returns the HTTP status code.
     // Authenticates with the configured PAT if one is set, otherwise sends the
@@ -646,6 +662,7 @@ inline Updater::Status Updater::_status;
 inline Updater::PrListStatus Updater::_prListStatus;
 inline std::atomic<bool> Updater::_triggerPending{false};
 inline String Updater::_pendingTag;
+inline Updater::StartGuard Updater::_startGuard = nullptr;
 inline uint32_t Updater::_firmwareAssetId = 0;
 inline uint32_t Updater::_fsAssetId = 0;
 inline char Updater::_errorBuf[48] = {};

@@ -1,8 +1,16 @@
 #pragma once
 #include <Arduino.h>
 
+#include <functional>
+
 // Reads the optional battery-voltage sense line (see hardware note below) and
 // derives a percentage + power-source state from it.
+//
+// Boards with a BQ25628 charger (DeviceConfig::chargerEnabled) read the
+// battery from the charger instead, see setChargerSource(): VBAT comes from
+// its ADC and "Charging" means the charger reports a USB adapter, the same
+// "held up by external power" meaning the divider path below infers from the
+// voltage. The divider path is unchanged for every other board.
 //
 // Hardware: BAT (battery +) is divided 200 kΩ / 100 kΩ (±1% each) down to a
 // net called BAT_ADC, which can be solder-bridged onto GPIO1. Vbat = Vadc *
@@ -35,6 +43,22 @@ class BatteryMonitor {
         false;
 #endif
 
+    // One battery reading from the charger. valid = false while the charger
+    // has no fresh measurement (not found, I2C error, ADC not ready).
+    struct ChargerReading {
+        bool valid = false;
+        uint16_t vbatMv = 0;
+        bool externalPower = false;  // charger reports a USB adapter (power good)
+    };
+    using ChargerSource = std::function<ChargerReading()>;
+
+    // Switches this monitor to the charger as its source. Call before begin().
+    void setChargerSource(ChargerSource source) { _chargerSource = source; }
+
+    // True if this build/board can report a battery at all: the ADC divider
+    // (BATTERY_ADC_PIN) or a charger source.
+    bool hwSupported() const { return kHwSupported || (bool)_chargerSource; }
+
     void begin(bool enabled) { setEnabled(enabled); }
 
     // Enables/disables monitoring live (e.g. after a web UI settings save,
@@ -42,13 +66,14 @@ class BatteryMonitor {
     // rather than leaving stale readings around; re-enabling starts sampling
     // fresh on the next tick().
     void setEnabled(bool enabled) {
-        _enabled = enabled && kHwSupported;
+        _enabled = enabled && hwSupported();
         if (!_enabled) {
             _status = Status{};
             _smoothedMv = 0;
             _lastSampleMs = 0;
             return;
         }
+        if (_chargerSource) return;
 #ifdef BATTERY_ADC_PIN
         analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
 #endif
@@ -56,6 +81,10 @@ class BatteryMonitor {
 
     // Call regularly (e.g. every loop() background tick); internally rate-limited.
     void tick() {
+        if (_chargerSource) {
+            _tickCharger();
+            return;
+        }
 #ifdef BATTERY_ADC_PIN
         if (!_enabled) return;
         uint32_t now = millis();
@@ -93,6 +122,28 @@ class BatteryMonitor {
     uint32_t _lastSampleMs = 0;
     uint16_t _smoothedMv = 0;
     Status _status;
+    ChargerSource _chargerSource;
+
+    // Same cadence, smoothing and curve as the divider path; only the voltage
+    // and the power-source state come from the charger.
+    void _tickCharger() {
+        if (!_enabled) return;
+        uint32_t now = millis();
+        if (_lastSampleMs != 0 && now - _lastSampleMs < SAMPLE_INTERVAL_MS) return;
+        _lastSampleMs = now;
+
+        ChargerReading r = _chargerSource();
+        if (!r.valid) {
+            _status = Status{};
+            _smoothedMv = 0;
+            return;
+        }
+        _smoothedMv =
+            (_smoothedMv == 0) ? r.vbatMv : (uint16_t)((_smoothedMv * 7 + r.vbatMv * 3) / 10);
+        _status.present = true;
+        _status.state = r.externalPower ? State::Charging : State::OnBattery;
+        _status.percent = _voltageToPercent(_smoothedMv);
+    }
 
     // Piecewise-linear approximation of a generic 1S Li-ion/LiPo open-circuit
     // discharge curve (3.0-4.2V), most-charged first.

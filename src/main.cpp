@@ -4,6 +4,8 @@
 #include <LittleFS.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <esp_wifi.h>
+#include <soc/soc_caps.h>
 
 #include <new>
 
@@ -11,6 +13,7 @@
 #include "automations/AutomationManager.h"
 #include "battery/BatteryMonitor.h"
 #include "buttons/ButtonManager.h"
+#include "config/BoardProfile.h"
 #include "config/Config.h"
 #include "events/EventLog.h"
 #include "led/Ws2801Driver.h"
@@ -21,6 +24,7 @@
 #include "mesh/WifiElection.h"
 #include "mqtt/MqttManager.h"
 #include "patterns/PatternRunner.h"
+#include "power/PowerManager.h"
 #include "scenes/SceneSyncManager.h"
 #include "sound/Es8311Driver.h"
 #include "sound/PlaylistManager.h"
@@ -50,6 +54,7 @@ static ButtonManager buttonManager;
 static AutomationManager automationManager;
 static EventLog eventLog;
 static BatteryMonitor battery;
+static PowerManager power;
 static bool _otaActive = false;
 
 // Last-published battery reading, so mqtt/mesh-telemetry pushes only fire on
@@ -342,6 +347,16 @@ static void setupWifi() {
     auto& c = Config::get();
 
     WiFi.mode(WIFI_AP_STA);
+#if SOC_WIFI_SUPPORT_5G
+    // Dual-band chips (ESP32-C5): stay on 2.4 GHz, where ESP-NOW and the mesh
+    // channel scan run, also when a configured network offers 5 GHz. The
+    // Arduino core starts the driver in WIFI_BAND_MODE_AUTO (WiFi.mode()
+    // above), so set the band right after it. The IDF call only needs the
+    // driver started; WiFi.setBandMode() also needs the STA/AP start event,
+    // which arrives asynchronously.
+    if (esp_err_t err = esp_wifi_set_band_mode(WIFI_BAND_MODE_2G_ONLY); err != ESP_OK)
+        Logger::e("[wifi] 2.4 GHz-only band mode failed: %s", esp_err_to_name(err));
+#endif
     WiFi.setAutoReconnect(false);
     ensureWifiPolicyStateInitialized();
 
@@ -446,10 +461,54 @@ void setup() {
     Logger::setLevel((LogLevel)Config::get().logLevel);
     Logger::i("[sys] firmware %s  device: %s", FW_VERSION, Config::get().deviceName);
 
+    // Bring up the device-wide I2C bus, if configured — shared by the sound
+    // codec's control interface and any TCA9555-backed button (see
+    // DeviceConfig::i2cSdaPin/i2cSclPin). Centralized here (rather than each
+    // consumer calling Wire.begin() itself) since ESP32 has a single default
+    // I2C bus that every consumer must agree on the same pins for.
+    if (Config::get().i2cSdaPin != PIN_UNUSED && Config::get().i2cSclPin != PIN_UNUSED) {
+        Wire.begin(Config::get().i2cSdaPin, Config::get().i2cSclPin);
+        Logger::i("[sys] I2C bus: sda=GPIO%d scl=GPIO%d", Config::get().i2cSdaPin,
+                  Config::get().i2cSclPin);
+    }
+
+    // Charger / LED rail / ship mode (boards with a BQ25628), right after the
+    // config so the low-battery check runs before anything that can block or
+    // crash (Wi-Fi setup). No light exists yet; the LED callbacks skip them.
+    // Blanking goes through the brightness clamp so running patterns stay
+    // dark too.
+    power.setOnLedBlank([](bool blank) {
+        Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
+            if (!_leds[i]) return;
+            if (blank) {
+                _leds[i]->setBrightnessClamp(0, 0);
+                _leds[i]->off();
+            } else {
+                _leds[i]->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
+            }
+        });
+        if (!blank) applyAllLights();
+    });
+    power.setOnLedRail([](bool up) {
+        for (uint8_t i = 0; i < MAX_LIGHTS; i++) {
+            if (!_leds[i]) continue;
+            _leds[i]->setRailPowered(up);
+            if (up) _leds[i]->show();
+        }
+    });
+    // Updates: none starts on a low battery, and ship mode waits for a
+    // running one.
+    power.setUpdateBusy(
+        []() { return _otaActive || Updater::status().state == Updater::State::Downloading; });
+    Updater::setStartGuard([]() { return power.updateBlockReason(); });
+    power.begin(Config::get().chargerEnabled);
+
     // Auto-probe the onboard SD card reader, if this build targets a board
     // that has one (see SdCardManager) — no-op/harmless on boards without it.
     _sdCard.begin();
 
+    if (Config::get().chargerEnabled)
+        battery.setChargerSource([]() { return power.batteryReading(); });
     battery.begin(Config::get().batteryMonitoringEnabled);
 
     setupWifi();
@@ -475,6 +534,7 @@ void setup() {
                       l.groupId);
         }
         drv->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
+        drv->setCurrentLimitMa(boardLedCurrentLimitMa(l.currentLimitMa));
         _leds[i] = drv;
         _runners[i].begin(*drv);
         _runners[i].setDimensions(l.width, l.height);
@@ -485,17 +545,6 @@ void setup() {
         auto* g = Config::group(l.groupId);
         if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
     });
-
-    // Bring up the device-wide I2C bus, if configured — shared by the sound
-    // codec's control interface and any TCA9555-backed button (see
-    // DeviceConfig::i2cSdaPin/i2cSclPin). Centralized here (rather than each
-    // consumer calling Wire.begin() itself) since ESP32 has a single default
-    // I2C bus that every consumer must agree on the same pins for.
-    if (Config::get().i2cSdaPin != PIN_UNUSED && Config::get().i2cSclPin != PIN_UNUSED) {
-        Wire.begin(Config::get().i2cSdaPin, Config::get().i2cSclPin);
-        Logger::i("[sys] I2C bus: sda=GPIO%d scl=GPIO%d", Config::get().i2cSdaPin,
-                  Config::get().i2cSclPin);
-    }
 
     // Initialise the sound output, if configured.
     Config::forEachSound([](uint8_t, SoundHardwareConfig& s) {
@@ -541,6 +590,10 @@ void setup() {
         mesh.broadcastGenericEvent(eventType, payload);
     });
     buttonManager.setExecutor(&actionExecutor);
+    // The one raw key-edge consumer slot: fan out from here to every module
+    // that needs press/release edges.
+    buttonManager.setRawCallback(
+        [](uint8_t index, bool pressed, uint32_t ms) { power.onButtonRaw(index, pressed, ms); });
     buttonManager.begin();
     automationManager.setExecutor(&actionExecutor);
 
@@ -894,6 +947,7 @@ void setup() {
         if (idx < MAX_LIGHTS && _leds[idx]) {
             auto& l = Config::get().lights[idx];
             _leds[idx]->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
+            _leds[idx]->setCurrentLimitMa(boardLedCurrentLimitMa(l.currentLimitMa));
         }
     });
     webServer.setOnColorOrderChange([](uint8_t idx) {
@@ -986,9 +1040,14 @@ void loop() {
     bool slowTick = now - _lastSlowTickMs >= SLOW_TICK_INTERVAL_MS;
     if (slowTick) _lastSlowTickMs = now;
 
+    // Ahead of the update early-return below: the charger watchdog reset and
+    // the LED rail keep running during an HTTP update download.
+    power.tick();
+
     // Idle OTA polling is throttled with everything else; once a transfer is
     // actually in flight (_otaActive), run every pass so flashing isn't slowed.
-    if (Config::get().otaEnabled && (slowTick || _otaActive)) ArduinoOTA.handle();
+    if (Config::get().otaEnabled && (slowTick || _otaActive) && !power.updateBlockReason())
+        ArduinoOTA.handle();
     if (slowTick) webServer.loop();
 
     Updater::State updState = Updater::status().state;

@@ -211,7 +211,9 @@ struct LightConfig {
 
 static constexpr uint8_t MAX_GROUPS = 8;
 static constexpr uint8_t MAX_LIGHTS = 4;
-static constexpr uint8_t MAX_BUTTONS = 4;
+// Covers the Buzzerboard's 11 keys (BUZZ, UP, DOWN, LEFT, RIGHT, ENTER, L1,
+// L2, R1, R2, POWER). Local to this device: not part of any mesh message.
+static constexpr uint8_t MAX_BUTTONS = 11;
 static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
 // Bump only for breaking DeviceConfig layout changes (a field renamed, moved,
 // or repurposed) — an additive field with a sensible `| default` fallback in
@@ -240,7 +242,10 @@ static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
 // additive with `| default` fallbacks in applyDoc(), so the v4 -> v5 step
 // in migrateDoc() rewrites nothing; first bump to use the migration-step
 // convention above instead of the reset-to-defaults fallback.
-static constexpr uint8_t CONFIG_SCHEMA_VERSION = 5;
+// v6: buttons gained role, lights gained currentLimitMa, the device gained
+// chargerEnabled (BQ25628 support) — additive with `| default` fallbacks in
+// applyDoc(), so the v5 -> v6 step in migrateDoc() rewrites nothing.
+static constexpr uint8_t CONFIG_SCHEMA_VERSION = 6;
 
 // Parameters for a ButtonAction. Which member is meaningful depends on the
 // ActionId — numberValue covers steps/fixed values/enum ordinals,
@@ -325,12 +330,19 @@ enum class IoExpanderChip : uint8_t {
 // pin may be a native ESP32 GPIO or a pin index (0-15) on the device's TCA9555
 // expander (see viaExpander, DeviceConfig::expanderChip/expanderAddress) —
 // only meaningful when the device has one configured.
+//
+// role is the key's stable function ("buzz", "power", ... — see
+// src/buttons/ButtonRoles.h), "" for none. Other modules find a key through
+// Config::buttonIndexForRole() rather than by slot index or pin.
+static constexpr uint8_t BUTTON_ROLE_LEN = 8;  // incl. null terminator
+
 struct ButtonHardwareConfig {
     char name[20] = "";
     uint8_t pin = 0;
     bool activeLow = true;  // true = pressed reads LOW (INPUT_PULLUP wiring, or an
                             // external pull-up on the expander pin — TCA9555 has none built in)
     bool viaExpander = false;
+    char role[BUTTON_ROLE_LEN] = "";
     ButtonAction onShortPress;
     ButtonAction onLongPress;
     ButtonAction onDoubleClick;
@@ -415,6 +427,11 @@ struct LightHardwareConfig {
     // result. Hardware properties of this light, local to this device.
     uint8_t brightnessLimit = 255;
     uint8_t brightnessScale = 255;
+    // Optional cap on the light's total LED current in mA, WS2812B only (see
+    // Ws2812bDriver::setCurrentLimitMa); 0 = no cap. The driver estimates each
+    // frame's current from its pixel values and scales the whole frame down
+    // when the estimate exceeds the cap. Local to this device.
+    uint16_t currentLimitMa = 0;
     bool exists = false;
 };
 
@@ -568,6 +585,12 @@ struct DeviceConfig {
     // I2C bus above to be configured first.
     IoExpanderChip expanderChip = IoExpanderChip::None;
     uint8_t expanderAddress = 0x20;  // TCA9555 default 7-bit address (A0-A2 strapped low)
+    // TI BQ25628 charger on the device I2C bus above (fixed address 0x6A, see
+    // src/power/Bq25628.h). When set, PowerManager configures and monitors
+    // it, BatteryMonitor reads the battery from its ADC, and the "power" key
+    // and the low-battery cut-off can switch the device off (ship mode).
+    // Requires the I2C bus; applied at boot only.
+    bool chargerEnabled = false;
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];
@@ -641,6 +664,18 @@ class Config {
             auto& b = _cfg.buttons[i];
             if (b.exists && !fn(i, b)) return;
         }
+    }
+
+    // Slot index of the configured button with this role (see
+    // src/buttons/ButtonRoles.h), or -1 if none has it. An empty role never
+    // matches.
+    static int8_t buttonIndexForRole(const char* role) {
+        if (role == nullptr || role[0] == '\0') return -1;
+        for (uint8_t i = 0; i < MAX_BUTTONS; i++) {
+            auto& b = _cfg.buttons[i];
+            if (b.exists && strcmp(b.role, role) == 0) return (int8_t)i;
+        }
+        return -1;
     }
 
     // Invoke fn(index, binding) for every configured automation binding where
@@ -734,9 +769,10 @@ class Config {
     static bool isExpanderPinInUse(uint8_t pin, int8_t excludeButtonIndex = -1,
                                    bool excludeSoundPa = false);
 
-    // True if the device I2C bus is still needed by a configured sound output
-    // or a device with expanderChip set — used to reject clearing
-    // i2cSdaPin/i2cSclPin while something still depends on them.
+    // True if the device I2C bus is still needed by a configured sound output,
+    // a device with expanderChip set, or the charger (chargerEnabled) — used
+    // to reject clearing i2cSdaPin/i2cSclPin while something still depends on
+    // them.
     static bool i2cBusInUse();
 
     // True if the device's expander (expanderChip) is still referenced by a
