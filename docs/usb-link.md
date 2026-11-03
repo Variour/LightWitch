@@ -46,6 +46,93 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
 | `no_usb` | `test charge` without USB power and a charger |
 | `session_active` | `fleet` while the bridge runs a game session; `test leds/keys/charge` on a participant in a session |
 
+## `game` (bridge): orientation and move rounds
+
+Additions to the gateway protocol v0 (firmware spec "Lage v0"). Everything
+else in `game` is as in the gateway protocol.
+
+### Orientation (`lage`)
+
+A Buzzerboard in a game session reads its orientation sensor
+(LSM6DS3TR-C, 6D detection). Directions are as seen by the person holding
+the device:
+
+| `lage` | Held | up | right | down | left | trigger left / right |
+|---|---|---|---|---|---|---|
+| `hochkant` | upright in one hand, USB-C at the top | UP | RIGHT | DOWN | LEFT | - |
+| `quer` | landscape, buzzer right, LED column at the top | LEFT | UP | RIGHT | DOWN | L2 / L1 |
+| `quer-links` | landscape, buzzer left, LED column at the bottom | RIGHT | DOWN | LEFT | UP | R1 / R2 |
+| `liegend` | flat on a table, front up | UP | RIGHT | DOWN | LEFT | - |
+
+- A new orientation counts after 2 s of stable holding. Upside down
+  (USB-C at the bottom) and front down are no orientation: the last one stays.
+- The device shows a new orientation once: the direction colours (up light
+  orange, right blue, down purple, left light blue) run once around the D-pad
+  and on to their keys, then one LED runs through the column in its new
+  reading direction. Then the new key mapping applies.
+- Until an orientation is known the device behaves as `hochkant`. Devices
+  other than the Buzzerboard have no sensor and never report one.
+- Key colours in `game round` belong to logical keys: `"keys":{"up":"yellow"}`
+  lights the key that is up as the device is held (in `hochkant` and
+  `liegend` the UP key, as before). Choice answers 1-4 stay up, right, down, left.
+- The LED column fills in reading direction: from the bottom in `hochkant`
+  and `liegend`, from the left in `quer` and in `quer-links` (as held).
+
+`join`, `device` and `value` lines carry `"lage"` when the device knows its
+orientation, and leave it out otherwise:
+
+- `join`, `device`: the device's orientation. A device sends its status at
+  once when it takes a new orientation, so a `device` line follows right away.
+- `value`: the orientation the input was read in.
+
+`{"ns":"game","ev":"device","n":7,"mac":"02:00:00:00:00:07","fw":"4a45fc32","proto":1,"bat":81,"chg":false,"rssi":-48,"round":23417,"seq":2,"lage":"quer"}`
+
+### `hold` in `game round`
+
+| `hold` | Devices |
+|---|---|
+| `frei` (default, may be left out) | follow their orientation |
+| `hochkant`, `quer`, `liegend` | in any other orientation the device is locked: keys do nothing and nothing is reported. `quer-links` counts as `quer`. |
+| `fest` | the orientation at the moment the round opens stays for the whole round |
+
+- Not with `idle` (`bad_field`, "omit hold for idle"). Like type, keys and
+  scale, `hold` is fixed for a running round (`round_fixed`).
+- A locked device, while the round is announced or open: key LEDs, ring
+  and column off, the status dot pulses slowly white (provisional). A closed
+  round shows its result in any orientation.
+- A device without a known orientation counts as `hochkant`, so `quer` and
+  `liegend` lock it.
+
+### Move rounds (`"type":"move"`)
+
+`{"ns":"game","cmd":"round","round":23417,"type":"move","phase":"open","keys":{"up":"white","right":"white","down":"white","left":"white"},"hold":"quer"}`
+
+- `keys`: exactly `up`, `right`, `down` and `left`. Phases as for other rounds.
+- While open, each press of a direction key is one key event (no
+  auto-repeat); buzz and enter do nothing. The device numbers its presses
+  with `kseq`: 8 bit, per device and round, from 1, wrapping at 256 (255 is
+  followed by 0); a new join starts again at 1. It keeps up to 8
+  unacknowledged presses and sends them again until the bridge's echo
+  shows them.
+- The bridge writes each press exactly once, in order per device:
+
+`{"ns":"game","ev":"key","n":7,"round":23417,"key":"right","kseq":12,"lage":"quer"}`
+
+| Field | Meaning |
+|---|---|
+| `n` | device number |
+| `round` | the round the press belongs to |
+| `key` | `up`, `right`, `down`, `left`: logical with `lage`, the physical key without it |
+| `kseq` | the device's press counter |
+| `lage` | the orientation the press was read in; left out when unknown |
+
+- The bridge passes a press on once its line has room in the bridge's queue
+  (64 presses); the device repeats the others. Key lines come before
+  `device` and `value` lines.
+- The game logic (positions, winner) stays in the console.
+- Device display (provisional): the four direction keys glow dimmed in the
+  round's key colour while open; a press pulses its key until acknowledged.
+
 ## Device states (Buzzerboard, outside a game session)
 
 | State | When | Behaviour |
