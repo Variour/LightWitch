@@ -7,6 +7,7 @@
 #include "GameConfig.h"
 #include "GameFrames.h"
 #include "GameTypes.h"
+#include "Lage.h"
 
 namespace game {
 
@@ -14,6 +15,12 @@ namespace game {
 // shows the bridge's round state, takes key input and reports its value until
 // the bridge's echo matches. Leaving the session always ends in a restart
 // into normal operation (round format v0, "Zurück in den Normalbetrieb").
+//
+// Orientation (firmware spec "Lage v0"): the sensor's position goes through
+// LageFilter; keys are read as logical inputs in the orientation whose
+// mapping applies (inputLage()), which follows a newly accepted orientation
+// after its change animation. In a move round each press is a key event with
+// its own counter, repeated until the bridge's echo shows it.
 //
 // Plain C++: time, randomness, radio, storage and restart come in through Io,
 // so this builds and runs on the host.
@@ -55,8 +62,27 @@ class Participant {
         uint8_t min = 0, max = 0, redMax = 0, greenMin = 0;
         uint16_t winner = 0;
         uint8_t correct = 0;
+        Hold hold = Hold::Frei;
+        bool fixedKnown = false;  // hold fest: the orientation at the open
+        Lage fixed = Lage::Unknown;
         bool startKnown = false;
         uint32_t startMs = 0;  // local round start (bridge open moment)
+    };
+
+    // One unacknowledged press of a move round.
+    struct Press {
+        uint8_t kseq;
+        Key key;       // logical (round key slot)
+        Key physical;  // the key that was pressed
+        Lage lage;     // the orientation it was read in
+    };
+
+    // Change animation toward a new orientation.
+    struct LageAnim {
+        bool on = false;
+        Lage from = Lage::Unknown;
+        Lage to = Lage::Unknown;
+        uint32_t start = 0;
     };
 
     // True if the stored session entry asks for a quiet boot (round format v0,
@@ -146,6 +172,12 @@ class Participant {
         }
     }
 
+    // The orientation sensor's current 6D position (lageFromD6d), on every
+    // change it reports.
+    void onRawLage(Lage raw, uint32_t now) {
+        if (_state != State::Normal && _state != State::Leaving) _lage.onRaw(raw, now);
+    }
+
     // Raw key edge. ms is the moment of the edge (millis()). The power key
     // and keys without a role are not part of the game.
     void onKey(Key k, bool pressed, uint32_t ms, uint32_t now) {
@@ -161,6 +193,7 @@ class Participant {
     }
 
     void tick(uint32_t now) {
+        if (_state != State::Normal && _state != State::Leaving) _tickLage(now);
         switch (_state) {
             case State::Normal:
                 return;
@@ -194,6 +227,7 @@ class Participant {
         _serviceChannelSwitch(now);
         _serviceSearch(now);
         _serviceSend(now);
+        _serviceKeys(now);
         if ((int32_t)(now - _nextStatusAt) >= 0) {
             _sendStatus(0);
             _nextStatusAt = now + _statusInterval();
@@ -217,6 +251,23 @@ class Participant {
     bool searching() const { return _searching; }
     bool loginOpen(uint32_t now) const { return (int32_t)(_loginOpenUntil - now) > 0; }
 
+    // The accepted orientation (reported in status frames), Unknown until one is.
+    Lage lage() const { return _lage.accepted(); }
+    // The orientation whose key mapping and display apply now.
+    Lage inputLage() const { return _shown; }
+    const LageAnim& lageAnim() const { return _anim; }
+    uint8_t pressCount() const { return _logCount; }
+    const Press& press(uint8_t i) const { return _log[i]; }
+
+    // The round requires another orientation: keys do nothing, nothing is
+    // reported (announced and open; a closed round shows its result).
+    bool locked() const {
+        if (!_round.known || _round.type == RoundType::Idle || _round.phase == Phase::Closed)
+            return false;
+        Lage need = requiredLage(_round.hold);
+        return need != Lage::Unknown && !lageFits(_shown, need);
+    }
+
     // Whether key k accepts input at moment ms (round format v0: free keys in
     // phase open, after the announced start).
     bool keyFree(Key k, uint32_t ms) const {
@@ -232,8 +283,8 @@ class Participant {
                (int32_t)(now - _round.startMs) < 0;
     }
 
-    // Choice answer for a key: UP 1, RIGHT 2, DOWN 3, LEFT 4 (gateway protocol
-    // v0, "Erlaubte Tasten"); 0 for other keys.
+    // Choice answer for a logical key: up 1, right 2, down 3, left 4 (gateway
+    // protocol v0, "Erlaubte Tasten"); 0 for other keys.
     static uint8_t choiceAnswer(Key k) {
         switch (k) {
             case Key::Up:
@@ -290,6 +341,19 @@ class Participant {
     bool _sendArmed = false;
     uint32_t _nextSendAt = 0;
     uint32_t _retryMs = 0;
+
+    uint8_t _valLage = 0;  // Lage of the last input
+    // Move round: unacknowledged presses, oldest first.
+    Press _log[kKeyLogDepth] = {};
+    uint8_t _logCount = 0;
+    uint8_t _kseq = 0;
+    uint32_t _nextKeysAt = 0;
+    uint32_t _keysRetryMs = 0;
+
+    // Orientation.
+    LageFilter _lage;
+    Lage _shown = Lage::Unknown;
+    LageAnim _anim;
 
     // Key state for the leave combination.
     bool _down[11] = {};
@@ -380,7 +444,8 @@ class Participant {
     void _onState(const uint8_t* d, size_t len, uint32_t now) {
         QuizStateMsg m;
         if (!decodeFrame(d, len, kMsgQuizState, m)) return;
-        if (m.roundType >= kRoundTypeCount || m.phase >= kPhaseCount) return;
+        if (m.roundType >= kRoundTypeCount || m.phase >= kPhaseCount || m.hold >= kHoldCount)
+            return;
         // The bridge sends only its current state, in order over one hop, so
         // any frame that differs from the applied state is the newer one. A
         // stateSeq that did not move forward means the bridge restarted and
@@ -402,6 +467,10 @@ class Participant {
                     _retryMs = 0;
                     _nextSendAt = now + _rand(kRetryMinMs, kRetryMaxMs);
                 }
+                if (_logCount > 0) {
+                    _keysRetryMs = 0;
+                    _nextKeysAt = now + _rand(kRetryMinMs, kRetryMaxMs);
+                }
             }
             _round.known = true;
             _round.id = m.roundId;
@@ -416,6 +485,13 @@ class Participant {
             _round.greenMin = m.greenMin;
             _round.winner = m.winner;
             _round.correct = m.correct;
+            _round.hold = (Hold)m.hold;
+            // Fest: the orientation at the moment the round opens stays.
+            if (_round.hold == Hold::Fest && !_round.fixedKnown && _round.type != RoundType::Idle &&
+                _round.phase == Phase::Open) {
+                _round.fixed = _lage.accepted();
+                _round.fixedKnown = true;
+            }
         }
         // Local round start = receive time - openOffsetMs; keep the smallest,
         // since every delay only makes it larger (gateway protocol v0).
@@ -426,10 +502,21 @@ class Participant {
                 _round.startKnown = true;
             }
         }
-        // Echo: confirm, or resend if the bridge holds something else.
-        if (_number == 0 || _val == kNoValue) return;
-        if (_number < m.echoFirst || _number >= m.echoFirst + m.echoCount) return;
+        if (_number == 0 || _number < m.echoFirst || _number >= m.echoFirst + m.echoCount) return;
         uint8_t echo = m.echo[_number - m.echoFirst];
+        if (_round.type == RoundType::Move) {
+            // The last press the bridge passed on; kNoValue = none (kseq 255
+            // goes with the next press's echo).
+            if (echo == kNoValue || _logCount == 0) return;
+            uint8_t keep = 0;
+            for (uint8_t i = 0; i < _logCount; i++)
+                if (seq8Newer(_log[i].kseq, echo)) _log[keep++] = _log[i];
+            _logCount = keep;
+            if (_logCount == 0) _keysRetryMs = 0;
+            return;
+        }
+        // Echo: confirm, or resend if the bridge holds something else.
+        if (_val == kNoValue) return;
         if (echo == _val) {
             _confirmed = true;
             _sendArmed = false;
@@ -447,19 +534,27 @@ class Participant {
                m.phase == (uint8_t)r.phase && m.keyMask == r.keyMask &&
                memcmp(m.keyColor, r.keyColor, sizeof(r.keyColor)) == 0 && m.scaleMin == r.min &&
                m.scaleMax == r.max && m.redMax == r.redMax && m.greenMin == r.greenMin &&
-               m.winner == r.winner && m.correct == r.correct;
+               m.winner == r.winner && m.correct == r.correct && m.hold == (uint8_t)r.hold;
     }
 
     void _resetValue() {
         _val = kNoValue;
         _vseq = 0;
         _inputMs = 0;
+        _valLage = 0;
         _confirmed = false;
         _sendArmed = false;
         _retryMs = 0;
+        // Move: the press counter restarts per round and with every join.
+        _logCount = 0;
+        _kseq = 0;
+        _keysRetryMs = 0;
     }
 
-    void _onMemberPress(Key k, uint32_t ms, uint32_t now) {
+    // phys: the physical key; k: its logical input as a round key slot.
+    void _onMemberPress(Key phys, uint32_t ms, uint32_t now) {
+        if (locked()) return;
+        Key k = roundKey(logicalInput(_shown, phys));
         if (!keyFree(k, ms)) {
             // Round format v0, "Nummern": a member pressing the buzzer while
             // login is open reports itself again, marked as pressed.
@@ -493,8 +588,62 @@ class Participant {
                 if (v != _val) _setValue(v, ms, now, kScaleSendDelayMs);
                 break;
             }
+            case RoundType::Move:
+                // One press, one event: only press edges reach this point.
+                if (choiceAnswer(k) != 0) _pressKey(k, phys, now);
+                break;
             default:
                 break;
+        }
+    }
+
+    void _pressKey(Key k, Key phys, uint32_t now) {
+        _kseq = (uint8_t)(_kseq + 1);
+        if (_logCount == kKeyLogDepth) {  // keep the newest kKeyLogDepth
+            for (uint8_t i = 1; i < _logCount; i++) _log[i - 1] = _log[i];
+            _logCount--;
+        }
+        _log[_logCount++] = Press{_kseq, k, phys, _shown};
+        _keysRetryMs = 0;
+        _nextKeysAt = now;
+        _serviceKeys(now);
+    }
+
+    void _serviceKeys(uint32_t now) {
+        if (_logCount == 0 || (int32_t)(now - _nextKeysAt) < 0) return;
+        QuizKeysMsg m{};
+        _fillHeader(m.h, kMsgQuizKeys);
+        m.session = _session;
+        m.roundId = _round.id;
+        m.count = _logCount;
+        for (uint8_t i = 0; i < _logCount; i++)
+            m.keys[i] = QuizKey{_log[i].kseq, (uint8_t)_log[i].key, (uint8_t)_log[i].lage};
+        _send(&m, keysFrameLen(m));
+        _keysRetryMs = _keysRetryMs == 0
+                           ? _rand(kRetryMinMs, kRetryMaxMs)
+                           : (_keysRetryMs * 2 > kRetryCapMs ? kRetryCapMs : _keysRetryMs * 2);
+        _nextKeysAt = now + _keysRetryMs;
+    }
+
+    Lage _targetLage() const {
+        if (_round.known && _round.hold == Hold::Fest && _round.fixedKnown) return _round.fixed;
+        return _lage.accepted();
+    }
+
+    // A newly accepted orientation goes out at once; its key mapping applies
+    // once its change animation has run.
+    void _tickLage(uint32_t now) {
+        if (_lage.tick(now) && _state == State::Member) _sendStatus(0);
+        if (_anim.on && now - _anim.start >= lageAnimMs(_anim.from, _anim.to)) {
+            _shown = _anim.to;
+            _anim.on = false;
+        }
+        Lage target = _targetLage();
+        if (!_anim.on && target != _shown) {
+            _anim.on = true;
+            _anim.from = _shown;
+            _anim.to = target;
+            _anim.start = now;
         }
     }
 
@@ -502,6 +651,7 @@ class Participant {
         _val = v;
         _vseq++;
         _inputMs = ms;
+        _valLage = (uint8_t)_shown;
         _confirmed = false;
         _sendArmed = true;
         _retryMs = 0;
@@ -521,6 +671,7 @@ class Participant {
         m.pressOffsetMs = _round.startKnown ? (int32_t)(_inputMs - _round.startMs) : 0;
         m.battery = _health().battery;
         m.rssi = _lastRssi;
+        m.lage = _valLage;
         _send(&m, sizeof(m));
         _retryMs = _retryMs == 0 ? _rand(kRetryMinMs, kRetryMaxMs)
                                  : (_retryMs * 2 > kRetryCapMs ? kRetryCapMs : _retryMs * 2);
@@ -588,6 +739,7 @@ class Participant {
         m.rssi = _lastRssi;
         m.lastRoundId = _round.known ? _round.id : 0;
         m.lastStateSeq = _round.known ? _round.seq : 0;
+        m.lage = (uint8_t)_lage.accepted();
         _send(&m, sizeof(m));
     }
 
