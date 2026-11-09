@@ -349,6 +349,7 @@ class PowerManager {
     // tick() finds the charger in default mode and configures it again.
     static constexpr uint32_t WATCHDOG_KICK_MS = 10000;
     static constexpr uint32_t OTG_RETRY_MS = 5000;
+    static constexpr uint32_t OTG_STUCK_MS = 1000;
     // At most one re-configure per this time; the rest of tick() keeps
     // running while WD_STAT stays set.
     static constexpr uint32_t RECONFIGURE_MIN_MS = 1000;
@@ -395,6 +396,7 @@ class PowerManager {
     uint16_t _chgFlagHistory = 0;  // one bit per status poll: CHG_FLAG set
     bool _noCell = false;
     uint32_t _lastOtgAttemptMs = 0;
+    uint32_t _otgStuckMs = 0;
     uint32_t _lastCcMs = 0;
     uint16_t _ccMv = 0;
     uint16_t _ccPendingMa = 500;
@@ -610,6 +612,24 @@ class PowerManager {
             if (st.otgEnabled()) _chg.setOtg(false);
             return;
         }
+        // EN_OTG set while the boost does not run (VBUS_STAT not OTG) for
+        // OTG_STUCK_MS: clear it, so the retry below starts the boost again.
+        // On the first Buzzerboard (2026-11-09) the LEDs lit once on battery
+        // and stayed dark with the device running.
+        if (!_shipPending && st.otgEnabled() && !st.otgActive() &&
+            st.vbusStat() == Bq25628::VBUS_STAT_NONE) {
+            if (_otgStuckMs == 0) {
+                _otgStuckMs = now;
+            } else if (now - _otgStuckMs >= OTG_STUCK_MS) {
+                Logger::w("[pwr] OTG enabled but not running (stat 0x%02X, fault 0x%02X, "
+                          "flags 0x%02X 0x%02X) - EN_OTG off for a restart",
+                          st.stat1, st.fault, st.flag0, st.flag1);
+                _chg.setOtg(false);
+                _otgStuckMs = 0;
+            }
+            return;
+        }
+        _otgStuckMs = 0;
         if (_shipPending || st.otgEnabled() || st.vbusStat() != Bq25628::VBUS_STAT_NONE) return;
         // On battery with OTG off: switch it on. The charger clears EN_OTG
         // again by itself on a fault (VBAT below VBAT_OTG, PMID undervoltage,
