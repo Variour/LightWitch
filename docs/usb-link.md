@@ -199,9 +199,10 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
 | `{"ns":"config","cmd":"wifi","id":1,"networks":[{"ssid":"Office","pass":"…"}]}` | `{"ns":"config","ev":"wifi","id":1,"ok":true,"count":1}` |
 | `{"ns":"config","cmd":"charge","id":2,"target":"event"}` | `{"ns":"config","ev":"charge","id":2,"ok":true,"target":"event"}` |
 | `{"ns":"config","cmd":"ap","id":3,"minutes":10}` | `{"ns":"config","ev":"ap","id":3,"ok":true,"minutes":10}` |
-| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"token":true,"target":"store","look":true,"number":12,"fw":"4a45fc32"}` |
+| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"token":true,"target":"store","look":true,"name":"buzzer-12-koi","number":12,"fw":"4a45fc32"}` |
 | `{"ns":"config","cmd":"token","id":5,"token":"github_pat_…"}` | `{"ns":"config","ev":"token","id":5,"ok":true,"token":true}` |
 | `{"ns":"config","cmd":"look","id":6,"leds":["#ffffff","#ff0800",…,"#ff0800"]}` | `{"ns":"config","ev":"look","id":6,"ok":true,"leds":24}` |
+| `{"ns":"config","cmd":"name","id":7,"name":"buzzer-12-koi"}` | `{"ns":"config","ev":"name","id":7,"ok":true,"name":"buzzer-12-koi"}` |
 
 - `wifi` replaces the whole list: 0-5 networks, `ssid` 1-32 bytes, `pass` `""`
   (open network) or 8-63 bytes. Passwords are never echoed or logged. Five
@@ -228,7 +229,12 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
   from LED1 to the USB-C end, or `[]` to remove them. Stored in NVS. Active
   and idle, the column breathes these colours at the display brightness
   instead of the idle pattern, in turn with the battery level.
-- `get`: `look` says whether own colours are set; `number` is `null` without a device number; `fw` is the firmware
+- `name`: the device name, the same setting as the name in the web UI: the
+  mDNS host (`<name>.local`), the maintenance AP's SSID and the MQTT client.
+  1-31 of `a-z`, `0-9` and `-`, not starting or ending with `-`. Stored in
+  the config file, it applies from the next restart. Without one a device is
+  `light-` and the last 6 hex digits of its MAC.
+- `get`: `name` is the device name; `look` says whether own colours are set; `number` is `null` without a device number; `fw` is the firmware
   build (first 4 bytes of the app image's SHA-256, as in `link hello`).
 
 ## `fleet` (bridge)

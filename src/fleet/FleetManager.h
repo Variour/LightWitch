@@ -37,6 +37,8 @@ static_assert(fleet::kWifiNetworksMax == MAX_WIFI_NETWORKS,
               "config wifi takes as many networks as Config stores");
 static_assert(fleet::kTokenMax + 1 == sizeof(DeviceConfig::githubToken),
               "config token takes as long a token as Config stores");
+static_assert(fleet::kNameMax + 1 == sizeof(DeviceConfig::deviceName),
+              "config name takes as long a name as Config stores");
 static_assert(fleet::kEventVregMv <= PowerManager::CHARGE_VOLTAGE_MV,
               "the event target stays at or below the board's charge voltage");
 static_assert(MAX_BUTTONS <= 16, "the muted-key mask holds one bit per button");
@@ -927,6 +929,13 @@ class FleetManager {
         io.target = [this]() { return _target; };
         io.setLook = [this](const fleet::Look& l) { return _setLook(l); };
         io.lookLeds = [this]() { return _look.count; };
+        io.setName = [](const char* name) {
+            strlcpy(Config::get().deviceName, name, sizeof(Config::get().deviceName));
+            bool ok = Config::save();
+            Logger::i("[fleet] device name %s over USB", name);
+            return ok;
+        };
+        io.name = []() { return (const char*)Config::get().deviceName; };
         io.openAp = [](uint8_t minutes) {
             return SoftAp::openMaintenance(minutes, millis()) ? FleetLink::ApResult::Ok
                                                               : FleetLink::ApResult::Unsupported;

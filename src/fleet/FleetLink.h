@@ -83,6 +83,10 @@ class FleetLink : public game::Link::Extension {
         // could not be stored.
         std::function<bool(const Look&)> setLook;
         std::function<uint8_t()> lookLeds;
+        // Stores the device name (config file); it applies from the next
+        // restart. False if it could not be stored.
+        std::function<bool(const char*)> setName;
+        std::function<const char*()> name;
         std::function<uint16_t()> number;
         std::function<uint32_t()> fwBuild;
         // fleet
@@ -236,6 +240,7 @@ class FleetLink : public game::Link::Extension {
     void _config(Link& link, const char* cmd, JsonObjectConst o, const ReqId& id) {
         if (strcmp(cmd, "wifi") == 0) return _configWifi(link, o, id);
         if (strcmp(cmd, "look") == 0) return _configLook(link, o, id);
+        if (strcmp(cmd, "name") == 0) return _configName(link, o, id);
         if (strcmp(cmd, "token") == 0) {
             // Never echoed or logged.
             const char* token = _str(o, "token");
@@ -291,6 +296,7 @@ class FleetLink : public game::Link::Extension {
             Target t = _io.target ? _io.target() : Target::Store;
             d["target"] = kTargetNames[(uint8_t)t];
             d["look"] = _io.lookLeds ? _io.lookLeds() != 0 : false;
+            d["name"] = _io.name ? _io.name() : "";
             uint16_t n = _io.number ? _io.number() : 0;
             if (n)
                 d["number"] = n;
@@ -303,7 +309,7 @@ class FleetLink : public game::Link::Extension {
             return;
         }
         link.error(id, "unknown_cmd", "config", cmd, nullptr,
-                   "config commands: wifi, token, charge, ap, look, get");
+                   "config commands: wifi, token, charge, ap, look, name, get");
     }
 
     // Replaces the whole list. Passwords are never echoed or logged.
@@ -338,6 +344,32 @@ class FleetLink : public game::Link::Extension {
         Link::head(d, "config", "look", id);
         _ok(d);
         d["leds"] = look.count;
+        link.emit(d);
+    }
+
+    // One DNS label of 1-kNameMax characters: a-z, 0-9 and '-', not at either end.
+    static bool _validName(const char* s) {
+        if (!s) return false;
+        size_t n = strlen(s);
+        if (n == 0 || n > kNameMax || s[0] == '-' || s[n - 1] == '-') return false;
+        for (size_t i = 0; i < n; i++)
+            if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9') || s[i] == '-'))
+                return false;
+        return true;
+    }
+
+    void _configName(Link& link, JsonObjectConst o, const ReqId& id) {
+        const char* name = _str(o, "name");
+        if (!_validName(name))
+            return _badField(link, id, "config", "name", "name",
+                             "name must be 1-31 of a-z, 0-9 and -, not starting or ending with -");
+        if (!_io.setName || !_io.setName(name))
+            return link.error(id, "store_failed", "config", "name", nullptr,
+                              "the name could not be saved");
+        JsonDocument d;
+        Link::head(d, "config", "name", id);
+        _ok(d);
+        d["name"] = name;
         link.emit(d);
     }
 

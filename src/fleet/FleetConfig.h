@@ -175,6 +175,11 @@ static constexpr uint8_t kPassMax = 63;
 // ── USB `config token` ───────────────────────────────────────────────────────
 static constexpr uint8_t kTokenMax = 127;  // = sizeof(DeviceConfig::githubToken) - 1
 
+// ── USB `config name` ────────────────────────────────────────────────────────
+// owner (2026-11-09): the production script names each Buzzerboard
+// "buzzer-<number>-<animal>". One DNS label: a-z, 0-9 and '-'.
+static constexpr uint8_t kNameMax = 31;  // = sizeof(DeviceConfig::deviceName) - 1
+
 // ── Factory test (USB `test`) ────────────────────────────────────────────────
 // owner (2026-11-09): the test frames follow the display brightness, at
 // least kTestLevelMin so every colour stays easy to judge.
