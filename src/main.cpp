@@ -16,6 +16,7 @@
 #include "config/BoardProfile.h"
 #include "config/Config.h"
 #include "events/EventLog.h"
+#include "io/SerialPort.h"
 #include "led/Ws2801Driver.h"
 #include "led/Ws2812bDriver.h"
 #include "logging/Logger.h"
@@ -123,7 +124,14 @@ static void serialSink(LogLevel level, const char* msg) {
                     : level == LogLevel::INFO    ? "[I]"
                     : level == LogLevel::VERBOSE ? "[V]"
                                                  : "[D]";
-    Serial.printf("%s %s\n", p, msg);
+    // One write per line: "[I] " + msg (Logger: at most 271 characters) + "\n".
+    char line[280];
+    size_t len = strnlen(msg, sizeof(line) - 5);
+    memcpy(line, p, 3);
+    line[3] = ' ';
+    memcpy(line + 4, msg, len);
+    line[4 + len] = '\n';
+    SerialPort::write(line, len + 5);
 }
 
 // ── Light / group helpers ─────────────────────────────────────────────────────
@@ -515,10 +523,10 @@ void setup() {
     // anything starts, whether to sleep on, enter ship mode or boot.
     fleet::DeepSleep::handleWake();
     // Sized for the game bridge's NDJSON link (gateway protocol v0: ~4 KB send buffer).
-    Serial.setRxBufferSize(game::kUsbRxBufferBytes);
-    Serial.setTxBufferSize(game::kUsbTxBufferBytes);
+    SerialPort::start(game::kUsbRxBufferBytes, game::kUsbTxBufferBytes);
+#else
+    SerialPort::start();
 #endif
-    Serial.begin(115200);
     Logger::addSink(serialSink);
 
     if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) {

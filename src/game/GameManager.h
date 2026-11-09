@@ -8,6 +8,7 @@
 
 #include <functional>
 
+#include "../io/SerialPort.h"
 #include "../led/LedDriver.h"
 #include "../logging/Logger.h"
 #include "Bridge.h"
@@ -110,7 +111,7 @@ class GameManager {
             _isBridge = true;
             _participant.setCanJoin(false);
 #if ARDUINO_USB_MODE && ARDUINO_USB_CDC_ON_BOOT
-            Serial.setTxTimeoutMs(0);  // never block loop() on a host that does not read
+            SerialPort::setWriteWaitMs(0);  // never block loop() on a host that does not read
 #endif
         };
         lio.rxOverflow = [this]() { return _rx.overflow(); };
@@ -137,9 +138,9 @@ class GameManager {
     // Every loop() pass.
     void tick(uint32_t now) {
         for (int budget = 2048; budget > 0 && _link.readyForInput(); budget--) {
-            int c = Serial.read();
-            if (c < 0) break;
-            _link.feedByte((uint8_t)c, now);
+            uint8_t c;
+            if (SerialPort::read(&c, 1) == 0) break;
+            _link.feedByte(c, now);
         }
         game::RxRing::Frame f;
         while (_inviteRx.pop(f)) _participant.onFrame(f.data, f.len, f.rssi, now);
@@ -208,8 +209,8 @@ class GameManager {
     static constexpr const char* KEY_CHANNEL = "sch";
 
     struct SerialWriter : game::Link::Writer {
-        int availableForWrite() override { return Serial.availableForWrite(); }
-        void write(const char* d, size_t n) override { Serial.write((const uint8_t*)d, n); }
+        int availableForWrite() override { return (int)SerialPort::writable(); }
+        void write(const char* d, size_t n) override { SerialPort::write(d, n); }
     };
 
     game::Participant _participant;
