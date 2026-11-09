@@ -133,6 +133,13 @@ bool Bq25628::disableWatchdog() {
            (v & CTRL0_WATCHDOG_MASK) == 0;
 }
 
+bool Bq25628::setChargeCurrent(uint16_t ma) {
+    uint16_t ichg = constrain(ma, ICHG_MIN_MA, ICHG_MAX_MA) / ICHG_STEP_MA;
+    if (!_write16(REG_ICHG, (uint16_t)(ichg << ICHG_SHIFT) & ICHG_MASK)) return false;
+    Logger::i("[pwr] ICHG %u mA", ichg * ICHG_STEP_MA);
+    return true;
+}
+
 bool Bq25628::setChargeVoltage(uint16_t mv) {
     uint16_t vreg = mv / VREG_STEP_MV;
     if (!_write16(REG_VREG, (uint16_t)(vreg << VREG_SHIFT) & VREG_MASK)) return false;

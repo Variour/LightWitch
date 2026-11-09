@@ -252,6 +252,10 @@ class Bq25628 {
     // default mode. False on an I2C error or a read-back mismatch.
     bool setChargeVoltage(uint16_t mv);
 
+    // Writes ICHG alone (Table 8-9), held within ICHG_MIN_MA..ICHG_MAX_MA.
+    // The watchdog halves it; configure() writes it again.
+    bool setChargeCurrent(uint16_t ma);
+
     // Input current limit (§8.3.3.4). pin = true: the ILIM pin limits
     // (EN_EXTILIM = 1) and IINDPM is written too; the lower of both applies.
     // pin = false: IINDPM alone (EN_EXTILIM = 0). Lowering sets the pin

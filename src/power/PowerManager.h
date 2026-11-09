@@ -32,6 +32,10 @@ class PowerManager {
     // times a second, which drops PMID_GD and the LED rail; 200 mA ran
     // without trips.
     static constexpr uint16_t CHARGE_CURRENT_MA = 200;
+    // ICHG on a 1.5 A or 3 A source (input limit 1.5 A / 2 A, ILIM pin off,
+    // see CC_SENSE_PIN). Rico's first board charged at 1 A with the input
+    // limit in software (2026-11-09).
+    static constexpr uint16_t CHARGE_CURRENT_FAST_MA = 1000;
     // Li-ion charge voltage, 4.20 V (board README, charger table and
     // "Over-charge: VREG 4.20 V regulation").
     static constexpr uint16_t CHARGE_VOLTAGE_MV = 4200;
@@ -577,23 +581,30 @@ class PowerManager {
         _readCcClass();
         if (_ccSame < CC_STABLE || _ccPendingMa == _ccClassMa) return;
         _ccClassMa = _ccPendingMa;
+        uint16_t ichgBefore = _settings.chargeCurrentMa;
         _setInputLimitSettings();
         if (!_online) return;
+        // A lower ICHG before the input limit, a higher one after it.
+        bool lower = _settings.chargeCurrentMa < ichgBefore;
+        if (lower) _chg.setChargeCurrent(_settings.chargeCurrentMa);
         if (!_chg.setInputLimit(_settings.inputLimitPin, _settings.inputLimitMa)) {
             Logger::w("[pwr] input limit write failed");
             return;
         }
         _logInputLimit();
+        if (!lower && _settings.chargeCurrentMa != ichgBefore)
+            _chg.setChargeCurrent(_settings.chargeCurrentMa);
     }
 
-    // The input limit for the current CC class into _settings (see
-    // CC_SENSE_PIN); configure() and every watchdog re-configure write it.
+    // Input limit and ICHG for the current CC class into _settings (see
+    // CC_SENSE_PIN); configure() and every watchdog re-configure write them.
     void _setInputLimitSettings() {
         bool pin = _ccClassMa <= 500;
         _settings.inputLimitPin = pin;
         _settings.inputLimitMa = pin ? INPUT_LIMIT_PIN_MA
                                      : (_ccClassMa > INPUT_LIMIT_MAX_MA ? INPUT_LIMIT_MAX_MA
                                                                         : _ccClassMa);
+        _settings.chargeCurrentMa = pin ? CHARGE_CURRENT_MA : CHARGE_CURRENT_FAST_MA;
     }
 
     void _logInputLimit() {
