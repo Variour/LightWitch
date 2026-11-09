@@ -123,6 +123,17 @@ bool applyBoardProfile(DeviceConfig& cfg) {
     l.currentLimitMa = kLedCurrentLimitMa;
     l.exists = true;
 
+    // Idle look of the default group: slow violet breathing at most 20 %
+    // brightness instead of full white (Timo, 2026-11-09). Violet is not one
+    // of the game colours (blue invites, green joined, yellow race, red
+    // wrong).
+    LightConfig& idle = cfg.groups[0].light;
+    idle.mode = GroupMode::Pattern;
+    idle.pattern = PatternId::Breathing;
+    idle.color = Color{140, 0, 255};
+    idle.brightness = 51;
+    idle.speed = 0.75f;
+
     uint8_t i = 0;
     for (const KeyPin& k : kKeys) {
         ButtonHardwareConfig& b = cfg.buttons[i++];
