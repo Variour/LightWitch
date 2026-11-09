@@ -81,7 +81,7 @@ class GameManager {
 
         game::Participant::Io pio;
         pio.send = [this](const uint8_t* d, size_t n) { _sendFrame(d, n); };
-        pio.setChannel = [](uint8_t ch) { _setChannel(ch); };
+        pio.setChannel = [this](uint8_t ch) { _setChannel(ch); };
         pio.randomRange = [](uint32_t lo, uint32_t hi) {
             return lo + esp_random() % (hi - lo + 1);
         };
@@ -102,7 +102,7 @@ class GameManager {
 
         game::Bridge::Io bio;
         bio.send = [this](const uint8_t* d, size_t n) { _sendFrame(d, n); };
-        bio.setChannel = [](uint8_t ch) { _setChannel(ch); };
+        bio.setChannel = [this](uint8_t ch) { _setChannel(ch); };
         bio.enterQuiet = [this]() {
             _allocRx(game::kRxQueueBridge);
             if (_enterQuiet) _enterQuiet(false);
@@ -168,6 +168,7 @@ class GameManager {
         }
         _bridge.tick(now);
         _link.tick(now);
+        _holdChannel(now);
     }
 
     // More USB namespaces (src/fleet/FleetLink.h). Call before begin().
@@ -267,6 +268,11 @@ class GameManager {
     uint8_t _storedChannel = 0;
     bool _fwKnown = false;
     uint32_t _fw = 0;
+    uint8_t _wantChannel = 0;  // the channel the session tuned last, 0 = none
+    uint32_t _channelCheckMs = 0;
+    bool _channelOff = false;
+
+    static constexpr uint32_t kChannelCheckMs = 200;
 
     // Sensor on while in a session as participant (until leaving). INT1 is
     // latched: high until D6D_SRC is read.
@@ -300,7 +306,32 @@ class GameManager {
         if (_send) _send(d, n);
     }
 
-    static void _setChannel(uint8_t ch) { esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE); }
+    void _setChannel(uint8_t ch) {
+        _wantChannel = ch;
+        esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+    }
+
+    // While the session owns the radio, keep it on the channel the session
+    // tuned last: end a WiFi connection still being set up when the session
+    // took the radio (a device joining from a WiFi network, a gateway just out
+    // of charging mode) and tune again.
+    void _holdChannel(uint32_t now) {
+        if (!_wantChannel || !radioQuiet() || now - _channelCheckMs < kChannelCheckMs) return;
+        _channelCheckMs = now;
+        uint8_t primary = 0;
+        wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
+        if (esp_wifi_get_channel(&primary, &second) != ESP_OK) return;
+        if (primary == _wantChannel) {
+            if (_channelOff) Logger::i("[game] radio back on ch %u", _wantChannel);
+            _channelOff = false;
+            return;
+        }
+        if (!_channelOff)
+            Logger::w("[game] radio on ch %u, tuning to ch %u", primary, _wantChannel);
+        _channelOff = true;
+        esp_wifi_disconnect();
+        esp_wifi_set_channel(_wantChannel, WIFI_SECOND_CHAN_NONE);
+    }
 
    public:
     // Firmware build: the first 4 bytes of the running app image's SHA-256,

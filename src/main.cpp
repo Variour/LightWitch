@@ -480,6 +480,7 @@ static void setupWifiQuiet(const char* why) {
 static void enterGameQuiet(bool participant) {
     if (!mesh.quiet()) {
         mesh.setQuiet(true);
+        wifiElection.suspend();  // ends a WiFi connection attempt in flight
         SoftAp::off();
         WiFi.disconnect(false, false);
         Logger::i("[game] radio quiet: no AP, no WiFi, no LightWitch mesh traffic");
