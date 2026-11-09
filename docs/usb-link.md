@@ -71,9 +71,9 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
 - Charging starts off at boot and goes on once VBAT shows a cell (above
   2.8 V, at least 15 s after charging went off). Without a cell it stays
   off and the battery reads as unknown (`bat` and `vbat` `null`).
-- Input current limit and charge current from the USB-C CC line: a default
-  port keeps the ILIM pin (446 mA) and charges at 200 mA; a 1.5 A or 3 A
-  source gets 1.5 A or 2 A with the pin off and charges at 1000 mA.
+- Input current limit 2 A with the ILIM pin off, at every USB source;
+  charge current 1000 mA. On a weaker source VBUS sags to 4.6 V (VINDPM)
+  and the charger takes less.
 - VBAT below 3.3 V for 30 s on USB (any state): ESP deep sleep while the
   charger charges on; the 60 s timer wake boots again from VBAT 3.5 V.
 - The low-battery cut-off (below 3.3 V for 30 s on battery → ship mode)

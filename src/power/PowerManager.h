@@ -25,17 +25,10 @@
 // §8.3.10.3.1).
 class PowerManager {
    public:
-    // ICHG 200 mA: on a default USB port the input current stays on the ILIM
-    // pin's 446 mA limit (see CC_SENSE_PIN). On the first Buzzerboard (2026-11-05,
-    // board repo firmware/boardtest/README.md "Charge current") ICHG 320 mA
-    // plus the board's own ~95 mA tripped the ILIM over-current about three
-    // times a second, which drops PMID_GD and the LED rail; 200 mA ran
-    // without trips.
-    static constexpr uint16_t CHARGE_CURRENT_MA = 200;
-    // ICHG on a 1.5 A or 3 A source (input limit 1.5 A / 2 A, ILIM pin off,
-    // see CC_SENSE_PIN). Rico's first board charged at 1 A with the input
-    // limit in software (2026-11-09).
-    static constexpr uint16_t CHARGE_CURRENT_FAST_MA = 1000;
+    // ICHG 1000 mA with the input limit at INPUT_LIMIT_MA (Rico's first
+    // board charged at 1 A with the limit set in software, 2026-11-09).
+    // Without a cell charging stays off (see CELL_MV).
+    static constexpr uint16_t CHARGE_CURRENT_MA = 1000;
     // Li-ion charge voltage, 4.20 V (board README, charger table and
     // "Over-charge: VREG 4.20 V regulation").
     static constexpr uint16_t CHARGE_VOLTAGE_MV = 4200;
@@ -80,23 +73,23 @@ class PowerManager {
     // then). It goes off again when the charge status changes in at least
     // CYCLE_FLIPS of the last CYCLE_POLLS status polls (2 s). Values from
     // the board repo's firmware/boardtest/main/charger.c, "auto" mode.
-    // Input current limit from the USB-C CC line, as the board repo's
-    // firmware/boardtest/main/charger.c "CC auto": the CC sense node
-    // (Buzzerboard R31 / R32 / C67 on GPIO6) reads 0.51 x the live CC line.
-    // Below CC_DEFAULT_MV a default USB port: the ILIM pin (R5, 446 mA) stays
-    // on. Below CC_1A5_MV a 1.5 A source, above it a 3 A source: ILIM pin
-    // off, IINDPM = the advertised current, at most INPUT_LIMIT_MAX_MA (the
-    // board's power tracks). On the ILIM pin alone the LEDs at their cap plus
-    // the board tripped PMID_GD in a loop at a Mac port (first Buzzerboard,
-    // 2026-11-09). A class takes CC_STABLE readings CC_SAMPLE_MS apart; a
-    // sink has 60 ms to follow a lower class.
+    // Input current limit: INPUT_LIMIT_MA at every source, ILIM pin off
+    // (Rico, 2026-11-09: the LEDs at their cap, the charge current and the
+    // board need about 2 A, and many ports advertise less on CC than they
+    // deliver). On a weaker source VBUS sags to VINDPM (4.6 V, POR) and the
+    // charger takes less. A watchdog expiry falls back to the ILIM pin
+    // (R5, 446 mA). On the ILIM pin the LEDs at their cap plus the board
+    // tripped PMID_GD in a loop at a Mac port (first Buzzerboard,
+    // 2026-11-09). The CC sense node (Buzzerboard R31 / R32 / C67 on GPIO6,
+    // 0.51 x the live CC line) is read for the log: below CC_DEFAULT_MV a
+    // default USB port, below CC_1A5_MV a 1.5 A source, above a 3 A source,
+    // a class after CC_STABLE readings CC_SAMPLE_MS apart.
     static constexpr uint8_t CC_SENSE_PIN = 6;
     static constexpr uint16_t CC_DEFAULT_MV = 340;
     static constexpr uint16_t CC_1A5_MV = 630;
     static constexpr uint32_t CC_SAMPLE_MS = 10;
     static constexpr uint8_t CC_STABLE = 3;
-    static constexpr uint16_t INPUT_LIMIT_PIN_MA = 500;
-    static constexpr uint16_t INPUT_LIMIT_MAX_MA = 2000;
+    static constexpr uint16_t INPUT_LIMIT_MA = 2000;
 
     static constexpr uint16_t CELL_MV = 2800;
     static constexpr uint32_t CELL_HOLDOFF_MS = 15000;
@@ -599,21 +592,14 @@ class PowerManager {
     // Input limit and ICHG for the current CC class into _settings (see
     // CC_SENSE_PIN); configure() and every watchdog re-configure write them.
     void _setInputLimitSettings() {
-        bool pin = _ccClassMa <= 500;
-        _settings.inputLimitPin = pin;
-        _settings.inputLimitMa = pin ? INPUT_LIMIT_PIN_MA
-                                     : (_ccClassMa > INPUT_LIMIT_MAX_MA ? INPUT_LIMIT_MAX_MA
-                                                                        : _ccClassMa);
-        _settings.chargeCurrentMa = pin ? CHARGE_CURRENT_MA : CHARGE_CURRENT_FAST_MA;
+        _settings.inputLimitPin = false;
+        _settings.inputLimitMa = INPUT_LIMIT_MA;
+        _settings.chargeCurrentMa = CHARGE_CURRENT_MA;
     }
 
     void _logInputLimit() {
-        if (_settings.inputLimitPin) {
-            Logger::i("[pwr] USB-C default (CC %u mV) - input limit ILIM pin", _ccMv);
-        } else {
-            Logger::i("[pwr] USB-C %u mA (CC %u mV) - input limit %u mA, ILIM pin off",
-                      _ccClassMa, _ccMv, _settings.inputLimitMa);
-        }
+        Logger::i("[pwr] USB-C source %u mA (CC %u mV) - input limit %u mA, ILIM pin off",
+                  _ccClassMa, _ccMv, _settings.inputLimitMa);
     }
 
     void _updateOtg(const Bq25628::Status& st, uint32_t now) {
