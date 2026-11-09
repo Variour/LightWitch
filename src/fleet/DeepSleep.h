@@ -1,9 +1,9 @@
 #pragma once
 #include <Arduino.h>
-#include <Wire.h>
 #include <esp_attr.h>
 #include <esp_sleep.h>
 
+#include "../io/I2cBus.h"
 #include "../power/PowerManager.h"
 #include "FleetConfig.h"
 #include "PowerState.h"
@@ -48,7 +48,7 @@ class DeepSleep {
             return;
         }
         m.sleptS += kSleepWakeIntervalS;
-        Wire.begin(m.sda, m.scl);
+        i2cBus.begin(m.sda, m.scl);
         PowerManager::WakeReading r;
         for (uint8_t i = 0; i < kWakeReadTries && !r.ok; i++) {
             if (i > 0) delay(kWakeReadRetryMs);
@@ -56,13 +56,13 @@ class DeepSleep {
         }
         WakeDecision d = decideTimerWake(r.ok, r.powerGood, r.vbatMv, m.sleptS);
         if (d == WakeDecision::Sleep) {
-            Wire.end();
+            i2cBus.end();
             _sleep();
         }
         // Ship mode cuts the power 25 ms after the request; PowerManager
         // withdraws it if USB arrived meanwhile and the device boots.
         if (d == WakeDecision::Ship) PowerManager::shipForWake();
-        Wire.end();
+        i2cBus.end();
         m.magic = 0;
     }
 

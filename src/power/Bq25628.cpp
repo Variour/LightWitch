@@ -3,19 +3,11 @@
 #include "../logging/Logger.h"
 
 bool Bq25628::_read(uint8_t reg, uint8_t* buf, size_t len) {
-    _wire.beginTransmission(I2C_ADDRESS);
-    _wire.write(reg);
-    if (_wire.endTransmission(false) != 0) return false;
-    if (_wire.requestFrom((uint16_t)I2C_ADDRESS, len, true) != len) return false;
-    for (size_t i = 0; i < len; i++) buf[i] = (uint8_t)_wire.read();
-    return true;
+    return _bus.read(I2C_ADDRESS, reg, buf, len) == ESP_OK;
 }
 
 bool Bq25628::_write(uint8_t reg, const uint8_t* buf, size_t len) {
-    _wire.beginTransmission(I2C_ADDRESS);
-    _wire.write(reg);
-    _wire.write(buf, len);
-    return _wire.endTransmission(true) == 0;
+    return _bus.write(I2C_ADDRESS, reg, buf, len) == ESP_OK;
 }
 
 // Little endian, low byte first, both bytes in one transaction (§8.6.1).

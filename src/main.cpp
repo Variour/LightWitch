@@ -3,7 +3,6 @@
 #include <ESPmDNS.h>
 #include <LittleFS.h>
 #include <WiFi.h>
-#include <Wire.h>
 #include <esp_wifi.h>
 #include <soc/soc_caps.h>
 
@@ -16,6 +15,7 @@
 #include "config/BoardProfile.h"
 #include "config/Config.h"
 #include "events/EventLog.h"
+#include "io/I2cBus.h"
 #include "led/Ws2801Driver.h"
 #include "led/Ws2812bDriver.h"
 #include "logging/Logger.h"
@@ -538,10 +538,10 @@ void setup() {
     // Bring up the device-wide I2C bus, if configured — shared by the sound
     // codec's control interface and any TCA9555-backed button (see
     // DeviceConfig::i2cSdaPin/i2cSclPin). Centralized here (rather than each
-    // consumer calling Wire.begin() itself) since ESP32 has a single default
-    // I2C bus that every consumer must agree on the same pins for.
+    // consumer beginning it itself) since the device has a single I2C bus
+    // (i2cBus) that every consumer must agree on the same pins for.
     if (Config::get().i2cSdaPin != PIN_UNUSED && Config::get().i2cSclPin != PIN_UNUSED) {
-        Wire.begin(Config::get().i2cSdaPin, Config::get().i2cSclPin);
+        i2cBus.begin(Config::get().i2cSdaPin, Config::get().i2cSclPin);
         Logger::i("[sys] I2C bus: sda=GPIO%d scl=GPIO%d", Config::get().i2cSdaPin,
                   Config::get().i2cSclPin);
     }

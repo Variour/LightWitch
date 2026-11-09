@@ -8,8 +8,8 @@
 #ifdef BOARD_BUZZERBOARD
 
 #include <Arduino.h>
-#include <Wire.h>
 
+#include "../io/I2cBus.h"
 #include "../logging/Logger.h"
 #include "../power/Bq25628.h"
 
@@ -84,20 +84,20 @@ bool hasPullUp(uint8_t pin) {
 }  // namespace
 
 // A Buzzerboard is a C5 with a BQ25628 (PART_INFO part number 2) at 0x6A on
-// GPIO26/27. The bus runs at Wire's default 100 kHz.
+// GPIO26/27. The bus runs at 100 kHz.
 void detectBoard() {
     sDetected = false;
     if (!hasPullUp(kI2cSdaPin) || !hasPullUp(kI2cSclPin)) {
         Logger::i("[cfg] no Buzzerboard: no I2C pull-ups on GPIO%u/%u", kI2cSdaPin, kI2cSclPin);
         return;
     }
-    if (!Wire.begin(kI2cSdaPin, kI2cSclPin)) {
+    if (i2cBus.begin(kI2cSdaPin, kI2cSclPin) != ESP_OK) {
         Logger::w("[cfg] Buzzerboard check: I2C on GPIO%u/%u did not start", kI2cSdaPin,
                   kI2cSclPin);
         return;
     }
-    sDetected = Bq25628(Wire).probe();
-    Wire.end();
+    sDetected = Bq25628(i2cBus).probe();
+    i2cBus.end();
     Logger::i("[cfg] %s", sDetected ? "Buzzerboard detected (BQ25628 at 0x6A)"
                                     : "no Buzzerboard: no BQ25628 at 0x6A");
 }

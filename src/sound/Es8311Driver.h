@@ -32,7 +32,7 @@
 // The codec's I2C control interface lives on the device-wide I2C bus
 // (DeviceConfig::i2cSdaPin/i2cSclPin, not part of SoundHardwareConfig) —
 // main.cpp brings that bus up once at startup, so begin() only needs the
-// pins to validate/log with, not to call Wire.begin() itself. Likewise
+// pins to validate/log with, not to begin the bus itself. Likewise
 // expanderAddress comes from DeviceConfig::expanderAddress, not this
 // config — there's only ever one expander per device.
 class Es8311Driver : public SoundDriver {
