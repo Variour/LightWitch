@@ -1,15 +1,15 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <NetworkClient.h>
 #include <PubSubClient.h>
-#include <WiFi.h>
-#include <WiFiClient.h>
 
 #include <functional>
 
 #include "../battery/BatteryMonitor.h"
 #include "../config/Config.h"
 #include "../logging/Logger.h"
+#include "../net/WifiRadio.h"
 #include "../scenes/SceneManager.h"
 #include "../update/Updater.h"
 
@@ -76,7 +76,7 @@ class MqttManager {
 
         // Derive a stable unique ID from the MAC
         uint8_t mac[6];
-        WiFi.macAddress(mac);
+        WifiRadio::macAddress(mac);
         snprintf(_uniqueId, sizeof(_uniqueId), "bl_%02x%02x%02x", mac[3], mac[4], mac[5]);
 
         char base[96];
@@ -266,7 +266,7 @@ class MqttManager {
     static constexpr const char* kPatternNames[5] = {"Static", "Breathing", "Color Cycle", "Strobe",
                                                      "Candle"};
 
-    WiFiClient _wifi;
+    NetworkClient _wifi;
     PubSubClient _client{_wifi};
 
     GroupApplyFn _onGroupLight;

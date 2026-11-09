@@ -1,7 +1,6 @@
 #pragma once
 #include <Arduino.h>
 #include <Preferences.h>
-#include <WiFi.h>
 #include <esp_now.h>
 #include <esp_random.h>
 #include <esp_wifi.h>
@@ -19,6 +18,7 @@
 #include "../mesh/MeshManager.h"
 #include "../mesh/SoftAp.h"
 #include "../mesh/WifiElection.h"
+#include "../net/WifiRadio.h"
 #include "../power/PowerManager.h"
 #include "../update/Updater.h"
 #include "DeepSleep.h"
@@ -103,7 +103,7 @@ class FleetManager {
         _fleetDevice = boardDetected();
         if (Config::wifiCount() == 0) Config::loadWifi();
 
-        WiFi.macAddress(_mac);
+        WifiRadio::macAddress(_mac);
         _filter.begin(_mac);
         if (!_rx.allocate(fleet::kRxQueue))
             Logger::e("[fleet] out of memory for the receive queue");
@@ -737,7 +737,7 @@ class FleetManager {
         }
         // Hand the radio back: WifiElection releases its temporary hold in
         // loop(); charging mode and standby have no station connection.
-        if (_radioInactive) WiFi.disconnect(false);
+        if (_radioInactive) WifiRadio::disconnect();
     }
 
     // ── Factory test ─────────────────────────────────────────────────────────
@@ -747,7 +747,7 @@ class FleetManager {
     }
 
     void _testInfo(fleet::FleetLink::TestInfo& t) {
-        WiFi.macAddress(t.mac);
+        WifiRadio::macAddress(t.mac);
         t.fw = _game->fwBuild();
         t.number = _game->number();
         t.chargerFound = _managed();

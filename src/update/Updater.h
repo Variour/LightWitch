@@ -11,6 +11,7 @@
 
 #include "../config/Config.h"
 #include "../logging/Logger.h"
+#include "../net/WifiRadio.h"
 #include "../scenes/SceneManager.h"
 #include "../sound/PlaylistManager.h"
 #include "../version.h"
@@ -76,7 +77,7 @@ class Updater {
     // Non-blocking check: spawns a task. Safe to call from web handler.
     static void checkAsync() {
         if (_status.state == State::Checking || _status.state == State::Downloading) return;
-        if (WiFi.status() != WL_CONNECTED) {
+        if (!WifiRadio::connected()) {
             _status = Status{};
             _status.state = State::Error;
             _status.error = "not connected to WiFi";
@@ -94,7 +95,7 @@ class Updater {
     static void applyAsync() {
         if (_status.state == State::Downloading) return;
         if (!_status.hasUpdate) return;
-        if (WiFi.status() != WL_CONNECTED) {
+        if (!WifiRadio::connected()) {
             _status.state = State::Error;
             _status.error = "not connected to WiFi";
             return;
@@ -113,7 +114,7 @@ class Updater {
     // and auto-applies once the check completes. Safe to call from web/mesh handler.
     static void triggerAsync() {
         if (_status.state == State::Downloading) return;
-        if (WiFi.status() != WL_CONNECTED) {
+        if (!WifiRadio::connected()) {
             _status.state = State::Error;
             _status.error = "not connected to WiFi";
             return;
@@ -137,7 +138,7 @@ class Updater {
             return;
         }
         if (_prListStatus.state == PrListState::Loading) return;
-        if (WiFi.status() != WL_CONNECTED) {
+        if (!WifiRadio::connected()) {
             _prListStatus.state = PrListState::Error;
             _prListStatus.error = "not connected to WiFi";
             return;
@@ -160,7 +161,7 @@ class Updater {
             return;
         }
         if (_status.state == State::Downloading) return;
-        if (WiFi.status() != WL_CONNECTED) {
+        if (!WifiRadio::connected()) {
             _status.state = State::Error;
             _status.error = "not connected to WiFi";
             return;
@@ -185,7 +186,7 @@ class Updater {
     static void installSourceAsync(const String& tag) {
         if (_status.state == State::Checking || _status.state == State::Downloading) return;
         _status = Status{};
-        if (WiFi.status() != WL_CONNECTED) {
+        if (!WifiRadio::connected()) {
             _status.state = State::Error;
             _status.error = "not connected to WiFi";
             return;
@@ -359,7 +360,7 @@ class Updater {
             return false;
         }
 
-        WiFiClient* stream = http.getStreamPtr();
+        NetworkClient* stream = http.getStreamPtr();
         uint8_t buf[512];
         int written = 0;
 

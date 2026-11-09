@@ -1,11 +1,11 @@
 #pragma once
 #include <Arduino.h>
-#include <WiFi.h>
 
 #include <functional>
 
 #include "../config/Config.h"
 #include "../logging/Logger.h"
+#include "../net/WifiRadio.h"
 #include "PeerRegistry.h"
 #include "SoftAp.h"
 
@@ -50,7 +50,7 @@ class WifiConnectAttempt {
         _netIdx = 0;
         _attemptNum = 0;
         _active = true;
-        WiFi.disconnect(false);
+        WifiRadio::disconnect();
         _beginPreDelay(100);
     }
 
@@ -70,7 +70,7 @@ class WifiConnectAttempt {
         if (!_active) return;
         _active = false;
         _onDone = nullptr;
-        WiFi.disconnect(false);
+        WifiRadio::disconnect();
         SoftAp::startFallback();
     }
 
@@ -88,15 +88,15 @@ class WifiConnectAttempt {
 
         if (_phase == Phase::PreDelay) {
             if (millis() - _phaseStart < _preDelayMs) return;
-            WiFi.begin(_ssid(), _pass());
-            WiFi.setTxPower(WIFI_TX_POWER);
+            WifiRadio::connect(_ssid(), _pass());
+            WifiRadio::setTxPower();
             _phase = Phase::Connecting;
             _phaseStart = millis();
             return;
         }
 
         // Phase::Connecting
-        if (WiFi.status() == WL_CONNECTED) {
+        if (WifiRadio::connected()) {
             if (_netIdx != Config::wifiLast()) {
                 Config::setWifiLast(_netIdx);
                 Config::saveWifi();
@@ -119,7 +119,7 @@ class WifiConnectAttempt {
 
         _attemptNum++;
         if (_attemptNum < 3) {
-            WiFi.disconnect(false);
+            WifiRadio::disconnect();
             _beginPreDelay(2000);
             return;
         }
@@ -130,7 +130,7 @@ class WifiConnectAttempt {
             _finish(false);
             return;
         }
-        WiFi.disconnect(false);
+        WifiRadio::disconnect();
         _beginPreDelay(100);
     }
 
@@ -194,7 +194,7 @@ class WifiConnectAttempt {
 // simpler, easier-to-reason-about state machine.
 //
 // Once any candidate is confirmed connected (observed via PresenceMsg /
-// local WiFi.status()), everyone else stands down to standby (AP-only, no
+// local WifiRadio::connected()), everyone else stands down to standby (AP-only, no
 // STA attempts) until that peer drops off the mesh or loses its connection,
 // at which point the same race runs again automatically.
 //
@@ -223,7 +223,7 @@ class WifiElection {
     // "everyone connects" immediately instead of being stuck on standby.
     void onPolicyChanged(bool nowEnabled) {
         if (!nowEnabled) {
-            if (WiFi.status() != WL_CONNECTED && !_attempt.active()) _attempt.start([](bool) {});
+            if (!WifiRadio::connected() && !_attempt.active()) _attempt.start([](bool) {});
             return;
         }
 
@@ -234,7 +234,7 @@ class WifiElection {
         if (!_otaHold) _enterWaiting();
     }
 
-    // Non-blocking: connects if needed, then invokes onReady once WL_CONNECTED
+    // Non-blocking: connects if needed, then invokes onReady once connected
     // (or once all configured networks were tried and failed — the caller,
     // e.g. Updater, already handles "not connected to WiFi" gracefully).
     // Used for on-demand OTA checks/installs on a peer that is on standby.
@@ -245,7 +245,7 @@ class WifiElection {
     // caller must call releaseTemporary() once it knows the real operation
     // has actually finished (see main.cpp's loop()).
     void requestTemporary(std::function<void()> onReady) {
-        if (WiFi.status() == WL_CONNECTED) {
+        if (WifiRadio::connected()) {
             onReady();
             return;
         }
@@ -282,8 +282,8 @@ class WifiElection {
         if (wasLeader) {
             _state = State::Connected;
         } else if (_stateBeforeOta != State::Connecting) {
-            if (Config::get().wifiSingleClientMode && WiFi.status() == WL_CONNECTED) {
-                WiFi.disconnect(false);
+            if (Config::get().wifiSingleClientMode && WifiRadio::connected()) {
+                WifiRadio::disconnect();
                 SoftAp::startFallback();
             }
             _state = _stateBeforeOta;
@@ -308,7 +308,7 @@ class WifiElection {
         _attempt.tick();
 
         if (_otaHold) {
-            if (WiFi.status() == WL_CONNECTED) {
+            if (WifiRadio::connected()) {
                 // Connected — notify the caller(s) exactly once and then
                 // just keep holding; releaseTemporary() does the teardown
                 // once the real operation is done, not right after this.
@@ -340,8 +340,8 @@ class WifiElection {
         if (Config::wifiCount() == 0) return;             // not a candidate — nothing to elect
 
         uint8_t ownMac[6];
-        WiFi.macAddress(ownMac);
-        bool selfConnected = WiFi.status() == WL_CONNECTED;
+        WifiRadio::macAddress(ownMac);
+        bool selfConnected = WifiRadio::connected();
         bool anyConnected = selfConnected || _anyPeerConnected();
 
         switch (_state) {
@@ -396,7 +396,7 @@ class WifiElection {
                     // the mesh) — yield to the lower MAC so the mesh settles
                     // back to exactly one WiFi client.
                     Logger::w("[wifi-elect] a lower-MAC peer is also connected — yielding");
-                    WiFi.disconnect(false);
+                    WifiRadio::disconnect();
                     SoftAp::startFallback();
                     _state = State::Standby;
                 }
@@ -416,9 +416,9 @@ class WifiElection {
         }
     }
 
-    bool isConnected() const { return WiFi.status() == WL_CONNECTED; }
+    bool isConnected() const { return WifiRadio::connected(); }
 
-    // True while a WifiConnectAttempt is actually in flight (WiFi.begin()
+    // True while a WifiConnectAttempt is actually in flight (WifiRadio::connect()
     // issued, waiting on the result) — either this device's own election
     // turn or a temporary OTA connect. Broadcast in PresenceMsg so the
     // device list can show a distinct "connecting…" state. Excludes the
@@ -438,7 +438,7 @@ class WifiElection {
     // election — or when _attempt is already claimed by the election itself
     // or an OTA temporary hold; accepted limitation, not resolved here.
     void connectForConfirm(std::function<void(bool)> onDone) {
-        if (WiFi.status() == WL_CONNECTED) {
+        if (WifiRadio::connected()) {
             if (onDone) onDone(true);
             return;
         }
@@ -470,12 +470,12 @@ class WifiElection {
     // to run an OTA check could make the real leader think a legitimate
     // lower-MAC candidate had shown up and wrongly yield to it (see
     // _lowerMacPeerConnected in tick()). Deliberately not used for this
-    // device's own local WiFi.status() display (see WebServer.h) — the user
+    // device's own local WifiRadio::connected() display (see WebServer.h) — the user
     // looking at this exact device's own page still wants to see "yes, I'm
     // online right now", even if the rest of the mesh shouldn't treat that
     // connection as anything more than a passing OTA errand.
     bool isAdvertisableConnected() const {
-        if (WiFi.status() != WL_CONNECTED) return false;
+        if (!WifiRadio::connected()) return false;
         if (!_otaHold) return true;
         return _stateBeforeOta == State::Connected || _state == State::Connected;
     }
@@ -487,7 +487,7 @@ class WifiElection {
         if (_otaHold) return;
         if (_attempt.active()) _attempt.abort();
         if (Config::get().wifiSingleClientMode) _enterWaiting();
-        WiFi.disconnect(false);
+        WifiRadio::disconnect();
     }
 
     // The radio is back from suspend(): connect again the way boot does,
@@ -498,7 +498,7 @@ class WifiElection {
             _enterWaiting();
             return;
         }
-        if (Config::wifiCount() > 0 && WiFi.status() != WL_CONNECTED && !_attempt.active())
+        if (Config::wifiCount() > 0 && !WifiRadio::connected() && !_attempt.active())
             _attempt.start([](bool) {});
     }
 
@@ -542,7 +542,7 @@ class WifiElection {
     }
 
     // Excludes self on purpose — callers combine this with their own
-    // WiFi.status() check so they can tell "I'm the one connected" apart
+    // WifiRadio::connected() check so they can tell "I'm the one connected" apart
     // from "a peer is", which need different reactions (adopt vs. stand by).
     bool _anyPeerConnected() const {
         if (!_peers) return false;

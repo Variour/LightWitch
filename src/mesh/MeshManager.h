@@ -1,6 +1,5 @@
 #pragma once
 #include <Arduino.h>
-#include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
 
@@ -10,6 +9,7 @@
 #include "../battery/BatteryMonitor.h"
 #include "../config/Config.h"
 #include "../logging/Logger.h"
+#include "../net/WifiRadio.h"
 #include "../update/Updater.h"
 #include "../version.h"
 #include "MeshCrypto.h"
@@ -75,7 +75,7 @@ class MeshManager {
     // Polled once per heartbeat to fill PresenceMsg.wifiConnected — whether
     // this device should be advertised as the mesh's actual WiFi client
     // (see WifiElection::isAdvertisableConnected). Falls back to the raw
-    // WiFi.status() check if unset.
+    // WifiRadio::connected() check if unset.
     using WifiConnectedCb = std::function<bool()>;
     // Called when a peer (or this device, echoed back) broadcasts a manual
     // "retry WiFi now" request.
@@ -174,7 +174,7 @@ class MeshManager {
         esp_now_register_send_cb(_onSent);
         // Enable sniffer if any existing light is in proximity mode
         _setSnifferEnabled(_anyProximity());
-        Logger::i("[mesh] ready, MAC: %s", WiFi.macAddress().c_str());
+        Logger::i("[mesh] ready, MAC: %s", WifiRadio::macString().c_str());
         _ready = true;
     }
 
@@ -876,9 +876,7 @@ class MeshManager {
         msg.sceneSyncEnabled = Config::get().sceneSyncEnabled ? 1 : 0;
         strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
         msg.wifiConnected =
-            (_wifiConnectedProvider ? _wifiConnectedProvider() : (WiFi.status() == WL_CONNECTED))
-                ? 1
-                : 0;
+            (_wifiConnectedProvider ? _wifiConnectedProvider() : WifiRadio::connected()) ? 1 : 0;
         msg.hasWifiNetworks = (Config::wifiCount() > 0) ? 1 : 0;
         msg.wifiConnecting = (_wifiAttemptingProvider && _wifiAttemptingProvider()) ? 1 : 0;
         BatteryMonitor::Status bs =
@@ -933,9 +931,7 @@ class MeshManager {
         strlcpy(msg.name, Config::get().deviceName, sizeof(msg.name));
         strlcpy(msg.fwVersion, FW_VERSION, sizeof(msg.fwVersion));
         msg.wifiConnected =
-            (_wifiConnectedProvider ? _wifiConnectedProvider() : (WiFi.status() == WL_CONNECTED))
-                ? 1
-                : 0;
+            (_wifiConnectedProvider ? _wifiConnectedProvider() : WifiRadio::connected()) ? 1 : 0;
         msg.hasWifiNetworks = (Config::wifiCount() > 0) ? 1 : 0;
         _send(&msg, sizeof(msg));
     }
@@ -944,7 +940,7 @@ class MeshManager {
     // have a light in groupId. The lowest-MAC device acts as the phase-sync master.
     bool _isSyncMaster(uint8_t groupId) {
         uint8_t ownMac[6];
-        WiFi.macAddress(ownMac);
+        WifiRadio::macAddress(ownMac);
         for (const auto& p : peers) {
             if (!p.online()) continue;
             bool inGroup = false;
@@ -1150,7 +1146,7 @@ class MeshManager {
                 if (len < (int)sizeof(SetSceneSyncMsg)) return;
                 auto* m = (SetSceneSyncMsg*)data;
                 uint8_t own[6];
-                WiFi.macAddress(own);
+                WifiRadio::macAddress(own);
                 if (memcmp(m->targetMac, own, 6) == 0) {
                     if (_instance->_onSetSceneSync) _instance->_onSetSceneSync(m->enabled != 0);
                 }
@@ -1169,7 +1165,7 @@ class MeshManager {
                 if (len < (int)sizeof(TriggerUpdateMsg)) return;
                 auto* m = (TriggerUpdateMsg*)data;
                 uint8_t own[6];
-                WiFi.macAddress(own);
+                WifiRadio::macAddress(own);
                 if (memcmp(m->targetMac, own, 6) == 0) {
                     Logger::i("[mesh] trigger-update rx");
                     if (_instance->_onTriggerUpdate) _instance->_onTriggerUpdate();
@@ -1180,7 +1176,7 @@ class MeshManager {
                 if (len < (int)sizeof(CheckUpdateMsg)) return;
                 auto* m = (CheckUpdateMsg*)data;
                 uint8_t own[6];
-                WiFi.macAddress(own);
+                WifiRadio::macAddress(own);
                 if (memcmp(m->targetMac, own, 6) == 0) {
                     Logger::i("[mesh] check-update rx");
                     if (_instance->_onCheckUpdate) _instance->_onCheckUpdate();
@@ -1197,7 +1193,7 @@ class MeshManager {
                 if (len < (int)sizeof(KeyExchangeInitMsg)) return;
                 auto* m = (KeyExchangeInitMsg*)data;
                 uint8_t own[6];
-                WiFi.macAddress(own);
+                WifiRadio::macAddress(own);
                 if (memcmp(m->targetMac, own, 6) == 0) _instance->_onKeyExchangeInit(mac, m);
                 break;
             }
@@ -1205,7 +1201,7 @@ class MeshManager {
                 if (len < (int)sizeof(KeyExchangeRespMsg)) return;
                 auto* m = (KeyExchangeRespMsg*)data;
                 uint8_t own[6];
-                WiFi.macAddress(own);
+                WifiRadio::macAddress(own);
                 if (memcmp(m->targetMac, own, 6) == 0) _instance->_onKeyExchangeResp(m);
                 break;
             }
@@ -1278,7 +1274,7 @@ class MeshManager {
                 if (len < (int)sizeof(SetPlaylistSyncMsg)) return;
                 auto* m = (SetPlaylistSyncMsg*)data;
                 uint8_t own[6];
-                WiFi.macAddress(own);
+                WifiRadio::macAddress(own);
                 if (memcmp(m->targetMac, own, 6) == 0) {
                     if (_instance->_onSetPlaylistSync)
                         _instance->_onSetPlaylistSync(m->enabled != 0);

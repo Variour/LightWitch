@@ -18,10 +18,10 @@ A device that isn't currently connected to WiFi searches independently for a cha
 
 ## Mesh channel split: devices connected to different WiFi networks never converge
 
-`ChannelManager::begin()` locks straight to `WiFi.channel()` whenever WiFi is already connected at boot, with no search phase at all. If two or more devices are each configured for, and successfully connected to, a *different* WiFi network whose router happens to operate on a different channel, each device locks to its own router's channel and never re-evaluates:
+`ChannelManager::begin()` locks straight to `WifiRadio::channel()` whenever WiFi is already connected at boot, with no search phase at all. If two or more devices are each configured for, and successfully connected to, a *different* WiFi network whose router happens to operate on a different channel, each device locks to its own router's channel and never re-evaluates:
 
-- a continuously-connected device only reacts to a `WL_CONNECTED` *transition* in `tick()`, which already happened once at boot — it never re-checks after that
-- a manual **Search devices** click doesn't help either: it flips the device to searching, but the very next `tick()` sees `WiFi.status()` is still connected and immediately re-locks to `WiFi.channel()` before ever looking elsewhere
+- a continuously-connected device only reacts to a connected *transition* in `tick()`, which already happened once at boot — it never re-checks after that
+- a manual **Search devices** click doesn't help either: it flips the device to searching, but the very next `tick()` sees `WifiRadio::connected()` is still true and immediately re-locks to `WifiRadio::channel()` before ever looking elsewhere
 
 Unlike the mesh channel islands case above, this is a permanent, deterministic split, not a probabilistic one — there is no automatic escape hatch. Two devices legitimately, correctly connected to their own configured routers simply never share ESP-NOW airtime. See #323.
 

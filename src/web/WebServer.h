@@ -1,7 +1,6 @@
 #pragma once
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
-#include <WiFi.h>
 
 #include <functional>
 
@@ -12,6 +11,7 @@
 #include "../logging/Logger.h"
 #include "../mesh/ChannelManager.h"
 #include "../mesh/PeerRegistry.h"
+#include "../net/WifiRadio.h"
 #include "../scenes/SceneManager.h"
 #include "../scenes/SceneSyncManager.h"
 #include "../sound/PlaylistManager.h"
@@ -895,7 +895,7 @@ class BatteryWebServer {
         doc["deviceName"] = c.deviceName;
         doc["otaPort"] = c.otaPort;
         doc["otaEnabled"] = c.otaEnabled;
-        doc["mac"] = WiFi.macAddress();
+        doc["mac"] = WifiRadio::macString();
         doc["version"] = FW_VERSION;
         doc["logLevel"] = c.logLevel;
         doc["sceneSyncEnabled"] = c.sceneSyncEnabled;
@@ -1216,11 +1216,11 @@ class BatteryWebServer {
         doc["wifiSingleClientMode"] = c.wifiSingleClientMode;
 
         auto self = doc["self"].to<JsonObject>();
-        self["mac"] = WiFi.macAddress();
+        self["mac"] = WifiRadio::macString();
         self["name"] = c.deviceName;
         self["online"] = true;
-        self["wifiConnected"] = (WiFi.status() == WL_CONNECTED);
-        self["ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+        self["wifiConnected"] = WifiRadio::connected();
+        self["ip"] = WifiRadio::connected() ? WifiRadio::localIp().toString() : "";
         self["hasWifiNetworks"] = Config::wifiCount() > 0;
         self["wifiConnecting"] = _onWifiAttempting && _onWifiAttempting();
         self["wifiAwaitingApConfirm"] = _onWifiAwaitingApConfirm && _onWifiAwaitingApConfirm();
@@ -1452,7 +1452,7 @@ class BatteryWebServer {
             return;
         }
 
-        if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
+        if (WifiRadio::macString().equalsIgnoreCase(macStr)) {
             if (Config::group(groupId)) {
                 Config::get().lights[lightIndex].groupId = groupId;
                 Config::save();
@@ -1485,7 +1485,7 @@ class BatteryWebServer {
         uint8_t audioGroupId = doc["audioGroupId"] | (uint8_t)0;
         const char* macStr = doc["mac"] | "";
 
-        if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
+        if (WifiRadio::macString().equalsIgnoreCase(macStr)) {
             if (Config::audioGroup(audioGroupId)) {
                 Config::forEachSound(
                     [&](uint8_t, SoundHardwareConfig& s) { s.audioGroupId = audioGroupId; });
@@ -1522,7 +1522,7 @@ class BatteryWebServer {
         bool overrideEnabled = doc["overrideEnabled"] | false;
         const char* macStr = doc["mac"] | "";
 
-        if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
+        if (WifiRadio::macString().equalsIgnoreCase(macStr)) {
             Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
                 s.volumeOverrideEnabled = overrideEnabled;
                 if (overrideEnabled) s.volume = volume;
@@ -1706,7 +1706,7 @@ class BatteryWebServer {
         }
 
         // Determine if sourceMac is this device or a remote one
-        bool isLocal = !macStr[0] || WiFi.macAddress().equalsIgnoreCase(macStr);
+        bool isLocal = !macStr[0] || WifiRadio::macString().equalsIgnoreCase(macStr);
 
         if (isLocal) {
             if (_onResolveConflict) _onResolveConflict(id, nullptr);
@@ -1726,8 +1726,8 @@ class BatteryWebServer {
     // ── GET /api/wifi ─────────────────────────────────────────────────────────
     void _getWifi(AsyncWebServerRequest* r) {
         JsonDocument doc;
-        if (WiFi.status() == WL_CONNECTED) {
-            // Use Config::wifiLast() rather than WiFi.SSID() to avoid calling
+        if (WifiRadio::connected()) {
+            // Use Config::wifiLast() rather than asking the driver, to avoid calling
             // esp_wifi_sta_get_ap_info() from an async handler — that call can
             // block waiting for the WiFi driver lock during reconnect events.
             uint8_t last = Config::wifiLast();
@@ -1762,7 +1762,7 @@ class BatteryWebServer {
         // Nothing else actually connects to a newly-saved network until the
         // next reboot — kick off a live attempt now if this device isn't
         // already on WiFi, so onboarding doesn't require a manual power cycle.
-        if (WiFi.status() != WL_CONNECTED && _onWifiConnectForConfirm) {
+        if (!WifiRadio::connected() && _onWifiConnectForConfirm) {
             _onWifiConnectForConfirm([](bool) {});
         }
         auto ok = _makeOk();
@@ -1950,7 +1950,7 @@ class BatteryWebServer {
         const char* macStr = doc["mac"] | "";
         bool enabled = doc["enabled"] | true;
 
-        if (WiFi.macAddress().equalsIgnoreCase(macStr)) {
+        if (WifiRadio::macString().equalsIgnoreCase(macStr)) {
             bool prev = Config::get().sceneSyncEnabled;
             Config::get().sceneSyncEnabled = enabled;
             Config::save();

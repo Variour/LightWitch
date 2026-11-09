@@ -1,10 +1,10 @@
 #include "TimeSync.h"
 
-#include <WiFi.h>
 #include <esp_sntp.h>
 #include <sys/time.h>
 
 #include "../logging/Logger.h"
+#include "../net/WifiRadio.h"
 
 TimeSync::Source TimeSync::_source = TimeSync::Source::None;
 bool TimeSync::_ntpStarted = false;
@@ -21,7 +21,7 @@ void TimeSync::begin(const char* timezone) {
 }
 
 void TimeSync::tick() {
-    bool wifiUp = WiFi.status() == WL_CONNECTED;
+    bool wifiUp = WifiRadio::connected();
 
     if (wifiUp && !_ntpStarted) {
         _ntpStarted = true;
