@@ -25,7 +25,8 @@ class WifiRadio {
     // Station: stores the network and starts connecting to it. The result
     // shows in connected().
     static bool connect(const char* ssid, const char* password);
-    // Station: leaves the network, or stops connecting to it.
+    // Station: leaves the network, or stops connecting to it. Returns once
+    // the station is no longer associated, after 100 ms at the latest.
     static bool disconnect();
     // Station: associated and an address received from DHCP. A disconnect
     // with reason AUTH_EXPIRE leaves the value as it is.

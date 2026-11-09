@@ -386,7 +386,9 @@ bool WifiRadio::disconnect() {
         log_e("station disconnect: %s", esp_err_to_name(err));
         return false;
     }
-    return true;
+    for (int waited = 0; (state() & kStaAssociated) && waited < 100; waited += 5)
+        vTaskDelay(pdMS_TO_TICKS(5));
+    return !(state() & kStaAssociated);
 }
 
 bool WifiRadio::connected() { return (state() & kStaOnline) != 0; }
