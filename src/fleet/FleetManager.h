@@ -262,10 +262,11 @@ class FleetManager {
     bool updateRunning() const { return _upd.running; }
     bool hasLight() const { return _led != nullptr; }
 
-    // The fleet draws the light: factory test, update, charging, standby.
+    // The fleet draws the light: factory test, update, charging, standby,
+    // switched off on USB.
     bool ownsLeds() const {
         return _led && (_test.running() || _upd.running || _ps.state() != fleet::State::Active ||
-                        _levelShowing);
+                        _levelShowing || _offLevel());
     }
 
     // Full frame while ownsLeds().
@@ -277,6 +278,8 @@ class FleetManager {
             _test.frame(now, px);
         else if (_upd.running)
             fleet::renderUpdate(_upd.pct, now, px);
+        else if (_offLevel())
+            fleet::renderOffLevel(_batteryPercent(), _charge == fleet::Charge::Charging, now, px);
         else if (_ps.state() == fleet::State::Charging && !_weakNow() && !_ledsSwitchedOff())
             fleet::renderCharging(_chargeView(now), now, px);
         else if (_levelShowing)
@@ -455,11 +458,18 @@ class FleetManager {
     }
 
     // The LEDs switched off with a key (light 0's brightness override at 0,
-    // see config/BoardProfile.cpp): the level and charging displays stay
-    // dark too (Timo, 2026-11-09).
+    // see config/BoardProfile.cpp): on battery everything stays dark, on USB
+    // only _offLevel() shows (Timo, 2026-11-09).
     bool _ledsSwitchedOff() const {
         const LightHardwareConfig& l = Config::get().lights[0];
         return l.brightnessOverrideEnabled && l.brightnessOverride == 0;
+    }
+
+    // Switched off with a key, on USB with a cell: renderOffLevel()
+    // (Timo, 2026-11-09).
+    bool _offLevel() const {
+        return _ledsSwitchedOff() && _usb() && !_weakNow() &&
+               _batteryPercent() != fleet::kNoBattery;
     }
 
     int16_t _ibatMa() const {

@@ -139,6 +139,13 @@ static constexpr uint32_t kFlowMaxMs = 3000;
 // pattern's period (config/BoardProfile.cpp, Breathing at speed 1.0).
 static constexpr uint32_t kIdlePulseMs = 4000;
 static constexpr uint32_t kIdleLevelMs = 3000;  // firmware
+// owner (2026-11-09): LEDs switched off with a key, on USB: only the column
+// shows the level at about 1 %, red at the USB-C end to green at the top.
+// While charging, the top LED of the level pulses slowly. 1/255 is the
+// smallest step of the LEDs.
+static constexpr uint8_t kOffLevel = 2;            // about 0.8 %
+static constexpr uint8_t kOffTipLevel = 5;         // firmware: pulse peak, about 2 %
+static constexpr uint32_t kOffTipPulseMs = 3000;   // firmware
 static constexpr uint32_t kFaultBlinkMs = 1000;  // firmware: ring blinks at 1 Hz
 static constexpr uint32_t kRingChaseMs = 150;    // firmware: update ring, one step per 150 ms
 

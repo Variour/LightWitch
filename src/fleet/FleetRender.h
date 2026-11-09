@@ -1,4 +1,5 @@
 #pragma once
+#include <math.h>
 #include <stdint.h>
 
 #include "../game/GameConfig.h"
@@ -80,6 +81,39 @@ inline void renderLevel(uint8_t battery, int16_t ibatMa, uint32_t now, Rgb* px) 
         px[columnLed(pos)] = level(game::colorRgb(Color::White), kFlowLevel);
     }
     px[game::kStatusDot] = c;
+}
+
+inline Rgb levelRounded(Rgb c, uint8_t lvl) {
+    return {(uint8_t)((c.r * lvl + 127) / 255), (uint8_t)((c.g * lvl + 127) / 255),
+            (uint8_t)((c.b * lvl + 127) / 255)};
+}
+
+// Column LED n (0 = the USB-C end): red through yellow to green at the top.
+inline Rgb columnGradient(uint8_t n) {
+    uint16_t t = (uint16_t)((uint32_t)n * 510 / (game::kScoreCount - 1));
+    if (t <= 255) return Rgb{255, (uint8_t)t, 0};
+    return Rgb{(uint8_t)(510 - t), 255, 0};
+}
+
+// Raised cosine from lo up to hi and back, one cycle per period.
+inline uint8_t softPulse(uint32_t now, uint32_t period, uint8_t lo, uint8_t hi) {
+    float x = (float)(now % period) / (float)period;
+    float s = 0.5f - 0.5f * cosf(6.2831853f * x);
+    return (uint8_t)(lo + (uint8_t)lroundf((float)(hi - lo) * s));
+}
+
+// LEDs switched off with a key, on USB: the level on the column at
+// kOffLevel in columnGradient(). While charging, the top LED of the level
+// pulses up to kOffTipLevel. Ring and status dot stay dark.
+inline void renderOffLevel(uint8_t battery, bool charging, uint32_t now, Rgb* px) {
+    clearFrame(px);
+    if (battery == kNoBattery) return;
+    uint8_t n = columnCount(battery);
+    for (uint8_t i = 0; i < n; i++) px[columnLed(i)] = levelRounded(columnGradient(i), kOffLevel);
+    if (charging && n > 0)
+        px[columnLed(n - 1)] =
+            levelRounded(columnGradient(n - 1),
+                         softPulse(now, kOffTipPulseMs, kOffLevel, kOffTipLevel));
 }
 
 // Charging mode. Charging: renderLevel() (level and charge current). Full: whole
