@@ -144,6 +144,15 @@ bool applyBoardProfile(DeviceConfig& cfg) {
         b.activeLow = true;
         b.viaExpander = false;
         b.exists = true;
+        // R2 (Timo, 2026-11-09): short press dims the LEDs to off, long press
+        // brings back the configured brightness. Outside a game session.
+        if (strcmp(k.role, ButtonRole::R2) == 0) {
+            b.onShortPress.action = ActionId::LightBrightnessOverrideSet;
+            b.onShortPress.lightIndex = 0;
+            b.onShortPress.params.numberValue = 0;
+            b.onLongPress.action = ActionId::LightBrightnessOverrideClear;
+            b.onLongPress.lightIndex = 0;
+        }
     }
     return true;
 }
