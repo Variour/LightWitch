@@ -311,12 +311,12 @@ while VBAT is between a lowered charge voltage and 4.25 V (see `config charge`).
   `charger.fault` the charger's FAULT_Status_0 register, `imu.id` the
   WHO_AM_I value (106 = 0x6A), `imu.g` one accelerometer reading in g.
   Without a charger reading the measurements are `null`; without an IMU `imu` is `null`.
-- `leds`: all 34 LEDs white, red, green, blue at brightness 20 (0.6 s each),
+- `leds`: all 34 LEDs white, red, green, blue at the display brightness, at least 8 (0.6 s each),
   then one white LED runs along the chain (60 ms per LED).
 - `keys`: each key lights an LED while the test runs: BUZZ the ring, the
   D-pad keys their own LED, L1, L2, R1, R2 and POWER every other column LED
   from the USB-C end. Keys do nothing else meanwhile.
 - `charge`: charges at the `event` target for 10 s with the LEDs dark and
   returns the mean IBUS, IBAT and VBUS of the charger ADC samples; `ok`
-  is `false` without samples. IBUS above about 500 mA means R5 (ILIM) is wrong.
+  is `false` without samples.
 - The link closing ends a running test.

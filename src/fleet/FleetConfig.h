@@ -172,7 +172,9 @@ static constexpr uint8_t kPassMax = 63;
 static constexpr uint8_t kTokenMax = 127;  // = sizeof(DeviceConfig::githubToken) - 1
 
 // ── Factory test (USB `test`) ────────────────────────────────────────────────
-static constexpr uint8_t kTestLevel = 20;            // spec: brightness about 20
+// owner (2026-11-09): the test frames follow the display brightness, at
+// least kTestLevelMin so every colour stays easy to judge.
+static constexpr uint8_t kTestLevelMin = 8;
 static constexpr uint32_t kTestColorMs = 600;        // firmware: each colour on all LEDs
 static constexpr uint32_t kTestChaseStepMs = 60;     // firmware: chase, per LED
 static constexpr uint32_t kTestChargeMs = 10000;     // spec: charge for 10 s

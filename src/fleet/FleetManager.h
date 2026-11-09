@@ -282,7 +282,9 @@ class FleetManager {
         _ledsOwned = true;
         game::Rgb px[game::kLedCount];
         if (_test.running())
-            _test.frame(now, px);
+            _test.frame(
+                now, px,
+                _displayLevel() < fleet::kTestLevelMin ? fleet::kTestLevelMin : _displayLevel());
         else if (_upd.running)
             fleet::renderUpdate(_upd.pct, now, px, _displayLevel());
         else if (_batteryOverlay())
