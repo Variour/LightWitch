@@ -125,12 +125,12 @@ static constexpr uint8_t kGreenFromPercent = 80;  // firmware: green from the st
 // owner (display sketch): a full device shows the column for 1 h, then only
 // the status dot.
 static constexpr uint32_t kFullColumnMs = 60UL * 60UL * 1000UL;
-static constexpr uint32_t kTipPulseMs = 2000;    // firmware: slow pulse of the column tip
+static constexpr uint32_t kTipPulseMs = 2000;  // firmware: slow pulse of the column tip
 // owner (2026-11-09): the column shows the level in colour and how strongly
 // the battery charges. A white dot runs from the USB-C end to the level, one
 // run per kFlowMaMs / charge current: 200 mA 2 s, 1000 mA 0.4 s.
-static constexpr uint8_t kFlowLevel = 16;        // owner: dim, 20 % dazzled
-static constexpr int16_t kFlowMinMa = 20;        // firmware: below this no dot
+static constexpr uint8_t kFlowLevel = 16;  // owner: dim, 20 % dazzled
+static constexpr int16_t kFlowMinMa = 20;  // firmware: below this no dot
 static constexpr uint32_t kFlowMaMs = 400000;
 static constexpr uint32_t kFlowMinMs = 300;
 static constexpr uint32_t kFlowMaxMs = 3000;
@@ -144,11 +144,11 @@ static constexpr uint32_t kIdleLevelMs = 3000;  // firmware
 // the USB-C end.
 // While charging, the last LED of the level pulses slowly. 1/255 is the
 // smallest step of the LEDs.
-static constexpr uint8_t kOffLevel = 2;            // about 0.8 %
-static constexpr uint8_t kOffTipLevel = 5;         // firmware: pulse peak, about 2 %
-static constexpr uint32_t kOffTipPulseMs = 3000;   // firmware
-static constexpr uint32_t kFaultBlinkMs = 1000;  // firmware: ring blinks at 1 Hz
-static constexpr uint32_t kRingChaseMs = 150;    // firmware: update ring, one step per 150 ms
+static constexpr uint8_t kOffLevel = 2;           // about 0.8 %
+static constexpr uint8_t kOffTipLevel = 5;        // firmware: pulse peak, about 2 %
+static constexpr uint32_t kOffTipPulseMs = 3000;  // firmware
+static constexpr uint32_t kFaultBlinkMs = 1000;   // firmware: ring blinks at 1 Hz
+static constexpr uint32_t kRingChaseMs = 150;     // firmware: update ring, one step per 150 ms
 
 // ── Standby radio ────────────────────────────────────────────────────────────
 // firmware: ESP-NOW listens kStandbyWakeWindowMs of every kStandbyWakeIntervalMs.

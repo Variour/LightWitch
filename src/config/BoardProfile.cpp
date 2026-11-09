@@ -158,8 +158,7 @@ bool applyBoardProfile(DeviceConfig& cfg) {
             b.onShortPress.params.numberValue = 0;
             b.onLongPress.action = ActionId::LightBrightnessOverrideClear;
             b.onLongPress.lightIndex = 0;
-        } else if (strcmp(k.role, ButtonRole::UP) == 0 ||
-                   strcmp(k.role, ButtonRole::DOWN) == 0) {
+        } else if (strcmp(k.role, ButtonRole::UP) == 0 || strcmp(k.role, ButtonRole::DOWN) == 0) {
             b.onShortPress.action = ActionId::LightBrightnessOverrideStep;
             b.onShortPress.lightIndex = 0;
             b.onShortPress.params.numberValue =

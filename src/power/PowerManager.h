@@ -310,8 +310,8 @@ class PowerManager {
     // while no cell is in (VBAT is the empty BAT node then).
     BatteryMonitor::ChargerReading batteryReading() const {
         BatteryMonitor::ChargerReading r;
-        r.valid = _online && _hasStatus && !_noCell && _adcMs != 0 &&
-                  millis() - _adcMs < ADC_STALE_MS;
+        r.valid =
+            _online && _hasStatus && !_noCell && _adcMs != 0 && millis() - _adcMs < ADC_STALE_MS;
         r.vbatMv = _adc.vbatMv;
         r.externalPower = _status.powerGood();
         return r;
@@ -628,9 +628,10 @@ class PowerManager {
             if (_otgStuckMs == 0) {
                 _otgStuckMs = now;
             } else if (now - _otgStuckMs >= OTG_STUCK_MS) {
-                Logger::w("[pwr] OTG enabled but not running (stat 0x%02X, fault 0x%02X, "
-                          "flags 0x%02X 0x%02X) - EN_OTG off for a restart",
-                          st.stat1, st.fault, st.flag0, st.flag1);
+                Logger::w(
+                    "[pwr] OTG enabled but not running (stat 0x%02X, fault 0x%02X, "
+                    "flags 0x%02X 0x%02X) - EN_OTG off for a restart",
+                    st.stat1, st.fault, st.flag0, st.flag1);
                 _chg.setOtg(false);
                 _otgStuckMs = 0;
             }

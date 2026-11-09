@@ -116,9 +116,8 @@ inline void renderOffLevel(uint8_t battery, bool charging, uint32_t now, Rgb* px
     for (uint8_t i = 0; i < n; i++)
         px[columnLedFromLed1(i)] = levelRounded(columnGradient(i), kOffLevel);
     if (charging && n > 0)
-        px[columnLedFromLed1(n - 1)] =
-            levelRounded(columnGradient(n - 1),
-                         softPulse(now, kOffTipPulseMs, kOffLevel, kOffTipLevel));
+        px[columnLedFromLed1(n - 1)] = levelRounded(
+            columnGradient(n - 1), softPulse(now, kOffTipPulseMs, kOffLevel, kOffTipLevel));
 }
 
 // Charging mode. Charging: renderLevel() (level and charge current). Full: whole
