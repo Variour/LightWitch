@@ -502,8 +502,10 @@ static void setupOta() {
         _otaActive = false;
         Logger::i("[ota] done");
     });
-    ArduinoOTA.onError(
-        [](ota_error_t e) { Logger::e("[ota] error %u: %s", e, Update.errorString()); });
+    ArduinoOTA.onError([](ota_error_t e) {
+        _otaActive = false;
+        Logger::e("[ota] error %u: %s", e, Update.errorString());
+    });
     ArduinoOTA.begin();
     Logger::i("[ota] ready at %s:%u", c.deviceName, c.otaPort);
 }
