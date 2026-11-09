@@ -46,6 +46,8 @@ static_assert(sizeof(kKeys) / sizeof(kKeys[0]) <= MAX_BUTTONS,
 // I2C bus: BQ25628 (0x6A) and LSM6DS3TR-C (0x6B), 4.7k pull-ups.
 constexpr uint8_t kI2cSdaPin = 26;
 constexpr uint8_t kI2cSclPin = 27;
+// LSM6DS3TR-C INT1 (net IMU_INT, module pin 26); not an LP GPIO.
+constexpr uint8_t kImuIntPin = 25;
 
 // 34 x SK6812MINI-E in one chain behind the SN74LV1T34 5 V buffer, on the
 // WS2812B driver. GRB: the 24-bit word goes out G7..G0, R7..R0, B7..B0
@@ -169,6 +171,7 @@ bool applyBoardProfile(DeviceConfig& cfg) {
 
 bool boardDetected() { return sDetected; }
 bool boardHasFallbackAp() { return !sDetected; }
+int8_t boardImuIntPin() { return sDetected ? (int8_t)kImuIntPin : -1; }
 
 // Every light: the Buzzerboard's LEDs all hang on the PMID rail.
 // On boost the LED rail (PMID behind PMID_GD) can drop for a moment while
@@ -194,5 +197,6 @@ uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) { return configuredMa; }
 uint16_t boardLedRefreshMs() { return 0; }
 bool boardDetected() { return false; }
 bool boardHasFallbackAp() { return true; }
+int8_t boardImuIntPin() { return -1; }
 
 #endif

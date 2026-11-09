@@ -18,6 +18,8 @@ static constexpr uint8_t kMsgQuizStatus = 40;
 static constexpr uint8_t kMsgQuizAdmit = 41;
 static constexpr uint8_t kMsgQuizRelease = 42;
 static constexpr uint8_t kMsgQuizChannel = 43;
+// 44 and 45 are the fleet frames (src/fleet/FleetFrames.h).
+static constexpr uint8_t kMsgQuizKeys = 46;
 
 struct __attribute__((packed)) QuizHeader {
     uint8_t type;
@@ -56,13 +58,16 @@ struct __attribute__((packed)) QuizStateMsg {
     int32_t openOffsetMs;  // time since round start at send; negative = opens in; 0 while announced
     uint16_t winner;       // race winner number, 0 = none
     uint8_t correct;       // choice answer 1-4, 0 = none
+    uint8_t hold;          // Hold (Lage.h)
     uint16_t echoFirst;    // first number covered by echo
     uint8_t echoCount;     // entries in echo, at most kEchoPageSize
-    uint8_t echo[kEchoPageSize];  // per number: value the bridge holds, kNoValue = none
+    // Per number: the value the bridge holds (kNoValue = none); in a move
+    // round the last key press counter (kseq) it passed on (kNoKeySeq = none).
+    uint8_t echo[kEchoPageSize];
 };
 static constexpr size_t kQuizStateHeadLen = offsetof(QuizStateMsg, echo);
-static_assert(kQuizStateHeadLen == 41, "QuizStateMsg layout");
-static_assert(sizeof(QuizStateMsg) == 241, "QuizStateMsg layout");
+static_assert(kQuizStateHeadLen == 42, "QuizStateMsg layout");
+static_assert(sizeof(QuizStateMsg) == 242, "QuizStateMsg layout");
 
 struct __attribute__((packed)) QuizReportMsg {
     QuizHeader h;
@@ -73,8 +78,9 @@ struct __attribute__((packed)) QuizReportMsg {
     int32_t pressOffsetMs;  // input moment since local round start
     uint8_t battery;        // percent, kNoBattery = unknown
     int8_t rssi;            // last bridge frame at the device
+    uint8_t lage;           // Lage the input was read in, 0 = unknown
 };
-static_assert(sizeof(QuizReportMsg) == 24, "QuizReportMsg layout");
+static_assert(sizeof(QuizReportMsg) == 25, "QuizReportMsg layout");
 
 struct __attribute__((packed)) QuizStatusMsg {
     QuizHeader h;
@@ -86,8 +92,9 @@ struct __attribute__((packed)) QuizStatusMsg {
     int8_t rssi;
     uint16_t lastRoundId;
     uint16_t lastStateSeq;
+    uint8_t lage;  // accepted Lage, 0 = unknown
 };
-static_assert(sizeof(QuizStatusMsg) == 31, "QuizStatusMsg layout");
+static_assert(sizeof(QuizStatusMsg) == 32, "QuizStatusMsg layout");
 
 struct __attribute__((packed)) QuizAdmitMsg {
     QuizHeader h;
@@ -112,13 +119,37 @@ struct __attribute__((packed)) QuizChannelMsg {
 };
 static_assert(sizeof(QuizChannelMsg) == 17, "QuizChannelMsg layout");
 
+// One key press of a move round.
+struct __attribute__((packed)) QuizKey {
+    uint8_t kseq;  // press counter, per device and round: 1-255, after 255 comes 1
+    uint8_t key;   // Key Up, Down, Left or Right: logical with lage, else physical
+    uint8_t lage;  // Lage the press was read in, 0 = unknown
+};
+static_assert(sizeof(QuizKey) == 3, "QuizKey layout");
+
+// Device -> bridge in a move round: every unacknowledged press, oldest first.
+struct __attribute__((packed)) QuizKeysMsg {
+    QuizHeader h;
+    uint16_t session;
+    uint16_t roundId;
+    uint8_t count;  // 1 to kKeyLogDepth
+    QuizKey keys[kKeyLogDepth];
+};
+static constexpr size_t kQuizKeysHeadLen = offsetof(QuizKeysMsg, keys);
+static_assert(kQuizKeysHeadLen == 17, "QuizKeysMsg layout");
+static_assert(sizeof(QuizKeysMsg) <= 250, "ESP-NOW v1 payload limit");
+
 static constexpr size_t kMaxFrameLen = sizeof(QuizStateMsg);
 static_assert(kMaxFrameLen <= 250, "ESP-NOW v1 payload limit");
+static_assert(sizeof(QuizKeysMsg) <= kMaxFrameLen, "RxRing slots hold every quiz frame");
 
-inline bool isQuizType(uint8_t type) { return type >= kMsgQuizInvite && type <= kMsgQuizChannel; }
+inline bool isQuizType(uint8_t type) {
+    return (type >= kMsgQuizInvite && type <= kMsgQuizChannel) || type == kMsgQuizKeys;
+}
 
 // Strict framing: fixed frames need their exact size, QuizState needs its
-// head plus exactly echoCount echo bytes, echoCount <= kEchoPageSize.
+// head plus exactly echoCount echo bytes, echoCount <= kEchoPageSize, and
+// QuizKeys its head plus exactly count presses, count 1 to kKeyLogDepth.
 inline bool quizFrameLenOk(const uint8_t* d, size_t len) {
     if (len < 1) return false;
     switch (d[0]) {
@@ -139,13 +170,20 @@ inline bool quizFrameLenOk(const uint8_t* d, size_t len) {
             return len == sizeof(QuizReleaseMsg);
         case kMsgQuizChannel:
             return len == sizeof(QuizChannelMsg);
+        case kMsgQuizKeys: {
+            if (len < kQuizKeysHeadLen) return false;
+            uint8_t count = d[offsetof(QuizKeysMsg, count)];
+            return count >= 1 && count <= kKeyLogDepth &&
+                   len == kQuizKeysHeadLen + (size_t)count * sizeof(QuizKey);
+        }
         default:
             return false;
     }
 }
 
 // Copies a validated frame into its struct; the tail of QuizStateMsg.echo past
-// echoCount stays zero. Returns false if the frame is not of type T's kind.
+// echoCount and of QuizKeysMsg.keys past count stays zero. Returns false if the frame is not of
+// type T's kind.
 template <typename T>
 inline bool decodeFrame(const uint8_t* d, size_t len, uint8_t type, T& out) {
     if (len < 1 || d[0] != type || !quizFrameLenOk(d, len) || len > sizeof(T)) return false;
@@ -156,6 +194,9 @@ inline bool decodeFrame(const uint8_t* d, size_t len, uint8_t type, T& out) {
 
 // On-air length of an encoded frame.
 inline size_t stateFrameLen(const QuizStateMsg& m) { return kQuizStateHeadLen + m.echoCount; }
+inline size_t keysFrameLen(const QuizKeysMsg& m) {
+    return kQuizKeysHeadLen + (size_t)m.count * sizeof(QuizKey);
+}
 
 inline void setKeyColor(uint8_t* keyColor, uint8_t key, uint8_t color) {
     uint8_t& b = keyColor[key / 2];
