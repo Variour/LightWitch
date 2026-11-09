@@ -68,6 +68,10 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
   below -40 mA) for 60 s while USB power is present, the device turns its
   LEDs off, lets the radio listen 500 ms of every second and sets error bit
   9, until USB is unplugged.
+- Charging starts off at boot and goes on once VBAT shows a cell (above
+  2.8 V, at least 15 s after charging went off). Without a cell it stays
+  off and the battery reads as unknown (`bat` and `vbat` `null`). Charge
+  current 200 mA.
 - VBAT below 3.3 V for 30 s on USB (any state): ESP deep sleep while the
   charger charges on; the 60 s timer wake boots again from VBAT 3.5 V.
 - The low-battery cut-off (below 3.3 V for 30 s on battery → ship mode)

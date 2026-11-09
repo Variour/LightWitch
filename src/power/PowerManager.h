@@ -25,11 +25,13 @@
 // §8.3.10.3.1).
 class PowerManager {
    public:
-    // ICHG: the board docs give "up to ~1 A for 2 x 18650" (Buzzerboard
-    // hardware/README.md, Open points 2), i.e. <= 0.5 C per cell for any
-    // 18650 of 2 Ah or more. On a default USB source the ILIM pin's 446 mA
-    // input limit keeps the real charge current lower anyway.
-    static constexpr uint16_t CHARGE_CURRENT_MA = 1000;
+    // ICHG 200 mA: the input current stays on the ILIM pin's 446 mA limit
+    // (EN_EXTILIM = 1, configure()). On the first Buzzerboard (2026-11-05,
+    // board repo firmware/boardtest/README.md "Charge current") ICHG 320 mA
+    // plus the board's own ~95 mA tripped the ILIM over-current about three
+    // times a second, which drops PMID_GD and the LED rail; 200 mA ran
+    // without trips.
+    static constexpr uint16_t CHARGE_CURRENT_MA = 200;
     // Li-ion charge voltage, 4.20 V (board README, charger table and
     // "Over-charge: VREG 4.20 V regulation").
     static constexpr uint16_t CHARGE_VOLTAGE_MV = 4200;
@@ -64,6 +66,20 @@ class PowerManager {
     // CRITICAL_BATTERY_MV or has no fresh reading.
     static constexpr uint16_t UPDATE_MIN_MV = 3500;
     static constexpr uint16_t CRITICAL_BATTERY_MV = 3100;
+
+    // Charging without a cell: on USB with an empty BAT node the charger
+    // charges, terminates and recharges at 3-5 Hz, and the VSYS steps reset
+    // the C5 (first Buzzerboard, 2026-11-04, board repo hardware/README.md
+    // open point 10). So charging starts off and goes on once VBAT shows a
+    // cell: above CELL_MV in an ADC reading taken CELL_HOLDOFF_MS or more
+    // after charging went off (the empty BAT node has drained to ~1.5 V by
+    // then). It goes off again when the charge status changes in at least
+    // CYCLE_FLIPS of the last CYCLE_POLLS status polls (2 s). Values from
+    // the board repo's firmware/boardtest/main/charger.c, "auto" mode.
+    static constexpr uint16_t CELL_MV = 2800;
+    static constexpr uint32_t CELL_HOLDOFF_MS = 15000;
+    static constexpr uint8_t CYCLE_POLLS = 10;
+    static constexpr uint8_t CYCLE_FLIPS = 5;
 
     // blank = true: show nothing until called again with false (see main.cpp).
     using LedBlankFn = std::function<void(bool blank)>;
@@ -143,6 +159,7 @@ class PowerManager {
         _logChanges(st);
         _status = st;
         _hasStatus = true;
+        _updateCharging(st, now);
         _updateOtg(st, now);
         _updateLedRail(st, now);
         _updateTsAdc(st);
@@ -273,16 +290,20 @@ class PowerManager {
         chg.cancelShipMode();
     }
 
-    // Battery source for BatteryMonitor::setChargerSource().
+    // Battery source for BatteryMonitor::setChargerSource(). No reading
+    // while no cell is in (VBAT is the empty BAT node then).
     BatteryMonitor::ChargerReading batteryReading() const {
         BatteryMonitor::ChargerReading r;
-        r.valid = _online && _hasStatus && _adcMs != 0 && millis() - _adcMs < ADC_STALE_MS;
+        r.valid = _online && _hasStatus && !_noCell && _adcMs != 0 &&
+                  millis() - _adcMs < ADC_STALE_MS;
         r.vbatMv = _adc.vbatMv;
         r.externalPower = _status.powerGood();
         return r;
     }
 
     bool online() const { return _online; }
+    // On USB with charging kept off because VBAT shows no cell.
+    bool noCell() const { return _noCell; }
     const Bq25628::Status& status() const { return _status; }
     // Last completed ADC conversion; adcAgeMs() tells how old it is.
     const Bq25628::Adc& adc() const { return _adc; }
@@ -347,6 +368,9 @@ class PowerManager {
     uint32_t _lastKickMs = 0;
     uint32_t _lastConfigureMs = 0;
     bool _reconfigurePending = false;
+    uint32_t _chargeOffMs = 0;
+    uint16_t _chgFlagHistory = 0;  // one bit per status poll: CHG_FLAG set
+    bool _noCell = false;
     uint32_t _lastOtgAttemptMs = 0;
     bool _otgFailLogged = false;
 
@@ -386,6 +410,10 @@ class PowerManager {
             return;
         }
         _lastConfigureMs = now;
+        // Charging off until VBAT shows a cell (see CELL_MV).
+        _settings.chargeEnabled = false;
+        _chargeOffMs = now;
+        _chgFlagHistory = 0;
         if (!_chg.configure(_settings)) {
             Logger::e("[pwr] BQ25628 configuration failed - charger stays offline");
             return;
@@ -461,6 +489,38 @@ class PowerManager {
         if (blank == _blanked) return;
         _blanked = blank;
         if (_onLedBlank) _onLedBlank(blank);
+    }
+
+    // Charging on once VBAT shows a cell, off while the charge status cycles
+    // (see CELL_MV). The watchdog sets EN_CHG back to 1; the re-configure in
+    // tick() writes _settings.chargeEnabled again.
+    void _updateCharging(const Bq25628::Status& st, uint32_t now) {
+        constexpr uint16_t window = (uint16_t)((1u << CYCLE_POLLS) - 1);
+        _chgFlagHistory =
+            (uint16_t)((_chgFlagHistory << 1) | ((st.flag1 & Bq25628::FLAG1_CHG) ? 1 : 0));
+        bool want = _settings.chargeEnabled;
+        if (want) {
+            if (__builtin_popcount(_chgFlagHistory & window) >= CYCLE_FLIPS) {
+                Logger::w("[pwr] charge status cycling: no cell - charging off");
+                want = false;
+                _noCell = true;
+            }
+        } else if (_adcMs != 0 && (int32_t)(_adcMs - _chargeOffMs) >= (int32_t)CELL_HOLDOFF_MS) {
+            if (_adc.vbatMv > CELL_MV) {
+                Logger::i("[pwr] cell at %u mV - charging on", _adc.vbatMv);
+                want = true;
+                _noCell = false;
+            } else if (!_noCell) {
+                Logger::w("[pwr] no cell (VBAT %u mV with charging off) - charging stays off",
+                          _adc.vbatMv);
+                _noCell = true;
+            }
+        }
+        if (want == _settings.chargeEnabled) return;
+        if (!_chg.setChargeEnabled(want)) return;
+        _settings.chargeEnabled = want;
+        _chgFlagHistory = 0;
+        if (!want) _chargeOffMs = now;
     }
 
     void _updateOtg(const Bq25628::Status& st, uint32_t now) {

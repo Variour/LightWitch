@@ -46,10 +46,10 @@ bool Bq25628::probe() {
 }
 
 bool Bq25628::readStatus(Status& out) {
-    // REG0x16..0x20 in one burst: control 0-3, NTC control 0-2, status 0-1,
-    // fault status 0, charger flag 0. Of these only the flag register is
+    // REG0x16..0x21 in one burst: control 0-3, NTC control 0-2, status 0-1,
+    // fault status 0, charger flag 0-1. Of these only the flag registers are
     // cleared by reading (§8.3.8.1).
-    uint8_t b[11];
+    uint8_t b[12];
     if (!_read(REG_CHG_CTRL_0, b, sizeof(b))) return false;
     out.ctrl0 = b[REG_CHG_CTRL_0 - REG_CHG_CTRL_0];
     out.ctrl2 = b[REG_CHG_CTRL_2 - REG_CHG_CTRL_0];
@@ -58,6 +58,7 @@ bool Bq25628::readStatus(Status& out) {
     out.stat1 = b[REG_CHG_STAT_1 - REG_CHG_CTRL_0];
     out.fault = b[REG_FAULT_STAT_0 - REG_CHG_CTRL_0];
     out.flag0 = b[REG_CHG_FLAG_0 - REG_CHG_CTRL_0];
+    out.flag1 = b[REG_CHG_FLAG_1 - REG_CHG_CTRL_0];
     return true;
 }
 
@@ -67,7 +68,7 @@ bool Bq25628::configure(const Settings& s) {
     // first.
     bool ok =
         _update8(REG_CHG_CTRL_0, CTRL0_WATCHDOG_MASK | CTRL0_WD_RST | CTRL0_EN_CHG | CTRL0_EN_HIZ,
-                 CTRL0_WATCHDOG_200S | CTRL0_WD_RST | CTRL0_EN_CHG);
+                 CTRL0_WATCHDOG_200S | CTRL0_WD_RST | (s.chargeEnabled ? CTRL0_EN_CHG : 0));
 
     uint16_t ichg = constrain(s.chargeCurrentMa, ICHG_MIN_MA, ICHG_MAX_MA) / ICHG_STEP_MA;
     ok &= _write16(REG_ICHG, (uint16_t)(ichg << ICHG_SHIFT) & ICHG_MASK);
@@ -140,6 +141,10 @@ bool Bq25628::setChargeVoltage(uint16_t mv) {
 
 bool Bq25628::setOtg(bool enable) {
     return _update8(REG_CHG_CTRL_2, CTRL2_EN_OTG | CTRL2_EN_BYPASS_OTG, enable ? CTRL2_EN_OTG : 0);
+}
+
+bool Bq25628::setChargeEnabled(bool enable) {
+    return _update8(REG_CHG_CTRL_0, CTRL0_EN_CHG, enable ? CTRL0_EN_CHG : 0);
 }
 
 bool Bq25628::setTsAdc(bool enable) {
