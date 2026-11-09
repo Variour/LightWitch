@@ -128,7 +128,7 @@ static constexpr uint8_t kGreenFromPercent = 80;  // firmware: green from the st
 static constexpr uint32_t kFullColumnMs = 60UL * 60UL * 1000UL;
 static constexpr uint32_t kTipPulseMs = 2000;  // firmware: slow pulse of the column tip
 // owner (2026-11-09): the column shows the level in colour and how strongly
-// the battery charges. A white dot runs from the USB-C end to the level, one
+// the battery charges. A white dot runs from LED1 up to the level, one
 // run per kFlowMaMs / charge current: 200 mA 2 s, 1000 mA 0.4 s.
 static constexpr int16_t kFlowMinMa = 20;  // firmware: below this no dot
 static constexpr uint32_t kFlowMaMs = 400000;

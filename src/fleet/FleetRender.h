@@ -9,10 +9,9 @@
 
 // The fleet package's frames on the 34 Buzzerboard LEDs (owner's display
 // sketch "Was zeigt ein Buzzer im Lademodus?"): charging, full, fault and
-// update. Plain C++, no driver access. The score column fills from the
-// USB-C end: USB-C is on the top edge and LED1-24 run bottom to top
-// (Buzzerboard hardware/README.md), so the fill starts at LED24 and grows
-// upwards while the device stands USB-C down in the case.
+// update. Plain C++, no driver access. USB-C is on the top edge and LED1-24
+// run bottom to top (Buzzerboard hardware/README.md). Owner (2026-11-09):
+// every level on the score column fills from LED1 upwards.
 namespace fleet {
 
 using game::Rgb;
@@ -28,8 +27,12 @@ inline uint8_t columnLed(uint8_t n) {
     return (uint8_t)(game::kScoreFirst + game::kScoreCount - 1 - n);
 }
 
+// Column LED n counted from LED1 (0 = the end away from USB-C) -> chain index.
+inline uint8_t columnLedFromLed1(uint8_t n) { return (uint8_t)(game::kScoreFirst + n); }
+
+// The first count column LEDs from LED1 in c.
 inline void fillColumn(Rgb* px, uint8_t count, Rgb c) {
-    for (uint8_t n = 0; n < count && n < game::kScoreCount; n++) px[columnLed(n)] = c;
+    for (uint8_t n = 0; n < count && n < game::kScoreCount; n++) px[columnLedFromLed1(n)] = c;
 }
 
 // Column LEDs for a percentage: at least one while above 0.
@@ -65,8 +68,8 @@ struct ChargeView {
 
 // Battery level on the column in red/yellow/green at lvl, status dot in the
 // level colour. While the battery charges with at least kFlowMinMa, a white
-// dot at twice lvl runs from the USB-C end to the level, faster the higher
-// the current.
+// dot at twice lvl runs from LED1 up to the top of the level, faster the
+// higher the current.
 inline void renderLevel(uint8_t battery, int16_t ibatMa, uint32_t now, Rgb* px, uint8_t lvl) {
     using game::Color;
     clearFrame(px);
@@ -80,7 +83,7 @@ inline void renderLevel(uint8_t battery, int16_t ibatMa, uint32_t now, Rgb* px, 
         if (period > kFlowMaxMs) period = kFlowMaxMs;
         uint8_t pos = (uint8_t)((now % period) * n / period);
         uint8_t flow = lvl > 127 ? 255 : (uint8_t)(2 * lvl);
-        px[columnLed(pos)] = level(game::colorRgb(Color::White), flow);
+        px[columnLedFromLed1(pos)] = level(game::colorRgb(Color::White), flow);
     }
     px[game::kStatusDot] = c;
 }
@@ -103,9 +106,6 @@ inline uint8_t softPulse(uint32_t now, uint32_t period, uint8_t lo, uint8_t hi) 
     float s = 0.5f - 0.5f * cosf(6.2831853f * x);
     return (uint8_t)(lo + (uint8_t)lroundf((float)(hi - lo) * s));
 }
-
-// Column LED n counted from LED1 (0 = the end away from USB-C) -> chain index.
-inline uint8_t columnLedFromLed1(uint8_t n) { return (uint8_t)(game::kScoreFirst + n); }
 
 // LEDs switched off with a key, on USB: the level on the column at
 // kOffLevel, filling from LED1 towards USB-C, red at LED1 to green at the
