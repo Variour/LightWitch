@@ -68,6 +68,9 @@ constexpr uint16_t kLedCount = 34;
 // the LEDs dark and at the cap on a 500 mA USB port.
 constexpr uint16_t kLedCurrentLimitMa = 300;
 
+// Up / Down brightness step, about 10 % of 255.
+constexpr int kBrightnessStep = 26;
+
 bool sDetected = false;
 
 // The I2C pull-ups (4.7k to 3V3) hold a line high against the internal
@@ -144,14 +147,21 @@ bool applyBoardProfile(DeviceConfig& cfg) {
         b.activeLow = true;
         b.viaExpander = false;
         b.exists = true;
-        // R2 (Timo, 2026-11-09): short press dims the LEDs to off, long press
-        // brings back the configured brightness. Outside a game session.
+        // Timo, 2026-11-09, outside a game session: R2 short press dims the
+        // LEDs to off, long press brings back the configured brightness; Up /
+        // Down step the brightness by about 10 %.
         if (strcmp(k.role, ButtonRole::R2) == 0) {
             b.onShortPress.action = ActionId::LightBrightnessOverrideSet;
             b.onShortPress.lightIndex = 0;
             b.onShortPress.params.numberValue = 0;
             b.onLongPress.action = ActionId::LightBrightnessOverrideClear;
             b.onLongPress.lightIndex = 0;
+        } else if (strcmp(k.role, ButtonRole::UP) == 0 ||
+                   strcmp(k.role, ButtonRole::DOWN) == 0) {
+            b.onShortPress.action = ActionId::LightBrightnessOverrideStep;
+            b.onShortPress.lightIndex = 0;
+            b.onShortPress.params.numberValue =
+                strcmp(k.role, ButtonRole::UP) == 0 ? kBrightnessStep : -kBrightnessStep;
         }
     }
     return true;
