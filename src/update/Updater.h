@@ -1,12 +1,15 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <HTTPClient.h>
 #include <LittleFS.h>
-#include <Update.h>
-#include <WiFiClientSecure.h>
+#include <WiFi.h>
+#include <esp_crt_bundle.h>
+#include <esp_http_client.h>
+#include <esp_ota_ops.h>
+#include <esp_partition.h>
 
 #include <atomic>
+#include <memory>
 #include <vector>
 
 #include "../config/Config.h"
@@ -207,25 +210,136 @@ class Updater {
     static String _pendingTag;
     static StartGuard _startGuard;
 
-    // Opens a GET request against the GitHub API and returns the HTTP status code.
-    // Authenticates with the configured PAT if one is set, otherwise sends the
-    // request unauthenticated (fine for a public repo, just a lower rate limit).
-    // tls/http are owned by the caller and must stay alive while the response body/stream is read.
-    static int _httpGet(WiFiClientSecure& tls, HTTPClient& http, const String& url,
-                        const char* accept) {
-        // The built-in bundle is src/update/CaBundle.S (certifi roots, see
-        // scripts/gen_ca_bundle.py).
-        tls.useBuiltinCACertBundle();
-        http.begin(tls, url);
-        if (strlen(Config::get().githubToken) > 0) {
-            http.addHeader("Authorization", String("Bearer ") + Config::get().githubToken);
+    // One GET request against GitHub through esp_http_client. TLS certificates
+    // are verified against the root CA bundle in src/update/CaBundle.S (certifi
+    // roots, see scripts/gen_ca_bundle.py): the linker takes it as the bundle
+    // esp_crt_bundle_attach reads.
+    class Request {
+       public:
+        Request() = default;
+        Request(const Request&) = delete;
+        Request& operator=(const Request&) = delete;
+        ~Request() { end(); }
+
+        // Sends the request and follows redirects (301, 302, 303 and 307, up
+        // to kMaxRedirects), sending the same headers to the redirect target.
+        // Authenticates with the configured PAT if one is set, otherwise sends
+        // the request unauthenticated (fine for a public repo, just a lower
+        // rate limit). Returns the HTTP status code, or a negative value when
+        // no response arrived: -1 connecting or TLS handshake, -2 sending the
+        // request, -11 response timeout, -5 connection lost.
+        int get(const String& url, const char* accept) {
+            esp_http_client_config_t cfg = {};
+            cfg.url = url.c_str();
+            cfg.user_agent = "ESP32HTTPClient";
+            cfg.timeout_ms = kTimeoutMs;
+            cfg.buffer_size = kRxBufferSize;
+            cfg.buffer_size_tx = kTxBufferSize;
+            cfg.crt_bundle_attach = esp_crt_bundle_attach;
+            _client = esp_http_client_init(&cfg);
+            if (!_client) return -1;
+
+            bool ok = true;
+            const char* token = Config::get().githubToken;
+            if (strlen(token) > 0) {
+                String bearer = String("Bearer ") + token;
+                ok = _header("Authorization", bearer.c_str());
+            }
+            ok = ok && _header("Accept", accept) && _header("X-GitHub-Api-Version", "2022-11-28") &&
+                 _header("Connection", "keep-alive") &&
+                 _header("Accept-Encoding", "identity;q=1,chunked;q=0.1,*;q=0");
+            if (!ok) return -1;
+
+            for (int redirects = 0;; redirects++) {
+                esp_err_t err = esp_http_client_open(_client, 0);
+                if (err != ESP_OK) return err == ESP_ERR_HTTP_WRITE_DATA ? -2 : -1;
+                int64_t length = esp_http_client_fetch_headers(_client);
+                if (length < 0) return length == -ESP_ERR_HTTP_EAGAIN ? -11 : -5;
+
+                int code = esp_http_client_get_status_code(_client);
+                bool redirect = code == 301 || code == 302 || code == 303 || code == 307;
+                if (!redirect || redirects >= kMaxRedirects) return code;
+                // Takes the Location header as the new URL; https targets only.
+                if (esp_http_client_set_redirection(_client) != ESP_OK) return code;
+                esp_http_client_clear_response_buffer(_client);
+                esp_http_client_close(_client);
+            }
         }
-        http.addHeader("Accept", accept);
-        http.addHeader("X-GitHub-Api-Version", "2022-11-28");
-        http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-        http.setTimeout(15000);
-        return http.GET();
-    }
+
+        // Content-Length of the response, -1 if the server sent none.
+        int size() const {
+            int64_t length = esp_http_client_get_content_length(_client);
+            return length > 0 ? (int)length : -1;
+        }
+
+        // Reads up to len bytes of the response body. Returns the number of
+        // bytes read, 0 at the end of the body, and a negative value on a
+        // connection error or when no data arrived within kTimeoutMs.
+        int read(char* buf, int len) { return esp_http_client_read(_client, buf, len); }
+
+        // Reads the whole response body.
+        String body() {
+            String out;
+            int length = size();
+            if (length > 0 && !out.reserve(length + 1)) return out;
+            char chunk[512];
+            int n;
+            while ((n = read(chunk, sizeof(chunk))) > 0) {
+                if (!out.concat(chunk, n)) break;
+            }
+            return out;
+        }
+
+        // Closes the connection and frees the client.
+        void end() {
+            if (_client) esp_http_client_cleanup(_client);
+            _client = nullptr;
+        }
+
+       private:
+        // Connecting (TCP and TLS handshake together), sending, and every
+        // wait for response data.
+        static constexpr int kTimeoutMs = 15000;
+        static constexpr int kMaxRedirects = 10;
+        // Receive buffer: one flash sector per read. Send buffer: the request
+        // line and all headers; the signed URL an asset download redirects to
+        // is about 900 characters long.
+        static constexpr int kRxBufferSize = 4096;
+        static constexpr int kTxBufferSize = 4096;
+
+        bool _header(const char* name, const char* value) {
+            return esp_http_client_set_header(_client, name, value) == ESP_OK;
+        }
+
+        esp_http_client_handle_t _client = nullptr;
+    };
+
+    // Feeds a response body to ArduinoJson (custom reader).
+    class BodyReader {
+       public:
+        explicit BodyReader(Request& req) : _req(req) {}
+
+        int read() {
+            if (_pos >= _len) {
+                _len = _req.read(_buf, sizeof(_buf));
+                _pos = 0;
+                if (_len <= 0) return -1;
+            }
+            return (uint8_t)_buf[_pos++];
+        }
+
+        size_t readBytes(char* out, size_t length) {
+            size_t n = 0;
+            for (int c; n < length && (c = read()) >= 0; n++) out[n] = (char)c;
+            return n;
+        }
+
+       private:
+        Request& _req;
+        char _buf[512];
+        int _len = 0;
+        int _pos = 0;
+    };
 
     // Fetches release metadata for `tag` ("" = /releases/latest, else
     // /releases/tags/<tag>). On success fills _firmwareAssetId/_fsAssetId
@@ -239,19 +353,17 @@ class Updater {
         url += c.githubRepo;
         url += tag.isEmpty() ? "/releases/latest" : ("/releases/tags/" + tag);
 
-        WiFiClientSecure tls;
-        HTTPClient http;
-        int code = _httpGet(tls, http, url, "application/vnd.github+json");
+        Request req;
+        int code = req.get(url, "application/vnd.github+json");
         if (code != 200) {
             Logger::e("[upd] releases API returned %d", code);
             snprintf(_errorBuf, sizeof(_errorBuf), "GitHub API error (HTTP %d)", code);
             _status.error = _errorBuf;
-            http.end();
             return false;
         }
 
-        String body = http.getString();
-        http.end();
+        String body = req.body();
+        req.end();
 
         JsonDocument doc;
         DeserializationError err = deserializeJson(doc, body);
@@ -330,66 +442,125 @@ class Updater {
 #endif
     }
 
-    // Download a release asset by ID and feed it to the Update library.
-    // type is U_FLASH or U_SPIFFS.
-    static bool _downloadAndFlash(uint32_t assetId, int type, const char* label) {
+    enum class Image { Firmware, Filesystem };
+
+    // Download a release asset by ID and write it to flash: firmware into the
+    // next OTA app slot, which becomes the boot partition once the image has
+    // been verified; the filesystem image into the LittleFS data partition.
+    static bool _downloadAndFlash(uint32_t assetId, Image image, const char* label) {
         auto& c = Config::get();
         String url = "https://api.github.com/repos/";
         url += c.githubRepo;
         url += "/releases/assets/";
         url += assetId;
 
-        WiFiClientSecure tls;
-        HTTPClient http;
-        int code = _httpGet(tls, http, url, "application/octet-stream");
+        Request req;
+        int code = req.get(url, "application/octet-stream");
         if (code != 200) {
             Logger::e("[upd] asset %u GET returned %d", assetId, code);
             _status.error = "asset download error";
-            http.end();
             return false;
         }
 
-        int total = http.getSize();
+        int total = req.size();
         Logger::i("[upd] flashing %s: %d bytes", label, total);
 
-        if (!Update.begin(total > 0 ? total : UPDATE_SIZE_UNKNOWN, type)) {
-            Logger::e("[upd] Update.begin failed: %s", Update.errorString());
+        bool firmware = image == Image::Firmware;
+        const esp_partition_t* part =
+            firmware ? esp_ota_get_next_update_partition(nullptr)
+                     : esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                                ESP_PARTITION_SUBTYPE_DATA_SPIFFS, nullptr);
+        std::unique_ptr<char[]> buf(new (std::nothrow) char[kFlashChunk]);
+        esp_ota_handle_t ota = 0;
+        esp_err_t err = ESP_OK;
+        if (!part) {
+            err = ESP_ERR_NOT_FOUND;
+        } else if (total > 0 && (size_t)total > part->size) {
+            err = ESP_ERR_INVALID_SIZE;
+        } else if (!buf) {
+            err = ESP_ERR_NO_MEM;
+        } else if (firmware) {
+            // Erases each flash sector right before it is written.
+            err = esp_ota_begin(part, OTA_WITH_SEQUENTIAL_WRITES, &ota);
+        }
+        if (err != ESP_OK) {
+            Logger::e("[upd] Update.begin failed: %s", esp_err_to_name(err));
             _status.error = "Update.begin failed";
-            http.end();
             return false;
         }
 
-        WiFiClient* stream = http.getStreamPtr();
-        uint8_t buf[512];
         int written = 0;
-
-        while (http.connected() && (total < 0 || written < total)) {
-            int avail = stream->available();
-            if (!avail) {
-                delay(1);
-                continue;
+        int stalls = 0;
+        const char* failure = nullptr;
+        for (;;) {
+            int chunk = req.read(buf.get(), kFlashChunk);
+            // A wait of kTimeoutMs without data: the download goes on for up
+            // to kMaxDownloadStalls of them in a row.
+            if (chunk == -ESP_ERR_HTTP_EAGAIN && ++stalls <= kMaxDownloadStalls) continue;
+            if (chunk > 0) stalls = 0;
+            if (chunk < 0) {
+                Logger::e("[upd] download stopped at %d of %d bytes", written, total);
+                failure = "asset download error";
+                break;
             }
-            int chunk = stream->readBytes(buf, min((int)sizeof(buf), avail));
-            if (chunk <= 0) break;
-            if (Update.write(buf, chunk) != (size_t)chunk) {
-                Logger::e("[upd] Update.write mismatch at %d", written);
-                _status.error = "flash write error";
-                http.end();
-                return false;
+            if (chunk == 0) break;
+            if ((size_t)written + chunk > part->size) {
+                err = ESP_ERR_INVALID_SIZE;
+            } else if (firmware) {
+                err = esp_ota_write(ota, buf.get(), chunk);
+            } else {
+                err = _eraseAndWrite(part, written, buf.get(), chunk);
+            }
+            if (err != ESP_OK) {
+                Logger::e("[upd] flash write failed at %d: %s", written, esp_err_to_name(err));
+                failure = "flash write error";
+                break;
             }
             written += chunk;
             if (total > 0) _status.progress = written * 100 / total;
         }
-        http.end();
+        req.end();
 
-        if (!Update.end(true)) {
-            Logger::e("[upd] Update.end failed: %s", Update.errorString());
-            _status.error = "Update.end failed";
+        if (!failure && (written == 0 || (total > 0 && written != total))) {
+            Logger::e("[upd] download ended at %d of %d bytes", written, total);
+            failure = "asset download error";
+        }
+        if (failure) {
+            if (firmware) esp_ota_abort(ota);
+            _status.error = failure;
             return false;
+        }
+
+        if (firmware) {
+            // Both verify the image (header, chip, checksum, SHA-256).
+            err = esp_ota_end(ota);
+            if (err == ESP_OK) err = esp_ota_set_boot_partition(part);
+            if (err != ESP_OK) {
+                Logger::e("[upd] Update.end failed: %s", esp_err_to_name(err));
+                _status.error = "Update.end failed";
+                return false;
+            }
         }
 
         Logger::i("[upd] %s flash OK (%d bytes)", label, written);
         return true;
+    }
+
+    // Writes data at offset into part, erasing each flash sector the write
+    // enters first. For sequential writes starting at offset 0.
+    static esp_err_t _eraseAndWrite(const esp_partition_t* part, size_t offset, const void* data,
+                                    size_t size) {
+        size_t sector = part->erase_size;
+        size_t first = offset / sector;
+        size_t last = (offset + size - 1) / sector;
+        esp_err_t err = ESP_OK;
+        if (offset % sector == 0) {
+            err = esp_partition_erase_range(part, offset, (last - first + 1) * sector);
+        } else if (first != last) {
+            err = esp_partition_erase_range(part, (first + 1) * sector, (last - first) * sector);
+        }
+        if (err == ESP_OK) err = esp_partition_write(part, offset, data, size);
+        return err;
     }
 
     static void _checkTask(void*) {
@@ -486,13 +657,13 @@ class Updater {
     static bool _flashAndMaybeReboot() {
         bool ok = true;
         if (_firmwareAssetId) {
-            ok = _downloadAndFlash(_firmwareAssetId, U_FLASH, "firmware");
+            ok = _downloadAndFlash(_firmwareAssetId, Image::Firmware, "firmware");
         }
         if (ok && _fsAssetId) {
             _status.progress = 0;
             std::vector<String> scenes = _backupScenes();
             std::vector<String> playlists = _backupPlaylists();
-            ok = _downloadAndFlash(_fsAssetId, U_SPIFFS, "filesystem");
+            ok = _downloadAndFlash(_fsAssetId, Image::Filesystem, "filesystem");
             if (ok && (!scenes.empty() || !playlists.empty()) && _remountLittleFsAfterFlash()) {
                 if (!scenes.empty()) _restoreScenes(scenes);
                 if (!playlists.empty()) _restorePlaylists(playlists);
@@ -590,6 +761,13 @@ class Updater {
             vTaskDelete(nullptr);
             return;
         }
+        // The start guard again: the release lookup took a moment.
+        if (const char* why = _startGuard ? _startGuard() : nullptr) {
+            _status.error = why;
+            _status.state = State::Error;
+            vTaskDelete(nullptr);
+            return;
+        }
         _status.hasUpdate = true;
         _status.state = State::Downloading;
         _status.progress = 0;
@@ -620,14 +798,12 @@ class Updater {
         url += c.githubRepo;
         url += "/pulls?state=open&per_page=100";
 
-        WiFiClientSecure tls;
-        HTTPClient http;
-        int code = _httpGet(tls, http, url, "application/vnd.github+json");
+        Request req;
+        int code = req.get(url, "application/vnd.github+json");
         if (code != 200) {
             Logger::e("[upd] pulls list API returned %d", code);
             snprintf(_prListErrorBuf, sizeof(_prListErrorBuf), "GitHub API error (HTTP %d)", code);
             _prListStatus.error = _prListErrorBuf;
-            http.end();
             return false;
         }
 
@@ -640,9 +816,10 @@ class Updater {
         filter[0]["number"] = true;
 
         JsonDocument doc;
+        BodyReader reader(req);
         DeserializationError err =
-            deserializeJson(doc, *http.getStreamPtr(), DeserializationOption::Filter(filter));
-        http.end();
+            deserializeJson(doc, reader, DeserializationOption::Filter(filter));
+        req.end();
         if (err) {
             Logger::e("[upd] JSON parse error: %s", err.c_str());
             snprintf(_prListErrorBuf, sizeof(_prListErrorBuf), "JSON parse error: %s", err.c_str());
@@ -668,21 +845,16 @@ class Updater {
         url += "/releases/tags/";
         url += tag;
 
-        WiFiClientSecure tls;
-        HTTPClient http;
-        int code = _httpGet(tls, http, url, "application/vnd.github+json");
-        if (code == 404) {
-            http.end();
-            return false;
-        }
+        Request req;
+        int code = req.get(url, "application/vnd.github+json");
+        if (code == 404) return false;
         if (code != 200) {
             Logger::w("[upd] release lookup for %s returned %d", tag.c_str(), code);
-            http.end();
             return false;
         }
 
-        String body = http.getString();
-        http.end();
+        String body = req.body();
+        req.end();
 
         JsonDocument doc;
         DeserializationError err = deserializeJson(doc, body);
@@ -721,6 +893,11 @@ class Updater {
         Logger::i("[upd] found %u open PR build(s)", (unsigned)_prListStatus.builds.size());
         vTaskDelete(nullptr);
     }
+
+    // One flash sector.
+    static constexpr int kFlashChunk = 4096;
+    // With Request::kTimeoutMs: a download ends after 60 s without data.
+    static constexpr int kMaxDownloadStalls = 3;
 
     static uint32_t _firmwareAssetId;
     static uint32_t _fsAssetId;

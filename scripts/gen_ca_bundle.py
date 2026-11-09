@@ -8,7 +8,7 @@ a generic public trust store, not something specific to GitHub.
 The bundle is emitted under the symbols ESP-IDF's esp_crt_bundle reads its
 built-in bundle from (_binary_x509_crt_bundle_start/_end), the same way
 ESP-IDF embeds its own x509_crt_bundle. The linker then takes this bundle as
-the built-in one (WiFiClientSecure::useBuiltinCACertBundle) and leaves
+the built-in one (esp_crt_bundle_attach) and leaves
 ESP-IDF's bundle out of the firmware.
 
 Binary format matches the ESP-IDF 5.x esp_crt_bundle parser

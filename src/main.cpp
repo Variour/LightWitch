@@ -574,7 +574,12 @@ void setup() {
     // running one.
     power.setUpdateBusy(
         []() { return _otaActive || Updater::status().state == Updater::State::Downloading; });
-    Updater::setStartGuard([]() { return power.updateBlockReason(); });
+    // One update at a time: none starts while an ArduinoOTA upload is being
+    // written.
+    Updater::setStartGuard([]() -> const char* {
+        if (Update.isRunning()) return "OTA upload running";
+        return power.updateBlockReason();
+    });
 #if FEATURE_GAME
     // The charger starts with the stored charge target (src/fleet/).
     fleetManager.loadStored();
@@ -1214,12 +1219,14 @@ void loop() {
 
     // Idle OTA polling is throttled with everything else; once a transfer is
     // actually in flight (_otaActive), run every pass so flashing isn't slowed.
+    // One update at a time: ArduinoOTA rests while the updater writes and
+    // until the restart that follows.
+    Updater::State updState = Updater::status().state;
     if (Config::get().otaEnabled && !radioIdle && (slowTick || _otaActive) &&
-        !power.updateBlockReason())
+        !power.updateBlockReason() && updState != Updater::State::Downloading &&
+        updState != Updater::State::Done)
         ArduinoOTA.handle();
     if (slowTick && !radioIdle) webServer.loop();
-
-    Updater::State updState = Updater::status().state;
 
     // Hand back a temporary WiFi connection once the OTA op that needed it
     // has actually settled (Idle or Error) — not just once it connected,
