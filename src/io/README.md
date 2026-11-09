@@ -2,8 +2,7 @@
 
 `Tca9555Expander` wraps [robtillaart/TCA9555](https://github.com/RobTillaart/TCA9555)
 (MIT license, declared in `platformio.ini`'s `lib_deps`) rather than
-reimplementing the register protocol — this matches how the LED drivers
-(`Ws2801Driver`/`Ws2812bDriver`) wrap `Adafruit_WS2801`/`Adafruit_NeoPixel`.
+reimplementing the register protocol.
 An original implementation was considered (see `src/sound/README.md` for why
 that path was taken for the ES8311 codec instead), but for the TCA9555
 specifically a well-tested, permissively-licensed, PlatformIO-registry

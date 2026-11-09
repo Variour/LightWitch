@@ -41,24 +41,6 @@
     {
       "customType": "regex",
       "managerFilePatterns": ["/^platformio\\.ini$/"],
-      "matchStrings": ["adafruit/Adafruit NeoPixel\\s*@\\s*(?<currentValue>[\\d.]+)"],
-      "depNameTemplate": "adafruit/Adafruit NeoPixel",
-      "packageNameTemplate": "adafruit/Adafruit_NeoPixel",
-      "datasourceTemplate": "github-tags",
-      "versioningTemplate": "semver-coerced"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^platformio\\.ini$/"],
-      "matchStrings": ["adafruit/Adafruit WS2801 Library\\s*@\\s*(?<currentValue>[\\d.]+)"],
-      "depNameTemplate": "adafruit/Adafruit WS2801 Library",
-      "packageNameTemplate": "adafruit/Adafruit-WS2801-Library",
-      "datasourceTemplate": "github-tags",
-      "versioningTemplate": "semver-coerced"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^platformio\\.ini$/"],
       "matchStrings": ["knolleary/PubSubClient\\s*@\\s*(?<currentValue>[\\d.]+)"],
       "depNameTemplate": "knolleary/PubSubClient",
       "packageNameTemplate": "knolleary/pubsubclient",
