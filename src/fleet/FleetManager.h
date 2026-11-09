@@ -277,7 +277,7 @@ class FleetManager {
             _test.frame(now, px);
         else if (_upd.running)
             fleet::renderUpdate(_upd.pct, now, px);
-        else if (_ps.state() == fleet::State::Charging && !_weakNow())
+        else if (_ps.state() == fleet::State::Charging && !_weakNow() && !_ledsSwitchedOff())
             fleet::renderCharging(_chargeView(now), now, px);
         else if (_levelShowing)
             fleet::renderLevel(_batteryPercent(), _ibatMa(), now, px);
@@ -454,6 +454,14 @@ class FleetManager {
         return v;
     }
 
+    // The LEDs switched off with a key (light 0's brightness override at 0,
+    // see config/BoardProfile.cpp): the level and charging displays stay
+    // dark too (Timo, 2026-11-09).
+    bool _ledsSwitchedOff() const {
+        const LightHardwareConfig& l = Config::get().lights[0];
+        return l.brightnessOverrideEnabled && l.brightnessOverride == 0;
+    }
+
     int16_t _ibatMa() const {
         if (!_managed()) return 0;
         const Bq25628::Adc& a = _power->adc();
@@ -466,7 +474,8 @@ class FleetManager {
     void _tickIdleLevel(uint32_t now) {
         bool idle = _led && _ps.state() == fleet::State::Active && !_test.running() &&
                     !_upd.running && !_game->radioQuiet() && !_game->inviteVisible(now) &&
-                    !SoftAp::maintenanceOpen() && _batteryPercent() != fleet::kNoBattery;
+                    !SoftAp::maintenanceOpen() && _batteryPercent() != fleet::kNoBattery &&
+                    !_ledsSwitchedOff();
         if (!idle) {
             _levelShowing = false;
             _levelNext = now + fleet::kIdlePulseMs;

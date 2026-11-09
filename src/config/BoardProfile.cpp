@@ -126,7 +126,7 @@ bool applyBoardProfile(DeviceConfig& cfg) {
     l.currentLimitMa = kLedCurrentLimitMa;
     l.exists = true;
 
-    // Idle look of the default group: violet breathing at most 20 %
+    // Idle look of the default group: violet breathing at most 10 %
     // brightness instead of full white (Timo, 2026-11-09). Violet is not one
     // of the game colours (blue invites, green joined, yellow race, red
     // wrong).
@@ -134,7 +134,7 @@ bool applyBoardProfile(DeviceConfig& cfg) {
     idle.mode = GroupMode::Pattern;
     idle.pattern = PatternId::Breathing;
     idle.color = Color{140, 0, 255};
-    idle.brightness = 51;
+    idle.brightness = 25;
     idle.speed = 1.0f;  // 4 s per breath, fleet::kIdlePulseMs
 
     uint8_t i = 0;
