@@ -126,6 +126,19 @@ static constexpr uint8_t kGreenFromPercent = 80;  // firmware: green from the st
 // the status dot.
 static constexpr uint32_t kFullColumnMs = 60UL * 60UL * 1000UL;
 static constexpr uint32_t kTipPulseMs = 2000;    // firmware: slow pulse of the column tip
+// owner (2026-11-09): the column shows the level in colour and how strongly
+// the battery charges. A white dot runs from the USB-C end to the level, one
+// run per kFlowMaMs / charge current: 200 mA 2 s, 1000 mA 0.4 s.
+static constexpr uint8_t kFlowLevel = 51;        // owner: at most 20 %
+static constexpr int16_t kFlowMinMa = 20;        // firmware: below this no dot
+static constexpr uint32_t kFlowMaMs = 400000;
+static constexpr uint32_t kFlowMinMs = 300;
+static constexpr uint32_t kFlowMaxMs = 3000;
+// owner (2026-11-09): when active and idle, one breath of the idle pattern,
+// then the level on the column, in turn. kIdlePulseMs matches the idle
+// pattern's period (config/BoardProfile.cpp, Breathing at speed 1.0).
+static constexpr uint32_t kIdlePulseMs = 4000;
+static constexpr uint32_t kIdleLevelMs = 3000;  // firmware
 static constexpr uint32_t kFaultBlinkMs = 1000;  // firmware: ring blinks at 1 Hz
 static constexpr uint32_t kRingChaseMs = 150;    // firmware: update ring, one step per 150 ms
 

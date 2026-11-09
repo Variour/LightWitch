@@ -237,6 +237,7 @@ class FleetManager {
         if (sample) _testSample();
         _link.tick(now);
         _tickCombo(now);
+        _tickIdleLevel(now);
         SoftAp::tick(now);
         _tickKeys(now);
 
@@ -263,7 +264,8 @@ class FleetManager {
 
     // The fleet draws the light: factory test, update, charging, standby.
     bool ownsLeds() const {
-        return _led && (_test.running() || _upd.running || _ps.state() != fleet::State::Active);
+        return _led && (_test.running() || _upd.running || _ps.state() != fleet::State::Active ||
+                        _levelShowing);
     }
 
     // Full frame while ownsLeds().
@@ -277,6 +279,8 @@ class FleetManager {
             fleet::renderUpdate(_upd.pct, now, px);
         else if (_ps.state() == fleet::State::Charging && !_weakNow())
             fleet::renderCharging(_chargeView(now), now, px);
+        else if (_levelShowing)
+            fleet::renderLevel(_batteryPercent(), _ibatMa(), now, px);
         else
             fleet::clearFrame(px);
         _show(px);
@@ -343,6 +347,9 @@ class FleetManager {
     uint16_t _errors = 0;
     bool _full = false;
     uint32_t _fullSince = 0;
+    bool _levelShowing = false;
+    uint32_t _levelUntil = 0;
+    uint32_t _levelNext = 0;
     bool _applied = false;
     bool _radioInactive = false;
     bool _standbyRadio = false;
@@ -443,7 +450,36 @@ class FleetManager {
         v.charge = _charge;
         v.battery = _batteryPercent();
         v.fullForMs = _full ? now - _fullSince : 0;
+        v.ibatMa = _ibatMa();
         return v;
+    }
+
+    int16_t _ibatMa() const {
+        if (!_managed()) return 0;
+        const Bq25628::Adc& a = _power->adc();
+        return a.ibatValid ? a.ibatMa : 0;
+    }
+
+    // Active and idle (no session, invite, test, update or maintenance AP):
+    // kIdlePulseMs of the idle pattern, then kIdleLevelMs of the battery
+    // level, in turn (see kIdlePulseMs).
+    void _tickIdleLevel(uint32_t now) {
+        bool idle = _led && _ps.state() == fleet::State::Active && !_test.running() &&
+                    !_upd.running && !_game->radioQuiet() && !_game->inviteVisible(now) &&
+                    !SoftAp::maintenanceOpen() && _batteryPercent() != fleet::kNoBattery;
+        if (!idle) {
+            _levelShowing = false;
+            _levelNext = now + fleet::kIdlePulseMs;
+            return;
+        }
+        if (_levelShowing) {
+            if ((int32_t)(now - _levelUntil) < 0) return;
+            _levelShowing = false;
+            _levelNext = now + fleet::kIdlePulseMs;
+        } else if ((int32_t)(now - _levelNext) >= 0) {
+            _levelShowing = true;
+            _levelUntil = now + fleet::kIdleLevelMs;
+        }
     }
 
     void _show(const game::Rgb* px) {

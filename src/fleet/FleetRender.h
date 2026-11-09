@@ -59,10 +59,30 @@ struct ChargeView {
     Charge charge = Charge::None;
     uint8_t battery = kNoBattery;
     uint32_t fullForMs = 0;  // how long the charger has reported full
+    int16_t ibatMa = 0;      // charge current, + = charging
 };
 
-// Charging mode. Charging: column = battery level in red/yellow/green with a
-// slowly pulsing white tip, status dot in the level colour. Full: whole
+// Battery level on the column in red/yellow/green, status dot in the level
+// colour. While the battery charges with at least kFlowMinMa, a white dot
+// runs from the USB-C end to the level, faster the higher the current.
+inline void renderLevel(uint8_t battery, int16_t ibatMa, uint32_t now, Rgb* px) {
+    using game::Color;
+    clearFrame(px);
+    if (battery == kNoBattery) return;
+    Rgb c = level(batteryColor(battery), kDisplayLevel);
+    uint8_t n = columnCount(battery);
+    fillColumn(px, n, c);
+    if (ibatMa >= kFlowMinMa && n > 0) {
+        uint32_t period = kFlowMaMs / (uint32_t)ibatMa;
+        if (period < kFlowMinMs) period = kFlowMinMs;
+        if (period > kFlowMaxMs) period = kFlowMaxMs;
+        uint8_t pos = (uint8_t)((now % period) * n / period);
+        px[columnLed(pos)] = level(game::colorRgb(Color::White), kFlowLevel);
+    }
+    px[game::kStatusDot] = c;
+}
+
+// Charging mode. Charging: renderLevel() (level and charge current). Full: whole
 // column and status dot green, after kFullColumnMs only the dot. Fault: ring
 // blinks red, column off, status dot red.
 inline void renderCharging(const ChargeView& v, uint32_t now, Rgb* px) {
@@ -85,14 +105,7 @@ inline void renderCharging(const ChargeView& v, uint32_t now, Rgb* px) {
         px[game::kStatusDot] = level(game::colorRgb(Color::White), slowPulse(now, kTipPulseMs));
         return;
     }
-    Rgb c = level(batteryColor(v.battery), kDisplayLevel);
-    uint8_t n = columnCount(v.battery);
-    if (n > 0) {
-        fillColumn(px, (uint8_t)(n - 1), c);
-        px[columnLed((uint8_t)(n - 1))] =
-            level(game::colorRgb(Color::White), slowPulse(now, kTipPulseMs));
-    }
-    px[game::kStatusDot] = c;
+    renderLevel(v.battery, v.ibatMa, now, px);
 }
 
 // Update running: column blue = progress, one ring LED runs around in blue,

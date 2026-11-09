@@ -1302,8 +1302,13 @@ void loop() {
         } else if (fleetManager.ownsLeds()) {
             fleetManager.render(now);
         } else {
-            // The fleet's display ended: repaint from the config.
-            if (fleetManager.takeLedsReleased()) applyAllLights();
+            // The fleet's display ended: repaint from the config, the pattern
+            // from phase 0 (the idle breath starts dark, see kIdlePulseMs).
+            if (fleetManager.takeLedsReleased()) {
+                applyAllLights();
+                for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+                    if (_leds[i]) _runners[i].resetPhase();
+            }
             for (uint8_t i = 0; i < MAX_LIGHTS; i++)
                 if (_leds[i]) _runners[i].tick();
             // Invite ring over the pattern; once it ends, repaint from the config.
