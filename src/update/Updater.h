@@ -490,9 +490,14 @@ class Updater {
         }
 
         int written = 0;
+        int stalls = 0;
         const char* failure = nullptr;
         for (;;) {
             int chunk = req.read(buf.get(), kFlashChunk);
+            // A wait of kTimeoutMs without data: the download goes on for up
+            // to kMaxDownloadStalls of them in a row.
+            if (chunk == -ESP_ERR_HTTP_EAGAIN && ++stalls <= kMaxDownloadStalls) continue;
+            if (chunk > 0) stalls = 0;
             if (chunk < 0) {
                 Logger::e("[upd] download stopped at %d of %d bytes", written, total);
                 failure = "asset download error";
@@ -884,6 +889,8 @@ class Updater {
 
     // One flash sector.
     static constexpr int kFlashChunk = 4096;
+    // With Request::kTimeoutMs: a download ends after 60 s without data.
+    static constexpr int kMaxDownloadStalls = 3;
 
     static uint32_t _firmwareAssetId;
     static uint32_t _fsAssetId;
