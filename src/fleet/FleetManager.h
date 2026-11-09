@@ -68,7 +68,7 @@ class FleetManager {
                           : fleet::Target::Store;
             fleet::Look l;
             if (p.getBytesLength(KEY_LOOK) == sizeof(l) && p.getBytes(KEY_LOOK, &l, sizeof(l)) &&
-                l.count <= fleet::kLookStopsMax)
+                (l.count == 0 || l.count == fleet::kLookLeds))
                 _look = l;
             p.end();
         }
@@ -498,7 +498,7 @@ class FleetManager {
         return _batteryOverlayUntil != 0 && (int32_t)(millis() - _batteryOverlayUntil) < 0;
     }
 
-    bool _lookShowing() const { return _idle && !_levelShowing && _look.count >= 2; }
+    bool _lookShowing() const { return _idle && !_levelShowing && _look.count == fleet::kLookLeds; }
 
     // Stores the device's own colours (count 0 removes them) and shows them
     // from the next idle breath on.
@@ -517,7 +517,7 @@ class FleetManager {
             return false;
         }
         _look = l;
-        Logger::i("[fleet] own colours: %u stops", l.count);
+        Logger::i("[fleet] own colours %s", l.count ? "set" : "removed");
         return true;
     }
 
@@ -915,7 +915,7 @@ class FleetManager {
         io.setTarget = [this](fleet::Target t) { return _setTarget(t); };
         io.target = [this]() { return _target; };
         io.setLook = [this](const fleet::Look& l) { return _setLook(l); };
-        io.lookStops = [this]() { return _look.count; };
+        io.lookLeds = [this]() { return _look.count; };
         io.openAp = [](uint8_t minutes) {
             return SoftAp::openMaintenance(minutes, millis()) ? FleetLink::ApResult::Ok
                                                               : FleetLink::ApResult::Unsupported;

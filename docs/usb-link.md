@@ -196,9 +196,9 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
 | `{"ns":"config","cmd":"wifi","id":1,"networks":[{"ssid":"Office","pass":"…"}]}` | `{"ns":"config","ev":"wifi","id":1,"ok":true,"count":1}` |
 | `{"ns":"config","cmd":"charge","id":2,"target":"event"}` | `{"ns":"config","ev":"charge","id":2,"ok":true,"target":"event"}` |
 | `{"ns":"config","cmd":"ap","id":3,"minutes":10}` | `{"ns":"config","ev":"ap","id":3,"ok":true,"minutes":10}` |
-| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"token":true,"target":"store","look":4,"number":12,"fw":"4a45fc32"}` |
+| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"token":true,"target":"store","look":true,"number":12,"fw":"4a45fc32"}` |
 | `{"ns":"config","cmd":"token","id":5,"token":"github_pat_…"}` | `{"ns":"config","ev":"token","id":5,"ok":true,"token":true}` |
-| `{"ns":"config","cmd":"look","id":6,"stops":[[0,"#ff1000"],[6,"#ff6a00"],[13,"#ffc89a"],[23,"#ff1000"]]}` | `{"ns":"config","ev":"look","id":6,"ok":true,"stops":4}` |
+| `{"ns":"config","cmd":"look","id":6,"leds":["#ffffff","#ff0800",…,"#ff0800"]}` | `{"ns":"config","ev":"look","id":6,"ok":true,"leds":24}` |
 
 - `wifi` replaces the whole list: 0-5 networks, `ssid` 1-32 bytes, `pass` `""`
   (open network) or 8-63 bytes. Passwords are never echoed or logged. Five
@@ -221,12 +221,11 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
   radio channel. Buzzerboard only; it has no fallback AP. Holding L1 + R1 for
   3 s in active state opens it for 10 minutes as well. While it is open the
   status LED pulses blue slowly.
-- `look`: the device's own colours, a gradient on the score column. Each
-  stop is `[led, "#rrggbb"]`, `led` 0 (LED1) to 23 (the USB-C end),
-  ascending; 2-4 stops, or `[]` to remove them. Stored in NVS. Active and
-  idle, the column breathes this gradient at the display brightness
+- `look`: the device's own colours on the score column, 24 `"#rrggbb"`
+  from LED1 to the USB-C end, or `[]` to remove them. Stored in NVS. Active
+  and idle, the column breathes these colours at the display brightness
   instead of the idle pattern, in turn with the battery level.
-- `get`: `look` is the number of stops (0 without own colours); `number` is `null` without a device number; `fw` is the firmware
+- `get`: `look` says whether own colours are set; `number` is `null` without a device number; `fw` is the firmware
   build (first 4 bytes of the app image's SHA-256, as in `link hello`).
 
 ## `fleet` (bridge)

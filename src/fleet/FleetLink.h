@@ -82,7 +82,7 @@ class FleetLink : public game::Link::Extension {
         // Stores the device's own colours (NVS) and shows them; false if they
         // could not be stored.
         std::function<bool(const Look&)> setLook;
-        std::function<uint8_t()> lookStops;
+        std::function<uint8_t()> lookLeds;
         std::function<uint16_t()> number;
         std::function<uint32_t()> fwBuild;
         // fleet
@@ -290,7 +290,7 @@ class FleetLink : public game::Link::Extension {
             d["token"] = _io.hasToken ? _io.hasToken() : false;
             Target t = _io.target ? _io.target() : Target::Store;
             d["target"] = kTargetNames[(uint8_t)t];
-            d["look"] = _io.lookStops ? _io.lookStops() : 0;
+            d["look"] = _io.lookLeds ? _io.lookLeds() != 0 : false;
             uint16_t n = _io.number ? _io.number() : 0;
             if (n)
                 d["number"] = n;
@@ -319,27 +319,17 @@ class FleetLink : public game::Link::Extension {
     }
 
     void _configLook(Link& link, JsonObjectConst o, const ReqId& id) {
-        JsonVariantConst v = o["stops"];
+        JsonVariantConst v = o["leds"];
         if (!v.is<JsonArrayConst>())
-            return _badField(link, id, "config", "look", "stops", "stops must be an array");
+            return _badField(link, id, "config", "look", "leds", "leds must be an array");
         JsonArrayConst arr = v.as<JsonArrayConst>();
-        if (arr.size() == 1 || arr.size() > kLookStopsMax)
-            return _badField(link, id, "config", "look", "stops", "0 or 2-4 stops");
+        if (arr.size() != 0 && arr.size() != kLookLeds)
+            return _badField(link, id, "config", "look", "leds", "0 or 24 colours");
         Look look;
-        int last = -1;
-        for (JsonVariantConst s : arr) {
-            JsonArrayConst e = s.as<JsonArrayConst>();
-            if (!s.is<JsonArrayConst>() || e.size() != 2 || !e[0].is<int>() ||
-                !e[1].is<const char*>())
-                return _badField(link, id, "config", "look", "stops",
-                                 "each stop is [led, \"#rrggbb\"]");
-            int p = e[0].as<int>();
-            if (p <= last || p >= game::kScoreCount)
-                return _badField(link, id, "config", "look", "stops", "led 0-23, ascending");
-            if (!_hexColor(e[1].as<const char*>(), look.rgb[look.count]))
-                return _badField(link, id, "config", "look", "stops", "colour must be #rrggbb");
-            look.pos[look.count++] = (uint8_t)p;
-            last = p;
+        for (JsonVariantConst c : arr) {
+            if (!c.is<const char*>() || !_hexColor(c.as<const char*>(), look.rgb[look.count]))
+                return _badField(link, id, "config", "look", "leds", "colour must be #rrggbb");
+            look.count++;
         }
         if (!_io.setLook || !_io.setLook(look))
             return link.error(id, "store_failed", "config", "look", nullptr,
@@ -347,7 +337,7 @@ class FleetLink : public game::Link::Extension {
         JsonDocument d;
         Link::head(d, "config", "look", id);
         _ok(d);
-        d["stops"] = look.count;
+        d["leds"] = look.count;
         link.emit(d);
     }
 
