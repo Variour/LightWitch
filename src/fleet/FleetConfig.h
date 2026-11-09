@@ -119,7 +119,7 @@ static constexpr uint8_t kApMinutesDefault = 10;  // owner: 10 min
 static constexpr uint8_t kApMinutesMax = 60;      // firmware: longest `config ap`
 
 // ── LED display (charging mode, update) ──────────────────────────────────────
-static constexpr uint8_t kDisplayLevel = 26;      // firmware: low brightness, about 10 %
+static constexpr uint8_t kDisplayLevel = 8;       // owner (2026-11-09): about 3 %, 10 % dazzled
 static constexpr uint8_t kRedBelowPercent = 30;   // firmware: red below, yellow from here
 static constexpr uint8_t kGreenFromPercent = 80;  // firmware: green from the storage level
 // owner (display sketch): a full device shows the column for 1 h, then only
@@ -129,7 +129,7 @@ static constexpr uint32_t kTipPulseMs = 2000;    // firmware: slow pulse of the 
 // owner (2026-11-09): the column shows the level in colour and how strongly
 // the battery charges. A white dot runs from the USB-C end to the level, one
 // run per kFlowMaMs / charge current: 200 mA 2 s, 1000 mA 0.4 s.
-static constexpr uint8_t kFlowLevel = 51;        // owner: at most 20 %
+static constexpr uint8_t kFlowLevel = 16;        // owner: dim, 20 % dazzled
 static constexpr int16_t kFlowMinMa = 20;        // firmware: below this no dot
 static constexpr uint32_t kFlowMaMs = 400000;
 static constexpr uint32_t kFlowMinMs = 300;

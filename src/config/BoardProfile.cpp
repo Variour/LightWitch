@@ -68,8 +68,8 @@ constexpr uint16_t kLedCount = 34;
 // the LEDs dark and at the cap on a 500 mA USB port.
 constexpr uint16_t kLedCurrentLimitMa = 300;
 
-// Up / Down brightness step, about 10 % of 255.
-constexpr int kBrightnessStep = 26;
+// Up / Down brightness step, about 3 % of 255.
+constexpr int kBrightnessStep = 8;
 
 bool sDetected = false;
 
@@ -126,7 +126,7 @@ bool applyBoardProfile(DeviceConfig& cfg) {
     l.currentLimitMa = kLedCurrentLimitMa;
     l.exists = true;
 
-    // Idle look of the default group: violet breathing at most 10 %
+    // Idle look of the default group: violet breathing at about 3 %
     // brightness instead of full white (Timo, 2026-11-09). Violet is not one
     // of the game colours (blue invites, green joined, yellow race, red
     // wrong).
@@ -134,7 +134,7 @@ bool applyBoardProfile(DeviceConfig& cfg) {
     idle.mode = GroupMode::Pattern;
     idle.pattern = PatternId::Breathing;
     idle.color = Color{140, 0, 255};
-    idle.brightness = 25;
+    idle.brightness = 8;
     idle.speed = 1.0f;  // 4 s per breath, fleet::kIdlePulseMs
 
     uint8_t i = 0;
