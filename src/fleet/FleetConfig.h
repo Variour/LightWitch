@@ -140,8 +140,9 @@ static constexpr uint32_t kFlowMaxMs = 3000;
 static constexpr uint32_t kIdlePulseMs = 4000;
 static constexpr uint32_t kIdleLevelMs = 3000;  // firmware
 // owner (2026-11-09): LEDs switched off with a key, on USB: only the column
-// shows the level at about 1 %, red at the USB-C end to green at the top.
-// While charging, the top LED of the level pulses slowly. 1/255 is the
+// shows the level at about 1 %, filling from LED1, red at LED1 to green at
+// the USB-C end.
+// While charging, the last LED of the level pulses slowly. 1/255 is the
 // smallest step of the LEDs.
 static constexpr uint8_t kOffLevel = 2;            // about 0.8 %
 static constexpr uint8_t kOffTipLevel = 5;         // firmware: pulse peak, about 2 %

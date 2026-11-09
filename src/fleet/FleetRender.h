@@ -88,7 +88,7 @@ inline Rgb levelRounded(Rgb c, uint8_t lvl) {
             (uint8_t)((c.b * lvl + 127) / 255)};
 }
 
-// Column LED n (0 = the USB-C end): red through yellow to green at the top.
+// Level LED n (0 = the first LED of the level): red through yellow to green.
 inline Rgb columnGradient(uint8_t n) {
     uint16_t t = (uint16_t)((uint32_t)n * 510 / (game::kScoreCount - 1));
     if (t <= 255) return Rgb{255, (uint8_t)t, 0};
@@ -102,16 +102,21 @@ inline uint8_t softPulse(uint32_t now, uint32_t period, uint8_t lo, uint8_t hi) 
     return (uint8_t)(lo + (uint8_t)lroundf((float)(hi - lo) * s));
 }
 
+// Column LED n counted from LED1 (0 = the end away from USB-C) -> chain index.
+inline uint8_t columnLedFromLed1(uint8_t n) { return (uint8_t)(game::kScoreFirst + n); }
+
 // LEDs switched off with a key, on USB: the level on the column at
-// kOffLevel in columnGradient(). While charging, the top LED of the level
+// kOffLevel, filling from LED1 towards USB-C, red at LED1 to green at the
+// USB-C end (Timo, 2026-11-09). While charging, the last LED of the level
 // pulses up to kOffTipLevel. Ring and status dot stay dark.
 inline void renderOffLevel(uint8_t battery, bool charging, uint32_t now, Rgb* px) {
     clearFrame(px);
     if (battery == kNoBattery) return;
     uint8_t n = columnCount(battery);
-    for (uint8_t i = 0; i < n; i++) px[columnLed(i)] = levelRounded(columnGradient(i), kOffLevel);
+    for (uint8_t i = 0; i < n; i++)
+        px[columnLedFromLed1(i)] = levelRounded(columnGradient(i), kOffLevel);
     if (charging && n > 0)
-        px[columnLed(n - 1)] =
+        px[columnLedFromLed1(n - 1)] =
             levelRounded(columnGradient(n - 1),
                          softPulse(now, kOffTipPulseMs, kOffLevel, kOffTipLevel));
 }
