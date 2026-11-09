@@ -1,13 +1,19 @@
 #pragma once
-#include <Adafruit_NeoPixel.h>
+#include <driver/gpio.h>
+#include <driver/rmt_tx.h>
+#include <esp_rom_sys.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <string.h>
 
 #include <atomic>
-#include <memory>
 #include <vector>
 
+#include "../logging/Logger.h"
 #include "LedDriver.h"
 
+// WS2812B (single-wire) output through the ESP-IDF RMT TX driver.
 class Ws2812bDriver : public LedDriver {
    public:
     // Current of one colour channel at full scale (255), the model behind the
@@ -28,23 +34,28 @@ class Ws2812bDriver : public LedDriver {
     }
 
     void begin() override {
-        // NEO_RGB: the library sends channels in raw call order with no reordering
-        // of its own — applyColorOrder() below is the single place that permutes
-        // r,g,b, so it isn't double-applied on top of the library's own remapping.
-        _neo = std::make_unique<Adafruit_NeoPixel>(_numLeds, _pin, NEO_RGB + NEO_KHZ800);
-        _neo->begin();
-        _neo->clear();
-        _neo->show();
+        _pixels.assign((size_t)_numLeds * 3, 0);
+        if (!_busLock) _busLock = xSemaphoreCreateMutex();
+        // The data line is a push-pull output that idles low.
+        if (_pinValid()) {
+            gpio_set_level((gpio_num_t)_pin, 0);
+            gpio_config_t io = {};
+            io.pin_bit_mask = 1ULL << _pin;
+            io.mode = GPIO_MODE_OUTPUT;
+            gpio_config(&io);
+        }
+        _transmit();
     }
 
-    // While the LED rail is down, the frame stays in the buffer and goes out
-    // with the show() after setRailPowered(true).
+    // Returns once the frame is on the wire. While the LED rail is down, the
+    // frame stays in the buffer and goes out with the show() after
+    // setRailPowered(true).
     void show() override {
         _shownSinceService = true;
         if (!_railPowered) return;
         _syncCurrentLimit();
         if (_limitMa) _writeCappedFrame();
-        _neo->show();
+        _transmit();
     }
 
     void off() override {
@@ -52,8 +63,8 @@ class Ws2812bDriver : public LedDriver {
         if (_limitMa) memset(_frame.data(), 0, _frame.size());
         _shownCounts = 0;
         _rampPending = false;
-        _neo->clear();
-        if (_railPowered) _neo->show();
+        memset(_pixels.data(), 0, _pixels.size());
+        if (_railPowered) _transmit();
     }
 
     void setRailPowered(bool powered) override {
@@ -79,15 +90,11 @@ class Ws2812bDriver : public LedDriver {
         uint8_t a, bb, c;
         applyColorOrder(_order, r, g, b, a, bb, c);
         _syncCurrentLimit();
-        if (_limitMa) {
-            for (size_t k = 0; k + 2 < _frame.size(); k += 3) {
-                _frame[k] = a;
-                _frame[k + 1] = bb;
-                _frame[k + 2] = c;
-            }
-        } else {
-            uint32_t col = _neo->Color(a, bb, c);
-            for (uint16_t i = 0; i < _numLeds; i++) _neo->setPixelColor(i, col);
+        std::vector<uint8_t>& buf = _limitMa ? _frame : _pixels;
+        for (size_t k = 0; k + 2 < buf.size(); k += 3) {
+            buf[k] = a;
+            buf[k + 1] = bb;
+            buf[k + 2] = c;
         }
         show();
     }
@@ -96,26 +103,29 @@ class Ws2812bDriver : public LedDriver {
         uint8_t a, bb, c;
         applyColorOrder(_order, r, g, b, a, bb, c);
         _syncCurrentLimit();
-        if (_limitMa) {
-            if (idx >= _numLeds) return;
-            _frame[(size_t)idx * 3] = a;
-            _frame[(size_t)idx * 3 + 1] = bb;
-            _frame[(size_t)idx * 3 + 2] = c;
-            return;
-        }
-        _neo->setPixelColor(idx, a, bb, c);
+        std::vector<uint8_t>& buf = _limitMa ? _frame : _pixels;
+        size_t k = (size_t)idx * 3;
+        if (k + 2 >= buf.size()) return;
+        buf[k] = a;
+        buf[k + 1] = bb;
+        buf[k + 2] = c;
     }
 
    private:
     uint8_t _pin = 25;
     uint16_t _numLeds = 1;
     ColorOrder _order = ColorOrder::GRB;
-    std::unique_ptr<Adafruit_NeoPixel> _neo;
+    // The bytes that go out on the wire: 3 per pixel, in wire order.
+    // applyColorOrder() in writeColor()/writePixel() is the single place that
+    // permutes r,g,b.
+    std::vector<uint8_t> _pixels;
+    // End of this light's last frame (esp_timer_get_time()).
+    int64_t _frameEndUs = 0;
 
     // Current cap. With a cap, pixel writes go to _frame (the frame as
-    // requested, in wire order) and show() writes a scaled copy into the
-    // NeoPixel buffer; without one (0), writes go straight to the NeoPixel
-    // buffer as before and _frame stays empty.
+    // requested, in wire order) and show() writes a scaled copy into
+    // _pixels; without one (0), writes go straight to _pixels and _frame
+    // stays empty.
     std::atomic<uint16_t> _requestedLimitMa{0};
     uint16_t _limitMa = 0;
     std::vector<uint8_t> _frame;
@@ -125,26 +135,25 @@ class Ws2812bDriver : public LedDriver {
     bool _rampPending = false;
     bool _shownSinceService = false;
     bool _railPowered = true;
+    bool _startFailureLogged = false;
 
     // Applies a cap change from setCurrentLimitMa() on the render task. The
-    // NeoPixel buffer holds 3 bytes per pixel in call (= wire) order for
-    // NEO_RGB, the same layout as _frame.
+    // wire buffer _pixels holds 3 bytes per pixel in wire order, the same
+    // layout as _frame.
     void _syncCurrentLimit() {
         uint16_t want = _requestedLimitMa.load();
-        if (want == _limitMa || !_neo) return;
-        size_t bytes = (size_t)_numLeds * 3;
+        if (want == _limitMa || _pixels.empty()) return;
         if (_limitMa == 0) {
-            // Cap switches on: the uncapped NeoPixel buffer becomes the
-            // requested frame.
-            const uint8_t* p = _neo->getPixels();
-            _frame.assign(p, p + bytes);
+            // Cap switches on: the uncapped _pixels become the requested
+            // frame.
+            _frame = _pixels;
             _shownCounts = 0;
             if (_railPowered)
                 for (uint8_t v : _frame) _shownCounts += v;
         } else if (want == 0) {
-            // Cap switches off: the NeoPixel buffer gets the requested frame
-            // back, unscaled.
-            memcpy(_neo->getPixels(), _frame.data(), bytes);
+            // Cap switches off: _pixels get the requested frame back,
+            // unscaled.
+            _pixels = _frame;
             std::vector<uint8_t>().swap(_frame);
         }
         _limitMa = want;
@@ -156,7 +165,7 @@ class Ws2812bDriver : public LedDriver {
     // it). The budget is the cap, or less while the slew limit ramps up from
     // the current shown frame.
     void _writeCappedFrame() {
-        uint8_t* p = _neo->getPixels();
+        uint8_t* p = _pixels.data();
         uint32_t sum = 0;
         for (uint8_t v : _frame) sum += v;
         uint32_t cap = (uint32_t)_limitMa * 255 / CHANNEL_FULL_SCALE_MA;
@@ -174,5 +183,90 @@ class Ws2812bDriver : public LedDriver {
         }
         _rampPending = sum > budget && budget < cap;
         _shownCounts = shown;
+    }
+
+    // Wire format (800 kHz): a 0 bit is 0.4 us high and 0.8 us low, a 1 bit
+    // 0.8 us high and 0.4 us low, most significant bit first; LATCH_US of low
+    // level between two frames latch the first one.
+    static constexpr uint32_t RMT_RESOLUTION_HZ = 10000000;  // 0.1 us per tick
+    static constexpr uint16_t BIT_SHORT_TICKS = 4;
+    static constexpr uint16_t BIT_LONG_TICKS = 8;
+    static constexpr int64_t LATCH_US = 300;
+    // A frame waits this long for the bus while another task sends.
+    static constexpr uint32_t BUS_WAIT_MS = 50;
+
+    // All WS2812 lights send through one RMT TX channel, routed to the pin of
+    // the light that sends, so MAX_LIGHTS lights fit the two TX channels of
+    // an ESP32-C3/C5. The bytes encoder turns the pixel bytes into RMT symbols
+    // while the channel sends them. The lock serializes frames across lights
+    // and tasks.
+    static inline SemaphoreHandle_t _busLock = nullptr;
+    static inline rmt_channel_handle_t _busChannel = nullptr;
+    static inline rmt_encoder_handle_t _busEncoder = nullptr;
+    static inline int _busPin = -1;
+
+    bool _pinValid() const { return _pin < GPIO_NUM_MAX && GPIO_IS_VALID_OUTPUT_GPIO((int)_pin); }
+
+    // Sends _pixels and returns once the frame is on the wire.
+    void _transmit() {
+        if (_pixels.empty() || !_busLock) return;
+        if (xSemaphoreTake(_busLock, pdMS_TO_TICKS(BUS_WAIT_MS)) != pdTRUE) return;
+        if (_routeBus()) {
+            int64_t sinceUs = esp_timer_get_time() - _frameEndUs;
+            if (sinceUs < LATCH_US) esp_rom_delay_us((uint32_t)(LATCH_US - sinceUs));
+            rmt_transmit_config_t tx = {};
+            if (rmt_transmit(_busChannel, _busEncoder, _pixels.data(), _pixels.size(), &tx) ==
+                ESP_OK)
+                rmt_tx_wait_all_done(_busChannel, -1);
+            _frameEndUs = esp_timer_get_time();
+        }
+        xSemaphoreGive(_busLock);
+    }
+
+    // Logs once per light why its output did not start.
+    bool _startFailed(const char* why) {
+        if (!_startFailureLogged) {
+            _startFailureLogged = true;
+            Logger::e("[led] WS2812 on GPIO%u: %s", (unsigned)_pin, why);
+        }
+        return false;
+    }
+
+    // Routes the bus to this light's pin; the first frame creates the channel
+    // and the encoder. Called with the lock held.
+    bool _routeBus() {
+        if (!_pinValid()) return _startFailed("the pin cannot be an output");
+        if (_busPin == _pin) return true;
+        if (!_busChannel) {
+            rmt_bytes_encoder_config_t enc = {};
+            enc.bit0.level0 = 1;
+            enc.bit0.duration0 = BIT_SHORT_TICKS;
+            enc.bit0.level1 = 0;
+            enc.bit0.duration1 = BIT_LONG_TICKS;
+            enc.bit1.level0 = 1;
+            enc.bit1.duration0 = BIT_LONG_TICKS;
+            enc.bit1.level1 = 0;
+            enc.bit1.duration1 = BIT_SHORT_TICKS;
+            enc.flags.msb_first = 1;
+            if (!_busEncoder && rmt_new_bytes_encoder(&enc, &_busEncoder) != ESP_OK)
+                return _startFailed("no RMT encoder");
+            rmt_tx_channel_config_t ch = {};
+            ch.gpio_num = (gpio_num_t)_pin;
+            ch.clk_src = RMT_CLK_SRC_DEFAULT;
+            ch.resolution_hz = RMT_RESOLUTION_HZ;
+            ch.mem_block_symbols = SOC_RMT_MEM_WORDS_PER_CHANNEL;
+            ch.trans_queue_depth = 1;
+            if (rmt_new_tx_channel(&ch, &_busChannel) != ESP_OK)
+                return _startFailed("no RMT TX channel");
+        } else {
+            // The pin the bus leaves is a plain output again, low since
+            // begin().
+            rmt_disable(_busChannel);
+            rmt_tx_switch_gpio(_busChannel, (gpio_num_t)_pin, false);
+            gpio_set_direction((gpio_num_t)_busPin, GPIO_MODE_OUTPUT);
+        }
+        rmt_enable(_busChannel);
+        _busPin = _pin;
+        return true;
     }
 };
