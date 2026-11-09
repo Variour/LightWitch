@@ -10,6 +10,7 @@
 #include <atomic>
 #include <vector>
 
+#include "../logging/Logger.h"
 #include "LedDriver.h"
 
 // WS2812B (single-wire) output through the ESP-IDF RMT TX driver.
@@ -134,6 +135,7 @@ class Ws2812bDriver : public LedDriver {
     bool _rampPending = false;
     bool _shownSinceService = false;
     bool _railPowered = true;
+    bool _startFailureLogged = false;
 
     // Applies a cap change from setCurrentLimitMa() on the render task. The
     // wire buffer _pixels holds 3 bytes per pixel in wire order, the same
@@ -221,10 +223,19 @@ class Ws2812bDriver : public LedDriver {
         xSemaphoreGive(_busLock);
     }
 
+    // Logs once per light why its output did not start.
+    bool _startFailed(const char* why) {
+        if (!_startFailureLogged) {
+            _startFailureLogged = true;
+            Logger::e("[led] WS2812 on GPIO%u: %s", (unsigned)_pin, why);
+        }
+        return false;
+    }
+
     // Routes the bus to this light's pin; the first frame creates the channel
     // and the encoder. Called with the lock held.
     bool _routeBus() {
-        if (!_pinValid()) return false;
+        if (!_pinValid()) return _startFailed("the pin cannot be an output");
         if (_busPin == _pin) return true;
         if (!_busChannel) {
             rmt_bytes_encoder_config_t enc = {};
@@ -237,14 +248,16 @@ class Ws2812bDriver : public LedDriver {
             enc.bit1.level1 = 0;
             enc.bit1.duration1 = BIT_SHORT_TICKS;
             enc.flags.msb_first = 1;
-            if (!_busEncoder && rmt_new_bytes_encoder(&enc, &_busEncoder) != ESP_OK) return false;
+            if (!_busEncoder && rmt_new_bytes_encoder(&enc, &_busEncoder) != ESP_OK)
+                return _startFailed("no RMT encoder");
             rmt_tx_channel_config_t ch = {};
             ch.gpio_num = (gpio_num_t)_pin;
             ch.clk_src = RMT_CLK_SRC_DEFAULT;
             ch.resolution_hz = RMT_RESOLUTION_HZ;
             ch.mem_block_symbols = SOC_RMT_MEM_WORDS_PER_CHANNEL;
             ch.trans_queue_depth = 1;
-            if (rmt_new_tx_channel(&ch, &_busChannel) != ESP_OK) return false;
+            if (rmt_new_tx_channel(&ch, &_busChannel) != ESP_OK)
+                return _startFailed("no RMT TX channel");
         } else {
             // The pin the bus leaves is a plain output again, low since
             // begin().
