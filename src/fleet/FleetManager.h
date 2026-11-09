@@ -391,7 +391,7 @@ class FleetManager {
         // SOF frames from a host within the last few ms (IDF connection monitor).
         // UNVERIFIED on the ESP32-C5: that a power-only USB source reads false
         // and a laptop reads true within kHostDetectMs of boot.
-        return HWCDC::isPlugged();
+        return SerialPort::hostConnected();
 #else
         return false;  // UART bridge: only link traffic counts
 #endif
@@ -514,7 +514,7 @@ class FleetManager {
             fleet::clearFrame(px);
             _show(px);
         }
-        Serial.flush();
+        SerialPort::flush();
         // Still on the short timeout of a key wake: the earlier sleep and
         // this wake count toward ship mode.
         uint32_t carry = _ps.shortWake() ? _sleptCarryS + (now - _bootMs) / 1000 : 0;
