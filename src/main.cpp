@@ -1219,10 +1219,12 @@ void loop() {
 
     // Idle OTA polling is throttled with everything else; once a transfer is
     // actually in flight (_otaActive), run every pass so flashing isn't slowed.
-    // One update at a time: ArduinoOTA rests while the updater writes.
+    // One update at a time: ArduinoOTA rests while the updater writes and
+    // until the restart that follows.
     Updater::State updState = Updater::status().state;
     if (Config::get().otaEnabled && !radioIdle && (slowTick || _otaActive) &&
-        !power.updateBlockReason() && updState != Updater::State::Downloading)
+        !power.updateBlockReason() && updState != Updater::State::Downloading &&
+        updState != Updater::State::Done)
         ArduinoOTA.handle();
     if (slowTick && !radioIdle) webServer.loop();
 

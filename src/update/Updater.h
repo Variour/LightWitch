@@ -761,6 +761,13 @@ class Updater {
             vTaskDelete(nullptr);
             return;
         }
+        // The start guard again: the release lookup took a moment.
+        if (const char* why = _startGuard ? _startGuard() : nullptr) {
+            _status.error = why;
+            _status.state = State::Error;
+            vTaskDelete(nullptr);
+            return;
+        }
         _status.hasUpdate = true;
         _status.state = State::Downloading;
         _status.progress = 0;
