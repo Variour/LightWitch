@@ -541,9 +541,13 @@ void setup() {
     // consumer beginning it itself) since the device has a single I2C bus
     // (i2cBus) that every consumer must agree on the same pins for.
     if (Config::get().i2cSdaPin != PIN_UNUSED && Config::get().i2cSclPin != PIN_UNUSED) {
-        i2cBus.begin(Config::get().i2cSdaPin, Config::get().i2cSclPin);
-        Logger::i("[sys] I2C bus: sda=GPIO%d scl=GPIO%d", Config::get().i2cSdaPin,
-                  Config::get().i2cSclPin);
+        esp_err_t err = i2cBus.begin(Config::get().i2cSdaPin, Config::get().i2cSclPin);
+        if (err == ESP_OK)
+            Logger::i("[sys] I2C bus: sda=GPIO%d scl=GPIO%d", Config::get().i2cSdaPin,
+                      Config::get().i2cSclPin);
+        else
+            Logger::e("[sys] I2C bus: sda=GPIO%d scl=GPIO%d did not start: %s",
+                      Config::get().i2cSdaPin, Config::get().i2cSclPin, esp_err_to_name(err));
     }
 
     // Charger / LED rail / ship mode (boards with a BQ25628), right after the
