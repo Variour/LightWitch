@@ -343,6 +343,7 @@ class PowerManager {
     static constexpr uint32_t WATCHDOG_KICK_MS = 10000;
     static constexpr uint32_t OTG_RETRY_MS = 5000;
     static constexpr uint32_t OTG_STUCK_MS = 1000;
+    static constexpr uint16_t VBUS_GONE_MV = 3600;
     // At most one re-configure per this time; the rest of tick() keeps
     // running while WD_STAT stays set.
     static constexpr uint32_t RECONFIGURE_MIN_MS = 1000;
@@ -390,6 +391,7 @@ class PowerManager {
     bool _noCell = false;
     uint32_t _lastOtgAttemptMs = 0;
     uint32_t _otgStuckMs = 0;
+    uint32_t _vbusNoneSinceMs = 0;
     uint32_t _lastCcMs = 0;
     uint16_t _ccMv = 0;
     uint16_t _ccPendingMa = 500;
@@ -404,6 +406,7 @@ class PowerManager {
     int8_t _tsAdcOn = -1;  // -1 unknown, else 0/1
     bool _adcBusy = false;
     uint32_t _adcStartMs = 0;
+    uint32_t _adcResultStartMs = 0;  // start of the conversion in _adc
     uint32_t _lastAdcStartMs = 0;
     uint32_t _adcMs = 0;
     uint32_t _lastAdcLogMs = 0;
@@ -497,6 +500,7 @@ class PowerManager {
         }
         _adc = a;
         _adcMs = millis();
+        _adcResultStartMs = start;
         Logger::i("[pwr] VBAT %u mV at boot on battery", a.vbatMv);
         if (a.vbatMv < LOW_BATTERY_MV) _shutdownAtBoot();
     }
@@ -633,7 +637,23 @@ class PowerManager {
             return;
         }
         _otgStuckMs = 0;
-        if (_shipPending || st.otgEnabled() || st.vbusStat() != Bq25628::VBUS_STAT_NONE) return;
+        if (st.vbusStat() != Bq25628::VBUS_STAT_NONE) {
+            _vbusNoneSinceMs = 0;
+            return;
+        }
+        if (_vbusNoneSinceMs == 0) _vbusNoneSinceMs = now;
+        if (_shipPending || st.otgEnabled()) return;
+        // Boost only once VBUS has really gone: an ADC reading taken after
+        // VBUS_STAT turned none shows VBUS below VBUS_GONE_MV (the board
+        // repo's firmware/boardtest charger.c, ADAPTER_MV). Started while
+        // VBUS was still there, the boost broke down under the LEDs again and
+        // again on the first board (2026-11-09: PMID 5.0 / 3.1 V in turn after
+        // unplugging, stable after a reboot on battery).
+        if (_adcMs == 0 || (int32_t)(_adcResultStartMs - _vbusNoneSinceMs) < 0 ||
+            _adc.vbusMv >= VBUS_GONE_MV) {
+            if (!_adcBusy) _lastAdcStartMs = 0;  // convert at once
+            return;
+        }
         // On battery with OTG off: switch it on. The charger clears EN_OTG
         // again by itself on a fault (VBAT below VBAT_OTG, PMID undervoltage,
         // TS outside the OTG window, ... §8.3.10.3), so retry at a slow pace.
@@ -708,6 +728,7 @@ class PowerManager {
             if (!_chg.readAdc(a)) return;
             _adc = a;
             _adcMs = now;
+            _adcResultStartMs = _adcStartMs;
             _adcCount++;
             _onVbatSample(now, true, a.vbatMv);
             _logAdc(now);
