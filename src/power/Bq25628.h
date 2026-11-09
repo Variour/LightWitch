@@ -210,6 +210,8 @@ class Bq25628 {
         uint16_t terminationCurrentMa;  // ITERM
         uint8_t batteryPeakCurrent;     // IBAT_PK: CTRL3_IBAT_PK_6A or _12A
         bool chargeEnabled = true;      // EN_CHG
+        bool inputLimitPin = true;      // EN_EXTILIM: ILIM pin on (see setInputLimit())
+        uint16_t inputLimitMa = 500;    // IINDPM
     };
 
     explicit Bq25628(TwoWire& wire = Wire) : _wire(wire) {}
@@ -232,7 +234,7 @@ class Bq25628 {
     //   - charging (EN_CHG) from s, HIZ off
     //   - safety timers on (EN_SAFETY_TMRS = 1)
     //   - TS feedback used (TS_IGNORE = 0)
-    //   - ILIM pin input-current limit on (EN_EXTILIM = 1)
+    //   - input current limit from s (setInputLimit())
     //   - boost (not bypass) OTG
     // Returns false on an I2C error or if VREG does not read back as written.
     bool configure(const Settings& s);

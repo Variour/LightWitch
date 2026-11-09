@@ -168,11 +168,7 @@ class PowerManager {
             // halved (§8.4.1). Configure again; the next poll picks up.
             Logger::w("[pwr] charger in default mode (watchdog) - configuring again");
             _lastConfigureMs = now;
-            if (!_chg.configure(_settings)) {
-                _goOffline("configure failed");
-            } else {
-                _applyInputLimit(false);
-            }
+            if (!_chg.configure(_settings)) _goOffline("configure failed");
             _lastKickMs = now;
             _adcBusy = false;
             return;
@@ -444,18 +440,21 @@ class PowerManager {
         _settings.chargeEnabled = false;
         _chargeOffMs = now;
         _chgFlagHistory = 0;
-        if (!_chg.configure(_settings)) {
-            Logger::e("[pwr] BQ25628 configuration failed - charger stays offline");
-            return;
-        }
-        _online = true;
-        // Input limit from CC before the first LED frame goes out.
+        // Input limit from CC before configure(): the LEDs keep their last
+        // frame through an ESP reset, and a step down to the ILIM pin with
+        // them lit trips PMID_GD (first Buzzerboard, 2026-11-09).
         for (uint8_t i = 0; i < CC_STABLE; i++) {
             if (i) delay(CC_SAMPLE_MS);
             _readCcClass();
         }
         if (_ccSame >= CC_STABLE) _ccClassMa = _ccPendingMa;
-        _applyInputLimit(true);
+        _setInputLimitSettings();
+        if (!_chg.configure(_settings)) {
+            Logger::e("[pwr] BQ25628 configuration failed - charger stays offline");
+            return;
+        }
+        _logInputLimit();
+        _online = true;
         // Configured just now; a WD_FLAG left from power-on is stale.
         _reconfigurePending = false;
         _lastKickMs = now;
@@ -578,24 +577,31 @@ class PowerManager {
         _readCcClass();
         if (_ccSame < CC_STABLE || _ccPendingMa == _ccClassMa) return;
         _ccClassMa = _ccPendingMa;
-        if (_online) _applyInputLimit(true);
-    }
-
-    // Writes the input limit for the current CC class (see CC_SENSE_PIN).
-    void _applyInputLimit(bool log) {
-        bool pin = _ccClassMa <= 500;
-        uint16_t ma = pin ? INPUT_LIMIT_PIN_MA
-                          : (_ccClassMa > INPUT_LIMIT_MAX_MA ? INPUT_LIMIT_MAX_MA : _ccClassMa);
-        if (!_chg.setInputLimit(pin, ma)) {
+        _setInputLimitSettings();
+        if (!_online) return;
+        if (!_chg.setInputLimit(_settings.inputLimitPin, _settings.inputLimitMa)) {
             Logger::w("[pwr] input limit write failed");
             return;
         }
-        if (!log) return;
-        if (pin) {
+        _logInputLimit();
+    }
+
+    // The input limit for the current CC class into _settings (see
+    // CC_SENSE_PIN); configure() and every watchdog re-configure write it.
+    void _setInputLimitSettings() {
+        bool pin = _ccClassMa <= 500;
+        _settings.inputLimitPin = pin;
+        _settings.inputLimitMa = pin ? INPUT_LIMIT_PIN_MA
+                                     : (_ccClassMa > INPUT_LIMIT_MAX_MA ? INPUT_LIMIT_MAX_MA
+                                                                        : _ccClassMa);
+    }
+
+    void _logInputLimit() {
+        if (_settings.inputLimitPin) {
             Logger::i("[pwr] USB-C default (CC %u mV) - input limit ILIM pin", _ccMv);
         } else {
             Logger::i("[pwr] USB-C %u mA (CC %u mV) - input limit %u mA, ILIM pin off",
-                      _ccClassMa, _ccMv, ma);
+                      _ccClassMa, _ccMv, _settings.inputLimitMa);
         }
     }
 
