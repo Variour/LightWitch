@@ -18,6 +18,11 @@ bool applyBoardProfile(DeviceConfig& cfg);
 // that board's cap, also when the setting is off; elsewhere the setting.
 uint16_t boardLedCurrentLimitMa(uint16_t configuredMa);
 
+// How often to send an unchanged LED frame again (ms, 0 = only on change):
+// on a detected board whose LED rail can drop for a moment without the
+// firmware seeing it, so the LEDs come back; elsewhere 0.
+uint16_t boardLedRefreshMs();
+
 // Whether detectBoard() found the board this build targets at this boot (the
 // Buzzerboard on esp32c5 builds; false on every other build).
 bool boardDetected();

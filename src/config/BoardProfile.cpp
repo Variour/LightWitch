@@ -152,6 +152,15 @@ bool boardDetected() { return sDetected; }
 bool boardHasFallbackAp() { return !sDetected; }
 
 // Every light: the Buzzerboard's LEDs all hang on the PMID rail.
+// On boost the LED rail (PMID behind PMID_GD) can drop for a moment while
+// the charger stays in OTG, and the LEDs come back dark: first board on
+// battery, 2026-11-09 (PMID 3.1 V in one ADC reading, VBUS_STAT OTG
+// throughout, LEDs dark afterwards). Sending the frame again brings them
+// back.
+constexpr uint16_t kLedRefreshMs = 250;
+
+uint16_t boardLedRefreshMs() { return sDetected ? kLedRefreshMs : 0; }
+
 uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) {
     if (!sDetected) return configuredMa;
     if (configuredMa == 0 || configuredMa > kLedCurrentLimitMa) return kLedCurrentLimitMa;
@@ -163,6 +172,7 @@ uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) {
 void detectBoard() {}
 bool applyBoardProfile(DeviceConfig&) { return false; }
 uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) { return configuredMa; }
+uint16_t boardLedRefreshMs() { return 0; }
 bool boardDetected() { return false; }
 bool boardHasFallbackAp() { return true; }
 

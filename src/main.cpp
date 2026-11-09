@@ -629,6 +629,7 @@ void setup() {
         }
         drv->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
         drv->setCurrentLimitMa(boardLedCurrentLimitMa(l.currentLimitMa));
+        drv->setRefreshMs(boardLedRefreshMs());
         _leds[i] = drv;
 #if FEATURE_GAME
         gameSession.setLight(drv, numLeds);

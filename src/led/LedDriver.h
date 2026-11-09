@@ -36,6 +36,9 @@ class LedDriver {
     // see PowerManager); true unless told otherwise. After false, the LEDs
     // count as dark.
     virtual void setRailPowered(bool powered) {}
+    // Send the last frame again every ms while the rail has power (0 = only
+    // on change). Only Ws2812bDriver implements it.
+    virtual void setRefreshMs(uint16_t ms) {}
     // Called on every render tick (PatternRunner::tick()), so a driver can
     // finish work spread over several frames.
     virtual void service() {}

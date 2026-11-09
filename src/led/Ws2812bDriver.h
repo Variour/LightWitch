@@ -45,6 +45,7 @@ class Ws2812bDriver : public LedDriver {
         _syncCurrentLimit();
         if (_limitMa) _writeCappedFrame();
         _neo->show();
+        _lastShowMs = millis();
     }
 
     void off() override {
@@ -64,9 +65,14 @@ class Ws2812bDriver : public LedDriver {
     // Continues a slew-limited ramp for frames that are not redrawn (static
     // patterns), one step per render tick.
     void service() override {
-        if (_rampPending && _railPowered && !_shownSinceService) show();
+        if (_rampPending && _railPowered && !_shownSinceService)
+            show();
+        else if (_refreshMs && _railPowered && millis() - _lastShowMs >= _refreshMs)
+            show();
         _shownSinceService = false;
     }
+
+    void setRefreshMs(uint16_t ms) override { _refreshMs = ms; }
 
     void setColorOrder(ColorOrder order) override { _order = order; }
 
@@ -125,6 +131,8 @@ class Ws2812bDriver : public LedDriver {
     bool _rampPending = false;
     bool _shownSinceService = false;
     bool _railPowered = true;
+    uint16_t _refreshMs = 0;
+    uint32_t _lastShowMs = 0;
 
     // Applies a cap change from setCurrentLimitMa() on the render task. The
     // NeoPixel buffer holds 3 bytes per pixel in call (= wire) order for
