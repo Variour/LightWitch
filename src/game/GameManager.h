@@ -9,6 +9,7 @@
 #include <functional>
 
 #include "../config/BoardProfile.h"
+#include "../config/LightLevel.h"
 #include "../fleet/Imu.h"
 #include "../led/LedDriver.h"
 #include "../logging/Logger.h"
@@ -195,11 +196,20 @@ class GameManager {
         if (!_led) return;
         game::Rgb px[game::kLedCount];
         game::renderParticipant(_participant, now, px);
-        for (uint16_t i = 0; i < game::kLedCount; i++) _led->setPixel(i, px[i].r, px[i].g, px[i].b);
+        uint8_t lvl = _showLevel();
+        for (uint16_t i = 0; i < game::kLedCount; i++)
+            _led->setPixel(i, scaleToLevel(px[i].r, lvl), scaleToLevel(px[i].g, lvl),
+                           scaleToLevel(px[i].b, lvl));
         _led->show();
     }
 
     enum class Overlay : uint8_t { None, Drawn, Ended };
+
+    // See kLevelShowMin.
+    static uint8_t _showLevel() {
+        uint8_t b = currentLightLevel(0);
+        return b < game::kLevelShowMin ? game::kLevelShowMin : b;
+    }
 
     // Invite ring over the normal pattern. Ended: the caller re-applies the
     // light's config so the pattern repaints the ring.
@@ -207,8 +217,10 @@ class GameManager {
         if (!_led) return Overlay::None;
         game::Rgb ring[4];
         if (game::renderInviteOverlay(_participant, now, ring)) {
+            uint8_t lvl = _showLevel();
             for (uint8_t i = 0; i < 4; i++)
-                _led->setPixel(game::kRingLeds[i], ring[i].r, ring[i].g, ring[i].b);
+                _led->setPixel(game::kRingLeds[i], scaleToLevel(ring[i].r, lvl),
+                               scaleToLevel(ring[i].g, lvl), scaleToLevel(ring[i].b, lvl));
             _led->show();
             _overlayOn = true;
             return Overlay::Drawn;

@@ -119,7 +119,8 @@ static constexpr uint8_t kApMinutesDefault = 10;  // owner: 10 min
 static constexpr uint8_t kApMinutesMax = 60;      // firmware: longest `config ap`
 
 // ── LED display (charging mode, update) ──────────────────────────────────────
-static constexpr uint8_t kDisplayLevel = 8;       // owner (2026-11-09): about 3 %, 10 % dazzled
+// owner (2026-11-09): every display follows the brightness light 0 renders at
+// (its brightness override, else its group's brightness), at least kOffLevel.
 static constexpr uint8_t kRedBelowPercent = 30;   // firmware: red below, yellow from here
 static constexpr uint8_t kGreenFromPercent = 80;  // firmware: green from the storage level
 // owner (display sketch): a full device shows the column for 1 h, then only
@@ -129,7 +130,6 @@ static constexpr uint32_t kTipPulseMs = 2000;  // firmware: slow pulse of the co
 // owner (2026-11-09): the column shows the level in colour and how strongly
 // the battery charges. A white dot runs from the USB-C end to the level, one
 // run per kFlowMaMs / charge current: 200 mA 2 s, 1000 mA 0.4 s.
-static constexpr uint8_t kFlowLevel = 16;  // owner: dim, 20 % dazzled
 static constexpr int16_t kFlowMinMa = 20;  // firmware: below this no dot
 static constexpr uint32_t kFlowMaMs = 400000;
 static constexpr uint32_t kFlowMinMs = 300;
@@ -147,8 +147,11 @@ static constexpr uint32_t kIdleLevelMs = 3000;  // firmware
 static constexpr uint8_t kOffLevel = 2;           // about 0.8 %
 static constexpr uint8_t kOffTipLevel = 5;        // firmware: pulse peak, about 2 %
 static constexpr uint32_t kOffTipPulseMs = 3000;  // firmware
-static constexpr uint32_t kFaultBlinkMs = 1000;   // firmware: ring blinks at 1 Hz
-static constexpr uint32_t kRingChaseMs = 150;     // firmware: update ring, one step per 150 ms
+// owner (2026-11-09): the bottom-right side key (R2) shows the battery level
+// on the column for this long, active and outside a session.
+static constexpr uint32_t kBatteryOverlayMs = 3000;  // firmware
+static constexpr uint32_t kFaultBlinkMs = 1000;      // firmware: ring blinks at 1 Hz
+static constexpr uint32_t kRingChaseMs = 150;        // firmware: update ring, one step per 150 ms
 
 // ── Standby radio ────────────────────────────────────────────────────────────
 // firmware: ESP-NOW listens kStandbyWakeWindowMs of every kStandbyWakeIntervalMs.

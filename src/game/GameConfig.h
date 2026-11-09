@@ -120,6 +120,11 @@ static constexpr uint8_t kLedDown = 33;    // LED34
 static constexpr uint8_t kLevelBright = 255;
 static constexpr uint8_t kLevelDimmed = 51;
 static constexpr uint8_t kLevelFaint = 13;
+// owner (2026-11-09): the session scales these to the brightness light 0
+// renders at (its brightness override, else its group's brightness), so
+// kLevelBright shows at that brightness. At least kLevelShowMin, so a
+// session stays visible with the LEDs switched off.
+static constexpr uint8_t kLevelShowMin = 2;
 static constexpr uint32_t kPulsePeriodMs = 1000;  // firmware: one pulse per second
 static constexpr uint32_t kBlinkPeriodMs = 1000;  // fixed v0: status dot blinks at 1 Hz
 

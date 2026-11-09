@@ -149,13 +149,11 @@ bool applyBoardProfile(DeviceConfig& cfg) {
         b.activeLow = true;
         b.viaExpander = false;
         b.exists = true;
-        // Timo, 2026-11-09, outside a game session: R2 short press dims the
-        // LEDs to off, long press brings back the configured brightness; Up /
-        // Down step the brightness by about 10 %.
+        // Timo, 2026-11-09, outside a game session: Up / Down step the
+        // brightness by about 3 %, down to 0 switches the LEDs off. R2 shows
+        // the battery level (FleetManager); its long press brings back the
+        // configured brightness.
         if (strcmp(k.role, ButtonRole::R2) == 0) {
-            b.onShortPress.action = ActionId::LightBrightnessOverrideSet;
-            b.onShortPress.lightIndex = 0;
-            b.onShortPress.params.numberValue = 0;
             b.onLongPress.action = ActionId::LightBrightnessOverrideClear;
             b.onLongPress.lightIndex = 0;
         } else if (strcmp(k.role, ButtonRole::UP) == 0 || strcmp(k.role, ButtonRole::DOWN) == 0) {

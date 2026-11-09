@@ -12,6 +12,7 @@
 #include "../buttons/ButtonRoles.h"
 #include "../config/BoardProfile.h"
 #include "../config/Config.h"
+#include "../config/LightLevel.h"
 #include "../game/GameManager.h"
 #include "../game/RxRing.h"
 #include "../led/LedDriver.h"
@@ -152,6 +153,12 @@ class FleetManager {
         game::Key k = game::keyFromName(role);
         if (k == game::Key::L1) _l1Down = pressed;
         if (k == game::Key::R1) _r1Down = pressed;
+        // R2, active and outside a session: the battery level for
+        // kBatteryOverlayMs (Timo, 2026-11-09).
+        if (k == game::Key::R2 && pressed && _led && _managed() &&
+            _ps.state() == fleet::State::Active && !_game->radioQuiet() && !_test.running() &&
+            !_upd.running && _batteryPercent() != fleet::kNoBattery)
+            _batteryOverlayUntil = millis() + fleet::kBatteryOverlayMs;
         if (pressed) {
             _keysDown |= bit;
         } else {
@@ -263,10 +270,10 @@ class FleetManager {
     bool hasLight() const { return _led != nullptr; }
 
     // The fleet draws the light: factory test, update, charging, standby,
-    // switched off on USB.
+    // switched off on USB, the battery overlay.
     bool ownsLeds() const {
         return _led && (_test.running() || _upd.running || _ps.state() != fleet::State::Active ||
-                        _levelShowing || _offLevel());
+                        _levelShowing || _offLevel() || _batteryOverlay());
     }
 
     // Full frame while ownsLeds().
@@ -277,13 +284,15 @@ class FleetManager {
         if (_test.running())
             _test.frame(now, px);
         else if (_upd.running)
-            fleet::renderUpdate(_upd.pct, now, px);
+            fleet::renderUpdate(_upd.pct, now, px, _displayLevel());
+        else if (_batteryOverlay())
+            fleet::renderLevel(_batteryPercent(), _ibatMa(), now, px, _displayLevel());
         else if (_offLevel())
             fleet::renderOffLevel(_batteryPercent(), _charge == fleet::Charge::Charging, now, px);
         else if (_ps.state() == fleet::State::Charging && !_weakNow() && !_ledsSwitchedOff())
-            fleet::renderCharging(_chargeView(now), now, px);
+            fleet::renderCharging(_chargeView(now), now, px, _displayLevel());
         else if (_levelShowing)
-            fleet::renderLevel(_batteryPercent(), _ibatMa(), now, px);
+            fleet::renderLevel(_batteryPercent(), _ibatMa(), now, px, _displayLevel());
         else
             fleet::clearFrame(px);
         _show(px);
@@ -297,7 +306,7 @@ class FleetManager {
         if (!_led) return Overlay::None;
         if (SoftAp::maintenanceOpen() && _ps.state() == fleet::State::Active) {
             game::Rgb c = fleet::level(game::colorRgb(game::Color::Blue),
-                                       fleet::slowPulse(now, fleet::kApPulseMs));
+                                       fleet::slowPulse(now, fleet::kApPulseMs, _displayLevel()));
             _led->setPixel(game::kStatusDot, c.r, c.g, c.b);
             _led->show();
             _overlayOn = true;
@@ -313,7 +322,7 @@ class FleetManager {
         if (!_led) return;
         _ledsOwned = true;
         game::Rgb px[game::kLedCount];
-        fleet::renderUpdate(percent, now, px);
+        fleet::renderUpdate(percent, now, px, _displayLevel());
         _show(px);
     }
 
@@ -351,6 +360,7 @@ class FleetManager {
     bool _full = false;
     uint32_t _fullSince = 0;
     bool _levelShowing = false;
+    uint32_t _batteryOverlayUntil = 0;  // millis(); 0 = no overlay
     uint32_t _levelUntil = 0;
     uint32_t _levelNext = 0;
     bool _applied = false;
@@ -463,6 +473,17 @@ class FleetManager {
     bool _ledsSwitchedOff() const {
         const LightHardwareConfig& l = Config::get().lights[0];
         return l.brightnessOverrideEnabled && l.brightnessOverride == 0;
+    }
+
+    // The brightness of every fleet display: what light 0 renders at, at
+    // least kOffLevel (Timo, 2026-11-09).
+    uint8_t _displayLevel() const {
+        uint8_t b = currentLightLevel(0);
+        return b < fleet::kOffLevel ? fleet::kOffLevel : b;
+    }
+
+    bool _batteryOverlay() const {
+        return _batteryOverlayUntil != 0 && (int32_t)(millis() - _batteryOverlayUntil) < 0;
     }
 
     // Switched off with a key, on USB with a cell: renderOffLevel()

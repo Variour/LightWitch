@@ -47,13 +47,13 @@ inline Rgb batteryColor(uint8_t percent) {
     return game::colorRgb(Color::Green);
 }
 
-// Triangle from kDisplayLevel / 4 up to kDisplayLevel, one cycle per period.
-inline uint8_t slowPulse(uint32_t now, uint32_t period) {
+// Triangle from top / 4 up to top, one cycle per period.
+inline uint8_t slowPulse(uint32_t now, uint32_t period, uint8_t top) {
     uint32_t ph = now % period;
     uint32_t half = period / 2;
     uint32_t tri = ph < half ? ph : period - ph;
-    uint8_t lo = kDisplayLevel / 4;
-    return (uint8_t)(lo + (uint32_t)(kDisplayLevel - lo) * tri / half);
+    uint8_t lo = top / 4;
+    return (uint8_t)(lo + (uint32_t)(top - lo) * tri / half);
 }
 
 struct ChargeView {
@@ -63,14 +63,15 @@ struct ChargeView {
     int16_t ibatMa = 0;      // charge current, + = charging
 };
 
-// Battery level on the column in red/yellow/green, status dot in the level
-// colour. While the battery charges with at least kFlowMinMa, a white dot
-// runs from the USB-C end to the level, faster the higher the current.
-inline void renderLevel(uint8_t battery, int16_t ibatMa, uint32_t now, Rgb* px) {
+// Battery level on the column in red/yellow/green at lvl, status dot in the
+// level colour. While the battery charges with at least kFlowMinMa, a white
+// dot at twice lvl runs from the USB-C end to the level, faster the higher
+// the current.
+inline void renderLevel(uint8_t battery, int16_t ibatMa, uint32_t now, Rgb* px, uint8_t lvl) {
     using game::Color;
     clearFrame(px);
     if (battery == kNoBattery) return;
-    Rgb c = level(batteryColor(battery), kDisplayLevel);
+    Rgb c = level(batteryColor(battery), lvl);
     uint8_t n = columnCount(battery);
     fillColumn(px, n, c);
     if (ibatMa >= kFlowMinMa && n > 0) {
@@ -78,7 +79,8 @@ inline void renderLevel(uint8_t battery, int16_t ibatMa, uint32_t now, Rgb* px) 
         if (period < kFlowMinMs) period = kFlowMinMs;
         if (period > kFlowMaxMs) period = kFlowMaxMs;
         uint8_t pos = (uint8_t)((now % period) * n / period);
-        px[columnLed(pos)] = level(game::colorRgb(Color::White), kFlowLevel);
+        uint8_t flow = lvl > 127 ? 255 : (uint8_t)(2 * lvl);
+        px[columnLed(pos)] = level(game::colorRgb(Color::White), flow);
     }
     px[game::kStatusDot] = c;
 }
@@ -120,38 +122,39 @@ inline void renderOffLevel(uint8_t battery, bool charging, uint32_t now, Rgb* px
             columnGradient(n - 1), softPulse(now, kOffTipPulseMs, kOffLevel, kOffTipLevel));
 }
 
-// Charging mode. Charging: renderLevel() (level and charge current). Full: whole
-// column and status dot green, after kFullColumnMs only the dot. Fault: ring
-// blinks red, column off, status dot red.
-inline void renderCharging(const ChargeView& v, uint32_t now, Rgb* px) {
+// Charging mode at lvl. Charging: renderLevel() (level and charge current).
+// Full: whole column and status dot green, after kFullColumnMs only the dot.
+// Fault: ring blinks red, column off, status dot red.
+inline void renderCharging(const ChargeView& v, uint32_t now, Rgb* px, uint8_t lvl) {
     using game::Color;
     clearFrame(px);
     if (v.charge == Charge::Fault) {
-        Rgb red = level(game::colorRgb(Color::Red), kDisplayLevel);
+        Rgb red = level(game::colorRgb(Color::Red), lvl);
         if (now % kFaultBlinkMs < kFaultBlinkMs / 2)
             for (uint8_t i : game::kRingLeds) px[i] = red;
         px[game::kStatusDot] = red;
         return;
     }
     if (v.charge == Charge::Full) {
-        Rgb green = level(game::colorRgb(Color::Green), kDisplayLevel);
+        Rgb green = level(game::colorRgb(Color::Green), lvl);
         if (v.fullForMs < kFullColumnMs) fillColumn(px, game::kScoreCount, green);
         px[game::kStatusDot] = green;
         return;
     }
     if (v.battery == kNoBattery) {
-        px[game::kStatusDot] = level(game::colorRgb(Color::White), slowPulse(now, kTipPulseMs));
+        px[game::kStatusDot] =
+            level(game::colorRgb(Color::White), slowPulse(now, kTipPulseMs, lvl));
         return;
     }
-    renderLevel(v.battery, v.ibatMa, now, px);
+    renderLevel(v.battery, v.ibatMa, now, px, lvl);
 }
 
-// Update running: column blue = progress, one ring LED runs around in blue,
-// status dot blue.
-inline void renderUpdate(uint8_t percent, uint32_t now, Rgb* px) {
+// Update running at lvl: column blue = progress, one ring LED runs around in
+// blue, status dot blue.
+inline void renderUpdate(uint8_t percent, uint32_t now, Rgb* px, uint8_t lvl) {
     using game::Color;
     clearFrame(px);
-    Rgb blue = level(game::colorRgb(Color::Blue), kDisplayLevel);
+    Rgb blue = level(game::colorRgb(Color::Blue), lvl);
     fillColumn(px, columnCount(percent), blue);
     // Ring order around the circle: lower left, upper left, upper right, lower right.
     px[game::kRingLeds[(now / kRingChaseMs) % 4]] = blue;
