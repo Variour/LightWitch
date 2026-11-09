@@ -90,8 +90,7 @@ bool Bq25628::configure(const Settings& s) {
     ok &= _update8(REG_CHG_CTRL_2, CTRL2_EN_BYPASS_OTG, 0);
 
     // Input current from the ILIM pin; the lower of the ILIM pin and IINDPM
-    // limits apply (§8.3.3.4). IINDPM is left to the D+/D- input source
-    // detection, which sets it to 500 mA or more (Table 8-11).
+    // limits apply (§8.3.3.4). setInputLimit() changes it afterwards.
     ok &= _update8(REG_CHG_CTRL_3, CTRL3_EN_EXTILIM, CTRL3_EN_EXTILIM);
 
     ok &= _update8(REG_CHG_CTRL_3, CTRL3_IBAT_PK_MASK, s.batteryPeakCurrent & CTRL3_IBAT_PK_MASK);
@@ -115,6 +114,16 @@ bool Bq25628::configure(const Settings& s) {
         Logger::i("[pwr] VOTG %u mV", ((v & VOTG_MASK) >> VOTG_SHIFT) * VOTG_STEP_MV);
     }
     return ok;
+}
+
+bool Bq25628::setInputLimit(bool pin, uint16_t ma) {
+    uint16_t steps = constrain(ma, IINDPM_MIN_MA, IINDPM_MAX_MA) / IINDPM_STEP_MA;
+    uint16_t v = (uint16_t)(steps << IINDPM_SHIFT) & IINDPM_MASK;
+    if (pin) {
+        return _update8(REG_CHG_CTRL_3, CTRL3_EN_EXTILIM, CTRL3_EN_EXTILIM) &&
+               _write16(REG_IINDPM, v);
+    }
+    return _write16(REG_IINDPM, v) && _update8(REG_CHG_CTRL_3, CTRL3_EN_EXTILIM, 0);
 }
 
 bool Bq25628::kickWatchdog() { return _update8(REG_CHG_CTRL_0, CTRL0_WD_RST, CTRL0_WD_RST); }

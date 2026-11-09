@@ -72,6 +72,9 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
   2.8 V, at least 15 s after charging went off). Without a cell it stays
   off and the battery reads as unknown (`bat` and `vbat` `null`). Charge
   current 200 mA.
+- Input current limit from the USB-C CC line: a default port keeps the
+  ILIM pin (446 mA); a 1.5 A or 3 A source gets 1.5 A or 2 A with the pin
+  off.
 - VBAT below 3.3 V for 30 s on USB (any state): ESP deep sleep while the
   charger charges on; the 60 s timer wake boots again from VBAT 3.5 V.
 - The low-battery cut-off (below 3.3 V for 30 s on battery → ship mode)

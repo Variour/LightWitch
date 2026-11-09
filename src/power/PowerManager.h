@@ -25,8 +25,8 @@
 // §8.3.10.3.1).
 class PowerManager {
    public:
-    // ICHG 200 mA: the input current stays on the ILIM pin's 446 mA limit
-    // (EN_EXTILIM = 1, configure()). On the first Buzzerboard (2026-11-05,
+    // ICHG 200 mA: on a default USB port the input current stays on the ILIM
+    // pin's 446 mA limit (see CC_SENSE_PIN). On the first Buzzerboard (2026-11-05,
     // board repo firmware/boardtest/README.md "Charge current") ICHG 320 mA
     // plus the board's own ~95 mA tripped the ILIM over-current about three
     // times a second, which drops PMID_GD and the LED rail; 200 mA ran
@@ -76,6 +76,24 @@ class PowerManager {
     // then). It goes off again when the charge status changes in at least
     // CYCLE_FLIPS of the last CYCLE_POLLS status polls (2 s). Values from
     // the board repo's firmware/boardtest/main/charger.c, "auto" mode.
+    // Input current limit from the USB-C CC line, as the board repo's
+    // firmware/boardtest/main/charger.c "CC auto": the CC sense node
+    // (Buzzerboard R31 / R32 / C67 on GPIO6) reads 0.51 x the live CC line.
+    // Below CC_DEFAULT_MV a default USB port: the ILIM pin (R5, 446 mA) stays
+    // on. Below CC_1A5_MV a 1.5 A source, above it a 3 A source: ILIM pin
+    // off, IINDPM = the advertised current, at most INPUT_LIMIT_MAX_MA (the
+    // board's power tracks). On the ILIM pin alone the LEDs at their cap plus
+    // the board tripped PMID_GD in a loop at a Mac port (first Buzzerboard,
+    // 2026-11-09). A class takes CC_STABLE readings CC_SAMPLE_MS apart; a
+    // sink has 60 ms to follow a lower class.
+    static constexpr uint8_t CC_SENSE_PIN = 6;
+    static constexpr uint16_t CC_DEFAULT_MV = 340;
+    static constexpr uint16_t CC_1A5_MV = 630;
+    static constexpr uint32_t CC_SAMPLE_MS = 10;
+    static constexpr uint8_t CC_STABLE = 3;
+    static constexpr uint16_t INPUT_LIMIT_PIN_MA = 500;
+    static constexpr uint16_t INPUT_LIMIT_MAX_MA = 2000;
+
     static constexpr uint16_t CELL_MV = 2800;
     static constexpr uint32_t CELL_HOLDOFF_MS = 15000;
     static constexpr uint8_t CYCLE_POLLS = 10;
@@ -128,6 +146,7 @@ class PowerManager {
         if (_firstTickMs == 0) _firstTickMs = now;
         if (!_enabled) return;
         _tickPowerKey(now);
+        _tickCc(now);
         if (now - _lastPollMs < POLL_INTERVAL_MS) return;
         _lastPollMs = now;
 
@@ -149,7 +168,11 @@ class PowerManager {
             // halved (§8.4.1). Configure again; the next poll picks up.
             Logger::w("[pwr] charger in default mode (watchdog) - configuring again");
             _lastConfigureMs = now;
-            if (!_chg.configure(_settings)) _goOffline("configure failed");
+            if (!_chg.configure(_settings)) {
+                _goOffline("configure failed");
+            } else {
+                _applyInputLimit(false);
+            }
             _lastKickMs = now;
             _adcBusy = false;
             return;
@@ -372,6 +395,11 @@ class PowerManager {
     uint16_t _chgFlagHistory = 0;  // one bit per status poll: CHG_FLAG set
     bool _noCell = false;
     uint32_t _lastOtgAttemptMs = 0;
+    uint32_t _lastCcMs = 0;
+    uint16_t _ccMv = 0;
+    uint16_t _ccPendingMa = 500;
+    uint16_t _ccClassMa = 500;
+    uint8_t _ccSame = 0;
     bool _otgFailLogged = false;
 
     int8_t _rail = -1;  // -1 unknown, else 0/1 as last reported
@@ -419,6 +447,13 @@ class PowerManager {
             return;
         }
         _online = true;
+        // Input limit from CC before the first LED frame goes out.
+        for (uint8_t i = 0; i < CC_STABLE; i++) {
+            if (i) delay(CC_SAMPLE_MS);
+            _readCcClass();
+        }
+        if (_ccSame >= CC_STABLE) _ccClassMa = _ccPendingMa;
+        _applyInputLimit(true);
         // Configured just now; a WD_FLAG left from power-on is stale.
         _reconfigurePending = false;
         _lastKickMs = now;
@@ -521,6 +556,45 @@ class PowerManager {
         _settings.chargeEnabled = want;
         _chgFlagHistory = 0;
         if (!want) _chargeOffMs = now;
+    }
+
+    // One CC reading into the pending class (see CC_SENSE_PIN).
+    void _readCcClass() {
+        _ccMv = (uint16_t)analogReadMilliVolts(CC_SENSE_PIN);
+        uint16_t cls = _ccMv < CC_DEFAULT_MV ? 500 : _ccMv < CC_1A5_MV ? 1500 : 3000;
+        if (cls == _ccPendingMa) {
+            if (_ccSame < CC_STABLE) _ccSame++;
+        } else {
+            _ccPendingMa = cls;
+            _ccSame = 1;
+        }
+    }
+
+    void _tickCc(uint32_t now) {
+        if (now - _lastCcMs < CC_SAMPLE_MS) return;
+        _lastCcMs = now;
+        _readCcClass();
+        if (_ccSame < CC_STABLE || _ccPendingMa == _ccClassMa) return;
+        _ccClassMa = _ccPendingMa;
+        if (_online) _applyInputLimit(true);
+    }
+
+    // Writes the input limit for the current CC class (see CC_SENSE_PIN).
+    void _applyInputLimit(bool log) {
+        bool pin = _ccClassMa <= 500;
+        uint16_t ma = pin ? INPUT_LIMIT_PIN_MA
+                          : (_ccClassMa > INPUT_LIMIT_MAX_MA ? INPUT_LIMIT_MAX_MA : _ccClassMa);
+        if (!_chg.setInputLimit(pin, ma)) {
+            Logger::w("[pwr] input limit write failed");
+            return;
+        }
+        if (!log) return;
+        if (pin) {
+            Logger::i("[pwr] USB-C default (CC %u mV) - input limit ILIM pin", _ccMv);
+        } else {
+            Logger::i("[pwr] USB-C %u mA (CC %u mV) - input limit %u mA, ILIM pin off",
+                      _ccClassMa, _ccMv, ma);
+        }
     }
 
     void _updateOtg(const Bq25628::Status& st, uint32_t now) {

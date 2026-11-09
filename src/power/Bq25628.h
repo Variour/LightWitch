@@ -50,6 +50,13 @@ class Bq25628 {
     static constexpr uint8_t REG_TDIE_ADC = 0x36;        // 16-bit, Table 8-44
     static constexpr uint8_t REG_PART_INFO = 0x38;       // Table 8-45
 
+    // ── REG0x06 IINDPM, bits 11:4, 20 mA/LSB, 100-3200 mA (Table 8-11).
+    static constexpr uint16_t IINDPM_SHIFT = 4;
+    static constexpr uint16_t IINDPM_MASK = 0xFF << IINDPM_SHIFT;
+    static constexpr uint16_t IINDPM_STEP_MA = 20;
+    static constexpr uint16_t IINDPM_MIN_MA = 100;
+    static constexpr uint16_t IINDPM_MAX_MA = 3200;
+
     // ── REG0x02 ICHG, bits 10:5, 40 mA/LSB, 40-2000 mA, POR 320 mA. Watchdog
     // expiry halves it (Table 8-9).
     static constexpr uint16_t ICHG_SHIFT = 5;
@@ -242,6 +249,13 @@ class Bq25628 {
     // REG_RESET only, not by the watchdog, so it survives a fall-back to
     // default mode. False on an I2C error or a read-back mismatch.
     bool setChargeVoltage(uint16_t mv);
+
+    // Input current limit (§8.3.3.4). pin = true: the ILIM pin limits
+    // (EN_EXTILIM = 1) and IINDPM is written too; the lower of both applies.
+    // pin = false: IINDPM alone (EN_EXTILIM = 0). Lowering sets the pin
+    // first, raising writes IINDPM before the pin goes off. The watchdog sets
+    // EN_EXTILIM back to 1.
+    bool setInputLimit(bool pin, uint16_t ma);
 
     // Sets or clears EN_OTG. Boost mode only (EN_BYPASS_OTG stays 0).
     bool setOtg(bool enable);
