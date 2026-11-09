@@ -88,7 +88,7 @@ class PowerManager {
         return nullptr;
     }
 
-    // Call once the device I2C bus (Wire) is up, as early in setup() as
+    // Call once the device I2C bus is up, as early in setup() as
     // possible: on battery below LOW_BATTERY_MV it switches the device off
     // right away (see _checkBatteryAtBoot()). The LED callbacks may run here,
     // before any light exists.
@@ -231,7 +231,7 @@ class PowerManager {
     bool tsAdcOn() const { return _tsAdcOn == 1; }
 
     // Sleep timer wake (src/fleet/DeepSleep.h): power good and VBAT, without
-    // configuring the charger or touching the LED rail. Wire must be begun.
+    // configuring the charger or touching the LED rail. The I2C bus must be begun.
     // ok = false: the charger did not answer. vbatMv = 0: the ADC refused to
     // convert; on battery VBAT is below its threshold then (§8.3.7).
     struct WakeReading {

@@ -3,7 +3,7 @@
 
 // Looks for the board this build targets and keeps the answer for the rest of
 // the boot. Config::load() calls it first, before the device I2C bus is set
-// up: it borrows Wire on the board's own I2C pins and releases it again.
+// up: it borrows the bus on the board's own I2C pins and releases it again.
 void detectBoard();
 
 // Seeds the hardware configuration of the board this build targets (lights,

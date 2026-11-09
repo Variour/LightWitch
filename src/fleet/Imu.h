@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
-#include <Wire.h>
+
+#include "../io/I2cBus.h"
 
 // One accelerometer reading from the Buzzerboard's LSM6DS3TR-C for `test info`
 // (I2C 0x6B: SA0 tied to 3V3, board hardware/README.md "IMU"). Registers from
@@ -17,7 +18,7 @@ struct ImuReading {
 
 class Imu {
    public:
-    static ImuReading read(TwoWire& w = Wire) {
+    static ImuReading read(I2cBus& w = i2cBus) {
         ImuReading r;
         uint8_t id;
         if (!_read(w, REG_WHO_AM_I, &id, 1)) return r;
@@ -58,20 +59,12 @@ class Imu {
     // Turn-on time 35 ms (Ton) plus the first sample at 104 Hz.
     static constexpr uint32_t READY_TIMEOUT_MS = 100;
 
-    static bool _read(TwoWire& w, uint8_t reg, uint8_t* buf, size_t len) {
-        w.beginTransmission(ADDRESS);
-        w.write(reg);
-        if (w.endTransmission(false) != 0) return false;
-        if (w.requestFrom((uint16_t)ADDRESS, len, true) != len) return false;
-        for (size_t i = 0; i < len; i++) buf[i] = (uint8_t)w.read();
-        return true;
+    static bool _read(I2cBus& w, uint8_t reg, uint8_t* buf, size_t len) {
+        return w.read(ADDRESS, reg, buf, len) == ESP_OK;
     }
 
-    static bool _write(TwoWire& w, uint8_t reg, uint8_t v) {
-        w.beginTransmission(ADDRESS);
-        w.write(reg);
-        w.write(v);
-        return w.endTransmission(true) == 0;
+    static bool _write(I2cBus& w, uint8_t reg, uint8_t v) {
+        return w.write(ADDRESS, reg, &v, 1) == ESP_OK;
     }
 };
 

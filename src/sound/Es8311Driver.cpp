@@ -1,13 +1,13 @@
 #include "Es8311Driver.h"
 
 #include <Arduino.h>
-#include <Wire.h>
 #include <driver/i2s.h>
 #include <esp_task_wdt.h>
 #include <math.h>
 
 #include <new>
 
+#include "../io/I2cBus.h"
 #include "../logging/Logger.h"
 
 // playTestMelody() runs synchronously on whatever task services the HTTP
@@ -92,15 +92,12 @@ static constexpr uint32_t DAC_VOLUME_RAMP_STEP_MS = 4;
 static constexpr uint8_t DAC_VOLUME_TEST = 0xB0;
 
 bool Es8311Driver::_writeReg(uint8_t reg, uint8_t value) {
-    Wire.beginTransmission(_cfg.i2cAddress);
-    Wire.write(reg);
-    Wire.write(value);
-    uint8_t err = Wire.endTransmission();
-    if (err != 0) {
-        Logger::w("[sound] ES8311 write reg 0x%02X failed (I2C error %u, addr 0x%02X)", reg, err,
-                  _cfg.i2cAddress);
+    esp_err_t err = i2cBus.write(_cfg.i2cAddress, reg, &value, 1);
+    if (err != ESP_OK) {
+        Logger::w("[sound] ES8311 write reg 0x%02X failed (I2C error %s, addr 0x%02X)", reg,
+                  esp_err_to_name(err), _cfg.i2cAddress);
     }
-    return err == 0;
+    return err == ESP_OK;
 }
 
 void Es8311Driver::_setPaEnabled(bool enabled) {
@@ -185,7 +182,7 @@ void Es8311Driver::begin() {
         return;
     }
 
-    // Wire.begin() already called for the device-wide I2C bus in main.cpp.
+    // main.cpp has already begun the device-wide I2C bus (i2cBus).
 
     if (_cfg.paEnablePin != PIN_UNUSED) {
         if (_cfg.paViaExpander) {

@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
-#include <Wire.h>
+
+#include "../io/I2cBus.h"
 
 // Register-level driver for the TI BQ25628 I2C 1-cell buck charger with NVDC
 // power path, boost OTG on PMID and a 12-bit ADC.
@@ -15,7 +16,7 @@
 // may cross register boundaries (§8.5.1.7).
 //
 // No interrupts (the INT pin is not used): the caller polls. Assumes the I2C
-// bus (Wire) is already begun.
+// bus (i2cBus) is already begun.
 class Bq25628 {
    public:
     // §8.6 "I2C Device Address: 0x6A".
@@ -199,7 +200,7 @@ class Bq25628 {
         uint8_t batteryPeakCurrent;     // IBAT_PK: CTRL3_IBAT_PK_6A or _12A
     };
 
-    explicit Bq25628(TwoWire& wire = Wire) : _wire(wire) {}
+    explicit Bq25628(I2cBus& bus = i2cBus) : _bus(bus) {}
 
     // Reads the part number. True if a BQ25628 answers at I2C_ADDRESS.
     bool probe();
@@ -272,7 +273,7 @@ class Bq25628 {
     bool cancelShipMode();
 
    private:
-    TwoWire& _wire;
+    I2cBus& _bus;
     uint8_t _revision = 0;
 
     bool _read(uint8_t reg, uint8_t* buf, size_t len);

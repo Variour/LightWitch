@@ -47,8 +47,8 @@ class ButtonManager {
     // Re-reads Config and re-applies pin setup for every configured button.
     // Called after any button add/update/delete. Native-GPIO reconfiguration
     // has no driver library to reinitialize; an expander-backed button just
-    // re-runs its (idempotent) pinMode1 setup — either way no device reboot
-    // is needed. Assumes the device I2C bus (Wire) is already begun (see
+    // re-runs its (idempotent) pin-mode setup — either way no device reboot
+    // is needed. Assumes the device I2C bus is already begun (see
     // main.cpp) when any button uses a TCA9555 expander.
     //
     // A button that was held when this runs gets its raw release reported on

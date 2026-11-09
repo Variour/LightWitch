@@ -11,7 +11,7 @@ public option,
 [`pschatzmann/arduino-audio-driver`](https://github.com/pschatzmann/arduino-audio-driver)'s
 `ES8311` class, isn't self-contained — it's built against that framework's
 own `i2c_bus_handle_t`/`codec_config_t` abstractions (`Platforms/API_I2C.h`,
-`DriverCommon.h`), not plain Arduino `Wire`. Using it here would mean either
+`DriverCommon.h`), not a plain register-write call. Using it here would mean either
 implementing that I2C-bridge abstraction ourselves or pulling in a
 meaningful slice of their broader audio framework, disproportionate for
 bringing up one chip in DAC-only mode. Espressif's own `es8311`/`esp_codec_dev`
@@ -19,15 +19,11 @@ have the same shape of problem: they're ESP-IDF components (their own
 `i2c_bus`/config-struct conventions), not a `framework = arduino` +
 `lib_deps` drop-in.
 
-I2C access uses the Arduino `Wire` library (already a transitive dependency
-of this project's Arduino core) and I2S output uses `driver/i2s.h`, which
-ships with `arduino-esp32` — no new entry in `platformio.ini`'s `lib_deps`
-was needed for this driver.
-
-This is a different call than `src/io/Tca9555Expander` in the sibling `io`
-directory, which *does* use an external library — see `src/io/README.md`:
-that library's API is a plain `Wire`-based single-purpose class with no
-surrounding framework to pull in, so there was no integration friction.
+I2C access goes through the firmware's own `I2cBus` (`src/io/I2cBus.h`, on
+the IDF I2C master driver) and I2S output uses `driver/i2s.h`, which ships
+with `arduino-esp32` — no entry in `platformio.ini`'s `lib_deps` is needed
+for this driver. `src/io/Tca9555Expander` in the sibling `io` directory
+talks to its chip the same way — see `src/io/README.md`.
 
 ## Accuracy note
 
