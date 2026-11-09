@@ -278,7 +278,8 @@ class FleetManager {
     // switched off on USB, the battery overlay, the device's own colours.
     bool ownsLeds() const {
         return _led && (_test.running() || _upd.running || _ps.state() != fleet::State::Active ||
-                        _levelShowing || _offLevel() || _batteryOverlay() || _lookShowing());
+                        _levelShowing || _offLevel() || _batteryOverlay() || _gatewayShowing() ||
+                        _lookShowing());
     }
 
     // Full frame while ownsLeds().
@@ -298,6 +299,8 @@ class FleetManager {
             fleet::renderOffLevel(_batteryPercent(), _charge == fleet::Charge::Charging, now, px);
         else if (_ps.state() == fleet::State::Charging && !_weakNow() && !_ledsSwitchedOff())
             fleet::renderCharging(_chargeView(now), now, px, _displayLevel());
+        else if (_gatewayShowing())
+            fleet::renderGateway(_look, now, _displayLevel(), px);
         else if (_levelShowing)
             fleet::renderLevel(_batteryPercent(), _ibatMa(), now, px, _displayLevel());
         else if (_lookShowing())
@@ -496,6 +499,14 @@ class FleetManager {
 
     bool _batteryOverlay() const {
         return _batteryOverlayUntil != 0 && (int32_t)(millis() - _batteryOverlayUntil) < 0;
+    }
+
+    // The console's gateway, active and not switched off: renderGateway()
+    // (Timo, 2026-11-09: any device can be the gateway, it shows that on its
+    // column instead of a device of its own).
+    bool _gatewayShowing() const {
+        return _led && _game->gatewayActive() && _ps.state() == fleet::State::Active &&
+               !_test.running() && !_upd.running && !_ledsSwitchedOff();
     }
 
     bool _lookShowing() const { return _idle && !_levelShowing && _look.count == fleet::kLookLeds; }

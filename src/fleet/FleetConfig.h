@@ -150,8 +150,12 @@ static constexpr uint32_t kOffTipPulseMs = 3000;  // firmware
 // owner (2026-11-09): the bottom-right side key (R2) shows the battery level
 // on the column for this long, active and outside a session.
 static constexpr uint32_t kBatteryOverlayMs = 3000;  // firmware
-static constexpr uint32_t kFaultBlinkMs = 1000;      // firmware: ring blinks at 1 Hz
-static constexpr uint32_t kRingChaseMs = 150;        // firmware: update ring, one step per 150 ms
+// owner (2026-11-09): any device can be the gateway. While it is, a soft white
+// pulse runs from the USB-C end down the column over its own colours, once
+// per kGatewayFlowMs.
+static constexpr uint32_t kGatewayFlowMs = 2500;  // firmware
+static constexpr uint32_t kFaultBlinkMs = 1000;   // firmware: ring blinks at 1 Hz
+static constexpr uint32_t kRingChaseMs = 150;     // firmware: update ring, one step per 150 ms
 
 // ── Standby radio ────────────────────────────────────────────────────────────
 // firmware: ESP-NOW listens kStandbyWakeWindowMs of every kStandbyWakeIntervalMs.

@@ -21,6 +21,9 @@ esp32c3 build does not.
 
 - `link hello` makes the device the bridge until its next restart. Its reply
   lists every namespace: `"spaces":{"link":0,"game":0,"config":0,"fleet":0,"test":0}`.
+- Any device can be the bridge. On a Buzzerboard, while the link is open after
+  `hello`, a soft white pulse runs from the USB-C end down the column over the
+  device's own colours (`config look`), or over blue without them.
 - A `config` or `test` line opens the link without `hello`, so a device
   answers on USB without becoming the bridge (factory test, setup).
 - `game` and `fleet` need a `hello` first; without it they get the error `no_hello`.

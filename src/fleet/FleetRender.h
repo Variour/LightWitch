@@ -135,6 +135,29 @@ inline void renderLook(const Look& look, uint32_t t, uint8_t lvl, Rgb* px) {
             levelRounded(Rgb{look.rgb[i][0], look.rgb[i][1], look.rgb[i][2]}, b);
 }
 
+// The gateway (the console's USB link): the device's own colours at lvl, or a
+// blue column without them, and a soft white pulse that runs from the USB-C
+// end down the column in the first 70 % of every kGatewayFlowMs.
+inline void renderGateway(const Look& look, uint32_t now, uint8_t lvl, Rgb* px) {
+    clearFrame(px);
+    uint32_t ph = now % kGatewayFlowMs;
+    uint32_t run = kGatewayFlowMs * 7 / 10;
+    // Pulse centre from 2 LEDs above the top to 2 below LED1.
+    float pos =
+        ph < run ? (float)(kLookLeds + 1) - (float)ph * (kLookLeds + 4) / (float)run : -100.0f;
+    for (uint8_t i = 0; i < kLookLeds; i++) {
+        Rgb c = look.count == kLookLeds ? Rgb{look.rgb[i][0], look.rgb[i][1], look.rgb[i][2]}
+                                        : Rgb{0, 48, 255};
+        float d = fabsf((float)i - pos);
+        if (d < 2.5f) {
+            float w = 0.7f * (1.0f - d / 2.5f);
+            c = Rgb{(uint8_t)(c.r + (255 - c.r) * w), (uint8_t)(c.g + (255 - c.g) * w),
+                    (uint8_t)(c.b + (255 - c.b) * w)};
+        }
+        px[columnLedFromLed1(i)] = levelRounded(c, lvl);
+    }
+}
+
 // Charging mode at lvl. Charging: renderLevel() (level and charge current).
 // Full: whole column and status dot green, after kFullColumnMs only the dot.
 // Fault: ring blinks red, column off, status dot red.

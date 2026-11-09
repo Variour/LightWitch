@@ -176,6 +176,9 @@ class GameManager {
     // The USB link is open: `link hello`, or a device-scope namespace, within
     // the last kLinkTimeoutMs.
     bool linkActive() const { return _link.active(); }
+    // This device is the console's gateway: it became the bridge and its link
+    // is open with `link hello`.
+    bool gatewayActive() const { return _isBridge && _link.helloDone(); }
     uint16_t number() const { return _number; }
     // An invite ring shows (normal operation, device with a buzz key).
     bool inviteVisible(uint32_t now) const {
