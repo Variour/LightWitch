@@ -122,6 +122,34 @@ inline void renderOffLevel(uint8_t battery, bool charging, uint32_t now, Rgb* px
             columnGradient(n - 1), softPulse(now, kOffTipPulseMs, kOffLevel, kOffTipLevel));
 }
 
+// The device's own colours: the look's gradient on the column from LED1, one
+// breath per kIdlePulseMs from lvl / 5 up to lvl and back, t = time since the
+// breath began. Ring and status dot stay dark.
+inline void renderLook(const Look& look, uint32_t t, uint8_t lvl, Rgb* px) {
+    clearFrame(px);
+    if (look.count < 2) return;
+    uint8_t b = softPulse(t, kIdlePulseMs, (uint8_t)(lvl / 5), lvl);
+    uint8_t last = (uint8_t)(look.count - 1);
+    for (uint8_t i = 0; i < game::kScoreCount; i++) {
+        Rgb c;
+        if (i <= look.pos[0]) {
+            c = Rgb{look.rgb[0][0], look.rgb[0][1], look.rgb[0][2]};
+        } else if (i >= look.pos[last]) {
+            c = Rgb{look.rgb[last][0], look.rgb[last][1], look.rgb[last][2]};
+        } else {
+            uint8_t k = 0;
+            while (k + 1 < last && i > look.pos[k + 1]) k++;
+            uint16_t span = (uint16_t)(look.pos[k + 1] - look.pos[k]);
+            uint16_t off = (uint16_t)(i - look.pos[k]);
+            uint8_t v[3];
+            for (uint8_t j = 0; j < 3; j++)
+                v[j] = (uint8_t)((look.rgb[k][j] * (span - off) + look.rgb[k + 1][j] * off) / span);
+            c = Rgb{v[0], v[1], v[2]};
+        }
+        px[columnLedFromLed1(i)] = levelRounded(c, b);
+    }
+}
+
 // Charging mode at lvl. Charging: renderLevel() (level and charge current).
 // Full: whole column and status dot green, after kFullColumnMs only the dot.
 // Fault: ring blinks red, column off, status dot red.

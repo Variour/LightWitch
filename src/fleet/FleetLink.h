@@ -1,8 +1,10 @@
 #pragma once
 #include <ArduinoJson.h>
+#include <ctype.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <functional>
@@ -77,6 +79,10 @@ class FleetLink : public game::Link::Extension {
         std::function<bool(Target)> setTarget;
         std::function<Target()> target;
         std::function<ApResult(uint8_t minutes)> openAp;
+        // Stores the device's own colours (NVS) and shows them; false if they
+        // could not be stored.
+        std::function<bool(const Look&)> setLook;
+        std::function<uint8_t()> lookStops;
         std::function<uint16_t()> number;
         std::function<uint32_t()> fwBuild;
         // fleet
@@ -229,6 +235,7 @@ class FleetLink : public game::Link::Extension {
     // ── config ───────────────────────────────────────────────────────────────
     void _config(Link& link, const char* cmd, JsonObjectConst o, const ReqId& id) {
         if (strcmp(cmd, "wifi") == 0) return _configWifi(link, o, id);
+        if (strcmp(cmd, "look") == 0) return _configLook(link, o, id);
         if (strcmp(cmd, "token") == 0) {
             // Never echoed or logged.
             const char* token = _str(o, "token");
@@ -283,6 +290,7 @@ class FleetLink : public game::Link::Extension {
             d["token"] = _io.hasToken ? _io.hasToken() : false;
             Target t = _io.target ? _io.target() : Target::Store;
             d["target"] = kTargetNames[(uint8_t)t];
+            d["look"] = _io.lookStops ? _io.lookStops() : 0;
             uint16_t n = _io.number ? _io.number() : 0;
             if (n)
                 d["number"] = n;
@@ -295,10 +303,54 @@ class FleetLink : public game::Link::Extension {
             return;
         }
         link.error(id, "unknown_cmd", "config", cmd, nullptr,
-                   "config commands: wifi, token, charge, ap, get");
+                   "config commands: wifi, token, charge, ap, look, get");
     }
 
     // Replaces the whole list. Passwords are never echoed or logged.
+    static bool _hexColor(const char* s, uint8_t rgb[3]) {
+        if (!s || strlen(s) != 7 || s[0] != '#') return false;
+        for (uint8_t i = 1; i < 7; i++)
+            if (!isxdigit((unsigned char)s[i])) return false;
+        unsigned long v = strtoul(s + 1, nullptr, 16);
+        rgb[0] = (uint8_t)(v >> 16);
+        rgb[1] = (uint8_t)(v >> 8);
+        rgb[2] = (uint8_t)v;
+        return true;
+    }
+
+    void _configLook(Link& link, JsonObjectConst o, const ReqId& id) {
+        JsonVariantConst v = o["stops"];
+        if (!v.is<JsonArrayConst>())
+            return _badField(link, id, "config", "look", "stops", "stops must be an array");
+        JsonArrayConst arr = v.as<JsonArrayConst>();
+        if (arr.size() == 1 || arr.size() > kLookStopsMax)
+            return _badField(link, id, "config", "look", "stops", "0 or 2-4 stops");
+        Look look;
+        int last = -1;
+        for (JsonVariantConst s : arr) {
+            JsonArrayConst e = s.as<JsonArrayConst>();
+            if (!s.is<JsonArrayConst>() || e.size() != 2 || !e[0].is<int>() ||
+                !e[1].is<const char*>())
+                return _badField(link, id, "config", "look", "stops",
+                                 "each stop is [led, \"#rrggbb\"]");
+            int p = e[0].as<int>();
+            if (p <= last || p >= game::kScoreCount)
+                return _badField(link, id, "config", "look", "stops", "led 0-23, ascending");
+            if (!_hexColor(e[1].as<const char*>(), look.rgb[look.count]))
+                return _badField(link, id, "config", "look", "stops", "colour must be #rrggbb");
+            look.pos[look.count++] = (uint8_t)p;
+            last = p;
+        }
+        if (!_io.setLook || !_io.setLook(look))
+            return link.error(id, "store_failed", "config", "look", nullptr,
+                              "the colours could not be saved");
+        JsonDocument d;
+        Link::head(d, "config", "look", id);
+        _ok(d);
+        d["stops"] = look.count;
+        link.emit(d);
+    }
+
     void _configWifi(Link& link, JsonObjectConst o, const ReqId& id) {
         JsonVariantConst v = o["networks"];
         if (!v.is<JsonArrayConst>())

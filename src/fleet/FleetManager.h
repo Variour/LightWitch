@@ -58,13 +58,18 @@ class FleetManager {
         std::function<bool()> updateBusy;
     };
 
-    // Before power.begin(): the stored charge target, so the charger starts with it.
+    // Before power.begin(): the stored charge target, so the charger starts
+    // with it, and the device's own colours.
     void loadStored() {
         Preferences p;
         if (p.begin(NVS_NS, /*readOnly=*/true)) {
             _target = p.getUChar(KEY_TARGET, 0) == (uint8_t)fleet::Target::Event
                           ? fleet::Target::Event
                           : fleet::Target::Store;
+            fleet::Look l;
+            if (p.getBytesLength(KEY_LOOK) == sizeof(l) && p.getBytes(KEY_LOOK, &l, sizeof(l)) &&
+                l.count <= fleet::kLookStopsMax)
+                _look = l;
             p.end();
         }
     }
@@ -270,10 +275,10 @@ class FleetManager {
     bool hasLight() const { return _led != nullptr; }
 
     // The fleet draws the light: factory test, update, charging, standby,
-    // switched off on USB, the battery overlay.
+    // switched off on USB, the battery overlay, the device's own colours.
     bool ownsLeds() const {
         return _led && (_test.running() || _upd.running || _ps.state() != fleet::State::Active ||
-                        _levelShowing || _offLevel() || _batteryOverlay());
+                        _levelShowing || _offLevel() || _batteryOverlay() || _lookShowing());
     }
 
     // Full frame while ownsLeds().
@@ -295,6 +300,8 @@ class FleetManager {
             fleet::renderCharging(_chargeView(now), now, px, _displayLevel());
         else if (_levelShowing)
             fleet::renderLevel(_batteryPercent(), _ibatMa(), now, px, _displayLevel());
+        else if (_lookShowing())
+            fleet::renderLook(_look, now - (_levelNext - fleet::kIdlePulseMs), _displayLevel(), px);
         else
             fleet::clearFrame(px);
         _show(px);
@@ -338,6 +345,7 @@ class FleetManager {
    private:
     static constexpr const char* NVS_NS = "fleet";
     static constexpr const char* KEY_TARGET = "target";
+    static constexpr const char* KEY_LOOK = "look";
 
     Io _io;
     PowerManager* _power = nullptr;
@@ -362,6 +370,8 @@ class FleetManager {
     bool _full = false;
     uint32_t _fullSince = 0;
     bool _levelShowing = false;
+    bool _idle = false;                 // active and idle (see _tickIdleLevel)
+    fleet::Look _look;                  // the device's own colours (`config look`), count 0: none
     uint32_t _batteryOverlayUntil = 0;  // millis(); 0 = no overlay
     uint32_t _levelUntil = 0;
     uint32_t _levelNext = 0;
@@ -488,6 +498,29 @@ class FleetManager {
         return _batteryOverlayUntil != 0 && (int32_t)(millis() - _batteryOverlayUntil) < 0;
     }
 
+    bool _lookShowing() const { return _idle && !_levelShowing && _look.count >= 2; }
+
+    // Stores the device's own colours (count 0 removes them) and shows them
+    // from the next idle breath on.
+    bool _setLook(const fleet::Look& l) {
+        Preferences p;
+        bool stored = p.begin(NVS_NS, false);
+        if (stored) {
+            if (l.count)
+                stored = p.putBytes(KEY_LOOK, &l, sizeof(l)) == sizeof(l);
+            else if (p.isKey(KEY_LOOK))
+                stored = p.remove(KEY_LOOK);
+            p.end();
+        }
+        if (!stored) {
+            Logger::e("[fleet] own colours could not be stored");
+            return false;
+        }
+        _look = l;
+        Logger::i("[fleet] own colours: %u stops", l.count);
+        return true;
+    }
+
     // Switched off with a key, on USB with a cell: renderOffLevel()
     // (Timo, 2026-11-09).
     bool _offLevel() const {
@@ -502,14 +535,15 @@ class FleetManager {
     }
 
     // Active and idle (no session, invite, test, update or maintenance AP):
-    // kIdlePulseMs of the idle pattern, then kIdleLevelMs of the battery
-    // level, in turn (see kIdlePulseMs).
+    // kIdlePulseMs of the idle pattern, or of the device's own colours when
+    // it has them, then kIdleLevelMs of the battery level, in turn (see
+    // kIdlePulseMs). Without a battery only the first.
     void _tickIdleLevel(uint32_t now) {
         bool idle = _led && _ps.state() == fleet::State::Active && !_test.running() &&
                     !_upd.running && !_game->radioQuiet() && !_game->inviteVisible(now) &&
-                    !SoftAp::maintenanceOpen() && _batteryPercent() != fleet::kNoBattery &&
-                    !_ledsSwitchedOff();
-        if (!idle) {
+                    !SoftAp::maintenanceOpen() && !_ledsSwitchedOff();
+        if (!idle || !_idle) {
+            _idle = idle;
             _levelShowing = false;
             _levelNext = now + fleet::kIdlePulseMs;
             return;
@@ -518,7 +552,7 @@ class FleetManager {
             if ((int32_t)(now - _levelUntil) < 0) return;
             _levelShowing = false;
             _levelNext = now + fleet::kIdlePulseMs;
-        } else if ((int32_t)(now - _levelNext) >= 0) {
+        } else if (_batteryPercent() != fleet::kNoBattery && (int32_t)(now - _levelNext) >= 0) {
             _levelShowing = true;
             _levelUntil = now + fleet::kIdleLevelMs;
         }
@@ -880,6 +914,8 @@ class FleetManager {
         io.hasToken = []() { return Config::get().githubToken[0] != '\0'; };
         io.setTarget = [this](fleet::Target t) { return _setTarget(t); };
         io.target = [this]() { return _target; };
+        io.setLook = [this](const fleet::Look& l) { return _setLook(l); };
+        io.lookStops = [this]() { return _look.count; };
         io.openAp = [](uint8_t minutes) {
             return SoftAp::openMaintenance(minutes, millis()) ? FleetLink::ApResult::Ok
                                                               : FleetLink::ApResult::Unsupported;

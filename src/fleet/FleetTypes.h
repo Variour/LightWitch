@@ -8,6 +8,16 @@
 // Arduino dependency, so the state machines and frames build on the host.
 namespace fleet {
 
+// The device's own colours (Timo, 2026-11-09, `config look`): a gradient of
+// 2 to kLookStopsMax stops on the column, by LED index from LED1 (0) to the
+// USB-C end (23), positions ascending. count 0: no own colours.
+static constexpr uint8_t kLookStopsMax = 4;
+struct Look {
+    uint8_t count = 0;
+    uint8_t pos[kLookStopsMax] = {};
+    uint8_t rgb[kLookStopsMax][3] = {};
+};
+
 // Device state outside a game session (owner decision, fleet protocol v0).
 // Sleep and ship mode are not running states: the device is off then.
 enum class State : uint8_t {
