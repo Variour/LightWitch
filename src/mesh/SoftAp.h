@@ -1,11 +1,11 @@
 #pragma once
 #include <Arduino.h>
-#include <WiFi.h>
 #include <esp_wifi.h>
 
 #include "../config/BoardProfile.h"
 #include "../config/Config.h"
 #include "../logging/Logger.h"
+#include "../net/WifiRadio.h"
 
 // The device's own softAP, in one place. Most boards open a fallback AP
 // whenever no WiFi network is configured or reachable, as before. A board
@@ -20,22 +20,22 @@ class SoftAp {
     static void startFallback() {
         if (!fallbackAllowed()) return;
         auto& c = Config::get();
-        WiFi.softAP(c.deviceName, c.apPassword, 1);
-        WiFi.setTxPower(WIFI_TX_POWER);
+        WifiRadio::startAp(c.deviceName, c.apPassword, 1);
+        WifiRadio::setTxPower();
     }
 
     // A station connection is up: the fallback AP goes. A maintenance AP
     // stays until its time is up.
     static void stopFallback() {
-        if (fallbackAllowed()) WiFi.softAPdisconnect(false);
+        if (fallbackAllowed()) WifiRadio::clearAp();
     }
 
     // The AP password changed: a running AP restarts with it.
     static void passwordChanged() {
         if (fallbackAllowed()) {
-            if (!WiFi.isConnected()) {
+            if (!WifiRadio::associatedWithAddress()) {
                 auto& c = Config::get();
-                WiFi.softAP(c.deviceName, c.apPassword, 1);
+                WifiRadio::startAp(c.deviceName, c.apPassword, 1);
                 Logger::i("[wifi] AP password updated live");
             }
             return;
@@ -73,7 +73,7 @@ class SoftAp {
     // Every AP off now (game session, charging mode, standby).
     static void off() {
         _maintenanceOpen = false;
-        if (WiFi.getMode() & WIFI_MODE_AP) WiFi.softAPdisconnect(true);
+        if (WifiRadio::apEnabled()) WifiRadio::stopAp();
     }
 
    private:
@@ -85,7 +85,7 @@ class SoftAp {
         uint8_t ch = 0;
         wifi_second_chan_t second;
         if (esp_wifi_get_channel(&ch, &second) != ESP_OK || ch == 0) ch = 1;
-        WiFi.softAP(c.deviceName, c.apPassword, ch);
-        WiFi.setTxPower(WIFI_TX_POWER);
+        WifiRadio::startAp(c.deviceName, c.apPassword, ch);
+        WifiRadio::setTxPower();
     }
 };

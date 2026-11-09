@@ -2,13 +2,13 @@
 
 #include <LittleFS.h>
 #include <Preferences.h>
-#include <WiFi.h>
 #include <esp_mac.h>
 
 #include <memory>
 #include <new>
 
 #include "../logging/Logger.h"
+#include "../net/WifiRadio.h"
 #include "BoardProfile.h"
 
 DeviceConfig Config::_cfg;
@@ -665,7 +665,7 @@ uint8_t Config::createGroup(const char* name) {
 
 void Config::bumpGroupRevision(GroupConfig& g) {
     g.revision++;
-    WiFi.macAddress(g.originMac);
+    WifiRadio::macAddress(g.originMac);
 }
 
 int Config::compareGroupRevision(const GroupConfig& a, const GroupConfig& b) {
@@ -708,7 +708,7 @@ uint8_t Config::createAudioGroup(const char* name) {
 
 void Config::bumpAudioGroupRevision(AudioGroupConfig& g) {
     g.revision++;
-    WiFi.macAddress(g.originMac);
+    WifiRadio::macAddress(g.originMac);
 }
 
 int Config::compareAudioGroupRevision(const AudioGroupConfig& a, const AudioGroupConfig& b) {

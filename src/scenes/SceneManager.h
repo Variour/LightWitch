@@ -2,7 +2,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
-#include <WiFi.h>
 #include <esp_random.h>
 
 #include <set>

@@ -1,10 +1,10 @@
 #pragma once
 #include <Arduino.h>
 #include <Preferences.h>
-#include <WiFi.h>
 #include <esp_wifi.h>
 
 #include "../logging/Logger.h"
+#include "../net/WifiRadio.h"
 #include "PeerRegistry.h"
 
 // Coordinates the ESP-NOW radio channel so all mesh peers stay on the same channel.
@@ -48,10 +48,10 @@ class ChannelManager {
     void begin(PeerRegistry* peers) {
         _peers = peers;
         _loadChannel();
-        _lastWifiState = WiFi.status();
+        _lastWifiConnected = WifiRadio::connected();
 
-        if (WiFi.status() == WL_CONNECTED) {
-            uint8_t ch = (uint8_t)WiFi.channel();
+        if (WifiRadio::connected()) {
+            uint8_t ch = WifiRadio::channel();
             _saveChannel(ch);
             Logger::i("[ch] wifi connected, locked to ch %u", ch);
             _lock(ch);
@@ -65,26 +65,26 @@ class ChannelManager {
     void tick() {
         if (_state != State::Searching) {
             // Check for WiFi connecting while locked (or idle)
-            if (WiFi.status() == WL_CONNECTED && _lastWifiState != WL_CONNECTED) {
-                uint8_t ch = (uint8_t)WiFi.channel();
+            if (WifiRadio::connected() && !_lastWifiConnected) {
+                uint8_t ch = WifiRadio::channel();
                 _saveChannel(ch);
                 Logger::i("[ch] wifi reconnected, locked to ch %u", ch);
                 _lock(ch);
             }
-            _lastWifiState = WiFi.status();
+            _lastWifiConnected = WifiRadio::connected();
             return;
         }
 
         // WiFi reconnected mid-search
-        if (WiFi.status() == WL_CONNECTED) {
-            uint8_t ch = (uint8_t)WiFi.channel();
+        if (WifiRadio::connected()) {
+            uint8_t ch = WifiRadio::channel();
             _saveChannel(ch);
             Logger::i("[ch] wifi reconnected during search, locked to ch %u", ch);
             _lock(ch);
-            _lastWifiState = WL_CONNECTED;
+            _lastWifiConnected = true;
             return;
         }
-        _lastWifiState = WiFi.status();
+        _lastWifiConnected = WifiRadio::connected();
 
         uint32_t now = millis();
         if (now - _dwellStart < _dwellMs) return;
@@ -147,7 +147,7 @@ class ChannelManager {
     State _state = State::Locked;
     uint8_t _lockedChannel = 1;
     uint8_t _storedChannel = 0;  // 0 = nothing stored
-    wl_status_t _lastWifiState = WL_IDLE_STATUS;
+    bool _lastWifiConnected = false;
 
     PeerRegistry* _peers = nullptr;
 

@@ -1,7 +1,6 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <WiFi.h>
 
 #include "../config/Config.h"
 #include "../logging/Logger.h"

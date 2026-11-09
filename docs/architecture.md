@@ -20,6 +20,7 @@ codebase for the first time. For build/flash/update instructions see
 | `led` | `LedDriver` interface plus `Ws2801Driver`/`Ws2812bDriver` implementations that actually push pixel data to the strip/matrix. |
 | `logging` | `Logger`, a static leveled logger fanning out to pluggable sinks (serial, web UI). |
 | `mesh` | ESP-NOW peer mesh (no router required): message types, peer discovery, channel coordination, WiFi-connection election, and encrypted config push. `SoftAp.h` owns the device's softAP: the fallback AP on most boards, a time-limited maintenance AP on the Buzzerboard (no fallback AP). See [mesh-compatibility.md](mesh-compatibility.md). |
+| `net` | `WifiRadio` owns the WiFi radio on ESP-IDF (`esp_wifi`, `esp_netif`, `esp_event`): driver and network interface bring-up, the station connection and its connected state, the softAP, transmit power, and the station MAC that identifies the device. `mesh`, `game` and `fleet` set channel, power save and promiscuous mode on the driver next to it. |
 | `mqtt` | `MqttManager` publishes Home-Assistant-discoverable MQTT entities per group and applies incoming MQTT commands. |
 | `patterns` | `Pattern` interface (one animation per light) and `PatternRunner`, which owns and ticks the active pattern for a light. Individual files (`Breathing.h`, `Candle.h`, ...) are concrete patterns. |
 | `power` | `PowerManager` drives the BQ25628 charger (`Bq25628`): host mode and watchdog, charge voltage (the fleet's charge target), LED rail on battery (boost OTG, off in standby), battery ADC for `BatteryMonitor`, and ship mode on a long press of the power key, a low battery or a fleet `off`. |
@@ -51,6 +52,6 @@ Each loop iteration, every light's `PatternRunner` ticks its active
 supplies the frame data patterns like `SceneMatrix`/`SceneString` render.
 
 `mesh` keeps all peers on the same radio channel and elects one peer to
-hold the WiFi connection; `battery` and `logging` are cross-cutting,
+hold the WiFi connection, which it opens and closes through `net`; `battery` and `logging` are cross-cutting,
 feeding status into mesh presence beacons/MQTT telemetry and log sinks
 respectively.

@@ -1,7 +1,6 @@
 #pragma once
 #include <Arduino.h>
 #include <Preferences.h>
-#include <WiFi.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include <esp_wifi.h>
@@ -10,6 +9,7 @@
 
 #include "../led/LedDriver.h"
 #include "../logging/Logger.h"
+#include "../net/WifiRadio.h"
 #include "Bridge.h"
 #include "GameRender.h"
 #include "Link.h"
@@ -67,7 +67,7 @@ class GameManager {
 
     // Call after mesh.begin().
     void begin(uint32_t now) {
-        WiFi.macAddress(_mac);
+        WifiRadio::macAddress(_mac);
         _inviteRx.allocate(2);
         if (quietBoot()) _allocRx(game::kRxQueueParticipant);
 

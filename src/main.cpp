@@ -2,7 +2,6 @@
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <LittleFS.h>
-#include <WiFi.h>
 #include <Wire.h>
 #include <esp_wifi.h>
 #include <soc/soc_caps.h>
@@ -24,6 +23,7 @@
 #include "mesh/SoftAp.h"
 #include "mesh/WifiElection.h"
 #include "mqtt/MqttManager.h"
+#include "net/WifiRadio.h"
 #include "patterns/PatternRunner.h"
 #include "power/PowerManager.h"
 #include "scenes/SceneSyncManager.h"
@@ -86,7 +86,7 @@ static uint32_t _lastPatternTickMs = 0;
 // Caps how often the background subsystems below (OTA polling, web server
 // housekeeping, mesh, wifi election, time sync, MQTT, buttons, scene sync)
 // are ticked. Unthrottled, loop() spins as fast as the CPU allows and calls
-// all of them — GPIO reads, socket polls, WiFi.status() — on every single
+// all of them — GPIO reads, socket polls, WiFi status — on every single
 // pass. 5 ms (200 Hz) comfortably oversamples the tightest consumers: button
 // debounce (30 ms, see ButtonManager::DEBOUNCE_MS) and scene-sync's chunk
 // pacing (20 ms, see SYNC_CHUNK_SEND_INTERVAL_MS); every other subsystem's
@@ -323,7 +323,7 @@ static MeshManager::MeshPolicyState currentWifiPolicyState() {
 
 static void ensureWifiPolicyStateInitialized() {
     if (hasWifiPolicyOrigin()) return;
-    WiFi.macAddress(Config::get().wifiPolicyOriginMac);
+    WifiRadio::macAddress(Config::get().wifiPolicyOriginMac);
     Config::save();
 }
 
@@ -354,13 +354,13 @@ static void setLocalWifiPolicy(bool enabled) {
     MeshManager::MeshPolicyState state = currentWifiPolicyState();
     state.singleClientMode = enabled;
     state.revision++;
-    WiFi.macAddress(state.originMac);
+    WifiRadio::macAddress(state.originMac);
     applyWifiPolicyState(state, "local");
     mesh.broadcastMeshPolicy(state);
 }
 
 // ── WiFi ─────────────────────────────────────────────────────────────────────
-// Call right after WiFi.mode().
+// Call right after WifiRadio::begin().
 static void configureWifiRadio() {
     // Channels 1-13 (country DE), so a device without a WiFi connection can
     // follow a mesh on channel 12 or 13 too. ESP-IDF 5 starts in world safe
@@ -370,11 +370,9 @@ static void configureWifiRadio() {
         Logger::e("[wifi] country DE failed: %s", esp_err_to_name(err));
 #if SOC_WIFI_SUPPORT_5G
     // Dual-band chips (ESP32-C5): stay on 2.4 GHz, where ESP-NOW and the mesh
-    // channel scan run, also when a configured network offers 5 GHz. The
-    // Arduino core starts the driver in WIFI_BAND_MODE_AUTO (WiFi.mode()),
-    // so set the band right after it. The IDF call only needs the driver
-    // started; WiFi.setBandMode() also needs the STA/AP start event, which
-    // arrives asynchronously.
+    // channel scan run, also when a configured network offers 5 GHz.
+    // WifiRadio::begin() starts the driver in WIFI_BAND_MODE_AUTO, so set
+    // the band right after it.
     if (esp_err_t err = esp_wifi_set_band_mode(WIFI_BAND_MODE_2G_ONLY); err != ESP_OK)
         Logger::e("[wifi] 2.4 GHz-only band mode failed: %s", esp_err_to_name(err));
 #endif
@@ -384,9 +382,8 @@ static void configureWifiRadio() {
 static void setupWifi() {
     auto& c = Config::get();
 
-    WiFi.mode(SoftAp::fallbackAllowed() ? WIFI_AP_STA : WIFI_STA);
+    WifiRadio::begin(SoftAp::fallbackAllowed());
     configureWifiRadio();
-    WiFi.setAutoReconnect(false);
     ensureWifiPolicyStateInitialized();
 
     Config::loadWifi();
@@ -394,13 +391,13 @@ static void setupWifi() {
 
     if (count == 0) {
         if (!SoftAp::fallbackAllowed()) {
-            WiFi.setTxPower(WIFI_TX_POWER);
+            WifiRadio::setTxPower();
             Logger::i("[wifi] No networks configured, no fallback AP on this board");
             return;
         }
         SoftAp::startFallback();
         Logger::i("[wifi] No networks configured, AP: %s  IP: %s", c.deviceName,
-                  WiFi.softAPIP().toString().c_str());
+                  WifiRadio::apIp().toString().c_str());
         return;
     }
 
@@ -411,10 +408,10 @@ static void setupWifi() {
     // decide non-blockingly whether/when this device should actually connect.
     if (c.wifiSingleClientMode) {
         SoftAp::startFallback();
-        WiFi.setTxPower(WIFI_TX_POWER);
+        WifiRadio::setTxPower();
         Logger::i(
             "[wifi] single-client mode: deferring connect decision to WifiElection, AP: %s  IP: %s",
-            c.deviceName, WiFi.softAPIP().toString().c_str());
+            c.deviceName, WifiRadio::apIp().toString().c_str());
         return;
     }
 
@@ -427,17 +424,17 @@ static void setupWifi() {
         const char* ssid = Config::wifiNetworks()[ni].ssid;
         const char* pass = Config::wifiNetworks()[ni].password;
         for (uint8_t attempt = 0; attempt < 3; attempt++) {
-            WiFi.disconnect(false);
+            WifiRadio::disconnect();
             delay(attempt == 0 ? 100 : 2000);
             Logger::i("[wifi] Trying %s (attempt %u/3)...", ssid, attempt + 1);
-            WiFi.begin(ssid, pass);
-            WiFi.setTxPower(WIFI_TX_POWER);
+            WifiRadio::connect(ssid, pass);
+            WifiRadio::setTxPower();
             uint32_t start = millis();
-            while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) delay(250);
-            if (WiFi.status() == WL_CONNECTED) {
+            while (!WifiRadio::connected() && millis() - start < 10000) delay(250);
+            if (WifiRadio::connected()) {
                 SoftAp::stopFallback();
                 Logger::i("[wifi] Connected to %s, IP: %s  (AP off)", ssid,
-                          WiFi.localIP().toString().c_str());
+                          WifiRadio::localIp().toString().c_str());
                 if (ni != last) {
                     Config::setWifiLast(ni);
                     Config::saveWifi();
@@ -447,16 +444,16 @@ static void setupWifi() {
         }
     }
 
-    WiFi.disconnect(false);
+    WifiRadio::disconnect();
     delay(100);
     if (!SoftAp::fallbackAllowed()) {
-        WiFi.setTxPower(WIFI_TX_POWER);
+        WifiRadio::setTxPower();
         Logger::w("[wifi] All networks failed, no fallback AP on this board");
         return;
     }
     Logger::w("[wifi] All networks failed, falling back to AP");
     SoftAp::startFallback();
-    Logger::i("[wifi] AP: %s  IP: %s", c.deviceName, WiFi.softAPIP().toString().c_str());
+    Logger::i("[wifi] AP: %s  IP: %s", c.deviceName, WifiRadio::apIp().toString().c_str());
 }
 
 #if FEATURE_GAME
@@ -464,10 +461,9 @@ static void setupWifi() {
 // USB power without a host (charging mode, src/fleet/): WiFi runs for
 // ESP-NOW only, with no softAP and no connection.
 static void setupWifiQuiet(const char* why) {
-    WiFi.mode(WIFI_STA);
+    WifiRadio::begin(false);
     configureWifiRadio();
-    WiFi.setAutoReconnect(false);
-    WiFi.setTxPower(WIFI_TX_POWER);
+    WifiRadio::setTxPower();
     Logger::i("[wifi] %s: no AP, no WiFi connection", why);
 }
 
@@ -481,7 +477,7 @@ static void enterGameQuiet(bool participant) {
     if (!mesh.quiet()) {
         mesh.setQuiet(true);
         SoftAp::off();
-        WiFi.disconnect(false, false);
+        WifiRadio::disconnect();
         Logger::i("[game] radio quiet: no AP, no WiFi, no LightWitch mesh traffic");
     }
     if (participant) buttonManager.setExecutor(nullptr);
@@ -878,7 +874,7 @@ void setup() {
 
     mesh.setOnConfigChunk([](const uint8_t* srcMac, const ConfigChunkMsg* msg) {
         uint8_t own[6];
-        WiFi.macAddress(own);
+        WifiRadio::macAddress(own);
         if (memcmp(srcMac, own, 6) == 0) return;
         if (memcmp(msg->targetMac, own, 6) != 0) return;
         if (msg->chunkIndex == 0) {
@@ -909,7 +905,7 @@ void setup() {
     // Another device told this device (or a peer) to change a light's group
     mesh.setOnSetGroup([](const uint8_t* targetMac, uint8_t lightIndex, uint8_t groupId) {
         uint8_t own[6];
-        WiFi.macAddress(own);
+        WifiRadio::macAddress(own);
         if (memcmp(targetMac, own, 6) == 0) {
             if (lightIndex < MAX_LIGHTS && Config::group(groupId)) {
                 Config::get().lights[lightIndex].groupId = groupId;
@@ -932,7 +928,7 @@ void setup() {
     // a different audio group — mirrors setOnSetGroup above.
     mesh.setOnSetSoundGroup([](const uint8_t* targetMac, uint8_t audioGroupId) {
         uint8_t own[6];
-        WiFi.macAddress(own);
+        WifiRadio::macAddress(own);
         if (memcmp(targetMac, own, 6) == 0 && Config::audioGroup(audioGroupId)) {
             Config::forEachSound(
                 [&](uint8_t, SoundHardwareConfig& s) { s.audioGroupId = audioGroupId; });
@@ -951,7 +947,7 @@ void setup() {
     mesh.setOnSetVolume([](const uint8_t* targetMac, uint8_t volume, bool overrideEnabled) {
         volume = (uint8_t)constrain((int)volume, SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
         uint8_t own[6];
-        WiFi.macAddress(own);
+        WifiRadio::macAddress(own);
         if (memcmp(targetMac, own, 6) == 0) {
             Config::forEachSound([&](uint8_t, SoundHardwareConfig& s) {
                 s.volumeOverrideEnabled = overrideEnabled;
@@ -1177,7 +1173,7 @@ void setup() {
         if (Config::get().wifiSingleClientMode) {
             _startupUpdateCheckPending = true;
             Logger::i("[upd] startup check armed; waiting for WiFi election");
-        } else if (WiFi.status() == WL_CONNECTED) {
+        } else if (WifiRadio::connected()) {
             Updater::checkAsync();
         }
     }
