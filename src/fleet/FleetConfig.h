@@ -116,6 +116,13 @@ static constexpr uint8_t kCommandSlots = 4;      // firmware: commands in flight
 static constexpr uint8_t kMaxTargets = 32;       // firmware: MACs per command (0 = all devices)
 static constexpr uint8_t kNonceMemory = 8;       // firmware: remembered nonces per device
 static constexpr uint32_t kNonceHoldMs = 10000;  // firmware: a nonce counts as seen this long
+// owner (2026-11-10): the console sets the brightness of every Buzzerboard
+// (fleet `brightness`, 0-255 like every LightWitch brightness): light 0's
+// brightness override, stored, as Up and Down set it, so it overrides the
+// room's (group's) brightness; the keys go on from there. It also applies in
+// a game session: there the bridge sends the command on the session channel
+// (MeshManager lets FleetCommand through quiet mode) and the devices act on
+// no other op. A Buzzerboard bridge applies it to itself at once.
 
 // ── Bridge: fleet table ──────────────────────────────────────────────────────
 static constexpr uint16_t kMaxFleetDevices = 128;  // firmware: the oldest entry makes room

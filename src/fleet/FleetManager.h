@@ -61,6 +61,9 @@ class FleetManager {
         // Runs the short-press action of button slot `index` at once if it
         // is a brightness step (LightBrightnessOverrideStep); false otherwise.
         std::function<bool(uint8_t index)> brightnessKey;
+        // Sets light 0's brightness override to level (0-255), stored, as the
+        // keys do (fleet `brightness`).
+        std::function<void(uint8_t level)> setBrightness;
     };
 
     // Before power.begin(): the stored charge target, so the charger starts
@@ -756,6 +759,14 @@ class FleetManager {
         return true;
     }
 
+    // ── Brightness ───────────────────────────────────────────────────────────
+    // fleet `brightness`: light 0's brightness override, stored, as Up and
+    // Down set it (owner, 2026-11-10, FleetConfig.h).
+    void _setBrightness(uint8_t level) {
+        if (_io.setBrightness) _io.setBrightness(level);
+        Logger::i("[fleet] brightness %u from the console", level);
+    }
+
     // ── Radio ────────────────────────────────────────────────────────────────
     void _onFrameLoop(const game::RxRing::Frame& f, uint32_t now) {
         if (f.data[0] == fleet::kMsgFleetStatus) {
@@ -767,9 +778,15 @@ class FleetManager {
         }
         fleet::FleetCommandMsg m;
         if (!fleet::decodeFleetFrame(f.data, f.len, fleet::kMsgFleetCommand, m)) return;
-        // Only Buzzerboards act on fleet commands, and not in a game session.
-        if (!_fleetDevice || _game->radioQuiet() || !_filter.accept(m, now)) return;
+        // Only Buzzerboards act on fleet commands; in a game session only on
+        // `brightness` (owner, 2026-11-10, FleetConfig.h).
+        if (!_fleetDevice) return;
+        if (_game->radioQuiet() && (fleet::Op)m.op != fleet::Op::Brightness) return;
+        if (!_filter.accept(m, now)) return;
         switch ((fleet::Op)m.op) {
+            case fleet::Op::Brightness:
+                _setBrightness(m.arg);
+                return;
             case fleet::Op::Update:
                 _startUpdate((fleet::Source)m.arg, m.pr);
                 return;
@@ -969,12 +986,14 @@ class FleetManager {
         io.fwBuild = [this]() { return _game->fwBuild(); };
         io.radioBusy = [this]() { return _game->radioQuiet(); };
         io.nonce = []() { return (uint32_t)esp_random(); };
-        // A Buzzerboard bridge applies `charge` at once and `update` once the
-        // repeats are out; `off` and `ap` are for the other devices.
+        // A Buzzerboard bridge applies `charge` and `brightness` at once and
+        // `update` once the repeats are out; `off` and `ap` are for the other
+        // devices.
         io.sent = [this](const fleet::FleetCommandMsg& m) {
             if (!_fleetDevice) return;
             if ((fleet::Op)m.op == fleet::Op::Charge && m.arg <= (uint8_t)fleet::Target::Event)
                 _setTarget((fleet::Target)m.arg);
+            if ((fleet::Op)m.op == fleet::Op::Brightness) _setBrightness(m.arg);
             if ((fleet::Op)m.op != fleet::Op::Update) return;
             _selfUpdate = true;
             _selfSource = (fleet::Source)m.arg;

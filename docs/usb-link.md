@@ -47,7 +47,7 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
 | `store_failed` | the WiFi list or the charge target could not be saved |
 | `busy` | `fleet`: earlier commands are still being repeated; `test`: another test runs |
 | `no_usb` | `test charge` without USB power and a charger |
-| `session_active` | `fleet` while the bridge runs a game session; `test leds/keys/charge` on a participant in a session |
+| `session_active` | `fleet` (except `brightness`) while the bridge runs a game session; `test leds/keys/charge` on a participant in a session |
 
 ## `game` (bridge): orientation and move rounds
 
@@ -252,11 +252,12 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
 | `{"ns":"fleet","cmd":"charge","id":6,"target":"event"}` | every device sets its charge target |
 | `{"ns":"fleet","cmd":"off","id":7}` | every device on battery enters ship mode; devices on USB ignore it |
 | `{"ns":"fleet","cmd":"ap","id":8,"mac":"02:00:00:00:00:11"}` | that device opens its maintenance AP for 10 minutes |
+| `{"ns":"fleet","cmd":"brightness","id":9,"level":8}` | every device sets its LED brightness |
 
 Each is answered with `{"ns":"fleet","ev":"sent","id":…}` once queued. The
 bridge sends every command three times, 300-700 ms apart, with one nonce;
 devices act once per nonce. Only Buzzerboards act on fleet commands, and
-not while in a game session.
+in a game session only on `brightness`.
 
 - `update`: a device needs a WiFi network and, on battery, VBAT of at least
   3.5 V. It connects WiFi for the update (also from charging mode), shows the
@@ -267,6 +268,17 @@ not while in a game session.
 - `charge`: a Buzzerboard bridge sets its own charge target too.
 - `off`, `ap`: not applied to the bridge itself (it runs on USB). A device
   in charging mode ignores `ap`.
+- `brightness`: `level` 0-255, the scale of every LightWitch brightness (8 is
+  about 3 %, the Buzzerboard default; one LED step is 1/255). Each device
+  sets it as the brightness override of its LEDs, stored, the same setting
+  Up and Down change: it overrides the brightness of the device's group (the
+  "room"), and the keys go on from there. 0 switches the LEDs off as Down
+  does. A Buzzerboard bridge sets its own brightness too, at once. Also
+  while the bridge runs a game session: then it sends the command on the
+  session channel, the participants act on it (their session display
+  follows the brightness, at least 2) and the reply is `sent` as well; the
+  other fleet commands still get `session_active`. Devices outside the
+  session only get it while they listen on that channel.
 
 ### `status` event
 

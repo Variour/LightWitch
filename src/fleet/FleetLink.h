@@ -92,7 +92,8 @@ class FleetLink : public game::Link::Extension {
         // fleet
         std::function<bool()> radioBusy;  // the bridge's radio belongs to a game session
         std::function<uint32_t()> nonce;
-        // A command was queued for sending (the bridge applies `update` to itself).
+        // A command was queued for sending (the bridge applies `charge`,
+        // `brightness` and `update` to itself).
         std::function<void(const FleetCommandMsg&)> sent;
         // test
         std::function<void(TestInfo&)> testInfo;
@@ -442,11 +443,18 @@ class FleetLink : public game::Link::Extension {
             m.op = (uint8_t)Op::Ap;
             m.arg = kApMinutesDefault;
             m.targetCount = 1;
+        } else if (strcmp(cmd, "brightness") == 0) {
+            long long level;
+            if (Link::intField(o, "level", 0, 255, level) != Link::Field::Ok)
+                return _badField(link, id, "fleet", cmd, "level", "level must be 0-255");
+            m.op = (uint8_t)Op::Brightness;
+            m.arg = (uint8_t)level;
         } else {
             return link.error(id, "unknown_cmd", "fleet", cmd, nullptr,
-                              "fleet commands: update, charge, off, ap");
+                              "fleet commands: update, charge, off, ap, brightness");
         }
-        if (_io.radioBusy && _io.radioBusy())
+        // `brightness` also reaches the devices of a running session.
+        if ((Op)m.op != Op::Brightness && _io.radioBusy && _io.radioBusy())
             return link.error(id, "session_active", "fleet", cmd, nullptr,
                               "the radio belongs to the game session");
         m.nonce = _io.nonce ? _io.nonce() : now;

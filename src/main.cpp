@@ -759,6 +759,13 @@ void setup() {
         actionExecutor.execute(a);
         return true;
     };
+    fio.setBrightness = [](uint8_t level) {
+        ButtonAction a;
+        a.action = ActionId::LightBrightnessOverrideSet;
+        a.lightIndex = 0;
+        a.params.numberValue = level;
+        actionExecutor.execute(a);
+    };
     fio.updateBusy = []() {
         Updater::State s = Updater::status().state;
         return _otaActive || s == Updater::State::Checking || s == Updater::State::Downloading ||

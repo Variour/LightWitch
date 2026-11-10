@@ -122,7 +122,7 @@ The `Quiz*` types belong to the game session module (`src/game/`). Their layouts
 
 ### Quiet mode and the Hello rule
 
-While a device is in a game session (participant from join until release, bridge from its first session until restart), `MeshManager::setQuiet(true)` makes it send and handle only `Quiz*` frames. It sends no `Presence`, no `Hello`, no `MeshPolicy`, `GroupSync`, `AudioGroupSync`, `PhaseSync` or proximity pings, and it ignores every other received type. This is a deliberate exception to the unconditional `Hello` cadence above, for the duration of a session only. A participant leaves a session by restarting into normal operation.
+While a device is in a game session (participant from join until release, bridge from its first session until restart), `MeshManager::setQuiet(true)` makes it send and handle only `Quiz*` frames and `FleetCommand` (so the console's `brightness` reaches a session). It sends no `Presence`, no `Hello`, no `MeshPolicy`, `GroupSync`, `AudioGroupSync`, `PhaseSync` or proximity pings, and it ignores every other received type. This is a deliberate exception to the unconditional `Hello` cadence above, for the duration of a session only. A participant leaves a session by restarting into normal operation.
 
 ## Fleet frames (`Fleet*`)
 
@@ -130,7 +130,7 @@ The `Fleet*` types belong to the fleet package (`src/fleet/`: charging mode, tra
 
 - Packed, little-endian, at most 250 bytes. Both start with `type` and `proto` (1 in v0); the fleet package drops other `proto` values, the mesh layer only checks framing.
 - `FleetStatus`: device number, state (`active`, `charging`, `standby`), battery percent and mV, charge status, charge target, USB and WiFi flags, firmware build, fleet update state, percent and error, error bits. Only a detected Buzzerboard sends it, and not in a game session.
-- `FleetCommand`: a nonce (receivers act once per nonce, for 10 s), an op (`update` with source release or PR number, `charge` with target, `off`, `ap` with minutes) and 0-32 target MACs (0 = every device). Only a detected Buzzerboard acts on it, and not in a game session; any device can be the bridge that sends it.
+- `FleetCommand`: a nonce (receivers act once per nonce, for 10 s), an op (`update` with source release or PR number, `charge` with target, `off`, `ap` with minutes, `brightness` with 0-255) and 0-32 target MACs (0 = every device). Only a detected Buzzerboard acts on it, in a game session only on `brightness`; any device can be the bridge that sends it.
 - A received `FleetStatus` counts as "peer heard" for `ChannelManager`'s channel lock, like `Presence` and `Hello`: devices in charging mode send nothing else.
 - The USB side (the bridge's `fleet` namespace) is in [usb-link.md](usb-link.md).
 
