@@ -156,10 +156,12 @@ inline void renderCelebration(uint32_t t, bool rev, Rgb* px) {
     fillRing(px, blendRgb(green, white, softPulse(t, kCelebrateRunMs, 0, 255)));
 }
 
-// The race device that answers now (kAnswerOverMs, owner 2026-11-10): its
-// answer time as a full column that runs down evenly in reading direction
-// and turns from green to kWrongRgb, the ring in the same colour; once it
-// answered, the column stays where it was. In a race with answer keys its
+// The race device that answers now (kAnswerOverMs, owner 2026-11-10): for
+// the first half of its answer time the full column and the ring glow green
+// and pulse softly once per kPulsePeriodMs; in the second half the column
+// runs down evenly in reading direction and turns from green to kWrongRgb,
+// the ring in the same colour. Once it answered, the display stays where it
+// was (without the pulse). In a race with answer keys its
 // free answer keys glow white at kLevelFree, the given answer shows like a
 // chosen answer. Time over without an answer: ring and column in kWrongRgb,
 // after kAnswerOverMs the column alone.
@@ -176,18 +178,28 @@ inline void renderAnswering(const Participant& p, uint32_t now, Rgb* px) {
         if ((uint32_t)-left < kAnswerOverMs) fillRing(px, kWrongRgb);
         return;
     }
-    float frac = r.answerMs ? (float)left / (float)r.answerMs : 1.0f;
-    if (frac > 1.0f) frac = 1.0f;
-    Rgb c = blendRgb(colorRgb(Color::Green), kWrongRgb, (uint8_t)(255.0f * (1.0f - frac)));
-    float lit = frac * kScoreCount;
-    for (uint8_t n = 0; n < kScoreCount; n++) {
-        float on = lit - (float)n;
-        if (on >= 1.0f)
-            px[scoreLed(n, rev)] = c;
-        else if (on > 0.0f)
-            px[scoreLed(n, rev)] = scaleRgb(c, (uint8_t)(255.0f * on));
+    // left in units of half the answer time: above 1 in the first half.
+    float halves = r.answerMs ? 2.0f * (float)left / (float)r.answerMs : 2.0f;
+    if (halves > 1.0f) {
+        // Full column and ring green, pulsing softly (steady once answered).
+        uint32_t used = r.answerMs > (uint32_t)left ? r.answerMs - (uint32_t)left : 0;
+        uint8_t dip = p.answerGiven() ? 0 : softPulse(used, kPulsePeriodMs, 0, 255 - kLevelTurnLow);
+        Rgb g = scaleRgb(colorRgb(Color::Green), (uint8_t)(255 - dip));
+        fillScore(px, kScoreCount, g, rev);
+        fillRing(px, g);
+    } else {
+        // The column runs down and turns from green to kWrongRgb.
+        Rgb c = blendRgb(colorRgb(Color::Green), kWrongRgb, (uint8_t)(255.0f * (1.0f - halves)));
+        float lit = halves * kScoreCount;
+        for (uint8_t n = 0; n < kScoreCount; n++) {
+            float on = lit - (float)n;
+            if (on >= 1.0f)
+                px[scoreLed(n, rev)] = c;
+            else if (on > 0.0f)
+                px[scoreLed(n, rev)] = scaleRgb(c, (uint8_t)(255.0f * on));
+        }
+        fillRing(px, c);
     }
-    fillRing(px, c);
     uint8_t val = p.value();
     for (uint8_t i = 0; i < 5; i++) {
         Key k = answers[i];

@@ -168,10 +168,13 @@ orientation, and leave it out otherwise:
 - The answer time starts when the bridge takes the command. The bridge
   sends the device, the answer time and the time left in every `QuizState`
   (radio `proto` 2).
-- Device: its full column runs down evenly over the time in reading
-  direction and turns from green to orange red, the ring in the same
-  colour. Time over: ring and column orange red for 0.6 s, then the column
-  alone ("wrong"). The other devices show nothing new.
+- Device: for the first half of the time the full column and the ring glow
+  green and pulse softly once per second (a warning, not a countdown); in
+  the second half the column runs down evenly in reading direction and
+  turns from green to the soft orange red, the ring in the same colour.
+  Time over: ring and column orange red for 0.6 s, then the column alone
+  ("wrong"). Once the device answered, the display stays as it was. The
+  other devices show nothing new.
 - Rating: send `game round` with `winner` = `n` and `verdict` as above;
   `winner` on the answering device ends its answer time display. For the
   next in line after `wrong` or time over, send `game answering` with its

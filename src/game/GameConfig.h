@@ -160,11 +160,15 @@ static constexpr uint32_t kPulsePeriodMs = 1000;  // firmware: one pulse per sec
 static constexpr uint32_t kCelebrateMs = 2000;
 static constexpr uint32_t kCelebrateRunMs = 1000;
 // owner (2026-11-10): the race device that answers (link `game answering`)
-// shows its answer time as a full column that runs down evenly and turns
-// from green to kWrongRgb, the ring in the same colour; in a race with
+// shows its answer time: the first half the full column and the ring green,
+// pulsing softly; the second half the column runs down evenly and turns
+// from green to kWrongRgb, the ring in the same colour. In a race with
 // answer keys its free answer keys glow white at kLevelFree. Time over: ring
 // and column in kWrongRgb for kAnswerOverMs, then the column alone.
 static constexpr uint32_t kAnswerOverMs = 600;
+// owner (2026-11-10): the first half of the answer time warns instead of
+// running down: the green pulses softly down to kLevelTurnLow and back.
+static constexpr uint8_t kLevelTurnLow = 128;
 static constexpr uint32_t kBlinkPeriodMs = 1000;  // fixed v0: status dot blinks at 1 Hz
 
 }  // namespace game
