@@ -56,13 +56,16 @@ static constexpr uint32_t kHostDetectMs = 200;
 // DOUBLE_CLICK_WINDOW_MS (350 ms) after the release.
 static constexpr uint32_t kKeyQuietMs = 500;
 // owner (2026-11-10): Up and Down step the brightness at any time outside a
-// game session: active, in charging mode, in standby and with the press that
-// wakes the device. The fleet runs the key's own short-press step
-// (config/BoardProfile.cpp) on the press and takes the key, so it steps once
-// per press without waiting for ButtonManager. Down to 0 switches the LEDs
-// off, Up from 0 on again. Except in charging mode (its display is the
-// level) the battery level then shows for kBatteryOverlayMs at the new
-// brightness. A participant in a session keeps Up and Down as answer keys.
+// game session: active, in charging mode and in standby. The fleet runs the
+// key's own short-press step (config/BoardProfile.cpp) on the press and
+// takes the key, so it steps once per press without waiting for
+// ButtonManager. Down to 0 switches the LEDs off, Up from 0 on again. Except
+// in charging mode (its display is the level) the battery level then shows
+// for kBatteryOverlayMs at the new brightness. A participant in a session
+// keeps Up and Down as answer keys.
+// decided (2026-11-10, review): a press that wakes the device (from standby
+// or sleep) only wakes it, and while an invite shows Up and Down do nothing
+// (the screen asks for them right after the join).
 
 // ── Sleep (ESP deep sleep) ───────────────────────────────────────────────────
 static constexpr uint32_t kSleepWakeIntervalS = 60;  // owner: check USB and VBAT every 60 s

@@ -58,9 +58,9 @@ class FleetManager {
         // An update or OTA runs outside the fleet (Updater checking,
         // downloading or done, ArduinoOTA): no standby, no sleep.
         std::function<bool()> updateBusy;
-        // Runs the short-press action of button slot `index` at once if it
-        // is a brightness step (LightBrightnessOverrideStep); false otherwise.
-        std::function<bool(uint8_t index)> brightnessKey;
+        // Whether the short-press action of button slot `index` is a
+        // brightness step (LightBrightnessOverrideStep); with run, it runs it.
+        std::function<bool(uint8_t index, bool run)> brightnessKey;
         // Sets light 0's brightness override to level (0-255), stored, as the
         // keys do (fleet `brightness`).
         std::function<void(uint8_t level)> setBrightness;
@@ -178,6 +178,10 @@ class FleetManager {
             _keysDown &= (uint16_t)~bit;
             _keyUpMs[index] = ms;
         }
+        // A press that wakes the device: from standby, or held at the first
+        // loop pass (the press that woke it from sleep).
+        bool standbyWake = pressed && _managed() && _ps.state() == fleet::State::Standby;
+        bool bootPress = !_ticked || ms - _firstTickMs < fleet::kBootPressGraceMs;
         bool take = false;
         if (_test.kind() == fleet::FactoryTest::Kind::Keys) {
             if (pressed && k != game::Key::None) _link.onTestKey(k);
@@ -189,20 +193,23 @@ class FleetManager {
         } else if (_managed() && pressed) {
             // A press already held at the first loop pass woke the device:
             // it keeps the device awake but is no interaction.
-            bool wakePress = !_ticked || ms - _firstTickMs < fleet::kBootPressGraceMs;
-            if (wakePress)
+            if (bootPress)
                 _ps.activity(millis());
             else
                 _ps.interaction(millis());
-            take = wakePress;
+            take = bootPress;
         }
         // Up / Down step the brightness on the press, in every state outside
-        // a session and the key test (owner, 2026-11-10, FleetConfig.h).
+        // a session and the key test; a wake press only wakes, and while an
+        // invite shows they do nothing (owner, 2026-11-10, FleetConfig.h).
         if (pressed && (k == game::Key::Up || k == game::Key::Down) && _fleetDevice &&
             !_game->ownsLeds() && _test.kind() != fleet::FactoryTest::Kind::Keys &&
-            _io.brightnessKey && _io.brightnessKey(index)) {
+            _io.brightnessKey && _io.brightnessKey(index, false)) {
             take = true;
-            _showStep();
+            if (!standbyWake && !bootPress && !_game->inviteVisible(millis())) {
+                _io.brightnessKey(index, true);
+                _showStep();
+            }
         }
         if (take && pressed) _quietMask |= bit;
         return take || (_quietMask & bit);

@@ -761,10 +761,10 @@ void setup() {
         buttonManager.setExecutor(on ? &actionExecutor : nullptr);
     };
     fio.mutedKeys = [](uint16_t mask) { buttonManager.setMuted(mask); };
-    fio.brightnessKey = [](uint8_t index) {
+    fio.brightnessKey = [](uint8_t index, bool run) {
         const ButtonAction& a = Config::get().buttons[index].onShortPress;
         if (a.action != ActionId::LightBrightnessOverrideStep) return false;
-        actionExecutor.execute(a);
+        if (run) actionExecutor.execute(a);
         return true;
     };
     fio.setBrightness = [](uint8_t level) {
