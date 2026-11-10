@@ -16,7 +16,7 @@
 // white at kLevelFree, the chosen answer and the confirmation ring follow
 // kLevelFree's owner decision (GameConfig.h). The column fills in reading
 // direction. Nothing blinks faster than 3 Hz, pulses are soft, nothing
-// blinks red.
+// blinks red; a wrong answer shows in kWrongRgb.
 namespace game {
 
 // LED of a physical key; 0xFF for keys without one.
@@ -250,7 +250,7 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
             case RoundType::Race: {
                 bool winner = r.winner != 0 && r.winner == p.number();
                 if (winner && r.winnerWrong) {
-                    fillScore(px, kScoreCount, colorRgb(Color::Red));
+                    fillScore(px, kScoreCount, kWrongRgb);
                 } else if (winner && now - r.resultMs < kCelebrateMs) {
                     renderCelebration(now - r.resultMs, rev, px);
                 } else if (winner) {
@@ -276,7 +276,7 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                         renderCelebration(now - r.resultMs, rev, px);
                     else if (val != kNoValue)
                         fillScore(px, kScoreCount,
-                                  colorRgb(val == r.correct ? Color::Green : Color::Red));
+                                  val == r.correct ? colorRgb(Color::Green) : kWrongRgb);
                     break;
                 }
                 for (uint8_t i = 0; i < 4; i++) {

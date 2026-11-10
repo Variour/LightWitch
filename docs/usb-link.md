@@ -188,6 +188,9 @@ Every level is scaled to the device's brightness (at least one LED step).
   `correct` in `choice` (the correct key in its direction colour, the column
   green or "wrong") and `winner` in `race` (the winner's ring and column
   green, or the column "wrong" with `verdict` `wrong`).
+- "Wrong" (a wrong answer, a race winner rated wrong) is no punishment: the
+  column shows orange red, RGB 128, 40, 0 (`#802800`), half as bright as the
+  green of a right answer (RGB 0, 255, 0), both scaled to the brightness.
 - Celebration: a device that answered right (`choice` with `correct`) and
   the race winner celebrate for 2 s: a bright head runs up the column twice
   (once per second, in reading direction) and leaves it green, the ring

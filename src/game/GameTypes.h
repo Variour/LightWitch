@@ -85,6 +85,11 @@ inline Rgb colorRgb(Color c) {
     }
 }
 
+// owner (2026-11-10): a wrong or lost answer is no punishment: the device
+// shows it in an orange red at half the brightness of the green of a right
+// one (the console's screen takes the same colour).
+static constexpr Rgb kWrongRgb = {128, 40, 0};
+
 inline Rgb scaleRgb(Rgb c, uint8_t level) {
     return {(uint8_t)(c.r * level / 255), (uint8_t)(c.g * level / 255),
             (uint8_t)(c.b * level / 255)};
