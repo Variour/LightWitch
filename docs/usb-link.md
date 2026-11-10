@@ -179,8 +179,8 @@ orientation, and leave it out otherwise:
   `winner` on the answering device ends its answer time display. For the
   next in line after `wrong` or time over, send `game answering` with its
   number.
-- Race with answer keys: `keys` may add `up`, `right`, `down`, `left` to
-  `buzz` (2-4 of them in this order, as in a choice):
+- Race with answer keys: `keys` may add 2-5 answer keys to `buzz`, as in
+  a choice (see "Answer keys" below):
   `{"ns":"game","cmd":"round","round":23421,"type":"race","phase":"open","keys":{"buzz":"white","up":"white","right":"white","down":"white","left":"white"}}`.
   Only the answering device takes them, during its answer time and in any
   phase: they glow white at 40 %, the first press is the answer (no change
@@ -209,11 +209,15 @@ orientation, and leave it out otherwise:
   evenly in reading direction, white at 40 %. Devices with an answer show
   their answer as before.
 
-### Enter as answer 5, Enter to log in
+### Answer keys, Enter as answer 5, Enter to log in
 
-- `choice`: `keys` may hold `up`, `right`, `down`, `left` and `enter`
-  (2-5 keys in this order); `enter` (the centre key) is answer 5, `correct`
-  then 1-5. A race with answer keys takes the same set. The device shows the
+- Answer keys of a `choice` (and of a race with answer keys): any 2-5 of
+  `up` (answer 1), `right` (2), `down` (3), `left` (4) and `enter` (5, the
+  centre key), e.g. `up` and `down` for true or false. The answer number
+  stays with the key: true/false on Up/Down gives the values 1 and 3, and
+  `correct` must be the answer of one of the round's keys (`bad_field`,
+  "correct must be the answer of one of the keys"). Other sets get
+  `bad_field` ("choice takes 2-5 of up, right, down, left, enter"). The device shows the
   centre like the other answer keys (white at 40 %, chosen: pulse toward its
   colour, rose, RGB 255, 40, 150).
   `{"ns":"game","cmd":"round","round":23422,"type":"choice","phase":"open","keys":{"up":"white","right":"white","down":"white","left":"white","enter":"white"}}`

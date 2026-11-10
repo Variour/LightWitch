@@ -729,18 +729,21 @@ class Link : public Bridge::Listener {
             auto keyBit = [](Key k) { return (uint16_t)(1u << (uint8_t)k); };
             bool ok;
             const char* rule;
-            uint16_t two = keyBit(Key::Up) | keyBit(Key::Right);
-            uint16_t three = two | keyBit(Key::Down);
-            uint16_t four = three | keyBit(Key::Left);
-            uint16_t five = four | keyBit(Key::Enter);  // enter is answer 5
+            // Answer keys: up 1, right 2, down 3, left 4, enter 5; any 2-5 of
+            // them, e.g. up and down for true or false.
+            uint16_t answerKeys = keyBit(Key::Up) | keyBit(Key::Right) | keyBit(Key::Down) |
+                                  keyBit(Key::Left) | keyBit(Key::Enter);
+            auto answerSet = [&](uint16_t m) {
+                uint8_t count = 0;
+                for (uint8_t b = 0; b < 16; b++)
+                    if (m & (1u << b)) count++;
+                return (m & (uint16_t)~answerKeys) == 0 && count >= 2;
+            };
             if (c.type == RoundType::Race) {
                 // Answer keys for the answering device, as in a choice.
                 uint16_t answers = c.keyMask & (uint16_t)~keyBit(Key::Buzz);
-                ok = (c.keyMask & keyBit(Key::Buzz)) &&
-                     (answers == 0 || answers == two || answers == three || answers == four ||
-                      answers == five);
-                rule =
-                    "race takes buzz, optionally with up, right, down, left, enter in this order";
+                ok = (c.keyMask & keyBit(Key::Buzz)) && (answers == 0 || answerSet(answers));
+                rule = "race takes buzz, optionally with 2-5 of up, right, down, left, enter";
             } else if (c.type == RoundType::Scale) {
                 ok = c.keyMask == (keyBit(Key::Up) | keyBit(Key::Down));
                 rule = "scale takes exactly up and down";
@@ -749,9 +752,8 @@ class Link : public Bridge::Listener {
                      (keyBit(Key::Up) | keyBit(Key::Right) | keyBit(Key::Down) | keyBit(Key::Left));
                 rule = "move takes exactly up, right, down and left";
             } else {
-                ok = c.keyMask == two || c.keyMask == three || c.keyMask == four ||
-                     c.keyMask == five;
-                rule = "choice takes up, right, down, left, enter in this order, 2-5 keys";
+                ok = answerSet(c.keyMask);
+                rule = "choice takes 2-5 of up, right, down, left, enter";
             }
             if (!ok) {
                 _badField(id, cmd, "keys", rule);
@@ -931,11 +933,11 @@ class Link : public Bridge::Listener {
                 _badField(id, cmd, "correct", "only for choice and rainbow scale in phase closed");
                 return false;
             }
-            uint8_t answers = 0;
-            for (Key k : {Key::Up, Key::Right, Key::Down, Key::Left, Key::Enter})
-                if (c.keyMask & (1u << (uint8_t)k)) answers++;
-            if (f != Field::Ok || v > answers) {
-                _badField(id, cmd, "correct", "correct must be 1 to the number of answers");
+            // The answer's key must be one of the round's keys.
+            const Key answerKey[6] = {Key::None, Key::Up,   Key::Right,
+                                      Key::Down, Key::Left, Key::Enter};
+            if (f != Field::Ok || v < 1 || v > 5 || !(c.keyMask & (1u << (uint8_t)answerKey[v]))) {
+                _badField(id, cmd, "correct", "correct must be the answer of one of the keys");
                 return false;
             }
             c.correct = (uint8_t)v;
