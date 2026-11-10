@@ -306,6 +306,22 @@ class Bridge {
         return Err::None;
     }
 
+    // A countdown for every device without an answer (ms 0 = none): an open
+    // choice or scale.
+    Err countdown(uint16_t ms, uint32_t now) {
+        if (!_active || _ending) return Err::NoSession;
+        RoundModel& r = _round;
+        if ((r.type != RoundType::Choice && r.type != RoundType::Scale) || r.phase != Phase::Open)
+            return Err::BadPhase;
+        if (r.answering == 0 && ms == r.answerMs) return Err::None;
+        r.answering = 0;
+        r.answerMs = ms;
+        r.answerAt = now;
+        r.seq++;
+        _markStateChanged(now);
+        return Err::None;
+    }
+
     // ── Radio ────────────────────────────────────────────────────────────────
     void onFrame(const uint8_t* d, size_t len, int8_t rssi, uint32_t now) {
         if (!quizFrameLenOk(d, len)) return;

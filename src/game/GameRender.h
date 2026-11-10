@@ -156,6 +156,24 @@ inline void renderCelebration(uint32_t t, bool rev, Rgb* px) {
     fillRing(px, blendRgb(green, white, softPulse(t, kCelebrateRunMs, 0, 255)));
 }
 
+// The console's countdown on a device without an answer (link `game
+// countdown`): the column runs down evenly in reading direction, white at
+// kLevelFree.
+inline void renderCountdown(const Participant& p, uint32_t now, Rgb* px) {
+    const Participant::Round& r = p.round();
+    int32_t left = (int32_t)(r.deadline - now);
+    if (left <= 0 || r.answerMs == 0) return;
+    float lit = (float)left * kScoreCount / (float)r.answerMs;
+    bool rev = columnReversed(p.inputLage());
+    for (uint8_t n = 0; n < kScoreCount; n++) {
+        float on = lit - (float)n;
+        if (on >= 1.0f)
+            px[scoreLed(n, rev)] = freeKeyRgb();
+        else if (on > 0.0f)
+            px[scoreLed(n, rev)] = scaleRgb(freeKeyRgb(), (uint8_t)(255.0f * on));
+    }
+}
+
 // The race device that answers now (kAnswerOverMs, owner 2026-11-10): for
 // the first half of its answer time the full column and the ring glow green
 // and pulse softly once per kPulsePeriodMs; in the second half the column
@@ -329,6 +347,7 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
     } else if (p.namingOpen(now)) {
         renderNaming(p, now, px);
     } else if (r.known && r.type != RoundType::Idle && r.phase != Phase::Announced) {
+        if (p.countdownMe()) renderCountdown(p, now, px);
         switch (r.type) {
             case RoundType::Scale: {
                 if (r.rainbow) {

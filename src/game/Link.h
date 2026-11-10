@@ -570,8 +570,9 @@ class Link : public Bridge::Listener {
         if (strcmp(cmd, "round") == 0) return _cmdRound(o, id, now);
         if (strcmp(cmd, "number") == 0) return _cmdNumber(o, id);
         if (strcmp(cmd, "answering") == 0) return _cmdAnswering(o, id, now);
+        if (strcmp(cmd, "countdown") == 0) return _cmdCountdown(o, id, now);
         _error(id, "unknown_cmd", "game", cmd, nullptr,
-               "game commands: session, end, admit, release, round, number, answering");
+               "game commands: session, end, admit, release, round, number, answering, countdown");
     }
 
     void _cmdSession(JsonObjectConst o, const ReqId& id, uint32_t now) {
@@ -966,6 +967,28 @@ class Link : public Bridge::Listener {
                               "answering only in a race round");
             default:
                 return _error(id, "no_session", "game", "answering", nullptr, "no active session");
+        }
+    }
+
+    // A countdown for every device that has not answered (owner,
+    // 2026-11-10); ms 0 ends it.
+    void _cmdCountdown(JsonObjectConst o, const ReqId& id, uint32_t now) {
+        long long ms = 0;
+        if (_int(o, "ms", 0, 60000, ms) != Field::Ok || (ms != 0 && ms < 1000))
+            return _badField(id, "countdown", "ms", "ms must be 0 or 1000-60000");
+        switch (_bridge->countdown((uint16_t)ms, now)) {
+            case Bridge::Err::None: {
+                JsonDocument d;
+                _head(d, "game", "countdown", id);
+                d["ms"] = ms;
+                _enqueue(d);
+                return;
+            }
+            case Bridge::Err::BadPhase:
+                return _error(id, "bad_phase", "game", "countdown", nullptr,
+                              "countdown only in an open choice or scale");
+            default:
+                return _error(id, "no_session", "game", "countdown", nullptr, "no active session");
         }
     }
 

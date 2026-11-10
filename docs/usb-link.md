@@ -195,6 +195,20 @@ orientation, and leave it out otherwise:
   tied to races: a turn-based round can give one device its keys the same
   way, each press then a key event as in a move round.
 
+### Countdown for the devices without an answer (`game countdown`)
+
+`{"ns":"game","cmd":"countdown","id":13,"ms":10000}` →
+`{"ns":"game","ev":"countdown","id":13,"ms":10000}`
+
+- In an open `choice` or `scale` (`bad_phase`, "countdown only in an open
+  choice or scale"): `ms` 1000-60000 starts it when the bridge takes the
+  command, 0 ends it (`bad_field`, "ms must be 0 or 1000-60000"). The same
+  `ms` again changes nothing. The console still closes the round itself.
+- On the radio it is `turn` 0 with `turnMs` and `turnLeftMs`.
+- Device without an answer (not in a rainbow scale): the column runs down
+  evenly in reading direction, white at 40 %. Devices with an answer show
+  their answer as before.
+
 ### Enter as answer 5, Enter to log in
 
 - `choice`: `keys` may hold `up`, `right`, `down`, `left` and `enter`

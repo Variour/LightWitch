@@ -302,6 +302,15 @@ class Participant {
                (int32_t)(ms - _round.deadline) < 0;
     }
 
+    // The console's countdown for the devices without an answer (link
+    // `game countdown`) runs for this one: an open choice or zone scale.
+    bool countdownMe() const {
+        return _round.known && _round.phase == Phase::Open && _round.answering == 0 &&
+               _round.answerMs != 0 && _round.deadlineKnown && _val == kNoValue &&
+               (_round.type == RoundType::Choice ||
+                (_round.type == RoundType::Scale && !_round.rainbow));
+    }
+
     bool namingOpen(uint32_t now) const {
         return _state == State::Member && loginOpen(now) &&
                !(_round.known && _round.type != RoundType::Idle);
@@ -587,7 +596,7 @@ class Participant {
         }
         // Answer time: local end = receive time + time left; keep the
         // earliest, as for the round start.
-        if (_round.answering != 0) {
+        if (_round.answerMs != 0) {
             uint32_t end = now + m.turnLeftMs;
             if (!_round.deadlineKnown || (int32_t)(end - _round.deadline) < 0) {
                 _round.deadline = end;
