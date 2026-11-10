@@ -177,6 +177,9 @@ orientation, and leave it out otherwise:
   Time over: ring and column orange red for 0.6 s, then the column alone
   ("wrong"). Once the device answered, the display stays as it was. The
   other devices show nothing new.
+- While the winner so far is rated `wrong`, the other devices that pressed
+  keep their ring (white, blue once confirmed); once a winner is right they
+  go dark as before.
 - Rating: send `game round` with `winner` = `n` and `verdict` as above;
   `winner` on the answering device ends its answer time display. For the
   next in line after `wrong` or time over, send `game answering` with its

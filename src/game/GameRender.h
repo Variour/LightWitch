@@ -387,8 +387,9 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                     fillScore(px, kScoreCount, colorRgb(Color::Green));
                 } else if (p.answeringMe()) {
                     renderAnswering(p, now, px);
-                } else if (r.winner == 0 && val != kNoValue) {
-                    // Pressed: white until confirmed, then the ring glows blue.
+                } else if ((r.winner == 0 || r.winnerWrong) && val != kNoValue) {
+                    // Pressed: white until confirmed, then the ring glows blue;
+                    // also while the winner so far was rated wrong.
                     fillRing(px, colorRgb(p.confirmed() ? Color::Blue : Color::White));
                 } else if (r.phase == Phase::Open && inMask(Key::Buzz) && r.startKnown &&
                            !p.beforeStart(now)) {

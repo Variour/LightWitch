@@ -296,6 +296,8 @@ class FleetManager {
     // also in charging mode.
     bool updateRunning() const { return _upd.running; }
     bool hasLight() const { return _led != nullptr; }
+    // Standby: LEDs and LED rail off.
+    bool standby() const { return _ps.state() == fleet::State::Standby; }
 
     // The fleet draws the light: factory test, update, charging, standby,
     // switched off on USB, the battery overlay, the device's own colours.

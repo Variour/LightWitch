@@ -87,7 +87,7 @@ static uint32_t _lastPatternTickMs = 0;
 // fleet displays at 100 Hz instead, so their dithered fades (led/Dither.h)
 // glide (Timo, 2026-11-10). A frame of its 34 LEDs takes about 1 ms on the
 // wire, and the RMT transfer waits without spinning. A session, participant
-// or bridge, stays at PATTERN_TICK_INTERVAL_MS.
+// or bridge, and standby (LEDs off) stay at PATTERN_TICK_INTERVAL_MS.
 static constexpr uint32_t FLEET_TICK_INTERVAL_MS = 10;
 #endif
 
@@ -1319,8 +1319,9 @@ void loop() {
     }
 
 #if FEATURE_GAME
-    const uint32_t patternTickMs =
-        boardDetected() && !gameQuiet ? FLEET_TICK_INTERVAL_MS : PATTERN_TICK_INTERVAL_MS;
+    const uint32_t patternTickMs = boardDetected() && !gameQuiet && !fleetManager.standby()
+                                       ? FLEET_TICK_INTERVAL_MS
+                                       : PATTERN_TICK_INTERVAL_MS;
 #else
     const uint32_t patternTickMs = PATTERN_TICK_INTERVAL_MS;
 #endif
