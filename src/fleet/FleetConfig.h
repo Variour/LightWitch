@@ -136,6 +136,11 @@ static constexpr uint8_t kApMinutesMax = 60;      // firmware: longest `config a
 // ── LED display (charging mode, update) ──────────────────────────────────────
 // owner (2026-11-09): every display follows the brightness light 0 renders at
 // (its brightness override, else its group's brightness), at least kOffLevel.
+// owner (2026-11-10): the breath, the charging glow and the gateway pulse
+// fade very smoothly: they run at a fine level, dithered over the LEDs
+// (led/Dither.h, FleetRender.h; the idle pattern in patterns/Breathing.h),
+// and outside a session the Buzzerboard draws at 100 Hz (main.cpp,
+// FLEET_TICK_INTERVAL_MS).
 // owner (display sketch): a full device shows the column for 1 h, then only
 // the status dot.
 static constexpr uint32_t kFullColumnMs = 60UL * 60UL * 1000UL;

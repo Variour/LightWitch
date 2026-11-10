@@ -4,6 +4,7 @@
 
 #include "../game/GameConfig.h"
 #include "../game/GameTypes.h"
+#include "../led/Dither.h"
 #include "FleetConfig.h"
 #include "FleetTypes.h"
 
@@ -12,6 +13,12 @@
 // update. Plain C++, no driver access. USB-C is on the top edge and LED1-24
 // run bottom to top (Buzzerboard hardware/README.md). Owner (2026-11-09):
 // every level on the score column fills from LED1 upwards.
+//
+// Fades (the idle breath of the own colours, the charging glow, the gateway
+// pulse) run at a fine level with 8 fractional bits and are dithered by
+// chain index (led/Dither.h), so at low brightness they glide instead of
+// stepping (Timo, 2026-11-10). The column's colours are dithered at rest
+// too, so a glow starts and ends on the LEDs' resting values.
 namespace fleet {
 
 using game::Rgb;
@@ -64,11 +71,19 @@ inline Rgb levelRounded(Rgb c, uint8_t lvl) {
             (uint8_t)((c.b * lvl + 127) / 255)};
 }
 
-// Raised cosine from lo up to hi and back, one cycle per period.
-inline uint8_t softPulse(uint32_t now, uint32_t period, uint8_t lo, uint8_t hi) {
+// Raised cosine from lo up to hi and back, one cycle per period, as a fine
+// level (led/Dither.h).
+inline uint16_t softPulse(uint32_t now, uint32_t period, uint16_t lo, uint16_t hi) {
     float x = (float)(now % period) / (float)period;
     float s = 0.5f - 0.5f * cosf(6.2831853f * x);
-    return (uint8_t)(lo + (uint8_t)lroundf((float)(hi - lo) * s));
+    return (uint16_t)(lo + (uint16_t)lroundf((float)(hi - lo) * s));
+}
+
+// c at the fine level lvl on chain LED led, dithered.
+inline Rgb levelFine(Rgb c, uint16_t lvl, uint8_t led) {
+    return {dither::channel(dither::scale(c.r, lvl), led),
+            dither::channel(dither::scale(c.g, lvl), led),
+            dither::channel(dither::scale(c.b, lvl), led)};
 }
 
 // Level LED n (0 = the first LED of the level): red through yellow to green.
@@ -104,13 +119,18 @@ inline void renderLevel(uint8_t battery, int16_t ibatMa, uint32_t now, Rgb* px, 
     if (n == 0) return;
     bool charging = ibatMa >= kFlowMinMa;
     uint8_t fill = charging ? chargeFillLevel(lvl) : lvl;
-    for (uint8_t i = 0; i < n; i++)
-        px[columnLedFromLed1(i)] = levelRounded(columnGradient(i), fill);
+    for (uint8_t i = 0; i < n; i++) {
+        uint8_t led = columnLedFromLed1(i);
+        px[led] = levelFine(columnGradient(i), dither::fine(fill), led);
+    }
     if (charging) {
-        uint8_t glow = softPulse(now, kTipGlowMs, fill, chargeGlowLevel(lvl));
+        uint16_t glow =
+            softPulse(now, kTipGlowMs, dither::fine(fill), dither::fine(chargeGlowLevel(lvl)));
         uint8_t from = n > kChargeGlowLeds ? (uint8_t)(n - kChargeGlowLeds) : 0;
-        for (uint8_t i = from; i < n; i++)
-            px[columnLedFromLed1(i)] = levelRounded(columnGradient(i), glow);
+        for (uint8_t i = from; i < n; i++) {
+            uint8_t led = columnLedFromLed1(i);
+            px[led] = levelFine(columnGradient(i), glow, led);
+        }
     }
     px[game::kStatusDot] = levelRounded(columnGradient(n - 1), lvl);
 }
@@ -123,11 +143,16 @@ inline void renderOffLevel(uint8_t battery, bool charging, uint32_t now, Rgb* px
     clearFrame(px);
     if (battery == kNoBattery) return;
     uint8_t n = columnCount(battery);
-    for (uint8_t i = 0; i < n; i++)
-        px[columnLedFromLed1(i)] = levelRounded(columnGradient(i), kOffLevel);
-    if (charging && n > 0)
-        px[columnLedFromLed1(n - 1)] = levelRounded(
-            columnGradient(n - 1), softPulse(now, kTipGlowMs, kOffLevel, kOffTipLevel));
+    for (uint8_t i = 0; i < n; i++) {
+        uint8_t led = columnLedFromLed1(i);
+        px[led] = levelFine(columnGradient(i), dither::fine(kOffLevel), led);
+    }
+    if (charging && n > 0) {
+        uint8_t led = columnLedFromLed1(n - 1);
+        px[led] = levelFine(
+            columnGradient(n - 1),
+            softPulse(now, kTipGlowMs, dither::fine(kOffLevel), dither::fine(kOffTipLevel)), led);
+    }
 }
 
 // The device's own colours: the look's colour per column LED from LED1, one
@@ -137,10 +162,11 @@ static_assert(kLookLeds == game::kScoreCount, "one look colour per column LED");
 inline void renderLook(const Look& look, uint32_t t, uint8_t lvl, Rgb* px) {
     clearFrame(px);
     if (look.count != kLookLeds) return;
-    uint8_t b = softPulse(t, kIdlePulseMs, (uint8_t)(lvl / 5), lvl);
-    for (uint8_t i = 0; i < kLookLeds; i++)
-        px[columnLedFromLed1(i)] =
-            levelRounded(Rgb{look.rgb[i][0], look.rgb[i][1], look.rgb[i][2]}, b);
+    uint16_t b = softPulse(t, kIdlePulseMs, (uint16_t)(dither::fine(lvl) / 5), dither::fine(lvl));
+    for (uint8_t i = 0; i < kLookLeds; i++) {
+        uint8_t led = columnLedFromLed1(i);
+        px[led] = levelFine(Rgb{look.rgb[i][0], look.rgb[i][1], look.rgb[i][2]}, b, led);
+    }
 }
 
 // The gateway (the console's USB link): the device's own colours at lvl, or a
@@ -153,16 +179,16 @@ inline void renderGateway(const Look& look, uint32_t now, uint8_t lvl, Rgb* px) 
     // Pulse centre from 2 LEDs above the top to 2 below LED1.
     float pos =
         ph < run ? (float)(kLookLeds + 1) - (float)ph * (kLookLeds + 4) / (float)run : -100.0f;
+    float k = (float)dither::fine(lvl) / 255.0f;  // full scale -> fine level
     for (uint8_t i = 0; i < kLookLeds; i++) {
         Rgb c = look.count == kLookLeds ? Rgb{look.rgb[i][0], look.rgb[i][1], look.rgb[i][2]}
                                         : Rgb{0, 48, 255};
         float d = fabsf((float)i - pos);
-        if (d < 2.5f) {
-            float w = 0.7f * (1.0f - d / 2.5f);
-            c = Rgb{(uint8_t)(c.r + (255 - c.r) * w), (uint8_t)(c.g + (255 - c.g) * w),
-                    (uint8_t)(c.b + (255 - c.b) * w)};
-        }
-        px[columnLedFromLed1(i)] = levelRounded(c, lvl);
+        float w = d < 2.5f ? 0.7f * (1.0f - d / 2.5f) : 0.0f;
+        uint8_t led = columnLedFromLed1(i);
+        px[led] = {dither::channel((uint16_t)((c.r + (255 - c.r) * w) * k), led),
+                   dither::channel((uint16_t)((c.g + (255 - c.g) * w) * k), led),
+                   dither::channel((uint16_t)((c.b + (255 - c.b) * w) * k), led)};
     }
 }
 
@@ -183,8 +209,10 @@ inline void renderCharging(const ChargeView& v, uint32_t now, Rgb* px, uint8_t l
     if (v.charge == Charge::Full) {
         Rgb green = level(game::colorRgb(Color::Green), lvl);
         if (v.fullForMs < kFullColumnMs)
-            for (uint8_t i = 0; i < game::kScoreCount; i++)
-                px[columnLedFromLed1(i)] = levelRounded(columnGradient(i), chargeFillLevel(lvl));
+            for (uint8_t i = 0; i < game::kScoreCount; i++) {
+                uint8_t led = columnLedFromLed1(i);
+                px[led] = levelFine(columnGradient(i), dither::fine(chargeFillLevel(lvl)), led);
+            }
         px[game::kStatusDot] = green;
         return;
     }

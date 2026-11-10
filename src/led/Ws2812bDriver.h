@@ -74,6 +74,8 @@ class Ws2812bDriver : public LedDriver {
 
     void setRefreshMs(uint16_t ms) override { _refreshMs = ms; }
 
+    uint16_t pixelCount() const override { return _numLeds; }
+
     void setColorOrder(ColorOrder order) override { _order = order; }
 
     // Safe to call from any task: the new cap takes effect on the next write

@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "../config/Config.h"
+#include "Dither.h"
 
 // Abstract LED output interface. Swap this implementation when the hardware changes.
 //
@@ -25,6 +26,17 @@ class LedDriver {
     void setPixel(uint16_t idx, uint8_t r, uint8_t g, uint8_t b) {
         writePixel(idx, _clamp(r), _clamp(g), _clamp(b));
     }
+    // One colour on every pixel with 8 fractional bits per channel
+    // (0-65280 for 0-255), dithered by pixel position (Dither.h), then shown.
+    void setColorFine(uint16_t r, uint16_t g, uint16_t b) {
+        r = _clampFine(r);
+        g = _clampFine(g);
+        b = _clampFine(b);
+        for (uint16_t i = 0; i < pixelCount(); i++)
+            writePixel(i, dither::channel(r, i), dither::channel(g, i), dither::channel(b, i));
+        show();
+    }
+    virtual uint16_t pixelCount() const { return 1; }
     virtual void show() {}
     virtual void off() { writeColor(0, 0, 0); }
     // Changes the RGB→wire permutation at runtime — no re-init needed.
@@ -52,6 +64,11 @@ class LedDriver {
     uint8_t _clamp(uint8_t v) const {
         uint16_t scaled = (uint16_t)v * _brightnessScale / 255;
         return scaled < _brightnessLimit ? (uint8_t)scaled : _brightnessLimit;
+    }
+    uint16_t _clampFine(uint16_t v) const {
+        uint32_t scaled = (uint32_t)v * _brightnessScale / 255;
+        uint32_t limit = (uint32_t)_brightnessLimit << 8;
+        return (uint16_t)(scaled < limit ? scaled : limit);
     }
     uint8_t _brightnessLimit = 255;
     uint8_t _brightnessScale = 255;
