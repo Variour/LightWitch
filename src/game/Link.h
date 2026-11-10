@@ -340,9 +340,10 @@ class Link : public Bridge::Listener {
                 int len = snprintf(line, sizeof(line),
                                    "{\"ns\":\"game\",\"ev\":\"value\",\"n\":%u,\"round\":%u,"
                                    "\"v\":%u,\"vseq\":%u,\"t\":%ld,\"arr\":%u,\"late\":%s,"
-                                   "\"rssi\":%d,\"bat\":%s%s}\n",
+                                   "\"rssi\":%d,\"bat\":%s%s%s}\n",
                                    n, _bridge->stateInfo(0).round, dv->value, dv->vseq, (long)dv->t,
-                                   dv->arr, _b(dv->late), dv->valueRssi, bat, lage);
+                                   dv->arr, _b(dv->late), dv->valueRssi, bat, lage,
+                                   dv->answerTaken ? ",\"answer\":true" : "");
                 if (!_write(line, len)) return false;
                 _bridge->clearDirtyValue(n);
             }
@@ -568,8 +569,9 @@ class Link : public Bridge::Listener {
         if (strcmp(cmd, "release") == 0) return _cmdRelease(o, id, now);
         if (strcmp(cmd, "round") == 0) return _cmdRound(o, id, now);
         if (strcmp(cmd, "number") == 0) return _cmdNumber(o, id);
+        if (strcmp(cmd, "answering") == 0) return _cmdAnswering(o, id, now);
         _error(id, "unknown_cmd", "game", cmd, nullptr,
-               "game commands: session, end, admit, release, round, number");
+               "game commands: session, end, admit, release, round, number, answering");
     }
 
     void _cmdSession(JsonObjectConst o, const ReqId& id, uint32_t now) {
@@ -726,9 +728,15 @@ class Link : public Bridge::Listener {
             auto keyBit = [](Key k) { return (uint16_t)(1u << (uint8_t)k); };
             bool ok;
             const char* rule;
+            uint16_t two = keyBit(Key::Up) | keyBit(Key::Right);
+            uint16_t three = two | keyBit(Key::Down);
+            uint16_t four = three | keyBit(Key::Left);
             if (c.type == RoundType::Race) {
-                ok = c.keyMask == keyBit(Key::Buzz);
-                rule = "race takes exactly buzz";
+                // Answer keys for the answering device, as in a choice.
+                uint16_t answers = c.keyMask & (uint16_t)~keyBit(Key::Buzz);
+                ok = (c.keyMask & keyBit(Key::Buzz)) &&
+                     (answers == 0 || answers == two || answers == three || answers == four);
+                rule = "race takes buzz, optionally with up, right, down, left in this order";
             } else if (c.type == RoundType::Scale) {
                 ok = c.keyMask == (keyBit(Key::Up) | keyBit(Key::Down));
                 rule = "scale takes exactly up and down";
@@ -737,9 +745,6 @@ class Link : public Bridge::Listener {
                      (keyBit(Key::Up) | keyBit(Key::Right) | keyBit(Key::Down) | keyBit(Key::Left));
                 rule = "move takes exactly up, right, down and left";
             } else {
-                uint16_t two = keyBit(Key::Up) | keyBit(Key::Right);
-                uint16_t three = two | keyBit(Key::Down);
-                uint16_t four = three | keyBit(Key::Left);
                 ok = c.keyMask == two || c.keyMask == three || c.keyMask == four;
                 rule = "choice takes up, right, down, left in this order, 2-4 keys";
             }
@@ -915,6 +920,33 @@ class Link : public Bridge::Listener {
             c.correct = (uint8_t)v;
         }
         return true;
+    }
+
+    // The race device that answers now and its answer time (owner,
+    // 2026-11-10); n 0 or null: nobody.
+    void _cmdAnswering(JsonObjectConst o, const ReqId& id, uint32_t now) {
+        long long n = 0, ms = 0;
+        Field fn = _int(o, "n", 0, kMaxNumber, n);
+        if (fn != Field::Ok && fn != Field::Null)
+            return _badField(id, "answering", "n", "n must be 0-999 or null");
+        if (fn == Field::Null) n = 0;
+        if (n != 0 && _int(o, "ms", 1000, 60000, ms) != Field::Ok)
+            return _badField(id, "answering", "ms", "ms must be 1000-60000");
+        switch (_bridge->answering((uint16_t)n, (uint16_t)ms, now)) {
+            case Bridge::Err::None: {
+                JsonDocument d;
+                _head(d, "game", "answering", id);
+                d["n"] = n;
+                d["ms"] = n != 0 ? ms : 0;
+                _enqueue(d);
+                return;
+            }
+            case Bridge::Err::BadPhase:
+                return _error(id, "bad_phase", "game", "answering", nullptr,
+                              "answering only in a race round");
+            default:
+                return _error(id, "no_session", "game", "answering", nullptr, "no active session");
+        }
     }
 
     void _cmdRound(JsonObjectConst o, const ReqId& id, uint32_t now) {

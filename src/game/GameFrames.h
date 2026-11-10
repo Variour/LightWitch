@@ -69,15 +69,18 @@ struct __attribute__((packed)) QuizStateMsg {
     uint16_t winner;       // race winner number, 0 = none
     uint8_t correct;       // choice answer 1-4 or rainbow step 1-24, 0 = none
     uint8_t hold;          // Hold (Lage.h)
-    uint16_t echoFirst;    // first number covered by echo
-    uint8_t echoCount;     // entries in echo, at most kEchoPageSize
+    uint16_t answering;    // race: the number answering now, 0 = none
+    uint16_t answerMs;     // its answer time
+    uint16_t answerLeftMs;  // of that left at send, 0 = over
+    uint16_t echoFirst;     // first number covered by echo
+    uint8_t echoCount;      // entries in echo, at most kEchoPageSize
     // Per number: the value the bridge holds (kNoValue = none); in a move
     // round the last key press counter (kseq) it passed on (kNoKeySeq = none).
     uint8_t echo[kEchoPageSize];
 };
 static constexpr size_t kQuizStateHeadLen = offsetof(QuizStateMsg, echo);
-static_assert(kQuizStateHeadLen == 42, "QuizStateMsg layout");
-static_assert(sizeof(QuizStateMsg) == 242, "QuizStateMsg layout");
+static_assert(kQuizStateHeadLen == 48, "QuizStateMsg layout");
+static_assert(sizeof(QuizStateMsg) == 248, "QuizStateMsg layout");
 
 struct __attribute__((packed)) QuizReportMsg {
     QuizHeader h;

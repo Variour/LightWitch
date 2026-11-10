@@ -9,7 +9,9 @@
 namespace game {
 
 // ── Radio protocol ───────────────────────────────────────────────────────────
-static constexpr uint8_t kProto = 1;           // fixed v0: `proto` in every frame header
+// `proto` in every frame header: 1 in v0, 2 since QuizState carries the
+// race's answering device (owner, 2026-11-10).
+static constexpr uint8_t kProto = 2;
 static constexpr uint16_t kMaxNumber = 999;    // fixed v0: device numbers 1-999, 0 = bridge
 static constexpr uint16_t kNoNumber = 0xFFFF;  // fixed v0: `origin` of a device without number
 static constexpr uint8_t kEchoPageSize = 200;  // fixed v0: echo entries per QuizState frame
@@ -157,6 +159,12 @@ static constexpr uint32_t kPulsePeriodMs = 1000;  // firmware: one pulse per sec
 // the column red instead.
 static constexpr uint32_t kCelebrateMs = 2000;
 static constexpr uint32_t kCelebrateRunMs = 1000;
+// owner (2026-11-10): the race device that answers (link `game answering`)
+// shows its answer time as a full column that runs down evenly and turns
+// from green to kWrongRgb, the ring in the same colour; in a race with
+// answer keys its free answer keys glow white at kLevelFree. Time over: ring
+// and column in kWrongRgb for kAnswerOverMs, then the column alone.
+static constexpr uint32_t kAnswerOverMs = 600;
 static constexpr uint32_t kBlinkPeriodMs = 1000;  // fixed v0: status dot blinks at 1 Hz
 
 }  // namespace game

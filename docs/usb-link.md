@@ -94,7 +94,7 @@ orientation, and leave it out otherwise:
   once when it takes a new orientation, so a `device` line follows right away.
 - `value`: the orientation the input was read in.
 
-`{"ns":"game","ev":"device","n":7,"mac":"02:00:00:00:00:07","fw":"4a45fc32","proto":1,"bat":81,"chg":false,"rssi":-48,"round":23417,"seq":2,"lage":"quer"}`
+`{"ns":"game","ev":"device","n":7,"mac":"02:00:00:00:00:07","fw":"4a45fc32","proto":2,"bat":81,"chg":false,"rssi":-48,"round":23417,"seq":2,"named":false,"lage":"quer"}`
 
 ### `hold` in `game round`
 
@@ -154,6 +154,39 @@ orientation, and leave it out otherwise:
 - For a race the quizmaster rates, send the winner together with the
   rating: `winner` alone starts the celebration.
 - On the radio: bit 1 of the `QuizState` header `flags`.
+
+### Answer time in a race (`game answering`)
+
+`{"ns":"game","cmd":"answering","id":12,"n":7,"ms":10000}` →
+`{"ns":"game","ev":"answering","id":12,"n":7,"ms":10000}`
+
+- The race device `n` answers now and has `ms` (1000-60000) for it;
+  `"n":0` or `"n":null` ends it (`ms` may be left out then). `bad_field`
+  ("n must be 0-999 or null", "ms must be 1000-60000"), `no_session`,
+  `bad_phase` ("answering only in a race round"). The same `n` and `ms`
+  again change nothing; a new `n` or `ms` starts the time again.
+- The answer time starts when the bridge takes the command. The bridge
+  sends the device, the answer time and the time left in every `QuizState`
+  (radio `proto` 2).
+- Device: its full column runs down evenly over the time in reading
+  direction and turns from green to orange red, the ring in the same
+  colour. Time over: ring and column orange red for 0.6 s, then the column
+  alone ("wrong"). The other devices show nothing new.
+- Rating: send `game round` with `winner` = `n` and `verdict` as above;
+  `winner` on the answering device ends its answer time display. For the
+  next in line after `wrong` or time over, send `game answering` with its
+  number.
+- Race with answer keys: `keys` may add `up`, `right`, `down`, `left` to
+  `buzz` (2-4 of them in this order, as in a choice):
+  `{"ns":"game","cmd":"round","round":23421,"type":"race","phase":"open","keys":{"buzz":"white","up":"white","right":"white","down":"white","left":"white"}}`.
+  Only the answering device takes them, during its answer time and in any
+  phase: they glow white at 40 %, the first press is the answer (no change
+  of mind) and shows like a chosen answer, its column stops where it was.
+  The answer comes as a `value` line with `"v"` 1-4 (as in a choice), `t`
+  its moment and `"answer":true`; `late` is true after the answer time.
+  The bridge takes one answer per device and answer time; the race order
+  (`arr`) stays. The console rates it (`verdict`).
+- Without `game answering` a race works as before: the winner is green.
 
 ### Rainbow scale (`display` in `game round`)
 
@@ -227,7 +260,7 @@ until login closes; the choice stays with the session entry, also across a
 restart in the session.
 
 - `join` and `device` lines carry `"named":true` or `"named":false`:
-  `{"ns":"game","ev":"device","n":7,"mac":"02:00:00:00:00:07","fw":"4a45fc32","proto":1,"bat":81,"chg":false,"rssi":-48,"round":0,"seq":1,"named":true}`
+  `{"ns":"game","ev":"device","n":7,"mac":"02:00:00:00:00:07","fw":"4a45fc32","proto":2,"bat":81,"chg":false,"rssi":-48,"round":0,"seq":1,"named":true}`
 - A choice sends a status at once, so a `device` line follows right away.
 - On the radio: bit 4 of the `QuizStatus` `flags`.
 - Display: Up and Down white at 40 %; the chosen key pulses once per second

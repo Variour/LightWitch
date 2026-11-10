@@ -76,6 +76,7 @@ class Bridge {
         bool named;         // from the last status (kStatusNamed)
         uint8_t valueLage;  // the value's input orientation, 0 = unknown
         uint8_t keySeq;     // move round: last kseq passed on, kNoKeySeq = none
+        bool answerTaken;   // race: the value is the answering device's answer
         bool dirtyValue;
         bool dirtyDevice;
     };
@@ -290,6 +291,21 @@ class Bridge {
         return Err::None;
     }
 
+    // The race device that answers now (n 0 = none) and its answer time.
+    Err answering(uint16_t n, uint16_t ms, uint32_t now) {
+        if (!_active || _ending) return Err::NoSession;
+        RoundModel& r = _round;
+        if (r.type != RoundType::Race) return Err::BadPhase;
+        if (n == 0) ms = 0;
+        if (n == r.answering && ms == r.answerMs) return Err::None;
+        r.answering = n;
+        r.answerMs = ms;
+        r.answerAt = now;
+        r.seq++;
+        _markStateChanged(now);
+        return Err::None;
+    }
+
     // ── Radio ────────────────────────────────────────────────────────────────
     void onFrame(const uint8_t* d, size_t len, int8_t rssi, uint32_t now) {
         if (!quizFrameLenOk(d, len)) return;
@@ -453,6 +469,9 @@ class Bridge {
         bool firstOnly = false;
         bool winnerWrong = false;
         bool rainbow = false;
+        uint16_t answering = 0;  // race: the number answering now
+        uint16_t answerMs = 0;
+        uint32_t answerAt = 0;  // bridge time its answer time began
         bool opened = false;
         uint32_t openAt = 0;  // bridge time of the round start (open + openInMs)
         bool closedValid = false;
@@ -566,6 +585,8 @@ class Bridge {
         m.winner = _round.winner;
         m.correct = _round.correct;
         m.hold = (uint8_t)_round.hold;
+        m.answering = _round.answering;
+        m.answerMs = _round.answerMs;
         bool move = _round.type == RoundType::Move;
         uint16_t first = 1;
         do {
@@ -582,6 +603,8 @@ class Bridge {
             }
             // Written as late as possible before sending (gateway protocol v0).
             m.openOffsetMs = _round.opened ? (int32_t)(now - _round.openAt) : 0;
+            uint32_t used = now - _round.answerAt;
+            m.answerLeftMs = used < _round.answerMs ? (uint16_t)(_round.answerMs - used) : 0;
             _send(&m, stateFrameLen(m));
             first = (uint16_t)(first + kEchoPageSize);
         } while (first <= _maxNumber);
@@ -667,6 +690,24 @@ class Bridge {
             return;
         _noteNumber(n);
         Device& dv = _devs[n];
+        // The answering race device's answer key (1-4): its first answer,
+        // late after its answer time.
+        if (_round.type == RoundType::Race && n == _round.answering && dv.hasValue) {
+            if (dv.answerTaken || m.value < 1 || m.value > 4) return;
+            if (!dv.vseqReset && !seq8Newer(m.valueSeq, dv.vseq)) return;
+            dv.answerTaken = true;
+            dv.vseqReset = false;
+            dv.value = m.value;
+            dv.vseq = m.valueSeq;
+            dv.t = m.pressOffsetMs;
+            dv.late = _round.opened && m.pressOffsetMs > (int32_t)(_round.answerAt +
+                                                                   _round.answerMs - _round.openAt);
+            dv.valueRssi = rssi;
+            dv.valueBattery = m.battery;
+            dv.valueLage = m.lage < kLageCount ? m.lage : 0;
+            _setDirtyValue(n);
+            return;
+        }
         // firstOnly: the first value stays, with its time.
         if (_round.firstOnly && dv.hasValue) return;
         if (dv.hasValue && !dv.vseqReset && !seq8Newer(m.valueSeq, dv.vseq)) return;
@@ -802,6 +843,7 @@ class Bridge {
         dv.t = 0;
         dv.valueLage = 0;
         dv.keySeq = kNoKeySeq;
+        dv.answerTaken = false;
     }
 
     void _clearDevice(uint16_t n) {

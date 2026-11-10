@@ -73,8 +73,12 @@ class Participant {
         bool firstOnly = false;    // only the first answer counts (kStateFirstOnly)
         bool winnerWrong = false;  // the race winner's answer rated wrong (kStateWinnerWrong)
         bool rainbow = false;      // a scale of 24 steps in the rainbow colours (kStateRainbow)
-        uint32_t resultMs = 0;     // when correct, winner or the rating last changed
-        bool fixedKnown = false;   // hold fest: the orientation at the open
+        uint16_t answering = 0;    // race: the number answering now, 0 = none
+        uint16_t answerMs = 0;     // its answer time
+        bool deadlineKnown = false;
+        uint32_t deadline = 0;    // local end of the answer time
+        uint32_t resultMs = 0;    // when correct, winner or the rating last changed
+        bool fixedKnown = false;  // hold fest: the orientation at the open
         Lage fixed = Lage::Unknown;
         bool startKnown = false;
         uint32_t startMs = 0;  // local round start (bridge open moment)
@@ -277,6 +281,20 @@ class Participant {
     uint32_t namingMs() const { return _namingMs; }  // the last choice (millis())
     // Up / Down choose named or anonymous: a member while login is open and
     // no round other than idle runs.
+    // This device answers in the race now (link `game answering`).
+    bool answeringMe() const {
+        return _round.known && _round.type == RoundType::Race && _round.answering != 0 &&
+               _round.answering == _number && _round.winner != _number;
+    }
+    // It has given its answer with an answer key.
+    bool answerGiven() const { return _answerGiven; }
+    uint32_t inputMs() const { return _inputMs; }
+    // Its answer time runs at moment ms and it has not answered yet.
+    bool answerOpen(uint32_t ms) const {
+        return answeringMe() && !_answerGiven && _round.deadlineKnown &&
+               (int32_t)(ms - _round.deadline) < 0;
+    }
+
     bool namingOpen(uint32_t now) const {
         return _state == State::Member && loginOpen(now) &&
                !(_round.known && _round.type != RoundType::Idle);
@@ -374,7 +392,8 @@ class Participant {
     uint32_t _inputMs = 0;  // moment of the last input (millis())
     bool _confirmed = false;
     uint32_t _confirmedMs = 0;
-    bool _reported = false;  // the value went out at least once
+    bool _reported = false;     // the value went out at least once
+    bool _answerGiven = false;  // race: this device answered with an answer key
     bool _sendArmed = false;
     uint32_t _nextSendAt = 0;
     uint32_t _retryMs = 0;
@@ -534,6 +553,12 @@ class Participant {
             _round.hold = (Hold)m.hold;
             _round.firstOnly = (m.h.flags & kStateFirstOnly) != 0;
             _round.rainbow = (m.h.flags & kStateRainbow) != 0;
+            if (m.answering != _round.answering || m.answerMs != _round.answerMs) {
+                _round.answering = m.answering;
+                _round.answerMs = m.answerMs;
+                _round.deadlineKnown = false;
+                _answerGiven = false;
+            }
             // Fest: the orientation at the moment the round opens stays.
             if (_round.hold == Hold::Fest && !_round.fixedKnown && _round.type != RoundType::Idle &&
                 _round.phase == Phase::Open) {
@@ -550,6 +575,15 @@ class Participant {
                 _round.startKnown = true;
             }
         }
+        // Answer time: local end = receive time + time left; keep the
+        // earliest, as for the round start.
+        if (_round.answering != 0) {
+            uint32_t end = now + m.answerLeftMs;
+            if (!_round.deadlineKnown || (int32_t)(end - _round.deadline) < 0) {
+                _round.deadline = end;
+                _round.deadlineKnown = true;
+            }
+        }
         if (_number == 0 || _number < m.echoFirst || _number >= m.echoFirst + m.echoCount) return;
         uint8_t echo = m.echo[_number - m.echoFirst];
         if (_round.type == RoundType::Move) {
@@ -563,7 +597,7 @@ class Participant {
             return;
         }
         // First answer only: the value the bridge holds is the answer.
-        if (_round.firstOnly && echo != kNoValue && echo != _val) {
+        if (_round.firstOnly && !_answerGiven && echo != kNoValue && echo != _val) {
             _val = echo;
             _confirmed = true;
             _confirmedMs = now;
@@ -594,7 +628,8 @@ class Participant {
                m.winner == r.winner && m.correct == r.correct && m.hold == (uint8_t)r.hold &&
                ((m.h.flags & kStateFirstOnly) != 0) == r.firstOnly &&
                ((m.h.flags & kStateWinnerWrong) != 0) == r.winnerWrong &&
-               ((m.h.flags & kStateRainbow) != 0) == r.rainbow;
+               ((m.h.flags & kStateRainbow) != 0) == r.rainbow && m.answering == r.answering &&
+               m.answerMs == r.answerMs;
     }
 
     void _resetValue() {
@@ -605,6 +640,7 @@ class Participant {
         _confirmed = false;
         _confirmedMs = 0;
         _reported = false;
+        _answerGiven = false;
         _sendArmed = false;
         _retryMs = 0;
         // Move: the press counter restarts per round and with every join.
@@ -619,6 +655,13 @@ class Participant {
         Key k = roundKey(logicalInput(_shown, phys));
         if (namingOpen(now) && (k == Key::Up || k == Key::Down)) {
             _setNaming(k == Key::Up ? Naming::Named : Naming::Anonymous, now);
+            return;
+        }
+        // The answering race device: its first answer key is the answer, in
+        // any phase, within its answer time.
+        if (answerOpen(ms) && choiceAnswer(k) != 0 && (_round.keyMask & (1u << (uint8_t)k))) {
+            _answerGiven = true;
+            _setValue(choiceAnswer(k), ms, now, 0);
             return;
         }
         if (!keyFree(k, ms)) {

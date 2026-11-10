@@ -153,6 +153,49 @@ inline void renderCelebration(uint32_t t, bool rev, Rgb* px) {
     fillRing(px, blendRgb(green, white, softPulse(t, kCelebrateRunMs, 0, 255)));
 }
 
+// The race device that answers now (kAnswerOverMs, owner 2026-11-10): its
+// answer time as a full column that runs down evenly in reading direction
+// and turns from green to kWrongRgb, the ring in the same colour; once it
+// answered, the column stays where it was. In a race with answer keys its
+// free answer keys glow white at kLevelFree, the given answer shows like a
+// chosen answer. Time over without an answer: ring and column in kWrongRgb,
+// after kAnswerOverMs the column alone.
+inline void renderAnswering(const Participant& p, uint32_t now, Rgb* px) {
+    const Participant::Round& r = p.round();
+    Lage l = p.inputLage();
+    bool rev = columnReversed(l);
+    uint32_t at = p.answerGiven() ? p.inputMs() : now;
+    int32_t left = r.deadlineKnown ? (int32_t)(r.deadline - at) : (int32_t)r.answerMs;
+    const Key answers[4] = {Key::Up, Key::Right, Key::Down, Key::Left};
+    auto inMask = [&](Key k) { return (r.keyMask & (1u << (uint8_t)k)) != 0; };
+    if (left <= 0) {
+        fillScore(px, kScoreCount, kWrongRgb, rev);
+        if ((uint32_t)-left < kAnswerOverMs) fillRing(px, kWrongRgb);
+        return;
+    }
+    float frac = r.answerMs ? (float)left / (float)r.answerMs : 1.0f;
+    if (frac > 1.0f) frac = 1.0f;
+    Rgb c = blendRgb(colorRgb(Color::Green), kWrongRgb, (uint8_t)(255.0f * (1.0f - frac)));
+    float lit = frac * kScoreCount;
+    for (uint8_t n = 0; n < kScoreCount; n++) {
+        float on = lit - (float)n;
+        if (on >= 1.0f)
+            px[scoreLed(n, rev)] = c;
+        else if (on > 0.0f)
+            px[scoreLed(n, rev)] = scaleRgb(c, (uint8_t)(255.0f * on));
+    }
+    fillRing(px, c);
+    uint8_t val = p.value();
+    for (uint8_t i = 0; i < 4; i++) {
+        Key k = answers[i];
+        if (!inMask(k)) continue;
+        if (p.answerGiven() && val == i + 1)
+            px[logicalLed(l, k)] = chosenKeyRgb(p, directionRgb(k), now);
+        else if (!p.answerGiven())
+            px[logicalLed(l, k)] = freeKeyRgb();
+    }
+}
+
 // A scale of 24 steps in the rainbow colours (owner, 2026-11-10; step 1
 // where the column starts in reading direction). Open: the whole column
 // shows the rainbow at kLevelDimmed and the chosen step shows like a chosen
@@ -301,6 +344,8 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                 } else if (winner) {
                     fillRing(px, colorRgb(Color::Green));
                     fillScore(px, kScoreCount, colorRgb(Color::Green));
+                } else if (p.answeringMe()) {
+                    renderAnswering(p, now, px);
                 } else if (r.winner == 0 && val != kNoValue) {
                     // Pressed: white until confirmed, then the ring glows blue.
                     fillRing(px, colorRgb(p.confirmed() ? Color::Blue : Color::White));
