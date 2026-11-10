@@ -72,6 +72,7 @@ class Participant {
         Hold hold = Hold::Frei;
         bool firstOnly = false;    // only the first answer counts (kStateFirstOnly)
         bool winnerWrong = false;  // the race winner's answer rated wrong (kStateWinnerWrong)
+        bool rainbow = false;      // a scale of 24 steps in the rainbow colours (kStateRainbow)
         uint32_t resultMs = 0;     // when correct, winner or the rating last changed
         bool fixedKnown = false;   // hold fest: the orientation at the open
         Lage fixed = Lage::Unknown;
@@ -200,6 +201,9 @@ class Participant {
             if (k == Key::Buzz && inviteVisible(now)) _joinFromInvite(now);
         } else if (_state == State::Member) {
             _onMemberPress(k, ms, now);
+            // Held, Up and Down step on in a scale round (kScaleRepeatDelayMs).
+            _repeatKey = k;
+            _repeatAt = ms + kScaleRepeatDelayMs;
         }
     }
 
@@ -239,6 +243,7 @@ class Participant {
         _serviceSearch(now);
         _serviceSend(now);
         _serviceKeys(now);
+        _serviceRepeat(now);
         if ((int32_t)(now - _nextStatusAt) >= 0) {
             _sendStatus(0);
             _nextStatusAt = now + _statusInterval();
@@ -390,6 +395,8 @@ class Participant {
     // Key state for the leave combination.
     bool _down[11] = {};
     uint32_t _downAt[11] = {};
+    Key _repeatKey = Key::None;  // the last key pressed, for the scale repeat
+    uint32_t _repeatAt = 0;
 
     uint32_t _rand(uint32_t lo, uint32_t hi) {
         return _io.randomRange ? _io.randomRange(lo, hi) : lo;
@@ -526,6 +533,7 @@ class Participant {
             _round.winnerWrong = winnerWrong;
             _round.hold = (Hold)m.hold;
             _round.firstOnly = (m.h.flags & kStateFirstOnly) != 0;
+            _round.rainbow = (m.h.flags & kStateRainbow) != 0;
             // Fest: the orientation at the moment the round opens stays.
             if (_round.hold == Hold::Fest && !_round.fixedKnown && _round.type != RoundType::Idle &&
                 _round.phase == Phase::Open) {
@@ -585,7 +593,8 @@ class Participant {
                m.scaleMax == r.max && m.redMax == r.redMax && m.greenMin == r.greenMin &&
                m.winner == r.winner && m.correct == r.correct && m.hold == (uint8_t)r.hold &&
                ((m.h.flags & kStateFirstOnly) != 0) == r.firstOnly &&
-               ((m.h.flags & kStateWinnerWrong) != 0) == r.winnerWrong;
+               ((m.h.flags & kStateWinnerWrong) != 0) == r.winnerWrong &&
+               ((m.h.flags & kStateRainbow) != 0) == r.rainbow;
     }
 
     void _resetValue() {
@@ -629,24 +638,9 @@ class Participant {
                     _setValue(a, ms, now, 0);
                 break;
             }
-            case RoundType::Scale: {
-                if ((k != Key::Up && k != Key::Down) || _round.max < _round.min || answerLocked())
-                    break;
-                uint8_t steps = (uint8_t)(_round.max - _round.min + 1);
-                uint8_t v;
-                if (_val == kNoValue) {
-                    // Proposal 2: the first tap sets the middle.
-                    v = k == Key::Up ? (uint8_t)(_round.min + steps / 2)
-                                     : (uint8_t)(_round.min + (steps - 1) / 2);
-                } else if (k == Key::Up) {
-                    v = _val < _round.max ? (uint8_t)(_val + 1) : _val;
-                } else {
-                    v = _val > _round.min ? (uint8_t)(_val - 1) : _val;
-                }
-                if (v != _val)
-                    _setValue(v, ms, now, _round.firstOnly ? kScaleCommitMs : kScaleSendDelayMs);
+            case RoundType::Scale:
+                _scaleTap(k, ms, now);
                 break;
-            }
             case RoundType::Move:
                 // One press, one event: only press edges reach this point.
                 if (choiceAnswer(k) != 0) _pressKey(k, phys, now);
@@ -654,6 +648,38 @@ class Participant {
             default:
                 break;
         }
+    }
+
+    // One step of a scale value with Up or Down (k: logical).
+    void _scaleTap(Key k, uint32_t ms, uint32_t now) {
+        if ((k != Key::Up && k != Key::Down) || _round.max < _round.min || answerLocked()) return;
+        uint8_t steps = (uint8_t)(_round.max - _round.min + 1);
+        uint8_t v;
+        if (_val == kNoValue) {
+            // Proposal 2: the first tap sets the middle.
+            v = k == Key::Up ? (uint8_t)(_round.min + steps / 2)
+                             : (uint8_t)(_round.min + (steps - 1) / 2);
+        } else if (k == Key::Up) {
+            v = _val < _round.max ? (uint8_t)(_val + 1) : _val;
+        } else {
+            v = _val > _round.min ? (uint8_t)(_val - 1) : _val;
+        }
+        if (v != _val) _setValue(v, ms, now, _round.firstOnly ? kScaleCommitMs : kScaleSendDelayMs);
+    }
+
+    // The last key pressed, still held in a scale round: one more step per
+    // kScaleRepeatMs after kScaleRepeatDelayMs.
+    void _serviceRepeat(uint32_t now) {
+        if (_repeatKey == Key::None) return;
+        if (!_down[(uint8_t)_repeatKey] || !_round.known || _round.type != RoundType::Scale) {
+            _repeatKey = Key::None;
+            return;
+        }
+        if ((int32_t)(now - _repeatAt) < 0) return;
+        _repeatAt = now + kScaleRepeatMs;
+        if (locked()) return;
+        Key k = roundKey(logicalInput(_shown, _repeatKey));
+        if (keyFree(k, now)) _scaleTap(k, now, now);
     }
 
     void _pressKey(Key k, Key phys, uint32_t now) {

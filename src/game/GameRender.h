@@ -153,6 +153,47 @@ inline void renderCelebration(uint32_t t, bool rev, Rgb* px) {
     fillRing(px, blendRgb(green, white, softPulse(t, kCelebrateRunMs, 0, 255)));
 }
 
+// A scale of 24 steps in the rainbow colours (owner, 2026-11-10; step 1
+// where the column starts in reading direction). Open: the whole column
+// shows the rainbow at kLevelDimmed and the chosen step shows like a chosen
+// answer, white until confirmed, then pulsing toward its colour, with the
+// ring in its colour. Result (`correct`): the right step pulses between
+// white and its colour. On the right step the device celebrates, then the
+// ring stays green; one step off the own step shows in its colour and the
+// ring pulses once; further off the own step shows in kWrongRgb.
+inline void renderRainbow(const Participant& p, uint32_t now, Rgb* px) {
+    const Participant::Round& r = p.round();
+    Lage l = p.inputLage();
+    bool rev = columnReversed(l);
+    uint8_t val = p.value();
+    int own = val != kNoValue && val >= 1 && val <= kRainbowSteps ? val - 1 : -1;
+    for (uint8_t n = 0; n < kRainbowSteps && n < kScoreCount; n++)
+        px[scoreLed(n, rev)] = scaleRgb(kRainbow[n], kLevelDimmed);
+    if (r.phase == Phase::Closed && r.correct >= 1 && r.correct <= kRainbowSteps) {
+        int right = r.correct - 1;
+        int off = own < 0 ? 0xFF : (own > right ? own - right : right - own);
+        uint32_t t = now - r.resultMs;
+        if (off == 0 && t < kCelebrateMs) return renderCelebration(t, rev, px);
+        px[scoreLed((uint8_t)right, rev)] =
+            blendRgb(colorRgb(Color::White), kRainbow[right], softPulse(t, kPulsePeriodMs, 0, 255));
+        if (own >= 0 && off > 0)
+            px[scoreLed((uint8_t)own, rev)] = off == 1 ? kRainbow[own] : kWrongRgb;
+        if (off == 0)
+            fillRing(px, colorRgb(Color::Green));
+        else if (off == 1 && t < kCelebrateRunMs)
+            fillRing(px, blendRgb(colorRgb(Color::Green), colorRgb(Color::White),
+                                  softPulse(t, kCelebrateRunMs, 0, 255)));
+        return;
+    }
+    if (r.phase == Phase::Open && !p.answerLocked()) {
+        px[logicalLed(l, Key::Up)] = freeKeyRgb();
+        px[logicalLed(l, Key::Down)] = freeKeyRgb();
+    }
+    if (own < 0) return;
+    px[scoreLed((uint8_t)own, rev)] = chosenKeyRgb(p, kRainbow[own], now);
+    if (p.confirmed()) fillRing(px, kRainbow[own]);
+}
+
 // Named or anonymous, after the admission while login is open (owner,
 // 2026-11-10): Up (with the animal name) and Down (anonymous) glow white at
 // kLevelFree; the chosen one pulses like a chosen answer, Up toward green,
@@ -231,6 +272,10 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
     } else if (r.known && r.type != RoundType::Idle && r.phase != Phase::Announced) {
         switch (r.type) {
             case RoundType::Scale: {
+                if (r.rainbow) {
+                    renderRainbow(p, now, px);
+                    break;
+                }
                 if (r.phase == Phase::Open && !p.answerLocked()) {
                     for (Key k : {Key::Up, Key::Down})
                         if (inMask(k)) px[logicalLed(l, k)] = freeKeyRgb();

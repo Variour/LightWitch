@@ -155,6 +155,69 @@ orientation, and leave it out otherwise:
   rating: `winner` alone starts the celebration.
 - On the radio: bit 1 of the `QuizState` header `flags`.
 
+### Rainbow scale (`display` in `game round`)
+
+`{"ns":"game","cmd":"round","round":23420,"type":"scale","phase":"open","keys":{"up":"white","down":"white"},"min":1,"max":24,"display":"rainbow"}`
+
+| `display` | Scale |
+|---|---|
+| `zones` (default, may be left out) | as in the gateway protocol: `redMax` and `greenMin`, the column in the zone colour |
+| `rainbow` | 24 steps in the rainbow colours below, for estimates: `min` 1 and `max` 24, no `redMax` and `greenMin` |
+
+- Only for `scale` (`bad_field`, "only for scale"; "display must be zones or
+  rainbow"). `rainbow` takes `min` 1 and `max` 24 (`bad_field`, "rainbow
+  takes min 1 and max 24") and no `redMax` or `greenMin` (`bad_field`,
+  "omit redMax and greenMin for rainbow"). Fixed for a running round like
+  the other scale fields.
+- The value is the step, 1-24; step 1 is where the column starts in reading
+  direction (from LED1 in `hochkant`).
+- Resolution: `correct` 1-24 in phase `closed`, the right step (`bad_field`,
+  "correct must be 1-24, in phase closed").
+- On the radio: bit 2 of the `QuizState` header `flags`; `correct` carries
+  the right step.
+- Device, open: the whole column shows the rainbow at 20 % of the
+  brightness, Up and Down white at 40 %. Before the first tap no step is
+  chosen; the first tap sets step 13 (Up) or 12 (Down), as in every scale.
+  Holding Up or Down steps on after 400 ms, once per 120 ms (in every scale
+  round). The chosen step shows like a chosen answer: steady white until
+  confirmed, then a pulse between white and its colour, and the ring in its
+  colour. `firstOnly` works as in every scale.
+- Device, result: the right step pulses between white and its colour. On
+  the right step the device celebrates (see the display below), then its
+  ring stays green. One step off: the own step in its colour and one soft
+  green pulse of the ring. Further off: the own step in orange red (the
+  "wrong" colour).
+
+The 24 colours (RGB at full brightness; the device scales them to its
+brightness, the console's screen and the slides use them as they are):
+
+| Step | RGB | Hex |
+|---|---|---|
+| 1 | 255, 0, 0 | `#ff0000` |
+| 2 | 255, 52, 0 | `#ff3400` |
+| 3 | 255, 103, 0 | `#ff6700` |
+| 4 | 255, 155, 0 | `#ff9b00` |
+| 5 | 255, 207, 0 | `#ffcf00` |
+| 6 | 251, 255, 0 | `#fbff00` |
+| 7 | 200, 255, 0 | `#c8ff00` |
+| 8 | 148, 255, 0 | `#94ff00` |
+| 9 | 96, 255, 0 | `#60ff00` |
+| 10 | 44, 255, 0 | `#2cff00` |
+| 11 | 0, 255, 7 | `#00ff07` |
+| 12 | 0, 255, 59 | `#00ff3b` |
+| 13 | 0, 255, 111 | `#00ff6f` |
+| 14 | 0, 255, 163 | `#00ffa3` |
+| 15 | 0, 255, 214 | `#00ffd6` |
+| 16 | 0, 244, 255 | `#00f4ff` |
+| 17 | 0, 192, 255 | `#00c0ff` |
+| 18 | 0, 140, 255 | `#008cff` |
+| 19 | 0, 89, 255 | `#0059ff` |
+| 20 | 0, 37, 255 | `#0025ff` |
+| 21 | 15, 0, 255 | `#0f00ff` |
+| 22 | 67, 0, 255 | `#4300ff` |
+| 23 | 118, 0, 255 | `#7600ff` |
+| 24 | 170, 0, 255 | `#aa00ff` |
+
 ### Named or anonymous (`named`)
 
 After the admission, while login is open and no round other than `idle`

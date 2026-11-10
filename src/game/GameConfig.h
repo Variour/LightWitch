@@ -65,6 +65,10 @@ static constexpr uint32_t kScaleSendDelayMs = 150;  // fixed v0: send 150 ms aft
 // firmware: in a round with firstOnly a scale value goes out, and stays,
 // this long after the last tap, so a few taps set it.
 static constexpr uint32_t kScaleCommitMs = 1000;
+// owner (2026-11-10): holding Up or Down in a scale round steps on, after
+// kScaleRepeatDelayMs once per kScaleRepeatMs.
+static constexpr uint32_t kScaleRepeatDelayMs = 400;
+static constexpr uint32_t kScaleRepeatMs = 120;
 static constexpr uint32_t kRetryMinMs = 300;  // fixed v0: resend after 300-600 ms
 static constexpr uint32_t kRetryMaxMs = 600;
 static constexpr uint32_t kRetryCapMs = 2000;      // fixed v0: doubling up to 2 s

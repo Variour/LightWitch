@@ -749,6 +749,22 @@ class Link : public Bridge::Listener {
             }
         }
 
+        // display (scale; absent = zones): "rainbow" shows 24 steps in the
+        // rainbow colours, without redMax and greenMin
+        JsonVariantConst display = o["display"];
+        if (!display.isUnbound()) {
+            const char* ds = display.is<const char*>() ? display.as<const char*>() : nullptr;
+            if (c.type != RoundType::Scale) {
+                _badField(id, cmd, "display", "only for scale");
+                return false;
+            }
+            if (!ds || (strcmp(ds, "zones") != 0 && strcmp(ds, "rainbow") != 0)) {
+                _badField(id, cmd, "display", "display must be zones or rainbow");
+                return false;
+            }
+            c.rainbow = strcmp(ds, "rainbow") == 0;
+        }
+
         // scale
         const char* scaleKeys[4] = {"min", "max", "redMax", "greenMin"};
         if (c.type != RoundType::Scale) {
@@ -757,6 +773,21 @@ class Link : public Bridge::Listener {
                     _badField(id, cmd, k, "only for scale");
                     return false;
                 }
+        } else if (c.rainbow) {
+            long long mn, mx;
+            if (_int(o, "min", 1, 1, mn) != Field::Ok || _int(o, "max", 24, 24, mx) != Field::Ok) {
+                _badField(id, cmd, "max", "rainbow takes min 1 and max 24");
+                return false;
+            }
+            for (const char* k : {"redMax", "greenMin"})
+                if (!o[k].isUnbound()) {
+                    _badField(id, cmd, k, "omit redMax and greenMin for rainbow");
+                    return false;
+                }
+            c.min = (uint8_t)mn;
+            c.max = (uint8_t)mx;
+            c.redMax = c.min;
+            c.greenMin = c.max;
         } else {
             long long mn, mx, rm, gm;
             if (_int(o, "min", 0, 98, mn) != Field::Ok) {
@@ -861,11 +892,17 @@ class Link : public Bridge::Listener {
             c.winnerWrong = strcmp(vs, "wrong") == 0;
         }
 
-        // correct
-        f = _int(o, "correct", 1, 4, v);
-        if (f != Field::Missing) {
+        // correct: the choice answer, or the right step of a rainbow scale
+        f = _int(o, "correct", 1, 24, v);
+        if (f != Field::Missing && c.rainbow) {
+            if (c.phase != Phase::Closed || f != Field::Ok) {
+                _badField(id, cmd, "correct", "correct must be 1-24, in phase closed");
+                return false;
+            }
+            c.correct = (uint8_t)v;
+        } else if (f != Field::Missing) {
             if (c.type != RoundType::Choice || c.phase != Phase::Closed) {
-                _badField(id, cmd, "correct", "only for choice in phase closed");
+                _badField(id, cmd, "correct", "only for choice and rainbow scale in phase closed");
                 return false;
             }
             uint8_t answers = 0;

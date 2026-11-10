@@ -30,7 +30,7 @@ struct __attribute__((packed)) QuizHeader {
     uint8_t ttl;      // always 0 in v0
     uint8_t hops;     // always 0 in v0
     uint8_t dist;     // 0 bridge, 1 device
-    uint8_t flags;    // QuizState: kStateFirstOnly | kStateWinnerWrong; otherwise 0
+    uint8_t flags;    // QuizState: kStateFirstOnly | kStateWinnerWrong | kStateRainbow; else 0
 };
 static_assert(sizeof(QuizHeader) == 12, "QuizHeader layout");
 
@@ -40,6 +40,9 @@ static constexpr uint8_t kStateFirstOnly = 1 << 0;
 // QuizState header flag: the quizmaster rated the race winner's answer wrong
 // (link `game round` field verdict).
 static constexpr uint8_t kStateWinnerWrong = 1 << 1;
+// QuizState header flag: a scale of 24 steps shown as the rainbow (link
+// `game round` field display "rainbow"); `correct` is then the right step.
+static constexpr uint8_t kStateRainbow = 1 << 2;
 
 struct __attribute__((packed)) QuizInviteMsg {
     QuizHeader h;
@@ -64,7 +67,7 @@ struct __attribute__((packed)) QuizStateMsg {
     uint8_t greenMin;
     int32_t openOffsetMs;  // time since round start at send; negative = opens in; 0 while announced
     uint16_t winner;       // race winner number, 0 = none
-    uint8_t correct;       // choice answer 1-4, 0 = none
+    uint8_t correct;       // choice answer 1-4 or rainbow step 1-24, 0 = none
     uint8_t hold;          // Hold (Lage.h)
     uint16_t echoFirst;    // first number covered by echo
     uint8_t echoCount;     // entries in echo, at most kEchoPageSize

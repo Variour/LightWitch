@@ -103,6 +103,7 @@ class Bridge {
         Hold hold = Hold::Frei;
         bool firstOnly = false;    // only each device's first answer counts
         bool winnerWrong = false;  // the quizmaster rated the winner's answer wrong
+        bool rainbow = false;      // scale of 24 steps shown as the rainbow
     };
 
     struct StateInfo {
@@ -260,6 +261,7 @@ class Bridge {
             r.hold = c.hold;
             r.firstOnly = c.firstOnly;
             r.winnerWrong = c.winnerWrong;
+            r.rainbow = c.rainbow;
             if (r.type != RoundType::Idle) _enterPhase(r.phase, c, now);
             for (uint16_t n = 1; n <= _maxNumber; n++) _clearValue(n);
             _arrivals = 0;
@@ -270,7 +272,7 @@ class Bridge {
         if (c.type != r.type || c.keyMask != r.keyMask ||
             memcmp(c.keyColor, r.keyColor, sizeof(r.keyColor)) != 0 || c.min != r.min ||
             c.max != r.max || c.redMax != r.redMax || c.greenMin != r.greenMin ||
-            c.hold != r.hold || c.firstOnly != r.firstOnly)
+            c.hold != r.hold || c.firstOnly != r.firstOnly || c.rainbow != r.rainbow)
             return Err::RoundFixed;
         Phase phase = r.type == RoundType::Idle ? Phase::Closed : c.phase;
         if ((uint8_t)phase < (uint8_t)r.phase) return Err::BadPhase;
@@ -450,6 +452,7 @@ class Bridge {
         Hold hold = Hold::Frei;
         bool firstOnly = false;
         bool winnerWrong = false;
+        bool rainbow = false;
         bool opened = false;
         uint32_t openAt = 0;  // bridge time of the round start (open + openInMs)
         bool closedValid = false;
@@ -547,7 +550,8 @@ class Bridge {
         QuizStateMsg m{};
         _fillHeader(m.h, kMsgQuizState);
         m.h.flags = (uint8_t)((_round.firstOnly ? kStateFirstOnly : 0) |
-                              (_round.winnerWrong ? kStateWinnerWrong : 0));
+                              (_round.winnerWrong ? kStateWinnerWrong : 0) |
+                              (_round.rainbow ? kStateRainbow : 0));
         m.session = _session;
         m.roundId = _round.id;
         m.stateSeq = _round.seq;

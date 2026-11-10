@@ -90,6 +90,18 @@ inline Rgb colorRgb(Color c) {
 // one (the console's screen takes the same colour).
 static constexpr Rgb kWrongRgb = {128, 40, 0};
 
+// owner (2026-11-10): the 24 colours of a rainbow scale (link `game round`
+// display "rainbow"), step 1 (index 0, red) to step 24 (violet): hue 0-280
+// degrees in even steps at full saturation. The console's screen and the
+// slides take the same values.
+static constexpr uint8_t kRainbowSteps = 24;
+static constexpr Rgb kRainbow[kRainbowSteps] = {
+    {255, 0, 0},   {255, 52, 0},  {255, 103, 0}, {255, 155, 0}, {255, 207, 0}, {251, 255, 0},
+    {200, 255, 0}, {148, 255, 0}, {96, 255, 0},  {44, 255, 0},  {0, 255, 7},   {0, 255, 59},
+    {0, 255, 111}, {0, 255, 163}, {0, 255, 214}, {0, 244, 255}, {0, 192, 255}, {0, 140, 255},
+    {0, 89, 255},  {0, 37, 255},  {15, 0, 255},  {67, 0, 255},  {118, 0, 255}, {170, 0, 255},
+};
+
 inline Rgb scaleRgb(Rgb c, uint8_t level) {
     return {(uint8_t)(c.r * level / 255), (uint8_t)(c.g * level / 255),
             (uint8_t)(c.b * level / 255)};
