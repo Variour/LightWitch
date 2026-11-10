@@ -49,10 +49,11 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
 | `no_usb` | `test charge` without USB power and a charger |
 | `session_active` | `fleet` (except `brightness`) while the bridge runs a game session; `test leds/keys/charge` on a participant in a session |
 
-## `game` (bridge): orientation and move rounds
+## `game` (bridge): additions
 
-Additions to the gateway protocol v0 (firmware spec "Lage v0"). Everything
-else in `game` is as in the gateway protocol.
+Additions to the gateway protocol v0 (firmware spec "Lage v0" and the
+owner's decisions of 2026-11-10). Everything else in `game` is as in the
+gateway protocol.
 
 ### Orientation (`lage`)
 
@@ -137,6 +138,40 @@ orientation, and leave it out otherwise:
   bridge holds.
 - On the radio the flag is bit 0 of the `QuizState` header `flags`.
 
+### `verdict` in `game round` (race)
+
+`{"ns":"game","cmd":"round","round":23419,"type":"race","phase":"closed","keys":{"buzz":"white"},"winner":7,"verdict":"wrong"}`
+
+| `verdict` | Winner's device |
+|---|---|
+| `right` (default, may be left out) | celebrates, then ring and column green |
+| `wrong` | the quizmaster rated the winner's answer wrong: the column shows "wrong" (see the display below), no celebration |
+
+- Only for `race` with a `winner` of 1-999 (`bad_field`, "only for race with
+  a winner"); `right` or `wrong` (`bad_field`, "verdict must be right or
+  wrong"). Like `winner` it may change while the round runs; send it with
+  every line that carries the winner.
+- For a race the quizmaster rates, send the winner together with the
+  rating: `winner` alone starts the celebration.
+- On the radio: bit 1 of the `QuizState` header `flags`.
+
+### Named or anonymous (`named`)
+
+After the admission, while login is open and no round other than `idle`
+runs, a participant chooses: Up plays with the device's animal name, Down
+anonymously. Without a choice it plays anonymously. It can choose again
+until login closes; the choice stays with the session entry, also across a
+restart in the session.
+
+- `join` and `device` lines carry `"named":true` or `"named":false`:
+  `{"ns":"game","ev":"device","n":7,"mac":"02:00:00:00:00:07","fw":"4a45fc32","proto":1,"bat":81,"chg":false,"rssi":-48,"round":0,"seq":1,"named":true}`
+- A choice sends a status at once, so a `device` line follows right away.
+- On the radio: bit 4 of the `QuizStatus` `flags`.
+- Display: Up and Down white at 40 %; the chosen key pulses once per second
+  between white and green (Up) or dimmed white (Down); the ring glows green
+  (named) or white at 40 % (anonymous). The green ring after the admission
+  shows first, for 2 s.
+
 ### Display in rounds (Buzzerboard)
 
 Every level is scaled to the device's brightness (at least one LED step).
@@ -145,14 +180,22 @@ Every level is scaled to the device's brightness (at least one LED step).
 |---|---|---|---|
 | `choice` | answer keys white at 40 % | the chosen key steady white, the others white at 40 % | the chosen key pulses once per second between white and its direction colour, the others stay white at 40 %; the ring glows steadily in the direction colour |
 | `scale` | Up and Down white at 40 % | Up and Down stay; the column shows the value in its zone colour, pulsing | Up and Down stay; the column shows the value; the ring glows steadily in the zone colour |
-| `race` | the ring white at 40 % (yellow and faint before the announced start) | the ring steady white | the ring steady blue |
+| `race` | the ring white at 40 % from the announced start, dark before it | the ring steady white | the ring steady blue |
 
 - With `firstOnly` the other answer keys (Up and Down in `scale`) go dark
   once the device has sent its answer.
 - The chosen key and the ring stay after the round closes, until the result:
   `correct` in `choice` (the correct key in its direction colour, the column
-  green or red) and `winner` in `race` (the winner's ring and column green)
-  show as before.
+  green or "wrong") and `winner` in `race` (the winner's ring and column
+  green, or the column "wrong" with `verdict` `wrong`).
+- Celebration: a device that answered right (`choice` with `correct`) and
+  the race winner celebrate for 2 s: a bright head runs up the column twice
+  (once per second, in reading direction) and leaves it green, the ring
+  pulses softly between green and white. Then the result shows.
+- Race start: no countdown. With `openInMs` the device stays dark until the
+  announced start, then the ring lights. Use `openInMs` of at least 200 ms
+  (the bridge repeats a new state after 50 and 150 ms): every device then
+  knows the start in time, even when it missed the first frame.
 - Announced rounds, joining, the green ring after admission, the status dot,
   locked devices and move rounds are unchanged.
 

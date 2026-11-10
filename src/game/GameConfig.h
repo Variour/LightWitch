@@ -145,6 +145,14 @@ static constexpr uint8_t kLevelShowMin = 2;
 // kLevelFree stays visible at the lowest brightness.
 static constexpr uint8_t kLevelFree = 102;
 static constexpr uint32_t kPulsePeriodMs = 1000;  // firmware: one pulse per second
+// owner (2026-11-10): a right answer at the resolution (choice with
+// correct) and the race winner celebrate for kCelebrateMs: a bright head
+// runs up the column once per kCelebrateRunMs and fills it green, the ring
+// pulses softly between green and white; then the result shows as before. A
+// race winner whose answer the quizmaster rated wrong (link `verdict`) shows
+// the column red instead.
+static constexpr uint32_t kCelebrateMs = 2000;
+static constexpr uint32_t kCelebrateRunMs = 1000;
 static constexpr uint32_t kBlinkPeriodMs = 1000;  // fixed v0: status dot blinks at 1 Hz
 
 }  // namespace game

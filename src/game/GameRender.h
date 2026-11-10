@@ -1,4 +1,5 @@
 #pragma once
+#include <math.h>
 #include <stdint.h>
 
 #include "GameConfig.h"
@@ -131,6 +132,45 @@ inline void renderLageAnim(const Participant::LageAnim& a, uint32_t now, Rgb* px
     if (n < kScoreCount) px[scoreLed((uint8_t)n, columnReversed(a.to))] = colorRgb(Color::White);
 }
 
+// A right answer or a race win (kCelebrateMs, owner 2026-11-10), t = time
+// since the result came: a bright head runs up the column in reading
+// direction once per kCelebrateRunMs and leaves it green, the ring pulses
+// softly between green and white. Each LED lights up once per run.
+inline void renderCelebration(uint32_t t, bool rev, Rgb* px) {
+    Rgb green = colorRgb(Color::Green);
+    Rgb white = colorRgb(Color::White);
+    uint32_t run = t % kCelebrateRunMs;
+    uint32_t sweep = kCelebrateRunMs * 4 / 5;
+    // Head from 2 LEDs before the column to 2 past its end in 80 % of a run.
+    float head = run < sweep ? (float)run * (kScoreCount + 4) / (float)sweep - 2.0f : 100.0f;
+    for (uint8_t n = 0; n < kScoreCount; n++) {
+        float d = head - (float)n;
+        Rgb c = d >= 0.0f || t >= kCelebrateRunMs ? green : Rgb{};
+        float a = fabsf(d);
+        if (a < 2.5f) c = blendRgb(c, white, (uint8_t)(255.0f * (1.0f - a / 2.5f)));
+        px[scoreLed(n, rev)] = c;
+    }
+    fillRing(px, blendRgb(green, white, softPulse(t, kCelebrateRunMs, 0, 255)));
+}
+
+// Named or anonymous, after the admission while login is open (owner,
+// 2026-11-10): Up (with the animal name) and Down (anonymous) glow white at
+// kLevelFree; the chosen one pulses like a chosen answer, Up toward green,
+// Down toward dimmed white, and the ring glows green (named) or white at
+// kLevelFree (anonymous). Without a choice the device plays anonymously.
+inline void renderNaming(const Participant& p, uint32_t now, Rgb* px) {
+    using N = Participant::Naming;
+    Lage l = p.inputLage();
+    px[logicalLed(l, Key::Up)] = freeKeyRgb();
+    px[logicalLed(l, Key::Down)] = freeKeyRgb();
+    if (p.naming() == N::None) return;
+    bool named = p.naming() == N::Named;
+    Rgb c = named ? colorRgb(Color::Green) : scaleRgb(colorRgb(Color::White), kLevelDimmed);
+    px[logicalLed(l, named ? Key::Up : Key::Down)] =
+        blendRgb(colorRgb(Color::White), c, softPulse(now - p.namingMs(), kPulsePeriodMs, 0, 255));
+    fillRing(px, named ? colorRgb(Color::Green) : freeKeyRgb());
+}
+
 // Move round (provisional display): the direction keys glow dimmed in the
 // round's colour while open; each unacknowledged press pulses its key.
 inline void renderMove(const Participant& p, uint32_t now, Rgb* px) {
@@ -186,6 +226,8 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
         renderLageAnim(anim, now, px);
     } else if (locked) {
         // Provisional (owner to confirm): key LEDs and column off.
+    } else if (p.namingOpen(now)) {
+        renderNaming(p, now, px);
     } else if (r.known && r.type != RoundType::Idle && r.phase != Phase::Announced) {
         switch (r.type) {
             case RoundType::Scale: {
@@ -207,17 +249,20 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
             }
             case RoundType::Race: {
                 bool winner = r.winner != 0 && r.winner == p.number();
-                if (winner) {
+                if (winner && r.winnerWrong) {
+                    fillScore(px, kScoreCount, colorRgb(Color::Red));
+                } else if (winner && now - r.resultMs < kCelebrateMs) {
+                    renderCelebration(now - r.resultMs, rev, px);
+                } else if (winner) {
                     fillRing(px, colorRgb(Color::Green));
                     fillScore(px, kScoreCount, colorRgb(Color::Green));
                 } else if (r.winner == 0 && val != kNoValue) {
                     // Pressed: white until confirmed, then the ring glows blue.
                     fillRing(px, colorRgb(p.confirmed() ? Color::Blue : Color::White));
-                } else if (r.phase == Phase::Open && inMask(Key::Buzz)) {
-                    if (p.beforeStart(now))
-                        fillRing(px, scaleRgb(colorRgb(Color::Yellow), kLevelFaint));
-                    else if (r.startKnown)
-                        fillRing(px, freeKeyRgb());
+                } else if (r.phase == Phase::Open && inMask(Key::Buzz) && r.startKnown &&
+                           !p.beforeStart(now)) {
+                    // Owner (2026-11-10): no countdown; the ring lights at the start.
+                    fillRing(px, freeKeyRgb());
                 }
                 break;
             }
@@ -227,7 +272,9 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                 if (r.phase == Phase::Closed && r.correct >= 1 && r.correct <= 4) {
                     Key ck = answers[r.correct - 1];
                     px[logicalLed(l, ck)] = directionRgb(ck);
-                    if (val != kNoValue)
+                    if (val == r.correct && now - r.resultMs < kCelebrateMs)
+                        renderCelebration(now - r.resultMs, rev, px);
+                    else if (val != kNoValue)
                         fillScore(px, kScoreCount,
                                   colorRgb(val == r.correct ? Color::Green : Color::Red));
                     break;

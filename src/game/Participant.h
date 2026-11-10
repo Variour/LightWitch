@@ -41,12 +41,17 @@ class Participant {
         bool charging = false;
     };
 
+    // Named or anonymous (owner, 2026-11-10): chosen with Up / Down after
+    // the admission while login is open; without a choice anonymous.
+    enum class Naming : uint8_t { None = 0, Anonymous = 1, Named = 2 };
+
     struct Io {
         std::function<void(const uint8_t*, size_t)> send;
         std::function<void(uint8_t)> setChannel;
         std::function<uint32_t(uint32_t, uint32_t)> randomRange;  // inclusive
         std::function<void(uint16_t)> storeNumber;                // 0 = none
         std::function<void(uint16_t, uint8_t)> storeSession;      // session 0 = clear
+        std::function<void(Naming)> storeNaming;                  // kept with the session entry
         std::function<void()> enterQuiet;  // runtime join: stop normal operation
         std::function<void()> restart;
         std::function<Health()> health;
@@ -65,8 +70,10 @@ class Participant {
         uint16_t winner = 0;
         uint8_t correct = 0;
         Hold hold = Hold::Frei;
-        bool firstOnly = false;   // only the first answer counts (kStateFirstOnly)
-        bool fixedKnown = false;  // hold fest: the orientation at the open
+        bool firstOnly = false;    // only the first answer counts (kStateFirstOnly)
+        bool winnerWrong = false;  // the race winner's answer rated wrong (kStateWinnerWrong)
+        uint32_t resultMs = 0;     // when correct, winner or the rating last changed
+        bool fixedKnown = false;   // hold fest: the orientation at the open
         Lage fixed = Lage::Unknown;
         bool startKnown = false;
         uint32_t startMs = 0;  // local round start (bridge open moment)
@@ -95,13 +102,14 @@ class Participant {
     }
 
     void begin(const Io& io, const uint8_t* mac, uint16_t number, uint16_t storedSession,
-               uint8_t storedChannel, uint32_t now) {
+               uint8_t storedChannel, Naming storedNaming, uint32_t now) {
         _io = io;
         memcpy(_mac, mac, 6);
         _number = (number >= 1 && number <= kMaxNumber) ? number : 0;
         if (wantsQuietBoot(storedSession, storedChannel)) {
             _session = storedSession;
             _sessionChannel = storedChannel;
+            _naming = storedNaming <= Naming::Named ? storedNaming : Naming::None;
             _tune(storedChannel);
             _state = State::RejoinListen;
             _deadline = now + kRejoinListenMs;
@@ -259,6 +267,16 @@ class Participant {
     bool searching() const { return _searching; }
     bool loginOpen(uint32_t now) const { return (int32_t)(_loginOpenUntil - now) > 0; }
 
+    Naming naming() const { return _naming; }
+    bool named() const { return _naming == Naming::Named; }
+    uint32_t namingMs() const { return _namingMs; }  // the last choice (millis())
+    // Up / Down choose named or anonymous: a member while login is open and
+    // no round other than idle runs.
+    bool namingOpen(uint32_t now) const {
+        return _state == State::Member && loginOpen(now) &&
+               !(_round.known && _round.type != RoundType::Idle);
+    }
+
     // The accepted orientation (reported in status frames), Unknown until one is.
     Lage lage() const { return _lage.accepted(); }
     // The orientation whose key mapping and display apply now.
@@ -341,6 +359,8 @@ class Participant {
     uint32_t _switchAt = 0;
     bool _searching = false;
     uint32_t _searchNextAt = 0;
+    Naming _naming = Naming::None;
+    uint32_t _namingMs = 0;
 
     // Round and own value.
     Round _round;
@@ -381,8 +401,9 @@ class Participant {
     }
 
     void _persistSession() {
-        if (_state == State::Member && _io.storeSession)
-            _io.storeSession(_session, _sessionChannel);
+        if (_state != State::Member) return;
+        if (_io.storeSession) _io.storeSession(_session, _sessionChannel);
+        if (_io.storeNaming) _io.storeNaming(_naming);
     }
 
     void _onInviteNormal(const uint8_t* d, size_t len, uint32_t now) {
@@ -400,6 +421,7 @@ class Participant {
         if (_io.enterQuiet) _io.enterQuiet();
         _session = _inviteSession;
         _sessionChannel = _inviteChannel;
+        _naming = Naming::None;
         _tune(_inviteChannel);
         _lastGatewayMs = now;
         _startJoin(/*pressed=*/true, /*rejoin=*/false, now);
@@ -495,8 +517,13 @@ class Participant {
             _round.max = m.scaleMax;
             _round.redMax = m.redMax;
             _round.greenMin = m.greenMin;
+            bool winnerWrong = (m.h.flags & kStateWinnerWrong) != 0;
+            if (m.winner != _round.winner || m.correct != _round.correct ||
+                winnerWrong != _round.winnerWrong)
+                _round.resultMs = now;
             _round.winner = m.winner;
             _round.correct = m.correct;
+            _round.winnerWrong = winnerWrong;
             _round.hold = (Hold)m.hold;
             _round.firstOnly = (m.h.flags & kStateFirstOnly) != 0;
             // Fest: the orientation at the moment the round opens stays.
@@ -557,7 +584,8 @@ class Participant {
                memcmp(m.keyColor, r.keyColor, sizeof(r.keyColor)) == 0 && m.scaleMin == r.min &&
                m.scaleMax == r.max && m.redMax == r.redMax && m.greenMin == r.greenMin &&
                m.winner == r.winner && m.correct == r.correct && m.hold == (uint8_t)r.hold &&
-               ((m.h.flags & kStateFirstOnly) != 0) == r.firstOnly;
+               ((m.h.flags & kStateFirstOnly) != 0) == r.firstOnly &&
+               ((m.h.flags & kStateWinnerWrong) != 0) == r.winnerWrong;
     }
 
     void _resetValue() {
@@ -580,6 +608,10 @@ class Participant {
     void _onMemberPress(Key phys, uint32_t ms, uint32_t now) {
         if (locked()) return;
         Key k = roundKey(logicalInput(_shown, phys));
+        if (namingOpen(now) && (k == Key::Up || k == Key::Down)) {
+            _setNaming(k == Key::Up ? Naming::Named : Naming::Anonymous, now);
+            return;
+        }
         if (!keyFree(k, ms)) {
             // Round format v0, "Nummern": a member pressing the buzzer while
             // login is open reports itself again, marked as pressed.
@@ -731,8 +763,17 @@ class Participant {
         return (int32_t)(now - since) >= (int32_t)kLeaveComboMs;
     }
 
+    void _setNaming(Naming n, uint32_t now) {
+        if (n == _naming) return;
+        _naming = n;
+        _namingMs = now;
+        _persistSession();
+        _sendStatus(0);
+    }
+
     void _leave(uint32_t now) {
         if (_io.storeSession) _io.storeSession(0, 0);
+        if (_io.storeNaming) _io.storeNaming(Naming::None);
         _state = State::Leaving;
         _deadline = now + kLeaveRestartDelayMs;
     }
@@ -763,7 +804,8 @@ class Participant {
         m.fwBuild = _io.fwBuild ? _io.fwBuild() : 0;
         Health hl = _health();
         m.battery = hl.battery;
-        m.flags = (uint8_t)(flags | (hl.charging ? kStatusCharging : 0));
+        m.flags =
+            (uint8_t)(flags | (hl.charging ? kStatusCharging : 0) | (named() ? kStatusNamed : 0));
         m.rssi = _lastRssi;
         m.lastRoundId = _round.known ? _round.id : 0;
         m.lastStateSeq = _round.known ? _round.seq : 0;

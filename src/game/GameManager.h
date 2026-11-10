@@ -62,6 +62,7 @@ class GameManager {
             _number = p.getUShort(KEY_NUMBER, 0);
             _storedSession = p.getUShort(KEY_SESSION, 0);
             _storedChannel = p.getUChar(KEY_CHANNEL, 0);
+            _storedNaming = (game::Participant::Naming)p.getUChar(KEY_NAMING, 0);
             p.end();
         }
         if (_number > game::kMaxNumber) _number = 0;
@@ -87,6 +88,7 @@ class GameManager {
         };
         pio.storeNumber = [this](uint16_t n) { _storeNumber(n); };
         pio.storeSession = [this](uint16_t s, uint8_t ch) { _storeSession(s, ch); };
+        pio.storeNaming = [this](game::Participant::Naming n) { _storeNaming(n); };
         pio.enterQuiet = [this]() {
             _allocRx(game::kRxQueueParticipant);
             if (_enterQuiet) _enterQuiet(true);
@@ -97,7 +99,7 @@ class GameManager {
         };
         pio.health = [this]() { return _health ? _health() : game::Participant::Health{}; };
         pio.fwBuild = [this]() { return _fwBuild(); };
-        _participant.begin(pio, _mac, _number, _storedSession, _storedChannel, now);
+        _participant.begin(pio, _mac, _number, _storedSession, _storedChannel, _storedNaming, now);
         _participant.setCanJoin(_hasBuzzKey);
 
         game::Bridge::Io bio;
@@ -239,6 +241,7 @@ class GameManager {
     static constexpr const char* KEY_NUMBER = "num";
     static constexpr const char* KEY_SESSION = "sess";
     static constexpr const char* KEY_CHANNEL = "sch";
+    static constexpr const char* KEY_NAMING = "named";
 
     struct SerialWriter : game::Link::Writer {
         int availableForWrite() override { return Serial.availableForWrite(); }
@@ -266,6 +269,7 @@ class GameManager {
     uint16_t _number = 0;
     uint16_t _storedSession = 0;
     uint8_t _storedChannel = 0;
+    game::Participant::Naming _storedNaming = game::Participant::Naming::None;
     bool _fwKnown = false;
     uint32_t _fw = 0;
     uint8_t _wantChannel = 0;  // the channel the session tuned last, 0 = none
@@ -351,7 +355,8 @@ class GameManager {
         return _fw;
     }
 
-    // Flash writes: only the number and the session entry, only on change.
+    // Flash writes: only the number, the session entry and its naming
+    // choice, only on change.
     void _storeNumber(uint16_t n) {
         if (n == _number) return;
         _number = n;
@@ -361,6 +366,19 @@ class GameManager {
             p.remove(KEY_NUMBER);
         else
             p.putUShort(KEY_NUMBER, n);
+        p.end();
+    }
+
+    // The session's naming choice, only on change; None removes it.
+    void _storeNaming(game::Participant::Naming n) {
+        if (n == _storedNaming) return;
+        _storedNaming = n;
+        Preferences p;
+        if (!p.begin(NVS_NS, false)) return;
+        if (n == game::Participant::Naming::None)
+            p.remove(KEY_NAMING);
+        else
+            p.putUChar(KEY_NAMING, (uint8_t)n);
         p.end();
     }
 

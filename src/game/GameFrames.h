@@ -30,13 +30,16 @@ struct __attribute__((packed)) QuizHeader {
     uint8_t ttl;      // always 0 in v0
     uint8_t hops;     // always 0 in v0
     uint8_t dist;     // 0 bridge, 1 device
-    uint8_t flags;    // QuizState: kStateFirstOnly; otherwise 0
+    uint8_t flags;    // QuizState: kStateFirstOnly | kStateWinnerWrong; otherwise 0
 };
 static_assert(sizeof(QuizHeader) == 12, "QuizHeader layout");
 
 // QuizState header flag: only the first answer of each device counts (link
 // `game round` field firstOnly). Receivers before this flag ignore it.
 static constexpr uint8_t kStateFirstOnly = 1 << 0;
+// QuizState header flag: the quizmaster rated the race winner's answer wrong
+// (link `game round` field verdict).
+static constexpr uint8_t kStateWinnerWrong = 1 << 1;
 
 struct __attribute__((packed)) QuizInviteMsg {
     QuizHeader h;
@@ -92,7 +95,7 @@ struct __attribute__((packed)) QuizStatusMsg {
     uint8_t mac[6];
     uint32_t fwBuild;
     uint8_t battery;
-    uint8_t flags;  // kStatusCharging | kStatusJoin | kStatusPressed | kStatusRejoin
+    uint8_t flags;  // kStatusCharging | kStatusJoin | kStatusPressed | kStatusRejoin | kStatusNamed
     int8_t rssi;
     uint16_t lastRoundId;
     uint16_t lastStateSeq;

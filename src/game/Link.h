@@ -168,9 +168,9 @@ class Link : public Bridge::Listener {
             snprintf(line, sizeof(line),
                      "{\"ns\":\"game\",\"ev\":\"join\",\"mac\":\"%s\",\"n\":%s,\"fw\":\"%08lx\","
                      "\"proto\":%u,\"fleet\":%u,\"bat\":%s,\"chg\":%s,\"rssi\":%d,"
-                     "\"pressed\":%s,\"rejoin\":%s%s}\n",
+                     "\"pressed\":%s,\"rejoin\":%s,\"named\":%s%s}\n",
                      mac, n, (unsigned long)j.fw, j.proto, j.fleet, bat, _b(j.charging), j.rssi,
-                     _b(j.pressed), _b(j.rejoin), lage);
+                     _b(j.pressed), _b(j.rejoin), _b(j.named), lage);
         _enqueueRaw(line, len);
     }
 
@@ -327,9 +327,9 @@ class Link : public Bridge::Listener {
                 int len = snprintf(line, sizeof(line),
                                    "{\"ns\":\"game\",\"ev\":\"device\",\"n\":%u,\"mac\":\"%s\","
                                    "\"fw\":\"%08lx\",\"proto\":%u,\"bat\":%s,\"chg\":%s,"
-                                   "\"rssi\":%d,\"round\":%u,\"seq\":%u%s}\n",
+                                   "\"rssi\":%d,\"round\":%u,\"seq\":%u,\"named\":%s%s}\n",
                                    n, mac, (unsigned long)dv->fw, dv->proto, bat, _b(dv->charging),
-                                   dv->rssi, dv->lastRound, dv->lastSeq, lage);
+                                   dv->rssi, dv->lastRound, dv->lastSeq, _b(dv->named), lage);
                 if (!_write(line, len)) return false;
                 _bridge->clearDirtyDevice(n);
             }
@@ -843,6 +843,22 @@ class Link : public Bridge::Listener {
                 return false;
             }
             c.winner = (uint16_t)v;
+        }
+
+        // verdict (race with a winner): the quizmaster's rating of the
+        // winner's answer; absent = right
+        JsonVariantConst verdict = o["verdict"];
+        if (!verdict.isUnbound()) {
+            if (c.type != RoundType::Race || c.winner == 0) {
+                _badField(id, cmd, "verdict", "only for race with a winner");
+                return false;
+            }
+            const char* vs = verdict.is<const char*>() ? verdict.as<const char*>() : nullptr;
+            if (!vs || (strcmp(vs, "right") != 0 && strcmp(vs, "wrong") != 0)) {
+                _badField(id, cmd, "verdict", "verdict must be right or wrong");
+                return false;
+            }
+            c.winnerWrong = strcmp(vs, "wrong") == 0;
         }
 
         // correct

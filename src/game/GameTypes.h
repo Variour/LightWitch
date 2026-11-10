@@ -49,6 +49,9 @@ static constexpr uint8_t kStatusCharging = 1 << 0;
 static constexpr uint8_t kStatusJoin = 1 << 1;
 static constexpr uint8_t kStatusPressed = 1 << 2;
 static constexpr uint8_t kStatusRejoin = 1 << 3;
+// The player chose to play with the device's animal name (owner,
+// 2026-11-10); without it the device plays anonymously.
+static constexpr uint8_t kStatusNamed = 1 << 4;
 
 static constexpr uint8_t kNoValue = 0xFF;    // echo / report: no value
 static constexpr uint8_t kNoKeySeq = 0;      // echo in a move round: no press passed on

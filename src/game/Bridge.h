@@ -39,6 +39,7 @@ class Bridge {
         int8_t rssi;
         bool pressed;
         bool rejoin;
+        bool named;    // plays with the animal name (kStatusNamed)
         uint8_t lage;  // Lage, 0 = unknown
     };
 
@@ -72,6 +73,7 @@ class Bridge {
         uint16_t lastRound;
         uint16_t lastSeq;
         uint8_t lage;       // from the last status, 0 = unknown
+        bool named;         // from the last status (kStatusNamed)
         uint8_t valueLage;  // the value's input orientation, 0 = unknown
         uint8_t keySeq;     // move round: last kseq passed on, kNoKeySeq = none
         bool dirtyValue;
@@ -99,7 +101,8 @@ class Bridge {
         uint16_t winner = 0;
         uint8_t correct = 0;
         Hold hold = Hold::Frei;
-        bool firstOnly = false;  // only each device's first answer counts
+        bool firstOnly = false;    // only each device's first answer counts
+        bool winnerWrong = false;  // the quizmaster rated the winner's answer wrong
     };
 
     struct StateInfo {
@@ -256,6 +259,7 @@ class Bridge {
             r.correct = c.correct;
             r.hold = c.hold;
             r.firstOnly = c.firstOnly;
+            r.winnerWrong = c.winnerWrong;
             if (r.type != RoundType::Idle) _enterPhase(r.phase, c, now);
             for (uint16_t n = 1; n <= _maxNumber; n++) _clearValue(n);
             _arrivals = 0;
@@ -270,11 +274,14 @@ class Bridge {
             return Err::RoundFixed;
         Phase phase = r.type == RoundType::Idle ? Phase::Closed : c.phase;
         if ((uint8_t)phase < (uint8_t)r.phase) return Err::BadPhase;
-        if (phase == r.phase && c.winner == r.winner && c.correct == r.correct) return Err::None;
+        if (phase == r.phase && c.winner == r.winner && c.correct == r.correct &&
+            c.winnerWrong == r.winnerWrong)
+            return Err::None;
         if (phase != r.phase) _enterPhase(phase, c, now);
         r.phase = phase;
         r.winner = c.winner;
         r.correct = c.correct;
+        r.winnerWrong = c.winnerWrong;
         r.seq++;
         changed = true;
         _markStateChanged(now);
@@ -442,6 +449,7 @@ class Bridge {
         uint8_t correct = 0;
         Hold hold = Hold::Frei;
         bool firstOnly = false;
+        bool winnerWrong = false;
         bool opened = false;
         uint32_t openAt = 0;  // bridge time of the round start (open + openInMs)
         bool closedValid = false;
@@ -538,7 +546,8 @@ class Bridge {
     void _sendState(uint32_t now) {
         QuizStateMsg m{};
         _fillHeader(m.h, kMsgQuizState);
-        if (_round.firstOnly) m.h.flags = kStateFirstOnly;
+        m.h.flags = (uint8_t)((_round.firstOnly ? kStateFirstOnly : 0) |
+                              (_round.winnerWrong ? kStateWinnerWrong : 0));
         m.session = _session;
         m.roundId = _round.id;
         m.stateSeq = _round.seq;
@@ -723,6 +732,7 @@ class Bridge {
             j.rssi = rssi;
             j.pressed = (m.flags & kStatusPressed) != 0;
             j.rejoin = (m.flags & kStatusRejoin) != 0;
+            j.named = (m.flags & kStatusNamed) != 0;
             j.lage = lage;
             _listener->onJoin(j);
             return;
@@ -745,6 +755,7 @@ class Bridge {
         dv.lastRound = m.lastRoundId;
         dv.lastSeq = m.lastStateSeq;
         dv.lage = lage;
+        dv.named = (m.flags & kStatusNamed) != 0;
         _setDirtyDevice(n);
         for (uint16_t i = 0; i < _admitCount; i++) {
             PendingAdmit& a = _admits[i];
