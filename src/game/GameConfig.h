@@ -164,7 +164,8 @@ static constexpr uint32_t kCelebrateRunMs = 1000;
 // pulsing softly; the second half the column runs down evenly and turns
 // from green to kWrongRgb, the ring in the same colour. In a race with
 // answer keys its free answer keys glow white at kLevelFree. Time over: ring
-// and column in kWrongRgb for kAnswerOverMs, then the column alone.
+// and column in kWrongRgb for kAnswerOverMs, then the column alone. An
+// answer time of 0 has no limit: the first half's pulse stays.
 static constexpr uint32_t kAnswerOverMs = 600;
 // owner (2026-11-10): the first half of the answer time warns instead of
 // running down: the green pulses softly down to kLevelTurnLow and back.

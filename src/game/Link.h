@@ -946,15 +946,17 @@ class Link : public Bridge::Listener {
     }
 
     // The race device that answers now and its answer time (owner,
-    // 2026-11-10); n 0 or null: nobody.
+    // 2026-11-10); n 0 or null: nobody; ms 0 or absent: no time limit.
     void _cmdAnswering(JsonObjectConst o, const ReqId& id, uint32_t now) {
         long long n = 0, ms = 0;
         Field fn = _int(o, "n", 0, kMaxNumber, n);
         if (fn != Field::Ok && fn != Field::Null)
             return _badField(id, "answering", "n", "n must be 0-999 or null");
         if (fn == Field::Null) n = 0;
-        if (n != 0 && _int(o, "ms", 1000, 60000, ms) != Field::Ok)
-            return _badField(id, "answering", "ms", "ms must be 1000-60000");
+        Field fm = _int(o, "ms", 0, 60000, ms);
+        if (fm == Field::Missing) ms = 0;
+        if (n != 0 && ((fm != Field::Ok && fm != Field::Missing) || (ms != 0 && ms < 1000)))
+            return _badField(id, "answering", "ms", "ms must be 0 or 1000-60000");
         switch (_bridge->answering((uint16_t)n, (uint16_t)ms, now)) {
             case Bridge::Err::None: {
                 JsonDocument d;

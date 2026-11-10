@@ -160,11 +160,13 @@ orientation, and leave it out otherwise:
 `{"ns":"game","cmd":"answering","id":12,"n":7,"ms":10000}` →
 `{"ns":"game","ev":"answering","id":12,"n":7,"ms":10000}`
 
-- The race device `n` answers now and has `ms` (1000-60000) for it;
-  `"n":0` or `"n":null` ends it (`ms` may be left out then). `bad_field`
-  ("n must be 0-999 or null", "ms must be 1000-60000"), `no_session`,
-  `bad_phase` ("answering only in a race round"). The same `n` and `ms`
-  again change nothing; a new `n` or `ms` starts the time again.
+- The race device `n` answers now and has `ms` (1000-60000) for it; `ms`
+  0 (or left out) means no time limit: the device shows the green pulse of
+  the first half until it is rated, and its time never runs out. `"n":0` or
+  `"n":null` ends it. `bad_field` ("n must be 0-999 or null", "ms must be 0
+  or 1000-60000"), `no_session`, `bad_phase` ("answering only in a race
+  round"). The same `n` and `ms` again change nothing; a new `n` or `ms`
+  starts the time again.
 - The answer time starts when the bridge takes the command. The bridge
   sends the device, the answer time and the time left in every `QuizState`
   (radio `proto` 2).

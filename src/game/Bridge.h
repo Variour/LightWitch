@@ -291,7 +291,8 @@ class Bridge {
         return Err::None;
     }
 
-    // The race device that answers now (n 0 = none) and its answer time.
+    // The race device that answers now (n 0 = none) and its answer time
+    // (0 = no limit).
     Err answering(uint16_t n, uint16_t ms, uint32_t now) {
         if (!_active || _ending) return Err::NoSession;
         RoundModel& r = _round;
@@ -718,8 +719,9 @@ class Bridge {
             dv.value = m.value;
             dv.vseq = m.valueSeq;
             dv.t = m.pressOffsetMs;
-            dv.late = _round.opened && m.pressOffsetMs > (int32_t)(_round.answerAt +
-                                                                   _round.answerMs - _round.openAt);
+            dv.late =
+                _round.opened && _round.answerMs != 0 &&
+                m.pressOffsetMs > (int32_t)(_round.answerAt + _round.answerMs - _round.openAt);
             dv.valueRssi = rssi;
             dv.valueBattery = m.battery;
             dv.valueLage = m.lage < kLageCount ? m.lage : 0;

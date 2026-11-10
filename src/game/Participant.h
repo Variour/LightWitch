@@ -77,6 +77,7 @@ class Participant {
         uint16_t answerMs = 0;     // its answer time
         bool deadlineKnown = false;
         uint32_t deadline = 0;    // local end of the answer time
+        uint32_t turnSeenMs = 0;  // when this turn came
         uint32_t resultMs = 0;    // when correct, winner or the rating last changed
         bool fixedKnown = false;  // hold fest: the orientation at the open
         Lage fixed = Lage::Unknown;
@@ -297,9 +298,11 @@ class Participant {
     bool answerGiven() const { return _answerGiven; }
     uint32_t inputMs() const { return _inputMs; }
     // Its answer time runs at moment ms and it has not answered yet.
+    // An answer time of 0 has no limit.
     bool answerOpen(uint32_t ms) const {
-        return answeringMe() && !_answerGiven && _round.deadlineKnown &&
-               (int32_t)(ms - _round.deadline) < 0;
+        return answeringMe() && !_answerGiven &&
+               (_round.answerMs == 0 ||
+                (_round.deadlineKnown && (int32_t)(ms - _round.deadline) < 0));
     }
 
     // The console's countdown for the devices without an answer (link
@@ -575,6 +578,7 @@ class Participant {
             if (m.turn != _round.answering || m.turnMs != _round.answerMs) {
                 _round.answering = m.turn;
                 _round.answerMs = m.turnMs;
+                _round.turnSeenMs = now;
                 _round.deadlineKnown = false;
                 _answerGiven = false;
             }

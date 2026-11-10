@@ -191,16 +191,19 @@ inline void renderAnswering(const Participant& p, uint32_t now, Rgb* px) {
     int32_t left = r.deadlineKnown ? (int32_t)(r.deadline - at) : (int32_t)r.answerMs;
     const Key answers[5] = {Key::Up, Key::Right, Key::Down, Key::Left, Key::Enter};
     auto inMask = [&](Key k) { return (r.keyMask & (1u << (uint8_t)k)) != 0; };
-    if (left <= 0) {
+    bool unlimited = r.answerMs == 0;  // no time limit: the pulse only
+    if (left <= 0 && !unlimited) {
         fillScore(px, kScoreCount, kWrongRgb, rev);
         if ((uint32_t)-left < kAnswerOverMs) fillRing(px, kWrongRgb);
         return;
     }
     // left in units of half the answer time: above 1 in the first half.
-    float halves = r.answerMs ? 2.0f * (float)left / (float)r.answerMs : 2.0f;
+    float halves = unlimited ? 2.0f : 2.0f * (float)left / (float)r.answerMs;
     if (halves > 1.0f) {
         // Full column and ring green, pulsing softly (steady once answered).
-        uint32_t used = r.answerMs > (uint32_t)left ? r.answerMs - (uint32_t)left : 0;
+        uint32_t used = unlimited                     ? now - r.turnSeenMs
+                        : r.answerMs > (uint32_t)left ? r.answerMs - (uint32_t)left
+                                                      : 0;
         uint8_t dip = p.answerGiven() ? 0 : softPulse(used, kPulsePeriodMs, 0, 255 - kLevelTurnLow);
         Rgb g = scaleRgb(colorRgb(Color::Green), (uint8_t)(255 - dip));
         fillScore(px, kScoreCount, g, rev);
