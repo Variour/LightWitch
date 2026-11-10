@@ -69,11 +69,13 @@ struct __attribute__((packed)) QuizStateMsg {
     uint16_t winner;       // race winner number, 0 = none
     uint8_t correct;       // choice answer 1-4 or rainbow step 1-24, 0 = none
     uint8_t hold;          // Hold (Lage.h)
-    uint16_t answering;    // race: the number answering now, 0 = none
-    uint16_t answerMs;     // its answer time
-    uint16_t answerLeftMs;  // of that left at send, 0 = over
-    uint16_t echoFirst;     // first number covered by echo
-    uint8_t echoCount;      // entries in echo, at most kEchoPageSize
+    // The number that has the turn, 0 = none: only its keys take input
+    // (race: the device that answers, link `game answering`).
+    uint16_t turn;
+    uint16_t turnMs;      // its time
+    uint16_t turnLeftMs;  // of that left at send, 0 = over
+    uint16_t echoFirst;   // first number covered by echo
+    uint8_t echoCount;    // entries in echo, at most kEchoPageSize
     // Per number: the value the bridge holds (kNoValue = none); in a move
     // round the last key press counter (kseq) it passed on (kNoKeySeq = none).
     uint8_t echo[kEchoPageSize];

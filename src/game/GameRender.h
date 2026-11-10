@@ -42,8 +42,9 @@ inline uint8_t logicalLed(Lage l, Key logical) { return keyLed(physicalKey(l, in
 
 // Direction colours, by logical direction (firmware spec "Lage v0"), for the
 // choice answers and the change animation: up light orange, right blue, down
-// purple, left light blue. At full level the four draw about 78 mA together (12 mA per channel at
-// 255, Buzzerboard hardware/README.md current budget), well inside the 300 mA LED cap.
+// purple, left light blue; enter (answer 5) rose. At full level the four draw about 78 mA together
+// (12 mA per channel at 255, Buzzerboard hardware/README.md current budget), well inside the 300 mA
+// LED cap.
 inline Rgb directionRgb(Key logical) {
     switch (logical) {
         case Key::Up:
@@ -54,6 +55,8 @@ inline Rgb directionRgb(Key logical) {
             return {140, 30, 255};
         case Key::Left:
             return {70, 180, 255};
+        case Key::Enter:  // owner (2026-11-10): the centre as answer 5, rose
+            return {255, 40, 150};
         default:
             return {0, 0, 0};
     }
@@ -166,7 +169,7 @@ inline void renderAnswering(const Participant& p, uint32_t now, Rgb* px) {
     bool rev = columnReversed(l);
     uint32_t at = p.answerGiven() ? p.inputMs() : now;
     int32_t left = r.deadlineKnown ? (int32_t)(r.deadline - at) : (int32_t)r.answerMs;
-    const Key answers[4] = {Key::Up, Key::Right, Key::Down, Key::Left};
+    const Key answers[5] = {Key::Up, Key::Right, Key::Down, Key::Left, Key::Enter};
     auto inMask = [&](Key k) { return (r.keyMask & (1u << (uint8_t)k)) != 0; };
     if (left <= 0) {
         fillScore(px, kScoreCount, kWrongRgb, rev);
@@ -186,7 +189,7 @@ inline void renderAnswering(const Participant& p, uint32_t now, Rgb* px) {
     }
     fillRing(px, c);
     uint8_t val = p.value();
-    for (uint8_t i = 0; i < 4; i++) {
+    for (uint8_t i = 0; i < 5; i++) {
         Key k = answers[i];
         if (!inMask(k)) continue;
         if (p.answerGiven() && val == i + 1)
@@ -231,6 +234,7 @@ inline void renderRainbow(const Participant& p, uint32_t now, Rgb* px) {
     if (r.phase == Phase::Open && !p.answerLocked()) {
         px[logicalLed(l, Key::Up)] = freeKeyRgb();
         px[logicalLed(l, Key::Down)] = freeKeyRgb();
+        if (p.confirmEnter() && own >= 0) px[logicalLed(l, Key::Enter)] = freeKeyRgb();
     }
     if (own < 0) return;
     px[scoreLed((uint8_t)own, rev)] = chosenKeyRgb(p, kRainbow[own], now);
@@ -322,6 +326,9 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                 if (r.phase == Phase::Open && !p.answerLocked()) {
                     for (Key k : {Key::Up, Key::Down})
                         if (inMask(k)) px[logicalLed(l, k)] = freeKeyRgb();
+                    // Enter logs a value in (confirm).
+                    if (p.confirmEnter() && val != kNoValue)
+                        px[logicalLed(l, Key::Enter)] = freeKeyRgb();
                 }
                 if (val != kNoValue && r.max >= r.min && val >= r.min) {
                     uint8_t steps = (uint8_t)(r.max - r.min + 1);
@@ -358,8 +365,8 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
             }
             case RoundType::Choice: {
                 // Answer colours belong to the direction, not to the round.
-                const Key answers[4] = {Key::Up, Key::Right, Key::Down, Key::Left};
-                if (r.phase == Phase::Closed && r.correct >= 1 && r.correct <= 4) {
+                const Key answers[5] = {Key::Up, Key::Right, Key::Down, Key::Left, Key::Enter};
+                if (r.phase == Phase::Closed && r.correct >= 1 && r.correct <= 5) {
                     Key ck = answers[r.correct - 1];
                     px[logicalLed(l, ck)] = directionRgb(ck);
                     if (val == r.correct && now - r.resultMs < kCelebrateMs)
@@ -369,7 +376,7 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                                   val == r.correct ? colorRgb(Color::Green) : kWrongRgb);
                     break;
                 }
-                for (uint8_t i = 0; i < 4; i++) {
+                for (uint8_t i = 0; i < 5; i++) {
                     Key k = answers[i];
                     if (!inMask(k)) continue;
                     if (val == i + 1)
@@ -377,7 +384,7 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                     else if (r.phase == Phase::Open && !p.answerLocked())
                         px[logicalLed(l, k)] = freeKeyRgb();
                 }
-                if (val >= 1 && val <= 4 && p.confirmed())
+                if (val >= 1 && val <= 5 && p.confirmed())
                     fillRing(px, directionRgb(answers[val - 1]));
                 break;
             }

@@ -187,6 +187,26 @@ orientation, and leave it out otherwise:
   The bridge takes one answer per device and answer time; the race order
   (`arr`) stays. The console rates it (`verdict`).
 - Without `game answering` a race works as before: the winner is green.
+- On the radio the device with the turn is `turn` in `QuizState`, with
+  `turnMs` and `turnLeftMs` (see mesh-compatibility.md). The field is not
+  tied to races: a turn-based round can give one device its keys the same
+  way, each press then a key event as in a move round.
+
+### Enter as answer 5, Enter to log in
+
+- `choice`: `keys` may hold `up`, `right`, `down`, `left` and `enter`
+  (2-5 keys in this order); `enter` (the centre key) is answer 5, `correct`
+  then 1-5. A race with answer keys takes the same set. The device shows the
+  centre like the other answer keys (white at 40 %, chosen: pulse toward its
+  colour, rose, RGB 255, 40, 150).
+  `{"ns":"game","cmd":"round","round":23422,"type":"choice","phase":"open","keys":{"up":"white","right":"white","down":"white","left":"white","enter":"white"}}`
+- `scale` with `"confirm":"enter"` (`bad_field`, "only for scale", "confirm
+  must be enter"): Up and Down set the value on the device only; Enter logs
+  it in: the value goes out at once and then stays, further keys do nothing.
+  Enter glows white at 40 % once a value is set; the ring shows the
+  confirmed value as in every scale. Without Enter no value goes out. On the
+  radio the scale's `keyMask` holds Enter as well.
+  `{"ns":"game","cmd":"round","round":23423,"type":"scale","phase":"open","keys":{"up":"white","down":"white"},"min":0,"max":10,"redMax":3,"greenMin":7,"confirm":"enter"}`
 
 ### Rainbow scale (`display` in `game round`)
 

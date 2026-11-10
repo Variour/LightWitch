@@ -731,12 +731,15 @@ class Link : public Bridge::Listener {
             uint16_t two = keyBit(Key::Up) | keyBit(Key::Right);
             uint16_t three = two | keyBit(Key::Down);
             uint16_t four = three | keyBit(Key::Left);
+            uint16_t five = four | keyBit(Key::Enter);  // enter is answer 5
             if (c.type == RoundType::Race) {
                 // Answer keys for the answering device, as in a choice.
                 uint16_t answers = c.keyMask & (uint16_t)~keyBit(Key::Buzz);
                 ok = (c.keyMask & keyBit(Key::Buzz)) &&
-                     (answers == 0 || answers == two || answers == three || answers == four);
-                rule = "race takes buzz, optionally with up, right, down, left in this order";
+                     (answers == 0 || answers == two || answers == three || answers == four ||
+                      answers == five);
+                rule =
+                    "race takes buzz, optionally with up, right, down, left, enter in this order";
             } else if (c.type == RoundType::Scale) {
                 ok = c.keyMask == (keyBit(Key::Up) | keyBit(Key::Down));
                 rule = "scale takes exactly up and down";
@@ -745,8 +748,9 @@ class Link : public Bridge::Listener {
                      (keyBit(Key::Up) | keyBit(Key::Right) | keyBit(Key::Down) | keyBit(Key::Left));
                 rule = "move takes exactly up, right, down and left";
             } else {
-                ok = c.keyMask == two || c.keyMask == three || c.keyMask == four;
-                rule = "choice takes up, right, down, left in this order, 2-4 keys";
+                ok = c.keyMask == two || c.keyMask == three || c.keyMask == four ||
+                     c.keyMask == five;
+                rule = "choice takes up, right, down, left, enter in this order, 2-5 keys";
             }
             if (!ok) {
                 _badField(id, cmd, "keys", rule);
@@ -819,6 +823,22 @@ class Link : public Bridge::Listener {
             c.max = (uint8_t)mx;
             c.redMax = (uint8_t)rm;
             c.greenMin = (uint8_t)gm;
+        }
+
+        // confirm (scale; absent = none): "enter" logs the value in with Enter
+        JsonVariantConst confirm = o["confirm"];
+        if (!confirm.isUnbound()) {
+            const char* cs = confirm.is<const char*>() ? confirm.as<const char*>() : nullptr;
+            if (c.type != RoundType::Scale) {
+                _badField(id, cmd, "confirm", "only for scale");
+                return false;
+            }
+            if (!cs || strcmp(cs, "enter") != 0) {
+                _badField(id, cmd, "confirm", "confirm must be enter");
+                return false;
+            }
+            c.keyMask |= (uint16_t)(1u << (uint8_t)Key::Enter);
+            setKeyColor(c.keyColor, (uint8_t)Key::Enter, (uint8_t)Color::White);
         }
 
         // hold (absent = frei)
@@ -911,7 +931,7 @@ class Link : public Bridge::Listener {
                 return false;
             }
             uint8_t answers = 0;
-            for (Key k : {Key::Up, Key::Right, Key::Down, Key::Left})
+            for (Key k : {Key::Up, Key::Right, Key::Down, Key::Left, Key::Enter})
                 if (c.keyMask & (1u << (uint8_t)k)) answers++;
             if (f != Field::Ok || v > answers) {
                 _badField(id, cmd, "correct", "correct must be 1 to the number of answers");

@@ -585,8 +585,8 @@ class Bridge {
         m.winner = _round.winner;
         m.correct = _round.correct;
         m.hold = (uint8_t)_round.hold;
-        m.answering = _round.answering;
-        m.answerMs = _round.answerMs;
+        m.turn = _round.answering;
+        m.turnMs = _round.answerMs;
         bool move = _round.type == RoundType::Move;
         uint16_t first = 1;
         do {
@@ -604,7 +604,7 @@ class Bridge {
             // Written as late as possible before sending (gateway protocol v0).
             m.openOffsetMs = _round.opened ? (int32_t)(now - _round.openAt) : 0;
             uint32_t used = now - _round.answerAt;
-            m.answerLeftMs = used < _round.answerMs ? (uint16_t)(_round.answerMs - used) : 0;
+            m.turnLeftMs = used < _round.answerMs ? (uint16_t)(_round.answerMs - used) : 0;
             _send(&m, stateFrameLen(m));
             first = (uint16_t)(first + kEchoPageSize);
         } while (first <= _maxNumber);
@@ -690,10 +690,10 @@ class Bridge {
             return;
         _noteNumber(n);
         Device& dv = _devs[n];
-        // The answering race device's answer key (1-4): its first answer,
+        // The answering race device's answer key (1-5): its first answer,
         // late after its answer time.
         if (_round.type == RoundType::Race && n == _round.answering && dv.hasValue) {
-            if (dv.answerTaken || m.value < 1 || m.value > 4) return;
+            if (dv.answerTaken || m.value < 1 || m.value > 5) return;
             if (!dv.vseqReset && !seq8Newer(m.valueSeq, dv.vseq)) return;
             dv.answerTaken = true;
             dv.vseqReset = false;

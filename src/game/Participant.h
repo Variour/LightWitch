@@ -270,7 +270,14 @@ class Participant {
     uint32_t confirmedMs() const { return _confirmedMs; }
     // A round with firstOnly whose answer has gone out: the keys take no
     // other answer.
-    bool answerLocked() const { return _round.firstOnly && _val != kNoValue && _reported; }
+    bool answerLocked() const {
+        return (_round.firstOnly || confirmEnter()) && _val != kNoValue && _reported;
+    }
+    // A scale that Enter logs in (link `confirm`): Up and Down set the value,
+    // Enter sends it, then it stays.
+    bool confirmEnter() const {
+        return _round.type == RoundType::Scale && (_round.keyMask & (1u << (uint8_t)Key::Enter));
+    }
     uint32_t gatewayAgeMs(uint32_t now) const { return now - _lastGatewayMs; }
     uint32_t admittedAgeMs(uint32_t now) const { return now - _admittedAt; }
     bool searching() const { return _searching; }
@@ -335,9 +342,12 @@ class Participant {
     }
 
     // Choice answer for a logical key: up 1, right 2, down 3, left 4 (gateway
-    // protocol v0, "Erlaubte Tasten"); 0 for other keys.
+    // protocol v0, "Erlaubte Tasten"), enter 5 (owner, 2026-11-10); 0 for
+    // other keys.
     static uint8_t choiceAnswer(Key k) {
         switch (k) {
+            case Key::Enter:
+                return 5;
             case Key::Up:
                 return 1;
             case Key::Right:
@@ -553,9 +563,9 @@ class Participant {
             _round.hold = (Hold)m.hold;
             _round.firstOnly = (m.h.flags & kStateFirstOnly) != 0;
             _round.rainbow = (m.h.flags & kStateRainbow) != 0;
-            if (m.answering != _round.answering || m.answerMs != _round.answerMs) {
-                _round.answering = m.answering;
-                _round.answerMs = m.answerMs;
+            if (m.turn != _round.answering || m.turnMs != _round.answerMs) {
+                _round.answering = m.turn;
+                _round.answerMs = m.turnMs;
                 _round.deadlineKnown = false;
                 _answerGiven = false;
             }
@@ -578,7 +588,7 @@ class Participant {
         // Answer time: local end = receive time + time left; keep the
         // earliest, as for the round start.
         if (_round.answering != 0) {
-            uint32_t end = now + m.answerLeftMs;
+            uint32_t end = now + m.turnLeftMs;
             if (!_round.deadlineKnown || (int32_t)(end - _round.deadline) < 0) {
                 _round.deadline = end;
                 _round.deadlineKnown = true;
@@ -628,8 +638,8 @@ class Participant {
                m.winner == r.winner && m.correct == r.correct && m.hold == (uint8_t)r.hold &&
                ((m.h.flags & kStateFirstOnly) != 0) == r.firstOnly &&
                ((m.h.flags & kStateWinnerWrong) != 0) == r.winnerWrong &&
-               ((m.h.flags & kStateRainbow) != 0) == r.rainbow && m.answering == r.answering &&
-               m.answerMs == r.answerMs;
+               ((m.h.flags & kStateRainbow) != 0) == r.rainbow && m.turn == r.answering &&
+               m.turnMs == r.answerMs;
     }
 
     void _resetValue() {
@@ -682,11 +692,14 @@ class Participant {
                 break;
             }
             case RoundType::Scale:
-                _scaleTap(k, ms, now);
+                if (k == Key::Enter)
+                    _scaleEnter(ms, now);
+                else
+                    _scaleTap(k, ms, now);
                 break;
             case RoundType::Move:
                 // One press, one event: only press edges reach this point.
-                if (choiceAnswer(k) != 0) _pressKey(k, phys, now);
+                if (choiceAnswer(k) >= 1 && choiceAnswer(k) <= 4) _pressKey(k, phys, now);
                 break;
             default:
                 break;
@@ -707,7 +720,23 @@ class Participant {
         } else {
             v = _val > _round.min ? (uint8_t)(_val - 1) : _val;
         }
-        if (v != _val) _setValue(v, ms, now, _round.firstOnly ? kScaleCommitMs : kScaleSendDelayMs);
+        if (v == _val) return;
+        if (confirmEnter()) {
+            // Held until Enter logs it in.
+            _val = v;
+            _inputMs = ms;
+            _valLage = (uint8_t)_shown;
+            _confirmed = false;
+            _sendArmed = false;
+            return;
+        }
+        _setValue(v, ms, now, _round.firstOnly ? kScaleCommitMs : kScaleSendDelayMs);
+    }
+
+    // Enter in a scale with confirm: sends the value set, which then stays.
+    void _scaleEnter(uint32_t ms, uint32_t now) {
+        if (!confirmEnter() || _val == kNoValue || answerLocked()) return;
+        _setValue(_val, ms, now, 0);
     }
 
     // The last key pressed, still held in a scale round: one more step per
