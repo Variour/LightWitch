@@ -9,7 +9,9 @@
 namespace game {
 
 // ── Radio protocol ───────────────────────────────────────────────────────────
-static constexpr uint8_t kProto = 1;           // fixed v0: `proto` in every frame header
+// `proto` in every frame header: 1 in v0, 2 since QuizState carries the
+// race's answering device (owner, 2026-11-10).
+static constexpr uint8_t kProto = 2;
 static constexpr uint16_t kMaxNumber = 999;    // fixed v0: device numbers 1-999, 0 = bridge
 static constexpr uint16_t kNoNumber = 0xFFFF;  // fixed v0: `origin` of a device without number
 static constexpr uint8_t kEchoPageSize = 200;  // fixed v0: echo entries per QuizState frame
@@ -62,7 +64,14 @@ static constexpr uint8_t kRxQueueParticipant = 16;  // firmware: participants he
 
 // ── Participant timing ───────────────────────────────────────────────────────
 static constexpr uint32_t kScaleSendDelayMs = 150;  // fixed v0: send 150 ms after the last tap
-static constexpr uint32_t kRetryMinMs = 300;        // fixed v0: resend after 300-600 ms
+// firmware: in a round with firstOnly a scale value goes out, and stays,
+// this long after the last tap, so a few taps set it.
+static constexpr uint32_t kScaleCommitMs = 1000;
+// owner (2026-11-10): holding Up or Down in a scale round steps on, after
+// kScaleRepeatDelayMs once per kScaleRepeatMs.
+static constexpr uint32_t kScaleRepeatDelayMs = 400;
+static constexpr uint32_t kScaleRepeatMs = 120;
+static constexpr uint32_t kRetryMinMs = 300;  // fixed v0: resend after 300-600 ms
 static constexpr uint32_t kRetryMaxMs = 600;
 static constexpr uint32_t kRetryCapMs = 2000;      // fixed v0: doubling up to 2 s
 static constexpr uint32_t kJoinRepeatMinMs = 300;  // fixed v0: join request every 300-600 ms
@@ -84,8 +93,24 @@ static constexpr uint32_t kLeaveComboMs = 3000;    // proposal 14: BUZZ + ENTER 
 static constexpr uint32_t kLoginOpenHoldMs = 2500;
 // firmware: delay between "all LEDs off" and the restart, so the LEDs update.
 static constexpr uint32_t kLeaveRestartDelayMs = 200;
-static constexpr bool kChoiceChangeAllowed = true;  // proposal 8: last press counts
-static constexpr bool kPulseUntilConfirmed = true;  // proposal 11: pulse until the echo matches
+// proposal 8: the last press counts; owner (2026-11-10): a round with
+// firstOnly (link `game round`) takes only the first answer instead.
+static constexpr bool kChoiceChangeAllowed = true;
+// proposal 11: the scale column pulses until the echo matches (the keys
+// follow kLevelFree instead).
+static constexpr bool kPulseUntilConfirmed = true;
+
+// ── Orientation and move rounds (firmware spec "Lage v0") ────────────────────
+static constexpr uint32_t kLageSettleMs = 2000;  // decided: a new orientation counts after 2 s
+static constexpr uint8_t kKeyLogDepth = 8;       // decided: unacknowledged presses a device keeps
+// firmware: accepted presses the bridge holds until their USB line is written.
+static constexpr uint8_t kKeyQueueBridge = 64;
+// firmware: change animation. The direction colours move one key per step,
+// below 3 changes per second; then one LED runs through the column.
+static constexpr uint32_t kLageAnimStepMs = 350;
+static constexpr uint32_t kLageAnimColumnMs = 720;
+// firmware: status dot pulse while the round's hold locks the device (0.5 Hz).
+static constexpr uint32_t kLockPulseMs = 2000;
 
 // ── LEDs (Buzzerboard rev A0) ────────────────────────────────────────────────
 // One chain of 34 SK6812MINI-E. Verified against the routed board
@@ -108,7 +133,43 @@ static constexpr uint8_t kLedDown = 33;    // LED34
 static constexpr uint8_t kLevelBright = 255;
 static constexpr uint8_t kLevelDimmed = 51;
 static constexpr uint8_t kLevelFaint = 13;
+// owner (2026-11-09): the session scales these to the brightness light 0
+// renders at (its brightness override, else its group's brightness), so
+// kLevelBright shows at that brightness. At least kLevelShowMin, so a
+// session stays visible with the LEDs switched off.
+static constexpr uint8_t kLevelShowMin = 2;
+// owner (2026-11-10): in an open round the keys that take an answer glow
+// white at kLevelFree (40 %): the choice answers, Up and Down of a scale,
+// the buzzer ring of a race. The chosen answer shows steady white at
+// kLevelBright until the bridge confirms it, then pulses once per
+// kPulsePeriodMs between white and its direction colour, while the other
+// answer keys stay at kLevelFree (dark once a firstOnly round has the
+// answer). Confirmed, the ring glows steadily in the answer's colour:
+// direction colour, the scale value's zone colour, blue for a race. The
+// result of a closed round shows as before. GameManager scales every level
+// to the brightness with at least one LED step above 0 (scaleToLevel), so
+// kLevelFree stays visible at the lowest brightness.
+static constexpr uint8_t kLevelFree = 102;
 static constexpr uint32_t kPulsePeriodMs = 1000;  // firmware: one pulse per second
+// owner (2026-11-10): a right answer at the resolution (choice with
+// correct) and the race winner celebrate for kCelebrateMs: a bright head
+// runs up the column once per kCelebrateRunMs and fills it green, the ring
+// pulses softly between green and white; then the result shows as before. A
+// race winner whose answer the quizmaster rated wrong (link `verdict`) shows
+// the column red instead.
+static constexpr uint32_t kCelebrateMs = 2000;
+static constexpr uint32_t kCelebrateRunMs = 1000;
+// owner (2026-11-10): the race device that answers (link `game answering`)
+// shows its answer time: the first half the full column and the ring green,
+// pulsing softly; the second half the column runs down evenly and turns
+// from green to kWrongRgb, the ring in the same colour. In a race with
+// answer keys its free answer keys glow white at kLevelFree. Time over: ring
+// and column in kWrongRgb for kAnswerOverMs, then the column alone. An
+// answer time of 0 has no limit: the first half's pulse stays.
+static constexpr uint32_t kAnswerOverMs = 600;
+// owner (2026-11-10): the first half of the answer time warns instead of
+// running down: the green pulses softly down to kLevelTurnLow and back.
+static constexpr uint8_t kLevelTurnLow = 128;
 static constexpr uint32_t kBlinkPeriodMs = 1000;  // fixed v0: status dot blinks at 1 Hz
 
 }  // namespace game

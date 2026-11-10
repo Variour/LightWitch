@@ -7,6 +7,7 @@
 #include "GameConfig.h"
 #include "GameFrames.h"
 #include "GameTypes.h"
+#include "Lage.h"
 
 namespace game {
 
@@ -14,6 +15,14 @@ namespace game {
 // shows the bridge's round state, takes key input and reports its value until
 // the bridge's echo matches. Leaving the session always ends in a restart
 // into normal operation (round format v0, "Zurück in den Normalbetrieb").
+// In a round with firstOnly (owner, 2026-11-10) the first answer that goes
+// out stays; a scale value goes out kScaleCommitMs after the last tap.
+//
+// Orientation (firmware spec "Lage v0"): the sensor's position goes through
+// LageFilter; keys are read as logical inputs in the orientation whose
+// mapping applies (inputLage()), which follows a newly accepted orientation
+// after its change animation. In a move round each press is a key event with
+// its own counter, repeated until the bridge's echo shows it.
 //
 // Plain C++: time, randomness, radio, storage and restart come in through Io,
 // so this builds and runs on the host.
@@ -32,12 +41,17 @@ class Participant {
         bool charging = false;
     };
 
+    // Named or anonymous (owner, 2026-11-10): chosen with Up / Down after
+    // the admission while login is open; without a choice anonymous.
+    enum class Naming : uint8_t { None = 0, Anonymous = 1, Named = 2 };
+
     struct Io {
         std::function<void(const uint8_t*, size_t)> send;
         std::function<void(uint8_t)> setChannel;
         std::function<uint32_t(uint32_t, uint32_t)> randomRange;  // inclusive
         std::function<void(uint16_t)> storeNumber;                // 0 = none
         std::function<void(uint16_t, uint8_t)> storeSession;      // session 0 = clear
+        std::function<void(Naming)> storeNaming;                  // kept with the session entry
         std::function<void()> enterQuiet;  // runtime join: stop normal operation
         std::function<void()> restart;
         std::function<Health()> health;
@@ -55,8 +69,36 @@ class Participant {
         uint8_t min = 0, max = 0, redMax = 0, greenMin = 0;
         uint16_t winner = 0;
         uint8_t correct = 0;
+        Hold hold = Hold::Frei;
+        bool firstOnly = false;    // only the first answer counts (kStateFirstOnly)
+        bool winnerWrong = false;  // the race winner's answer rated wrong (kStateWinnerWrong)
+        bool rainbow = false;      // a scale of 24 steps in the rainbow colours (kStateRainbow)
+        uint16_t answering = 0;    // race: the number answering now, 0 = none
+        uint16_t answerMs = 0;     // its answer time
+        bool deadlineKnown = false;
+        uint32_t deadline = 0;    // local end of the answer time
+        uint32_t turnSeenMs = 0;  // when this turn came
+        uint32_t resultMs = 0;    // when correct, winner or the rating last changed
+        bool fixedKnown = false;  // hold fest: the orientation at the open
+        Lage fixed = Lage::Unknown;
         bool startKnown = false;
         uint32_t startMs = 0;  // local round start (bridge open moment)
+    };
+
+    // One unacknowledged press of a move round.
+    struct Press {
+        uint8_t kseq;
+        Key key;       // logical (round key slot)
+        Key physical;  // the key that was pressed
+        Lage lage;     // the orientation it was read in
+    };
+
+    // Change animation toward a new orientation.
+    struct LageAnim {
+        bool on = false;
+        Lage from = Lage::Unknown;
+        Lage to = Lage::Unknown;
+        uint32_t start = 0;
     };
 
     // True if the stored session entry asks for a quiet boot (round format v0,
@@ -66,13 +108,14 @@ class Participant {
     }
 
     void begin(const Io& io, const uint8_t* mac, uint16_t number, uint16_t storedSession,
-               uint8_t storedChannel, uint32_t now) {
+               uint8_t storedChannel, Naming storedNaming, uint32_t now) {
         _io = io;
         memcpy(_mac, mac, 6);
         _number = (number >= 1 && number <= kMaxNumber) ? number : 0;
         if (wantsQuietBoot(storedSession, storedChannel)) {
             _session = storedSession;
             _sessionChannel = storedChannel;
+            _naming = storedNaming <= Naming::Named ? storedNaming : Naming::None;
             _tune(storedChannel);
             _state = State::RejoinListen;
             _deadline = now + kRejoinListenMs;
@@ -146,6 +189,12 @@ class Participant {
         }
     }
 
+    // The orientation sensor's current 6D position (lageFromD6d), on every
+    // change it reports.
+    void onRawLage(Lage raw, uint32_t now) {
+        if (_state != State::Normal && _state != State::Leaving) _lage.onRaw(raw, now);
+    }
+
     // Raw key edge. ms is the moment of the edge (millis()). The power key
     // and keys without a role are not part of the game.
     void onKey(Key k, bool pressed, uint32_t ms, uint32_t now) {
@@ -157,10 +206,14 @@ class Participant {
             if (k == Key::Buzz && inviteVisible(now)) _joinFromInvite(now);
         } else if (_state == State::Member) {
             _onMemberPress(k, ms, now);
+            // Held, Up and Down step on in a scale round (kScaleRepeatDelayMs).
+            _repeatKey = k;
+            _repeatAt = ms + kScaleRepeatDelayMs;
         }
     }
 
     void tick(uint32_t now) {
+        if (_state != State::Normal && _state != State::Leaving) _tickLage(now);
         switch (_state) {
             case State::Normal:
                 return;
@@ -194,6 +247,8 @@ class Participant {
         _serviceChannelSwitch(now);
         _serviceSearch(now);
         _serviceSend(now);
+        _serviceKeys(now);
+        _serviceRepeat(now);
         if ((int32_t)(now - _nextStatusAt) >= 0) {
             _sendStatus(0);
             _nextStatusAt = now + _statusInterval();
@@ -212,10 +267,76 @@ class Participant {
     const Round& round() const { return _round; }
     uint8_t value() const { return _val; }
     bool confirmed() const { return _confirmed; }
+    // When the bridge's echo last confirmed the value (millis()).
+    uint32_t confirmedMs() const { return _confirmedMs; }
+    // A round with firstOnly whose answer has gone out: the keys take no
+    // other answer.
+    bool answerLocked() const {
+        return (_round.firstOnly || confirmEnter()) && _val != kNoValue && _reported;
+    }
+    // A scale that Enter logs in (link `confirm`): Up and Down set the value,
+    // Enter sends it, then it stays.
+    bool confirmEnter() const {
+        return _round.type == RoundType::Scale && (_round.keyMask & (1u << (uint8_t)Key::Enter));
+    }
     uint32_t gatewayAgeMs(uint32_t now) const { return now - _lastGatewayMs; }
     uint32_t admittedAgeMs(uint32_t now) const { return now - _admittedAt; }
     bool searching() const { return _searching; }
     bool loginOpen(uint32_t now) const { return (int32_t)(_loginOpenUntil - now) > 0; }
+
+    Naming naming() const { return _naming; }
+    bool named() const { return _naming == Naming::Named; }
+    uint32_t namingMs() const { return _namingMs; }  // the last choice (millis())
+    // Up / Down choose named or anonymous: a member while login is open and
+    // no round other than idle runs.
+    // This device answers in the race now (link `game answering`).
+    bool answeringMe() const {
+        return _round.known && _round.type == RoundType::Race && _round.answering != 0 &&
+               _round.answering == _number && _round.winner != _number;
+    }
+    // It has given its answer with an answer key.
+    bool answerGiven() const { return _answerGiven; }
+    uint32_t inputMs() const { return _inputMs; }
+    // Its answer time runs at moment ms and it has not answered yet.
+    // An answer time of 0 has no limit.
+    bool answerOpen(uint32_t ms) const {
+        return answeringMe() && !_answerGiven &&
+               (_round.answerMs == 0 ||
+                (_round.deadlineKnown && (int32_t)(ms - _round.deadline) < 0));
+    }
+
+    // The console's countdown for the devices without an answer (link
+    // `game countdown`) runs for this one: an open choice or zone scale.
+    bool countdownMe() const {
+        return _round.known && _round.phase == Phase::Open && _round.answering == 0 &&
+               _round.answerMs != 0 && _round.deadlineKnown && _val == kNoValue &&
+               (_round.type == RoundType::Choice ||
+                (_round.type == RoundType::Scale && !_round.rainbow));
+    }
+
+    bool namingOpen(uint32_t now) const {
+        return _state == State::Member && loginOpen(now) &&
+               !(_round.known && _round.type != RoundType::Idle);
+    }
+
+    // The accepted orientation (reported in status frames), Unknown until one is.
+    Lage lage() const { return _lage.accepted(); }
+    // The orientation whose key mapping and display apply now.
+    Lage inputLage() const { return _shown; }
+    const LageAnim& lageAnim() const { return _anim; }
+    uint8_t pressCount() const { return _logCount; }
+    const Press& press(uint8_t i) const { return _log[i]; }
+
+    // The round requires another orientation: keys do nothing, nothing is
+    // reported (announced and open; a closed round shows its result). An
+    // unknown orientation never locks.
+    bool locked() const {
+        if (!_round.known || _round.type == RoundType::Idle || _round.phase == Phase::Closed ||
+            _shown == Lage::Unknown)
+            return false;
+        Lage need = requiredLage(_round.hold);
+        return need != Lage::Unknown && !lageFits(_shown, need);
+    }
 
     // Whether key k accepts input at moment ms (round format v0: free keys in
     // phase open, after the announced start).
@@ -232,10 +353,13 @@ class Participant {
                (int32_t)(now - _round.startMs) < 0;
     }
 
-    // Choice answer for a key: UP 1, RIGHT 2, DOWN 3, LEFT 4 (gateway protocol
-    // v0, "Erlaubte Tasten"); 0 for other keys.
+    // Choice answer for a logical key: up 1, right 2, down 3, left 4 (gateway
+    // protocol v0, "Erlaubte Tasten"), enter 5 (owner, 2026-11-10); 0 for
+    // other keys.
     static uint8_t choiceAnswer(Key k) {
         switch (k) {
+            case Key::Enter:
+                return 5;
             case Key::Up:
                 return 1;
             case Key::Right:
@@ -280,6 +404,8 @@ class Participant {
     uint32_t _switchAt = 0;
     bool _searching = false;
     uint32_t _searchNextAt = 0;
+    Naming _naming = Naming::None;
+    uint32_t _namingMs = 0;
 
     // Round and own value.
     Round _round;
@@ -287,13 +413,31 @@ class Participant {
     uint8_t _vseq = 0;
     uint32_t _inputMs = 0;  // moment of the last input (millis())
     bool _confirmed = false;
+    uint32_t _confirmedMs = 0;
+    bool _reported = false;     // the value went out at least once
+    bool _answerGiven = false;  // race: this device answered with an answer key
     bool _sendArmed = false;
     uint32_t _nextSendAt = 0;
     uint32_t _retryMs = 0;
 
+    uint8_t _valLage = 0;  // Lage of the last input
+    // Move round: unacknowledged presses, oldest first.
+    Press _log[kKeyLogDepth] = {};
+    uint8_t _logCount = 0;
+    uint8_t _kseq = 0;
+    uint32_t _nextKeysAt = 0;
+    uint32_t _keysRetryMs = 0;
+
+    // Orientation.
+    LageFilter _lage;
+    Lage _shown = Lage::Unknown;
+    LageAnim _anim;
+
     // Key state for the leave combination.
     bool _down[11] = {};
     uint32_t _downAt[11] = {};
+    Key _repeatKey = Key::None;  // the last key pressed, for the scale repeat
+    uint32_t _repeatAt = 0;
 
     uint32_t _rand(uint32_t lo, uint32_t hi) {
         return _io.randomRange ? _io.randomRange(lo, hi) : lo;
@@ -305,8 +449,9 @@ class Participant {
     }
 
     void _persistSession() {
-        if (_state == State::Member && _io.storeSession)
-            _io.storeSession(_session, _sessionChannel);
+        if (_state != State::Member) return;
+        if (_io.storeSession) _io.storeSession(_session, _sessionChannel);
+        if (_io.storeNaming) _io.storeNaming(_naming);
     }
 
     void _onInviteNormal(const uint8_t* d, size_t len, uint32_t now) {
@@ -324,6 +469,7 @@ class Participant {
         if (_io.enterQuiet) _io.enterQuiet();
         _session = _inviteSession;
         _sessionChannel = _inviteChannel;
+        _naming = Naming::None;
         _tune(_inviteChannel);
         _lastGatewayMs = now;
         _startJoin(/*pressed=*/true, /*rejoin=*/false, now);
@@ -380,7 +526,8 @@ class Participant {
     void _onState(const uint8_t* d, size_t len, uint32_t now) {
         QuizStateMsg m;
         if (!decodeFrame(d, len, kMsgQuizState, m)) return;
-        if (m.roundType >= kRoundTypeCount || m.phase >= kPhaseCount) return;
+        if (m.roundType >= kRoundTypeCount || m.phase >= kPhaseCount || m.hold >= kHoldCount)
+            return;
         // The bridge sends only its current state, in order over one hop, so
         // any frame that differs from the applied state is the newer one. A
         // stateSeq that did not move forward means the bridge restarted and
@@ -402,6 +549,10 @@ class Participant {
                     _retryMs = 0;
                     _nextSendAt = now + _rand(kRetryMinMs, kRetryMaxMs);
                 }
+                if (_logCount > 0) {
+                    _keysRetryMs = 0;
+                    _nextKeysAt = now + _rand(kRetryMinMs, kRetryMaxMs);
+                }
             }
             _round.known = true;
             _round.id = m.roundId;
@@ -414,8 +565,29 @@ class Participant {
             _round.max = m.scaleMax;
             _round.redMax = m.redMax;
             _round.greenMin = m.greenMin;
+            bool winnerWrong = (m.h.flags & kStateWinnerWrong) != 0;
+            if (m.winner != _round.winner || m.correct != _round.correct ||
+                winnerWrong != _round.winnerWrong)
+                _round.resultMs = now;
             _round.winner = m.winner;
             _round.correct = m.correct;
+            _round.winnerWrong = winnerWrong;
+            _round.hold = (Hold)m.hold;
+            _round.firstOnly = (m.h.flags & kStateFirstOnly) != 0;
+            _round.rainbow = (m.h.flags & kStateRainbow) != 0;
+            if (m.turn != _round.answering || m.turnMs != _round.answerMs) {
+                _round.answering = m.turn;
+                _round.answerMs = m.turnMs;
+                _round.turnSeenMs = now;
+                _round.deadlineKnown = false;
+                _answerGiven = false;
+            }
+            // Fest: the orientation at the moment the round opens stays.
+            if (_round.hold == Hold::Fest && !_round.fixedKnown && _round.type != RoundType::Idle &&
+                _round.phase == Phase::Open) {
+                _round.fixed = _lage.accepted();
+                _round.fixedKnown = true;
+            }
         }
         // Local round start = receive time - openOffsetMs; keep the smallest,
         // since every delay only makes it larger (gateway protocol v0).
@@ -426,11 +598,54 @@ class Participant {
                 _round.startKnown = true;
             }
         }
-        // Echo: confirm, or resend if the bridge holds something else.
-        if (_number == 0 || _val == kNoValue) return;
-        if (_number < m.echoFirst || _number >= m.echoFirst + m.echoCount) return;
+        // Answer time: local end = receive time + time left; keep the
+        // earliest, as for the round start.
+        if (_round.answerMs != 0) {
+            uint32_t end = now + m.turnLeftMs;
+            if (!_round.deadlineKnown || (int32_t)(end - _round.deadline) < 0) {
+                _round.deadline = end;
+                _round.deadlineKnown = true;
+            }
+        }
+        if (_number == 0 || _number < m.echoFirst || _number >= m.echoFirst + m.echoCount) return;
         uint8_t echo = m.echo[_number - m.echoFirst];
-        if (echo == _val) {
+        if (_round.type == RoundType::Move) {
+            // The last press the bridge passed on.
+            if (echo == kNoKeySeq || _logCount == 0) return;
+            uint8_t keep = 0;
+            for (uint8_t i = 0; i < _logCount; i++)
+                if (seq8Newer(_log[i].kseq, echo)) _log[keep++] = _log[i];
+            _logCount = keep;
+            if (_logCount == 0) _keysRetryMs = 0;
+            return;
+        }
+        // The bridge holds this device's race answer (kEchoAnswer): after a
+        // restart in the round it is the device's answer again.
+        bool echoAnswer = echo != kNoValue && (echo & kEchoAnswer);
+        if (echoAnswer && !_answerGiven) {
+            _answerGiven = true;
+            _val = (uint8_t)(echo & ~kEchoAnswer);
+            _confirmed = true;
+            _confirmedMs = now;
+            _reported = true;
+            _sendArmed = false;
+            return;
+        }
+        // First answer only: the value the bridge holds is the answer.
+        if (_round.firstOnly && !_answerGiven && echo != kNoValue && echo != _val) {
+            _val = echo;
+            _confirmed = true;
+            _confirmedMs = now;
+            _reported = true;
+            _sendArmed = false;
+            return;
+        }
+        // Echo: confirm, or resend if the bridge holds something else. A
+        // race answer counts only as its marked echo, not as the buzz.
+        if (_val == kNoValue) return;
+        uint8_t want = _answerGiven ? (uint8_t)(kEchoAnswer | _val) : _val;
+        if (echo == want) {
+            if (!_confirmed) _confirmedMs = now;
             _confirmed = true;
             _sendArmed = false;
         } else if (_confirmed) {
@@ -447,19 +662,45 @@ class Participant {
                m.phase == (uint8_t)r.phase && m.keyMask == r.keyMask &&
                memcmp(m.keyColor, r.keyColor, sizeof(r.keyColor)) == 0 && m.scaleMin == r.min &&
                m.scaleMax == r.max && m.redMax == r.redMax && m.greenMin == r.greenMin &&
-               m.winner == r.winner && m.correct == r.correct;
+               m.winner == r.winner && m.correct == r.correct && m.hold == (uint8_t)r.hold &&
+               ((m.h.flags & kStateFirstOnly) != 0) == r.firstOnly &&
+               ((m.h.flags & kStateWinnerWrong) != 0) == r.winnerWrong &&
+               ((m.h.flags & kStateRainbow) != 0) == r.rainbow && m.turn == r.answering &&
+               m.turnMs == r.answerMs;
     }
 
     void _resetValue() {
         _val = kNoValue;
         _vseq = 0;
         _inputMs = 0;
+        _valLage = 0;
         _confirmed = false;
+        _confirmedMs = 0;
+        _reported = false;
+        _answerGiven = false;
         _sendArmed = false;
         _retryMs = 0;
+        // Move: the press counter restarts per round and with every join.
+        _logCount = 0;
+        _kseq = 0;
+        _keysRetryMs = 0;
     }
 
-    void _onMemberPress(Key k, uint32_t ms, uint32_t now) {
+    // phys: the physical key; k: its logical input as a round key slot.
+    void _onMemberPress(Key phys, uint32_t ms, uint32_t now) {
+        if (locked()) return;
+        Key k = roundKey(logicalInput(_shown, phys));
+        if (namingOpen(now) && (k == Key::Up || k == Key::Down)) {
+            _setNaming(k == Key::Up ? Naming::Named : Naming::Anonymous, now);
+            return;
+        }
+        // The answering race device: its first answer key is the answer, in
+        // any phase, within its answer time.
+        if (answerOpen(ms) && choiceAnswer(k) != 0 && (_round.keyMask & (1u << (uint8_t)k))) {
+            _answerGiven = true;
+            _setValue(choiceAnswer(k), ms, now, 0);
+            return;
+        }
         if (!keyFree(k, ms)) {
             // Round format v0, "Nummern": a member pressing the buzzer while
             // login is open reports itself again, marked as pressed.
@@ -473,28 +714,120 @@ class Participant {
             case RoundType::Choice: {
                 uint8_t a = choiceAnswer(k);
                 if (a == 0) break;
-                if (_val == kNoValue || (kChoiceChangeAllowed && a != _val))
+                if (_val == kNoValue || (kChoiceChangeAllowed && !_round.firstOnly && a != _val))
                     _setValue(a, ms, now, 0);
                 break;
             }
-            case RoundType::Scale: {
-                if ((k != Key::Up && k != Key::Down) || _round.max < _round.min) break;
-                uint8_t steps = (uint8_t)(_round.max - _round.min + 1);
-                uint8_t v;
-                if (_val == kNoValue) {
-                    // Proposal 2: the first tap sets the middle.
-                    v = k == Key::Up ? (uint8_t)(_round.min + steps / 2)
-                                     : (uint8_t)(_round.min + (steps - 1) / 2);
-                } else if (k == Key::Up) {
-                    v = _val < _round.max ? (uint8_t)(_val + 1) : _val;
-                } else {
-                    v = _val > _round.min ? (uint8_t)(_val - 1) : _val;
-                }
-                if (v != _val) _setValue(v, ms, now, kScaleSendDelayMs);
+            case RoundType::Scale:
+                if (k == Key::Enter)
+                    _scaleEnter(ms, now);
+                else
+                    _scaleTap(k, ms, now);
                 break;
-            }
+            case RoundType::Move:
+                // One press, one event: only press edges reach this point.
+                if (choiceAnswer(k) >= 1 && choiceAnswer(k) <= 4) _pressKey(k, phys, now);
+                break;
             default:
                 break;
+        }
+    }
+
+    // One step of a scale value with Up or Down (k: logical).
+    void _scaleTap(Key k, uint32_t ms, uint32_t now) {
+        if ((k != Key::Up && k != Key::Down) || _round.max < _round.min || answerLocked()) return;
+        uint8_t steps = (uint8_t)(_round.max - _round.min + 1);
+        uint8_t v;
+        if (_val == kNoValue) {
+            // Proposal 2: the first tap sets the middle.
+            v = k == Key::Up ? (uint8_t)(_round.min + steps / 2)
+                             : (uint8_t)(_round.min + (steps - 1) / 2);
+        } else if (k == Key::Up) {
+            v = _val < _round.max ? (uint8_t)(_val + 1) : _val;
+        } else {
+            v = _val > _round.min ? (uint8_t)(_val - 1) : _val;
+        }
+        if (v == _val) return;
+        if (confirmEnter()) {
+            // Held until Enter logs it in.
+            _val = v;
+            _inputMs = ms;
+            _valLage = (uint8_t)_shown;
+            _confirmed = false;
+            _sendArmed = false;
+            return;
+        }
+        _setValue(v, ms, now, _round.firstOnly ? kScaleCommitMs : kScaleSendDelayMs);
+    }
+
+    // Enter in a scale with confirm: sends the value set, which then stays.
+    void _scaleEnter(uint32_t ms, uint32_t now) {
+        if (!confirmEnter() || _val == kNoValue || answerLocked()) return;
+        _setValue(_val, ms, now, 0);
+    }
+
+    // The last key pressed, still held in a scale round: one more step per
+    // kScaleRepeatMs after kScaleRepeatDelayMs.
+    void _serviceRepeat(uint32_t now) {
+        if (_repeatKey == Key::None) return;
+        if (!_down[(uint8_t)_repeatKey] || !_round.known || _round.type != RoundType::Scale) {
+            _repeatKey = Key::None;
+            return;
+        }
+        if ((int32_t)(now - _repeatAt) < 0) return;
+        _repeatAt = now + kScaleRepeatMs;
+        if (locked()) return;
+        Key k = roundKey(logicalInput(_shown, _repeatKey));
+        if (keyFree(k, now)) _scaleTap(k, now, now);
+    }
+
+    void _pressKey(Key k, Key phys, uint32_t now) {
+        _kseq = (uint8_t)(_kseq % 255 + 1);  // 1-255, then 1: 0 means none
+        if (_logCount == kKeyLogDepth) {     // keep the newest kKeyLogDepth
+            for (uint8_t i = 1; i < _logCount; i++) _log[i - 1] = _log[i];
+            _logCount--;
+        }
+        _log[_logCount++] = Press{_kseq, k, phys, _shown};
+        _keysRetryMs = 0;
+        _nextKeysAt = now;
+        _serviceKeys(now);
+    }
+
+    void _serviceKeys(uint32_t now) {
+        if (_logCount == 0 || (int32_t)(now - _nextKeysAt) < 0) return;
+        QuizKeysMsg m{};
+        _fillHeader(m.h, kMsgQuizKeys);
+        m.session = _session;
+        m.roundId = _round.id;
+        m.count = _logCount;
+        for (uint8_t i = 0; i < _logCount; i++)
+            m.keys[i] = QuizKey{_log[i].kseq, (uint8_t)_log[i].key, (uint8_t)_log[i].lage};
+        _send(&m, keysFrameLen(m));
+        _keysRetryMs = _keysRetryMs == 0
+                           ? _rand(kRetryMinMs, kRetryMaxMs)
+                           : (_keysRetryMs * 2 > kRetryCapMs ? kRetryCapMs : _keysRetryMs * 2);
+        _nextKeysAt = now + _keysRetryMs;
+    }
+
+    Lage _targetLage() const {
+        if (_round.known && _round.hold == Hold::Fest && _round.fixedKnown) return _round.fixed;
+        return _lage.accepted();
+    }
+
+    // A newly accepted orientation goes out at once; its key mapping applies
+    // once its change animation has run.
+    void _tickLage(uint32_t now) {
+        if (_lage.tick(now) && _state == State::Member) _sendStatus(0);
+        if (_anim.on && now - _anim.start >= lageAnimMs(_anim.from, _anim.to)) {
+            _shown = _anim.to;
+            _anim.on = false;
+        }
+        Lage target = _targetLage();
+        if (!_anim.on && target != _shown) {
+            _anim.on = true;
+            _anim.from = _shown;
+            _anim.to = target;
+            _anim.start = now;
         }
     }
 
@@ -502,6 +835,7 @@ class Participant {
         _val = v;
         _vseq++;
         _inputMs = ms;
+        _valLage = (uint8_t)_shown;
         _confirmed = false;
         _sendArmed = true;
         _retryMs = 0;
@@ -521,7 +855,9 @@ class Participant {
         m.pressOffsetMs = _round.startKnown ? (int32_t)(_inputMs - _round.startMs) : 0;
         m.battery = _health().battery;
         m.rssi = _lastRssi;
+        m.lage = _valLage;
         _send(&m, sizeof(m));
+        _reported = true;
         _retryMs = _retryMs == 0 ? _rand(kRetryMinMs, kRetryMaxMs)
                                  : (_retryMs * 2 > kRetryCapMs ? kRetryCapMs : _retryMs * 2);
         _nextSendAt = now + _retryMs;
@@ -552,8 +888,17 @@ class Participant {
         return (int32_t)(now - since) >= (int32_t)kLeaveComboMs;
     }
 
+    void _setNaming(Naming n, uint32_t now) {
+        if (n == _naming) return;
+        _naming = n;
+        _namingMs = now;
+        _persistSession();
+        _sendStatus(0);
+    }
+
     void _leave(uint32_t now) {
         if (_io.storeSession) _io.storeSession(0, 0);
+        if (_io.storeNaming) _io.storeNaming(Naming::None);
         _state = State::Leaving;
         _deadline = now + kLeaveRestartDelayMs;
     }
@@ -584,10 +929,12 @@ class Participant {
         m.fwBuild = _io.fwBuild ? _io.fwBuild() : 0;
         Health hl = _health();
         m.battery = hl.battery;
-        m.flags = (uint8_t)(flags | (hl.charging ? kStatusCharging : 0));
+        m.flags =
+            (uint8_t)(flags | (hl.charging ? kStatusCharging : 0) | (named() ? kStatusNamed : 0));
         m.rssi = _lastRssi;
         m.lastRoundId = _round.known ? _round.id : 0;
         m.lastStateSeq = _round.known ? _round.seq : 0;
+        m.lage = (uint8_t)_lage.accepted();
         _send(&m, sizeof(m));
     }
 

@@ -10,14 +10,16 @@
 #include "Bridge.h"
 #include "GameConfig.h"
 #include "GameTypes.h"
+#include "Lage.h"
 
 namespace game {
 
 // USB link of the bridge (gateway protocol v0): NDJSON lines with the
 // namespaces `link` and `game`. Parses commands, drives Bridge, and writes
 // events without ever blocking: queued events (at most kEventQueueLines)
-// first, then per-device `device`/`value` lines straight from the bridge's
-// table, each only once a whole line fits the writer's free space.
+// first, then the bridge's `key` lines (move rounds, one per press), then
+// per-device `device`/`value` lines straight from the bridge's table, each
+// only once a whole line fits the writer's free space.
 //
 // More namespaces come from an Extension (src/fleet/: `config`, `fleet`,
 // `test`, see docs/usb-link.md). A device-scope namespace opens the link
@@ -156,18 +158,19 @@ class Link : public Bridge::Listener {
     // ── Bridge::Listener ─────────────────────────────────────────────────────
     void onJoin(const Bridge::JoinInfo& j) override {
         if (!_helloDone) return;
-        char mac[18], n[8], bat[8];
+        char mac[18], n[8], bat[8], lage[24];
         formatMac(j.mac, mac);
         _numOrNull(n, j.n != 0, j.n);
         _numOrNull(bat, j.battery != kNoBattery, j.battery);
+        _lagePart(lage, j.lage);
         char line[kEventLineMax];
         int len =
             snprintf(line, sizeof(line),
                      "{\"ns\":\"game\",\"ev\":\"join\",\"mac\":\"%s\",\"n\":%s,\"fw\":\"%08lx\","
                      "\"proto\":%u,\"fleet\":%u,\"bat\":%s,\"chg\":%s,\"rssi\":%d,"
-                     "\"pressed\":%s,\"rejoin\":%s}\n",
+                     "\"pressed\":%s,\"rejoin\":%s,\"named\":%s%s}\n",
                      mac, n, (unsigned long)j.fw, j.proto, j.fleet, bat, _b(j.charging), j.rssi,
-                     _b(j.pressed), _b(j.rejoin));
+                     _b(j.pressed), _b(j.rejoin), _b(j.named), lage);
         _enqueueRaw(line, len);
     }
 
@@ -231,6 +234,15 @@ class Link : public Bridge::Listener {
             strcpy(out, "null");
     }
 
+    // `,"lage":"quer-links"` when the orientation is known, else empty. out: 24 bytes.
+    static void _lagePart(char* out, uint8_t lage) {
+        const char* name = lageName(lage);
+        if (name)
+            snprintf(out, 24, ",\"lage\":\"%s\"", name);
+        else
+            out[0] = 0;
+    }
+
     // ── Output ───────────────────────────────────────────────────────────────
     void _close() {
         _active = false;
@@ -277,8 +289,25 @@ class Link : public Bridge::Listener {
             _qCount--;
         }
         if (_closing || !_helloDone) return;
+        if (!_flushKeys()) return;
         if (!_flushBridgeTable()) return;
         if (_ext) _ext->flushTable(*this, _now);
+    }
+
+    // One `key` line per press the bridge passed on; false while the writer is full.
+    bool _flushKeys() {
+        char line[kEventLineMax], lage[24];
+        while (_bridge->keyCount() > 0) {
+            const Bridge::KeyEvent& e = _bridge->keyFront();
+            _lagePart(lage, e.lage);
+            int len = snprintf(line, sizeof(line),
+                               "{\"ns\":\"game\",\"ev\":\"key\",\"n\":%u,\"round\":%u,"
+                               "\"key\":\"%s\",\"kseq\":%u%s}\n",
+                               e.n, e.round, kKeyNames[e.key], e.kseq, lage);
+            if (!_write(line, len)) return false;
+            _bridge->popKey();
+        }
+        return true;
     }
 
     // The bridge's per-device lines; false while the writer is full.
@@ -291,27 +320,30 @@ class Link : public Bridge::Listener {
             uint16_t n = _cursor;
             const Bridge::Device* dv = _bridge->device(n);
             if (dv->dirtyDevice) {
-                char mac[18], bat[8];
+                char mac[18], bat[8], lage[24];
                 formatMac(dv->mac, mac);
                 _numOrNull(bat, dv->battery != kNoBattery, dv->battery);
+                _lagePart(lage, dv->lage);
                 int len = snprintf(line, sizeof(line),
                                    "{\"ns\":\"game\",\"ev\":\"device\",\"n\":%u,\"mac\":\"%s\","
                                    "\"fw\":\"%08lx\",\"proto\":%u,\"bat\":%s,\"chg\":%s,"
-                                   "\"rssi\":%d,\"round\":%u,\"seq\":%u}\n",
+                                   "\"rssi\":%d,\"round\":%u,\"seq\":%u,\"named\":%s%s}\n",
                                    n, mac, (unsigned long)dv->fw, dv->proto, bat, _b(dv->charging),
-                                   dv->rssi, dv->lastRound, dv->lastSeq);
+                                   dv->rssi, dv->lastRound, dv->lastSeq, _b(dv->named), lage);
                 if (!_write(line, len)) return false;
                 _bridge->clearDirtyDevice(n);
             }
             if (dv->dirtyValue) {
-                char bat[8];
+                char bat[8], lage[24];
                 _numOrNull(bat, dv->valueBattery != kNoBattery, dv->valueBattery);
+                _lagePart(lage, dv->valueLage);
                 int len = snprintf(line, sizeof(line),
                                    "{\"ns\":\"game\",\"ev\":\"value\",\"n\":%u,\"round\":%u,"
                                    "\"v\":%u,\"vseq\":%u,\"t\":%ld,\"arr\":%u,\"late\":%s,"
-                                   "\"rssi\":%d,\"bat\":%s}\n",
+                                   "\"rssi\":%d,\"bat\":%s%s%s}\n",
                                    n, _bridge->stateInfo(0).round, dv->value, dv->vseq, (long)dv->t,
-                                   dv->arr, _b(dv->late), dv->valueRssi, bat);
+                                   dv->arr, _b(dv->late), dv->valueRssi, bat, lage,
+                                   dv->answerTaken ? ",\"answer\":true" : "");
                 if (!_write(line, len)) return false;
                 _bridge->clearDirtyValue(n);
             }
@@ -537,8 +569,10 @@ class Link : public Bridge::Listener {
         if (strcmp(cmd, "release") == 0) return _cmdRelease(o, id, now);
         if (strcmp(cmd, "round") == 0) return _cmdRound(o, id, now);
         if (strcmp(cmd, "number") == 0) return _cmdNumber(o, id);
+        if (strcmp(cmd, "answering") == 0) return _cmdAnswering(o, id, now);
+        if (strcmp(cmd, "countdown") == 0) return _cmdCountdown(o, id, now);
         _error(id, "unknown_cmd", "game", cmd, nullptr,
-               "game commands: session, end, admit, release, round, number");
+               "game commands: session, end, admit, release, round, number, answering, countdown");
     }
 
     void _cmdSession(JsonObjectConst o, const ReqId& id, uint32_t now) {
@@ -635,7 +669,7 @@ class Link : public Bridge::Listener {
         int type = indexOfName(o["type"].is<const char*>() ? o["type"].as<const char*>() : nullptr,
                                kRoundTypeNames, kRoundTypeCount);
         if (type < 0) {
-            _badField(id, cmd, "type", "type must be idle, race, scale or choice");
+            _badField(id, cmd, "type", "type must be idle, race, scale, choice or move");
             return false;
         }
         c.type = (RoundType)type;
@@ -695,23 +729,52 @@ class Link : public Bridge::Listener {
             auto keyBit = [](Key k) { return (uint16_t)(1u << (uint8_t)k); };
             bool ok;
             const char* rule;
+            // Answer keys: up 1, right 2, down 3, left 4, enter 5; any 2-5 of
+            // them, e.g. up and down for true or false.
+            uint16_t answerKeys = keyBit(Key::Up) | keyBit(Key::Right) | keyBit(Key::Down) |
+                                  keyBit(Key::Left) | keyBit(Key::Enter);
+            auto answerSet = [&](uint16_t m) {
+                uint8_t count = 0;
+                for (uint8_t b = 0; b < 16; b++)
+                    if (m & (1u << b)) count++;
+                return (m & (uint16_t)~answerKeys) == 0 && count >= 2;
+            };
             if (c.type == RoundType::Race) {
-                ok = c.keyMask == keyBit(Key::Buzz);
-                rule = "race takes exactly buzz";
+                // Answer keys for the answering device, as in a choice.
+                uint16_t answers = c.keyMask & (uint16_t)~keyBit(Key::Buzz);
+                ok = (c.keyMask & keyBit(Key::Buzz)) && (answers == 0 || answerSet(answers));
+                rule = "race takes buzz, optionally with 2-5 of up, right, down, left, enter";
             } else if (c.type == RoundType::Scale) {
                 ok = c.keyMask == (keyBit(Key::Up) | keyBit(Key::Down));
                 rule = "scale takes exactly up and down";
+            } else if (c.type == RoundType::Move) {
+                ok = c.keyMask ==
+                     (keyBit(Key::Up) | keyBit(Key::Right) | keyBit(Key::Down) | keyBit(Key::Left));
+                rule = "move takes exactly up, right, down and left";
             } else {
-                uint16_t two = keyBit(Key::Up) | keyBit(Key::Right);
-                uint16_t three = two | keyBit(Key::Down);
-                uint16_t four = three | keyBit(Key::Left);
-                ok = c.keyMask == two || c.keyMask == three || c.keyMask == four;
-                rule = "choice takes up, right, down, left in this order, 2-4 keys";
+                ok = answerSet(c.keyMask);
+                rule = "choice takes 2-5 of up, right, down, left, enter";
             }
             if (!ok) {
                 _badField(id, cmd, "keys", rule);
                 return false;
             }
+        }
+
+        // display (scale; absent = zones): "rainbow" shows 24 steps in the
+        // rainbow colours, without redMax and greenMin
+        JsonVariantConst display = o["display"];
+        if (!display.isUnbound()) {
+            const char* ds = display.is<const char*>() ? display.as<const char*>() : nullptr;
+            if (c.type != RoundType::Scale) {
+                _badField(id, cmd, "display", "only for scale");
+                return false;
+            }
+            if (!ds || (strcmp(ds, "zones") != 0 && strcmp(ds, "rainbow") != 0)) {
+                _badField(id, cmd, "display", "display must be zones or rainbow");
+                return false;
+            }
+            c.rainbow = strcmp(ds, "rainbow") == 0;
         }
 
         // scale
@@ -722,6 +785,21 @@ class Link : public Bridge::Listener {
                     _badField(id, cmd, k, "only for scale");
                     return false;
                 }
+        } else if (c.rainbow) {
+            long long mn, mx;
+            if (_int(o, "min", 1, 1, mn) != Field::Ok || _int(o, "max", 24, 24, mx) != Field::Ok) {
+                _badField(id, cmd, "max", "rainbow takes min 1 and max 24");
+                return false;
+            }
+            for (const char* k : {"redMax", "greenMin"})
+                if (!o[k].isUnbound()) {
+                    _badField(id, cmd, k, "omit redMax and greenMin for rainbow");
+                    return false;
+                }
+            c.min = (uint8_t)mn;
+            c.max = (uint8_t)mx;
+            c.redMax = c.min;
+            c.greenMin = c.max;
         } else {
             long long mn, mx, rm, gm;
             if (_int(o, "min", 0, 98, mn) != Field::Ok) {
@@ -748,6 +826,53 @@ class Link : public Bridge::Listener {
             c.max = (uint8_t)mx;
             c.redMax = (uint8_t)rm;
             c.greenMin = (uint8_t)gm;
+        }
+
+        // confirm (scale; absent = none): "enter" logs the value in with Enter
+        JsonVariantConst confirm = o["confirm"];
+        if (!confirm.isUnbound()) {
+            const char* cs = confirm.is<const char*>() ? confirm.as<const char*>() : nullptr;
+            if (c.type != RoundType::Scale) {
+                _badField(id, cmd, "confirm", "only for scale");
+                return false;
+            }
+            if (!cs || strcmp(cs, "enter") != 0) {
+                _badField(id, cmd, "confirm", "confirm must be enter");
+                return false;
+            }
+            c.keyMask |= (uint16_t)(1u << (uint8_t)Key::Enter);
+            setKeyColor(c.keyColor, (uint8_t)Key::Enter, (uint8_t)Color::White);
+        }
+
+        // hold (absent = frei)
+        JsonVariantConst hold = o["hold"];
+        if (!hold.isUnbound()) {
+            if (idle) {
+                _badField(id, cmd, "hold", "omit hold for idle");
+                return false;
+            }
+            int h = indexOfName(hold.is<const char*>() ? hold.as<const char*>() : nullptr,
+                                kHoldNames, kHoldCount);
+            if (h < 0) {
+                _badField(id, cmd, "hold", "hold must be frei, hochkant, quer, liegend or fest");
+                return false;
+            }
+            c.hold = (Hold)h;
+        }
+
+        // firstOnly (absent = false): only each device's first answer counts
+        JsonVariantConst firstOnly = o["firstOnly"];
+        if (!firstOnly.isUnbound()) {
+            if (c.type != RoundType::Race && c.type != RoundType::Scale &&
+                c.type != RoundType::Choice) {
+                _badField(id, cmd, "firstOnly", "only for race, scale and choice");
+                return false;
+            }
+            if (!firstOnly.is<bool>()) {
+                _badField(id, cmd, "firstOnly", "firstOnly must be a boolean");
+                return false;
+            }
+            c.firstOnly = firstOnly.as<bool>();
         }
 
         // openInMs
@@ -779,23 +904,96 @@ class Link : public Bridge::Listener {
             c.winner = (uint16_t)v;
         }
 
-        // correct
-        f = _int(o, "correct", 1, 4, v);
-        if (f != Field::Missing) {
-            if (c.type != RoundType::Choice || c.phase != Phase::Closed) {
-                _badField(id, cmd, "correct", "only for choice in phase closed");
+        // verdict (race with a winner): the quizmaster's rating of the
+        // winner's answer; absent = right
+        JsonVariantConst verdict = o["verdict"];
+        if (!verdict.isUnbound()) {
+            if (c.type != RoundType::Race || c.winner == 0) {
+                _badField(id, cmd, "verdict", "only for race with a winner");
                 return false;
             }
-            uint8_t answers = 0;
-            for (Key k : {Key::Up, Key::Right, Key::Down, Key::Left})
-                if (c.keyMask & (1u << (uint8_t)k)) answers++;
-            if (f != Field::Ok || v > answers) {
-                _badField(id, cmd, "correct", "correct must be 1 to the number of answers");
+            const char* vs = verdict.is<const char*>() ? verdict.as<const char*>() : nullptr;
+            if (!vs || (strcmp(vs, "right") != 0 && strcmp(vs, "wrong") != 0)) {
+                _badField(id, cmd, "verdict", "verdict must be right or wrong");
+                return false;
+            }
+            c.winnerWrong = strcmp(vs, "wrong") == 0;
+        }
+
+        // correct: the choice answer, or the right step of a rainbow scale
+        f = _int(o, "correct", 1, 24, v);
+        if (f != Field::Missing && c.rainbow) {
+            if (c.phase != Phase::Closed || f != Field::Ok) {
+                _badField(id, cmd, "correct", "correct must be 1-24, in phase closed");
+                return false;
+            }
+            c.correct = (uint8_t)v;
+        } else if (f != Field::Missing) {
+            if (c.type != RoundType::Choice || c.phase != Phase::Closed) {
+                _badField(id, cmd, "correct", "only for choice and rainbow scale in phase closed");
+                return false;
+            }
+            // The answer's key must be one of the round's keys.
+            const Key answerKey[6] = {Key::None, Key::Up,   Key::Right,
+                                      Key::Down, Key::Left, Key::Enter};
+            if (f != Field::Ok || v < 1 || v > 5 || !(c.keyMask & (1u << (uint8_t)answerKey[v]))) {
+                _badField(id, cmd, "correct", "correct must be the answer of one of the keys");
                 return false;
             }
             c.correct = (uint8_t)v;
         }
         return true;
+    }
+
+    // The race device that answers now and its answer time (owner,
+    // 2026-11-10); n 0 or null: nobody; ms 0 or absent: no time limit.
+    void _cmdAnswering(JsonObjectConst o, const ReqId& id, uint32_t now) {
+        long long n = 0, ms = 0;
+        Field fn = _int(o, "n", 0, kMaxNumber, n);
+        if (fn != Field::Ok && fn != Field::Null)
+            return _badField(id, "answering", "n", "n must be 0-999 or null");
+        if (fn == Field::Null) n = 0;
+        Field fm = _int(o, "ms", 0, 60000, ms);
+        if (fm == Field::Missing) ms = 0;
+        if (n != 0 && ((fm != Field::Ok && fm != Field::Missing) || (ms != 0 && ms < 1000)))
+            return _badField(id, "answering", "ms", "ms must be 0 or 1000-60000");
+        switch (_bridge->answering((uint16_t)n, (uint16_t)ms, now)) {
+            case Bridge::Err::None: {
+                JsonDocument d;
+                _head(d, "game", "answering", id);
+                d["n"] = n;
+                d["ms"] = n != 0 ? ms : 0;
+                _enqueue(d);
+                return;
+            }
+            case Bridge::Err::BadPhase:
+                return _error(id, "bad_phase", "game", "answering", nullptr,
+                              "answering only in a race round");
+            default:
+                return _error(id, "no_session", "game", "answering", nullptr, "no active session");
+        }
+    }
+
+    // A countdown for every device that has not answered (owner,
+    // 2026-11-10); ms 0 ends it.
+    void _cmdCountdown(JsonObjectConst o, const ReqId& id, uint32_t now) {
+        long long ms = 0;
+        if (_int(o, "ms", 0, 60000, ms) != Field::Ok || (ms != 0 && ms < 1000))
+            return _badField(id, "countdown", "ms", "ms must be 0 or 1000-60000");
+        switch (_bridge->countdown((uint16_t)ms, now)) {
+            case Bridge::Err::None: {
+                JsonDocument d;
+                _head(d, "game", "countdown", id);
+                d["ms"] = ms;
+                _enqueue(d);
+                return;
+            }
+            case Bridge::Err::BadPhase:
+                return _error(id, "bad_phase", "game", "countdown", nullptr,
+                              "countdown only in an open choice or scale");
+            default:
+                return _error(id, "no_session", "game", "countdown", nullptr, "no active session");
+        }
     }
 
     void _cmdRound(JsonObjectConst o, const ReqId& id, uint32_t now) {
@@ -821,7 +1019,7 @@ class Link : public Bridge::Listener {
                 return _sendState(id, changed, now);
             case Bridge::Err::RoundFixed:
                 return _error(id, "round_fixed", "game", "round", nullptr,
-                              "type, keys and scale of a running round are fixed");
+                              "type, keys, hold, firstOnly and scale of a running round are fixed");
             case Bridge::Err::BadPhase:
                 return _error(id, "bad_phase", "game", "round", nullptr,
                               "phases only move forward");

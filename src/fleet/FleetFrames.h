@@ -40,6 +40,9 @@ enum class Op : uint8_t {
     Charge = 2,  // arg: Target
     Off = 3,     // devices on battery enter ship mode; devices on USB ignore it
     Ap = 4,      // arg: minutes of the maintenance AP
+    // arg: brightness 0-255 for light 0's brightness override; the only op
+    // that also reaches devices in a game session
+    Brightness = 5,
 };
 enum class Source : uint8_t { Release = 0, Pr = 1 };
 

@@ -121,25 +121,25 @@ class FactoryTest {
     uint16_t ibatSamples() const { return _ibatCount; }
 
     // The frame while running(): `leds` all LEDs white, red, green, blue at
-    // kTestLevel, then one white LED chasing in chain order; `keys` the LED
+    // lvl, then one white LED chasing in chain order; `keys` the LED
     // of every key pressed so far; `charge` dark (LED current would skew IBUS).
-    void frame(uint32_t now, game::Rgb* px) const {
+    void frame(uint32_t now, game::Rgb* px, uint8_t lvl) const {
         using game::Color;
         clearFrame(px);
         if (_kind == Kind::Leds) {
             uint32_t t = now - _startMs;
             static const Color kColors[4] = {Color::White, Color::Red, Color::Green, Color::Blue};
             if (t < 4 * kTestColorMs) {
-                game::Rgb c = level(game::colorRgb(kColors[t / kTestColorMs]), kTestLevel);
+                game::Rgb c = level(game::colorRgb(kColors[t / kTestColorMs]), lvl);
                 for (uint16_t i = 0; i < game::kLedCount; i++) px[i] = c;
                 return;
             }
             uint32_t i = (t - 4 * kTestColorMs) / kTestChaseStepMs;
-            if (i < game::kLedCount) px[i] = level(game::colorRgb(Color::White), kTestLevel);
+            if (i < game::kLedCount) px[i] = level(game::colorRgb(Color::White), lvl);
             return;
         }
         if (_kind != Kind::Keys) return;
-        game::Rgb c = level(game::colorRgb(Color::Green), kTestLevel);
+        game::Rgb c = level(game::colorRgb(Color::Green), lvl);
         for (uint8_t k = 0; k <= (uint8_t)game::Key::Power; k++) {
             if (!(_keysSeen & (1u << k))) continue;
             _keyLeds(px, (game::Key)k, c);

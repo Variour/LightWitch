@@ -82,6 +82,14 @@ static BatteryMonitor::State _lastBatteryState = BatteryMonitor::State::OnBatter
 // getPhase()/snapPhase() are time-based, so skipping ticks doesn't affect them.
 static constexpr uint32_t PATTERN_TICK_INTERVAL_MS = 1000 / 60;
 static uint32_t _lastPatternTickMs = 0;
+#if FEATURE_GAME
+// A detected Buzzerboard outside a game session ticks its pattern and the
+// fleet displays at 100 Hz instead, so their dithered fades (led/Dither.h)
+// glide (Timo, 2026-11-10). A frame of its 34 LEDs takes about 1 ms on the
+// wire, and the RMT transfer waits without spinning. A session, participant
+// or bridge, and standby (LEDs off) stay at PATTERN_TICK_INTERVAL_MS.
+static constexpr uint32_t FLEET_TICK_INTERVAL_MS = 10;
+#endif
 
 // Caps how often the background subsystems below (OTA polling, web server
 // housekeeping, mesh, wifi election, time sync, MQTT, buttons, scene sync)
@@ -480,6 +488,7 @@ static void setupWifiQuiet(const char* why) {
 static void enterGameQuiet(bool participant) {
     if (!mesh.quiet()) {
         mesh.setQuiet(true);
+        wifiElection.suspend();  // ends a WiFi connection attempt in flight
         SoftAp::off();
         WiFi.disconnect(false, false);
         Logger::i("[game] radio quiet: no AP, no WiFi, no LightWitch mesh traffic");
@@ -629,6 +638,7 @@ void setup() {
         }
         drv->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
         drv->setCurrentLimitMa(boardLedCurrentLimitMa(l.currentLimitMa));
+        drv->setRefreshMs(boardLedRefreshMs());
         _leds[i] = drv;
 #if FEATURE_GAME
         gameSession.setLight(drv, numLeds);
@@ -751,6 +761,19 @@ void setup() {
         buttonManager.setExecutor(on ? &actionExecutor : nullptr);
     };
     fio.mutedKeys = [](uint16_t mask) { buttonManager.setMuted(mask); };
+    fio.brightnessKey = [](uint8_t index, bool run) {
+        const ButtonAction& a = Config::get().buttons[index].onShortPress;
+        if (a.action != ActionId::LightBrightnessOverrideStep) return false;
+        if (run) actionExecutor.execute(a);
+        return true;
+    };
+    fio.setBrightness = [](uint8_t level) {
+        ButtonAction a;
+        a.action = ActionId::LightBrightnessOverrideSet;
+        a.lightIndex = 0;
+        a.params.numberValue = level;
+        actionExecutor.execute(a);
+    };
     fio.updateBusy = []() {
         Updater::State s = Updater::status().state;
         return _otaActive || s == Updater::State::Checking || s == Updater::State::Downloading ||
@@ -1194,6 +1217,7 @@ void loop() {
     // Ahead of the update early-return below: the charger watchdog reset and
     // the LED rail keep running during an HTTP update download.
     power.tick();
+    actionExecutor.tick(now);
 
 #if FEATURE_GAME
     // Every pass: the bridge repeats state at 50 ms and hops channels for 30 ms.
@@ -1294,7 +1318,14 @@ void loop() {
         }
     }
 
-    if (!_otaActive && now - _lastPatternTickMs >= PATTERN_TICK_INTERVAL_MS) {
+#if FEATURE_GAME
+    const uint32_t patternTickMs = boardDetected() && !gameQuiet && !fleetManager.standby()
+                                       ? FLEET_TICK_INTERVAL_MS
+                                       : PATTERN_TICK_INTERVAL_MS;
+#else
+    const uint32_t patternTickMs = PATTERN_TICK_INTERVAL_MS;
+#endif
+    if (!_otaActive && now - _lastPatternTickMs >= patternTickMs) {
         _lastPatternTickMs = now;
 #if FEATURE_GAME
         if (gameSession.ownsLeds()) {
@@ -1302,8 +1333,13 @@ void loop() {
         } else if (fleetManager.ownsLeds()) {
             fleetManager.render(now);
         } else {
-            // The fleet's display ended: repaint from the config.
-            if (fleetManager.takeLedsReleased()) applyAllLights();
+            // The fleet's display ended: repaint from the config, the pattern
+            // from phase 0 (the idle breath starts dark, see kIdlePulseMs).
+            if (fleetManager.takeLedsReleased()) {
+                applyAllLights();
+                for (uint8_t i = 0; i < MAX_LIGHTS; i++)
+                    if (_leds[i]) _runners[i].resetPhase();
+            }
             for (uint8_t i = 0; i < MAX_LIGHTS; i++)
                 if (_leds[i]) _runners[i].tick();
             // Invite ring over the pattern; once it ends, repaint from the config.

@@ -88,14 +88,15 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `GenericEvent` | `GenericEventMsg` fixed-size | `len >= sizeof(GenericEventMsg)` | Raw fixed struct. `eventType` is opaque to the mesh layer; no versioning. |
 | `Hello` | `HelloMsg` fixed-size | exact `sizeof(HelloMsg)` | **The one deliberate cross-firmware exception** — see below. |
 | `QuizInvite` | `QuizInviteMsg` fixed-size, 16 bytes | exact `sizeof(QuizInviteMsg)` | Game session, see below. Bridge to all, also on foreign channels while login is open. |
-| `QuizState` | `QuizStateMsg` variable-length (41-byte head + `echoCount` echo bytes) | head must be present, `echoCount <= 200`, and `len` must equal head + `echoCount` | Game session. Bridge to all; the echo is paged by `echoFirst`/`echoCount`. |
-| `QuizReport` | `QuizReportMsg` fixed-size, 24 bytes | exact `sizeof(QuizReportMsg)` | Game session. Device to bridge. |
-| `QuizStatus` | `QuizStatusMsg` fixed-size, 31 bytes | exact `sizeof(QuizStatusMsg)` | Game session. Device to bridge; with flag bit 1 it is a join request. |
+| `QuizState` | `QuizStateMsg` variable-length (48-byte head + `echoCount` echo bytes) | head must be present, `echoCount <= 200`, and `len` must equal head + `echoCount` | Game session. Bridge to all; carries the round's `hold` and the race's answering device; the echo is paged by `echoFirst`/`echoCount`. |
+| `QuizReport` | `QuizReportMsg` fixed-size, 25 bytes | exact `sizeof(QuizReportMsg)` | Game session. Device to bridge; carries the input's `lage`. |
+| `QuizStatus` | `QuizStatusMsg` fixed-size, 32 bytes | exact `sizeof(QuizStatusMsg)` | Game session. Device to bridge; with flag bit 1 it is a join request; carries the device's `lage`. |
 | `QuizAdmit` | `QuizAdmitMsg` fixed-size, 22 bytes | exact `sizeof(QuizAdmitMsg)` | Game session. Bridge to one device, target filtering after parse. |
 | `QuizRelease` | `QuizReleaseMsg` fixed-size, 20 bytes | exact `sizeof(QuizReleaseMsg)` | Game session. Bridge to one device or all (`ff:ff:ff:ff:ff:ff`). |
 | `QuizChannel` | `QuizChannelMsg` fixed-size, 17 bytes | exact `sizeof(QuizChannelMsg)` | Game session. Bridge to all, announces a channel change. |
 | `FleetStatus` | `FleetStatusMsg` fixed-size, 20 bytes | exact `sizeof(FleetStatusMsg)` | Fleet package, see below. Every device to all, about every 30 s and on a change. |
 | `FleetCommand` | `FleetCommandMsg` variable-length (11-byte head + `targetCount` MACs) | head must be present, `targetCount <= 32`, and `len` must equal head + 6 × `targetCount` | Fleet package. Bridge to all or to the listed MACs, three times with one nonce. |
+| `QuizKeys` | `QuizKeysMsg` variable-length (17-byte head + 3 bytes per press) | head must be present, `count` 1-8, and `len` must equal head + 3 × `count` | Game session, move rounds. Device to bridge: every unacknowledged key press. |
 
 ## The `Hello` exception
 
@@ -114,12 +115,18 @@ This does not reopen the "no compatibility code" rule for the rest of the protoc
 The `Quiz*` types belong to the game session module (`src/game/`). Their layouts live in `src/game/GameFrames.h`, not in `MeshTypes.h`, so the module's protocol code builds without Arduino; `MeshTypes.h` mirrors the type numbers and `static_assert`s that both agree.
 
 - Packed, little-endian, every frame at most 250 bytes (ESP-NOW v1). Each frame starts with a 12-byte header (`type`, `proto`, `fleet`, `origin`, `msgId`, `ttl`, `hops`, `dist`, `flags`) and the session id.
-- `proto` (1 in v0) is checked by the game module, not by the mesh layer. The mesh layer only checks framing, sends every framed quiz frame to `MeshManager::setOnQuizFrame` with its RSSI, and `MeshManager::broadcastQuizFrame` applies the same check before sending.
+- `proto` (1 in v0, 2 since `QuizState` carries the race's answering device) is checked by the game module, not by the mesh layer. The mesh layer only checks framing, sends every framed quiz frame to `MeshManager::setOnQuizFrame` with its RSSI, and `MeshManager::broadcastQuizFrame` applies the same check before sending.
 - Devices outside a session handle only `QuizInvite`, and only when they have a buzz key.
+- Orientation (firmware spec "Lage v0", USB side in [usb-link.md](usb-link.md)): `QuizStatus` and `QuizReport` end with `lage` (0 unknown, 1 `hochkant`, 2 `quer`, 3 `quer-links`, 4 `liegend`): the device's accepted orientation, and the orientation an input was read in. `QuizState` carries `hold` after `correct` (0 `frei`, 1 `hochkant`, 2 `quer`, 3 `liegend`, 4 `fest`).
+- `QuizState` header `flags`: bit 0 says that only each device's first answer counts in the round (link `firstOnly`). Bit 1 says the quizmaster rated the race winner's answer wrong (link `verdict`), bit 2 marks a rainbow scale of 24 steps (link `display`), where `correct` is the right step. Every other header `flags` bit, and `flags` in every other quiz frame, stays 0.
+- `QuizStatus` flag bit 4: the participant plays with its animal name (link `named`).
+- Echo bit 7 (`kEchoAnswer`): in a race the value is the answer key of the device with the turn (1-5 below the bit), told apart from its buzz value 1. Other echo values stay below 128 (`kNoValue` 255 = none).
+- `QuizState` carries `turn` (the number that has the turn, 0 = none), `turnMs` (its time) and `turnLeftMs` (of that left at send, 0 = over) after `hold` (proto 2). Only the device with the turn takes input with the keys the round frees for it; in a race that is the device that answers (link `game answering`). The field does not depend on the round type, so turn-based rounds can use it the same way.
+- Move rounds (`roundType` 4): `QuizKeys` (type 46, after the fleet frames) carries a device's unacknowledged presses, oldest first, each as `kseq` (press counter, per device and round: 1-255, after 255 comes 1; 0 never occurs), `key` (the `Key` index of up, down, left or right: logical with a `lage`, the physical key without) and `lage`. In a move round the `QuizState` echo holds per number the last `kseq` the bridge passed on (0 = none). The bridge passes each press on once: only a `kseq` newer than the last one (mod 256, 1-127 ahead); a join status from a device that holds no round (`lastRoundId` other than the bridge's round) starts that count again.
 
 ### Quiet mode and the Hello rule
 
-While a device is in a game session (participant from join until release, bridge from its first session until restart), `MeshManager::setQuiet(true)` makes it send and handle only `Quiz*` frames. It sends no `Presence`, no `Hello`, no `MeshPolicy`, `GroupSync`, `AudioGroupSync`, `PhaseSync` or proximity pings, and it ignores every other received type. This is a deliberate exception to the unconditional `Hello` cadence above, for the duration of a session only. A participant leaves a session by restarting into normal operation.
+While a device is in a game session (participant from join until release, bridge from its first session until restart), `MeshManager::setQuiet(true)` makes it send and handle only `Quiz*` frames and `FleetCommand` (so the console's `brightness` reaches a session). It sends no `Presence`, no `Hello`, no `MeshPolicy`, `GroupSync`, `AudioGroupSync`, `PhaseSync` or proximity pings, and it ignores every other received type. This is a deliberate exception to the unconditional `Hello` cadence above, for the duration of a session only. A participant leaves a session by restarting into normal operation.
 
 ## Fleet frames (`Fleet*`)
 
@@ -127,7 +134,7 @@ The `Fleet*` types belong to the fleet package (`src/fleet/`: charging mode, tra
 
 - Packed, little-endian, at most 250 bytes. Both start with `type` and `proto` (1 in v0); the fleet package drops other `proto` values, the mesh layer only checks framing.
 - `FleetStatus`: device number, state (`active`, `charging`, `standby`), battery percent and mV, charge status, charge target, USB and WiFi flags, firmware build, fleet update state, percent and error, error bits. Only a detected Buzzerboard sends it, and not in a game session.
-- `FleetCommand`: a nonce (receivers act once per nonce, for 10 s), an op (`update` with source release or PR number, `charge` with target, `off`, `ap` with minutes) and 0-32 target MACs (0 = every device). Only a detected Buzzerboard acts on it, and not in a game session; any device can be the bridge that sends it.
+- `FleetCommand`: a nonce (receivers act once per nonce, for 10 s), an op (`update` with source release or PR number, `charge` with target, `off`, `ap` with minutes, `brightness` with 0-255) and 0-32 target MACs (0 = every device). Only a detected Buzzerboard acts on it, in a game session only on `brightness`; any device can be the bridge that sends it.
 - A received `FleetStatus` counts as "peer heard" for `ChannelManager`'s channel lock, like `Presence` and `Hello`: devices in charging mode send nothing else.
 - The USB side (the bridge's `fleet` namespace) is in [usb-link.md](usb-link.md).
 

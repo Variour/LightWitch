@@ -8,6 +8,15 @@
 // Arduino dependency, so the state machines and frames build on the host.
 namespace fleet {
 
+// The device's own colours (Timo, 2026-11-09, `config look`): one colour
+// per score column LED, from LED1 (index 0) to the USB-C end. count is
+// kLookLeds, or 0 without own colours.
+static constexpr uint8_t kLookLeds = 24;
+struct Look {
+    uint8_t count = 0;
+    uint8_t rgb[kLookLeds][3] = {};
+};
+
 // Device state outside a game session (owner decision, fleet protocol v0).
 // Sleep and ship mode are not running states: the device is off then.
 enum class State : uint8_t {

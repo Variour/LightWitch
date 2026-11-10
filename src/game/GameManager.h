@@ -8,10 +8,14 @@
 
 #include <functional>
 
+#include "../config/BoardProfile.h"
+#include "../config/LightLevel.h"
+#include "../fleet/Imu.h"
 #include "../led/LedDriver.h"
 #include "../logging/Logger.h"
 #include "Bridge.h"
 #include "GameRender.h"
+#include "Lage.h"
 #include "Link.h"
 #include "Participant.h"
 #include "RxRing.h"
@@ -24,6 +28,10 @@
 // an invite is visible, then runs as a quiet participant until it is released
 // and restarts. Bridge: any device becomes the bridge with the first
 // `link hello` on its serial port and stays it until the next restart.
+//
+// Orientation: on a detected Buzzerboard the LSM6DS3TR-C's 6D detection runs
+// while the device is in a session as participant; each 6D event on INT1
+// gives the participant the sensor's position (src/game/Lage.h).
 class GameManager {
    public:
     using SendFn = std::function<void(const uint8_t*, size_t)>;
@@ -54,6 +62,7 @@ class GameManager {
             _number = p.getUShort(KEY_NUMBER, 0);
             _storedSession = p.getUShort(KEY_SESSION, 0);
             _storedChannel = p.getUChar(KEY_CHANNEL, 0);
+            _storedNaming = (game::Participant::Naming)p.getUChar(KEY_NAMING, 0);
             p.end();
         }
         if (_number > game::kMaxNumber) _number = 0;
@@ -73,12 +82,13 @@ class GameManager {
 
         game::Participant::Io pio;
         pio.send = [this](const uint8_t* d, size_t n) { _sendFrame(d, n); };
-        pio.setChannel = [](uint8_t ch) { _setChannel(ch); };
+        pio.setChannel = [this](uint8_t ch) { _setChannel(ch); };
         pio.randomRange = [](uint32_t lo, uint32_t hi) {
             return lo + esp_random() % (hi - lo + 1);
         };
         pio.storeNumber = [this](uint16_t n) { _storeNumber(n); };
         pio.storeSession = [this](uint16_t s, uint8_t ch) { _storeSession(s, ch); };
+        pio.storeNaming = [this](game::Participant::Naming n) { _storeNaming(n); };
         pio.enterQuiet = [this]() {
             _allocRx(game::kRxQueueParticipant);
             if (_enterQuiet) _enterQuiet(true);
@@ -89,12 +99,12 @@ class GameManager {
         };
         pio.health = [this]() { return _health ? _health() : game::Participant::Health{}; };
         pio.fwBuild = [this]() { return _fwBuild(); };
-        _participant.begin(pio, _mac, _number, _storedSession, _storedChannel, now);
+        _participant.begin(pio, _mac, _number, _storedSession, _storedChannel, _storedNaming, now);
         _participant.setCanJoin(_hasBuzzKey);
 
         game::Bridge::Io bio;
         bio.send = [this](const uint8_t* d, size_t n) { _sendFrame(d, n); };
-        bio.setChannel = [](uint8_t ch) { _setChannel(ch); };
+        bio.setChannel = [this](uint8_t ch) { _setChannel(ch); };
         bio.enterQuiet = [this]() {
             _allocRx(game::kRxQueueBridge);
             if (_enterQuiet) _enterQuiet(false);
@@ -115,6 +125,11 @@ class GameManager {
         };
         lio.rxOverflow = [this]() { return _rx.overflow(); };
         _link.begin(&_bridge, &_writer, lio, _mac);
+        _imuIntPin = boardImuIntPin();
+        if (_imuIntPin >= 0) {
+            pinMode(_imuIntPin, INPUT);
+            if (!quietBoot()) fleet::Imu::orientationOff();  // only on in a session
+        }
         if (quietBoot())
             Logger::i("[game] session %u entry found, listening on ch %u", _storedSession,
                       _storedChannel);
@@ -147,9 +162,15 @@ class GameManager {
             _participant.onFrame(f.data, f.len, f.rssi, now);
             _bridge.onFrame(f.data, f.len, f.rssi, now);
         }
+        _tickOrientation(now);
         _participant.tick(now);
+        if (_participant.lage() != _lageLogged) {
+            _lageLogged = _participant.lage();
+            Logger::i("[game] orientation %s", game::lageName((uint8_t)_lageLogged));
+        }
         _bridge.tick(now);
         _link.tick(now);
+        _holdChannel(now);
     }
 
     // More USB namespaces (src/fleet/FleetLink.h). Call before begin().
@@ -158,6 +179,9 @@ class GameManager {
     // The USB link is open: `link hello`, or a device-scope namespace, within
     // the last kLinkTimeoutMs.
     bool linkActive() const { return _link.active(); }
+    // This device is the console's gateway: it became the bridge and its link
+    // is open with `link hello`.
+    bool gatewayActive() const { return _isBridge && _link.helloDone(); }
     uint16_t number() const { return _number; }
     // An invite ring shows (normal operation, device with a buzz key).
     bool inviteVisible(uint32_t now) const {
@@ -178,11 +202,20 @@ class GameManager {
         if (!_led) return;
         game::Rgb px[game::kLedCount];
         game::renderParticipant(_participant, now, px);
-        for (uint16_t i = 0; i < game::kLedCount; i++) _led->setPixel(i, px[i].r, px[i].g, px[i].b);
+        uint8_t lvl = _showLevel();
+        for (uint16_t i = 0; i < game::kLedCount; i++)
+            _led->setPixel(i, scaleToLevel(px[i].r, lvl), scaleToLevel(px[i].g, lvl),
+                           scaleToLevel(px[i].b, lvl));
         _led->show();
     }
 
     enum class Overlay : uint8_t { None, Drawn, Ended };
+
+    // See kLevelShowMin.
+    static uint8_t _showLevel() {
+        uint8_t b = currentLightLevel(0);
+        return b < game::kLevelShowMin ? game::kLevelShowMin : b;
+    }
 
     // Invite ring over the normal pattern. Ended: the caller re-applies the
     // light's config so the pattern repaints the ring.
@@ -190,8 +223,10 @@ class GameManager {
         if (!_led) return Overlay::None;
         game::Rgb ring[4];
         if (game::renderInviteOverlay(_participant, now, ring)) {
+            uint8_t lvl = _showLevel();
             for (uint8_t i = 0; i < 4; i++)
-                _led->setPixel(game::kRingLeds[i], ring[i].r, ring[i].g, ring[i].b);
+                _led->setPixel(game::kRingLeds[i], scaleToLevel(ring[i].r, lvl),
+                               scaleToLevel(ring[i].g, lvl), scaleToLevel(ring[i].b, lvl));
             _led->show();
             _overlayOn = true;
             return Overlay::Drawn;
@@ -206,6 +241,7 @@ class GameManager {
     static constexpr const char* KEY_NUMBER = "num";
     static constexpr const char* KEY_SESSION = "sess";
     static constexpr const char* KEY_CHANNEL = "sch";
+    static constexpr const char* KEY_NAMING = "named";
 
     struct SerialWriter : game::Link::Writer {
         int availableForWrite() override { return Serial.availableForWrite(); }
@@ -226,11 +262,45 @@ class GameManager {
     bool _hasBuzzKey = false;
     bool _isBridge = false;
     bool _overlayOn = false;
+    int8_t _imuIntPin = -1;  // -1: no orientation sensor
+    bool _imuOn = false;
+    bool _imuFailed = false;
+    game::Lage _lageLogged = game::Lage::Unknown;
     uint16_t _number = 0;
     uint16_t _storedSession = 0;
     uint8_t _storedChannel = 0;
+    game::Participant::Naming _storedNaming = game::Participant::Naming::None;
     bool _fwKnown = false;
     uint32_t _fw = 0;
+    uint8_t _wantChannel = 0;  // the channel the session tuned last, 0 = none
+    uint32_t _channelCheckMs = 0;
+    bool _channelOff = false;
+
+    static constexpr uint32_t kChannelCheckMs = 200;
+
+    // Sensor on while in a session as participant (until leaving). INT1 is
+    // latched: high until D6D_SRC is read.
+    void _tickOrientation(uint32_t now) {
+        if (_imuIntPin < 0 || _imuFailed) return;
+        bool want =
+            _participant.inSession() && _participant.state() != game::Participant::State::Leaving;
+        if (want && !_imuOn) {
+            _imuOn = fleet::Imu::orientationOn();
+            if (!_imuOn) {
+                _imuFailed = true;
+                Logger::w("[game] orientation sensor does not answer, keys stay as hochkant");
+                return;
+            }
+        } else if (!want && _imuOn) {
+            fleet::Imu::orientationOff();
+            _imuOn = false;
+        }
+        if (!_imuOn || digitalRead(_imuIntPin) != HIGH) return;
+        uint8_t src;
+        if (!fleet::Imu::readD6d(src)) return;
+        Logger::d("[game] 6D position %02x", src);
+        _participant.onRawLage(game::lageFromD6d(src), now);
+    }
 
     void _allocRx(uint8_t capacity) {
         if (!_rx.allocate(capacity)) Logger::e("[game] out of memory for the receive queue");
@@ -240,7 +310,32 @@ class GameManager {
         if (_send) _send(d, n);
     }
 
-    static void _setChannel(uint8_t ch) { esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE); }
+    void _setChannel(uint8_t ch) {
+        _wantChannel = ch;
+        esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+    }
+
+    // While the session owns the radio, keep it on the channel the session
+    // tuned last: end a WiFi connection still being set up when the session
+    // took the radio (a device joining from a WiFi network, a gateway just out
+    // of charging mode) and tune again.
+    void _holdChannel(uint32_t now) {
+        if (!_wantChannel || !radioQuiet() || now - _channelCheckMs < kChannelCheckMs) return;
+        _channelCheckMs = now;
+        uint8_t primary = 0;
+        wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
+        if (esp_wifi_get_channel(&primary, &second) != ESP_OK) return;
+        if (primary == _wantChannel) {
+            if (_channelOff) Logger::i("[game] radio back on ch %u", _wantChannel);
+            _channelOff = false;
+            return;
+        }
+        if (!_channelOff)
+            Logger::w("[game] radio on ch %u, tuning to ch %u", primary, _wantChannel);
+        _channelOff = true;
+        esp_wifi_disconnect();
+        esp_wifi_set_channel(_wantChannel, WIFI_SECOND_CHAN_NONE);
+    }
 
    public:
     // Firmware build: the first 4 bytes of the running app image's SHA-256,
@@ -260,7 +355,8 @@ class GameManager {
         return _fw;
     }
 
-    // Flash writes: only the number and the session entry, only on change.
+    // Flash writes: only the number, the session entry and its naming
+    // choice, only on change.
     void _storeNumber(uint16_t n) {
         if (n == _number) return;
         _number = n;
@@ -270,6 +366,19 @@ class GameManager {
             p.remove(KEY_NUMBER);
         else
             p.putUShort(KEY_NUMBER, n);
+        p.end();
+    }
+
+    // The session's naming choice, only on change; None removes it.
+    void _storeNaming(game::Participant::Naming n) {
+        if (n == _storedNaming) return;
+        _storedNaming = n;
+        Preferences p;
+        if (!p.begin(NVS_NS, false)) return;
+        if (n == game::Participant::Naming::None)
+            p.remove(KEY_NAMING);
+        else
+            p.putUChar(KEY_NAMING, (uint8_t)n);
         p.end();
     }
 

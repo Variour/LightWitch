@@ -46,6 +46,8 @@ static_assert(sizeof(kKeys) / sizeof(kKeys[0]) <= MAX_BUTTONS,
 // I2C bus: BQ25628 (0x6A) and LSM6DS3TR-C (0x6B), 4.7k pull-ups.
 constexpr uint8_t kI2cSdaPin = 26;
 constexpr uint8_t kI2cSclPin = 27;
+// LSM6DS3TR-C INT1 (net IMU_INT, module pin 26); not an LP GPIO.
+constexpr uint8_t kImuIntPin = 25;
 
 // 34 x SK6812MINI-E in one chain behind the SN74LV1T34 5 V buffer, on the
 // WS2812B driver. GRB: the 24-bit word goes out G7..G0, R7..R0, B7..B0
@@ -67,6 +69,9 @@ constexpr uint16_t kLedCount = 34;
 // UNVERIFIED: the ~75 mA system figure is an estimate; measure IBUS with
 // the LEDs dark and at the cap on a 500 mA USB port.
 constexpr uint16_t kLedCurrentLimitMa = 300;
+
+// Up / Down brightness step, about 3 % of 255.
+constexpr int kBrightnessStep = 8;
 
 bool sDetected = false;
 
@@ -123,6 +128,17 @@ bool applyBoardProfile(DeviceConfig& cfg) {
     l.currentLimitMa = kLedCurrentLimitMa;
     l.exists = true;
 
+    // Idle look of the default group: violet breathing at about 3 %
+    // brightness instead of full white (Timo, 2026-11-09). Violet is not one
+    // of the game colours (blue invites, green joined, yellow race, red
+    // wrong).
+    LightConfig& idle = cfg.groups[0].light;
+    idle.mode = GroupMode::Pattern;
+    idle.pattern = PatternId::Breathing;
+    idle.color = Color{140, 0, 255};
+    idle.brightness = 8;
+    idle.speed = 1.0f;  // 4 s per breath, fleet::kIdlePulseMs
+
     uint8_t i = 0;
     for (const KeyPin& k : kKeys) {
         ButtonHardwareConfig& b = cfg.buttons[i++];
@@ -133,14 +149,39 @@ bool applyBoardProfile(DeviceConfig& cfg) {
         b.activeLow = true;
         b.viaExpander = false;
         b.exists = true;
+        // Timo, 2026-11-09, outside a game session: Up / Down step the
+        // brightness by about 3 %, down to 0 switches the LEDs off. The fleet
+        // runs this step on the press, in every device state (2026-11-10,
+        // src/fleet/FleetConfig.h). R2 shows the battery level
+        // (FleetManager); its long press brings back the configured
+        // brightness.
+        if (strcmp(k.role, ButtonRole::R2) == 0) {
+            b.onLongPress.action = ActionId::LightBrightnessOverrideClear;
+            b.onLongPress.lightIndex = 0;
+        } else if (strcmp(k.role, ButtonRole::UP) == 0 || strcmp(k.role, ButtonRole::DOWN) == 0) {
+            b.onShortPress.action = ActionId::LightBrightnessOverrideStep;
+            b.onShortPress.lightIndex = 0;
+            b.onShortPress.params.numberValue =
+                strcmp(k.role, ButtonRole::UP) == 0 ? kBrightnessStep : -kBrightnessStep;
+        }
     }
     return true;
 }
 
 bool boardDetected() { return sDetected; }
 bool boardHasFallbackAp() { return !sDetected; }
+int8_t boardImuIntPin() { return sDetected ? (int8_t)kImuIntPin : -1; }
 
 // Every light: the Buzzerboard's LEDs all hang on the PMID rail.
+// On boost the LED rail (PMID behind PMID_GD) can drop for a moment while
+// the charger stays in OTG, and the LEDs come back dark: first board on
+// battery, 2026-11-09 (PMID 3.1 V in one ADC reading, VBUS_STAT OTG
+// throughout, LEDs dark afterwards). Sending the frame again brings them
+// back.
+constexpr uint16_t kLedRefreshMs = 250;
+
+uint16_t boardLedRefreshMs() { return sDetected ? kLedRefreshMs : 0; }
+
 uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) {
     if (!sDetected) return configuredMa;
     if (configuredMa == 0 || configuredMa > kLedCurrentLimitMa) return kLedCurrentLimitMa;
@@ -152,7 +193,9 @@ uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) {
 void detectBoard() {}
 bool applyBoardProfile(DeviceConfig&) { return false; }
 uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) { return configuredMa; }
+uint16_t boardLedRefreshMs() { return 0; }
 bool boardDetected() { return false; }
 bool boardHasFallbackAp() { return true; }
+int8_t boardImuIntPin() { return -1; }
 
 #endif

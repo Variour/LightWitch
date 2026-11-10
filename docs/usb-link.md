@@ -21,6 +21,9 @@ esp32c3 build does not.
 
 - `link hello` makes the device the bridge until its next restart. Its reply
   lists every namespace: `"spaces":{"link":0,"game":0,"config":0,"fleet":0,"test":0}`.
+- Any device can be the bridge. On a Buzzerboard, while the link is open after
+  `hello`, a soft white pulse runs from the USB-C end down the column over the
+  device's own colours (`config look`), or over blue without them.
 - A `config` or `test` line opens the link without `hello`, so a device
   answers on USB without becoming the bridge (factory test, setup).
 - `game` and `fleet` need a `hello` first; without it they get the error `no_hello`.
@@ -44,17 +47,350 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
 | `store_failed` | the WiFi list or the charge target could not be saved |
 | `busy` | `fleet`: earlier commands are still being repeated; `test`: another test runs |
 | `no_usb` | `test charge` without USB power and a charger |
-| `session_active` | `fleet` while the bridge runs a game session; `test leds/keys/charge` on a participant in a session |
+| `session_active` | `fleet` (except `brightness`) while the bridge runs a game session; `test leds/keys/charge` on a participant in a session |
+
+## `game` (bridge): additions
+
+Additions to the gateway protocol v0 (firmware spec "Lage v0" and the
+owner's decisions of 2026-11-10). Everything else in `game` is as in the
+gateway protocol.
+
+### Orientation (`lage`)
+
+A Buzzerboard in a game session reads its orientation sensor
+(LSM6DS3TR-C, 6D detection). Directions are as seen by the person holding
+the device:
+
+| `lage` | Held | up | right | down | left | trigger left / right |
+|---|---|---|---|---|---|---|
+| `hochkant` | upright in one hand, USB-C at the top | UP | RIGHT | DOWN | LEFT | - |
+| `quer` | landscape, buzzer right, LED column at the top | LEFT | UP | RIGHT | DOWN | L2 / L1 |
+| `quer-links` | landscape, buzzer left, LED column at the bottom | RIGHT | DOWN | LEFT | UP | R1 / R2 |
+| `liegend` | flat on a table, front up | UP | RIGHT | DOWN | LEFT | - |
+
+- A new orientation counts after 2 s of stable holding. Upside down
+  (USB-C at the bottom) and front down are no orientation: the last one stays.
+- The device shows a new orientation once: the direction colours (up light
+  orange, right blue, down purple, left light blue) run once around the D-pad
+  and on to their keys, then one LED runs through the column in its new
+  reading direction. Then the new key mapping applies.
+- Until an orientation is known the device reads its keys as in
+  `hochkant`. Devices other than the Buzzerboard have no sensor and never
+  report one.
+- Key colours in `game round` belong to logical keys: `"keys":{"up":"green"}`
+  lights the key that is up as the device is held (in `hochkant` and
+  `liegend` the UP key, as before).
+- Choice rounds: answers 1-4 stay up, right, down, left, and their keys
+  light in the direction colours above, by logical direction. The console
+  may keep sending colour names in `keys`; for choice the device ignores
+  them and takes only the key names.
+- The LED column fills in reading direction: from the bottom in `hochkant`
+  and `liegend`, from the left in `quer` and in `quer-links` (as held).
+
+`join`, `device` and `value` lines carry `"lage"` when the device knows its
+orientation, and leave it out otherwise:
+
+- `join`, `device`: the device's orientation. A device sends its status at
+  once when it takes a new orientation, so a `device` line follows right away.
+- `value`: the orientation the input was read in.
+
+`{"ns":"game","ev":"device","n":7,"mac":"02:00:00:00:00:07","fw":"4a45fc32","proto":2,"bat":81,"chg":false,"rssi":-48,"round":23417,"seq":2,"named":false,"lage":"quer"}`
+
+### `hold` in `game round`
+
+| `hold` | Devices |
+|---|---|
+| `frei` (default, may be left out) | follow their orientation |
+| `hochkant`, `quer`, `liegend` | in any other orientation the device is locked: keys do nothing and nothing is reported. `quer-links` counts as `quer`. |
+| `fest` | the orientation at the moment the round opens stays for the whole round |
+
+- Not with `idle` (`bad_field`, "omit hold for idle"). Like type, keys and
+  scale, `hold` is fixed for a running round (`round_fixed`).
+- A locked device, while the round is announced or open: key LEDs, ring
+  and column off, the status dot pulses slowly white (provisional). A closed
+  round shows its result in any orientation.
+- Only a known orientation that does not match locks a device. A device
+  without a known orientation (no sensor, or none accepted yet) is never
+  locked; its inputs carry no `lage`.
+
+### `firstOnly` in `game round`
+
+`{"ns":"game","cmd":"round","round":23418,"type":"choice","phase":"open","keys":{"up":"white","right":"white","down":"white","left":"white"},"firstOnly":true}`
+
+| `firstOnly` | Devices |
+|---|---|
+| `false` (default, may be left out) | a device may change its answer while the round is open; its last input counts |
+| `true` | only each device's first answer counts |
+
+- For `race`, `scale` and `choice` (`bad_field`, "only for race, scale and
+  choice"); a boolean (`bad_field`, "firstOnly must be a boolean"). Like
+  type, keys, scale and `hold`, `firstOnly` is fixed for a running round:
+  send the same value with every `game round` line of the round
+  (`round_fixed`).
+- `choice`: the first answer key pressed is the answer; the other answer
+  keys go dark and do nothing.
+- `scale`: Up and Down set the value as usual; it goes out 1 s after the
+  last tap (instead of 150 ms) and then stays, further taps do nothing.
+- `race`: one press counts anyway.
+- The bridge keeps each device's first value with its `t` and ignores later
+  reports of that device in the round, so `value` lines carry only the
+  first answer. A device that restarts in the round shows the answer the
+  bridge holds.
+- On the radio the flag is bit 0 of the `QuizState` header `flags`.
+
+### `verdict` in `game round` (race)
+
+`{"ns":"game","cmd":"round","round":23419,"type":"race","phase":"closed","keys":{"buzz":"white"},"winner":7,"verdict":"wrong"}`
+
+| `verdict` | Winner's device |
+|---|---|
+| `right` (default, may be left out) | celebrates, then ring and column green |
+| `wrong` | the quizmaster rated the winner's answer wrong: the column shows "wrong" (see the display below), no celebration |
+
+- Only for `race` with a `winner` of 1-999 (`bad_field`, "only for race with
+  a winner"); `right` or `wrong` (`bad_field`, "verdict must be right or
+  wrong"). Like `winner` it may change while the round runs; send it with
+  every line that carries the winner.
+- For a race the quizmaster rates, send the winner together with the
+  rating: `winner` alone starts the celebration.
+- On the radio: bit 1 of the `QuizState` header `flags`.
+
+### Answer time in a race (`game answering`)
+
+`{"ns":"game","cmd":"answering","id":12,"n":7,"ms":10000}` →
+`{"ns":"game","ev":"answering","id":12,"n":7,"ms":10000}`
+
+- The race device `n` answers now and has `ms` (1000-60000) for it; `ms`
+  0 (or left out) means no time limit: the device shows the green pulse of
+  the first half until it is rated, and its time never runs out. `"n":0` or
+  `"n":null` ends it. `bad_field` ("n must be 0-999 or null", "ms must be 0
+  or 1000-60000"), `no_session`, `bad_phase` ("answering only in a race
+  round"). The same `n` and `ms` again change nothing; a new `n` or `ms`
+  starts the time again.
+- The answer time starts when the bridge takes the command. The bridge
+  sends the device, the answer time and the time left in every `QuizState`
+  (radio `proto` 2).
+- Device: for the first half of the time the full column and the ring glow
+  green and pulse softly once per second (a warning, not a countdown); in
+  the second half the column runs down evenly in reading direction and
+  turns from green to the soft orange red, the ring in the same colour.
+  Time over: ring and column orange red for 0.6 s, then the column alone
+  ("wrong"). Once the device answered, the display stays as it was. The
+  other devices show nothing new.
+- While the winner so far is rated `wrong`, the other devices that pressed
+  keep their ring (white, blue once confirmed); once a winner is right they
+  go dark as before.
+- Rating: send `game round` with `winner` = `n` and `verdict` as above;
+  `winner` on the answering device ends its answer time display. For the
+  next in line after `wrong` or time over, send `game answering` with its
+  number.
+- Race with answer keys: `keys` may add 2-5 answer keys to `buzz`, as in
+  a choice (see "Answer keys" below):
+  `{"ns":"game","cmd":"round","round":23421,"type":"race","phase":"open","keys":{"buzz":"white","up":"white","right":"white","down":"white","left":"white"}}`.
+  Only the answering device takes them, during its answer time and in any
+  phase: they glow white at 40 %, the first press is the answer (no change
+  of mind) and shows like a chosen answer, its column stops where it was.
+  The answer comes as a `value` line with `"v"` 1-4 (as in a choice), `t`
+  its moment and `"answer":true`; `late` is true after the answer time.
+  The bridge takes one answer per device and answer time; the race order
+  (`arr`) stays. The console rates it (`verdict`).
+- Without `game answering` a race works as before: the winner is green.
+- On the radio the device with the turn is `turn` in `QuizState`, with
+  `turnMs` and `turnLeftMs` (see mesh-compatibility.md). The field is not
+  tied to races: a turn-based round can give one device its keys the same
+  way, each press then a key event as in a move round.
+
+### Countdown for the devices without an answer (`game countdown`)
+
+`{"ns":"game","cmd":"countdown","id":13,"ms":10000}` →
+`{"ns":"game","ev":"countdown","id":13,"ms":10000}`
+
+- In an open `choice` or `scale` (`bad_phase`, "countdown only in an open
+  choice or scale"): `ms` 1000-60000 starts it when the bridge takes the
+  command, 0 ends it (`bad_field`, "ms must be 0 or 1000-60000"). The same
+  `ms` again changes nothing. The console still closes the round itself.
+- On the radio it is `turn` 0 with `turnMs` and `turnLeftMs`.
+- Device without an answer (not in a rainbow scale): the column runs down
+  evenly in reading direction, white at 40 %. Devices with an answer show
+  their answer as before.
+
+### Answer keys, Enter as answer 5, Enter to log in
+
+- Answer keys of a `choice` (and of a race with answer keys): any 2-5 of
+  `up` (answer 1), `right` (2), `down` (3), `left` (4) and `enter` (5, the
+  centre key), e.g. `up` and `down` for true or false. The answer number
+  stays with the key: true/false on Up/Down gives the values 1 and 3, and
+  `correct` must be the answer of one of the round's keys (`bad_field`,
+  "correct must be the answer of one of the keys"). Other sets get
+  `bad_field` ("choice takes 2-5 of up, right, down, left, enter"). The device shows the
+  centre like the other answer keys (white at 40 %, chosen: pulse toward its
+  colour, rose, RGB 255, 40, 150).
+  `{"ns":"game","cmd":"round","round":23422,"type":"choice","phase":"open","keys":{"up":"white","right":"white","down":"white","left":"white","enter":"white"}}`
+- `scale` with `"confirm":"enter"` (`bad_field`, "only for scale", "confirm
+  must be enter"): Up and Down set the value on the device only; Enter logs
+  it in: the value goes out at once and then stays, further keys do nothing.
+  Enter glows white at 40 % once a value is set; the ring shows the
+  confirmed value as in every scale. Without Enter no value goes out. On the
+  radio the scale's `keyMask` holds Enter as well.
+  `{"ns":"game","cmd":"round","round":23423,"type":"scale","phase":"open","keys":{"up":"white","down":"white"},"min":0,"max":10,"redMax":3,"greenMin":7,"confirm":"enter"}`
+
+### Rainbow scale (`display` in `game round`)
+
+`{"ns":"game","cmd":"round","round":23420,"type":"scale","phase":"open","keys":{"up":"white","down":"white"},"min":1,"max":24,"display":"rainbow"}`
+
+| `display` | Scale |
+|---|---|
+| `zones` (default, may be left out) | as in the gateway protocol: `redMax` and `greenMin`, the column in the zone colour |
+| `rainbow` | 24 steps in the rainbow colours below, for estimates: `min` 1 and `max` 24, no `redMax` and `greenMin` |
+
+- Only for `scale` (`bad_field`, "only for scale"; "display must be zones or
+  rainbow"). `rainbow` takes `min` 1 and `max` 24 (`bad_field`, "rainbow
+  takes min 1 and max 24") and no `redMax` or `greenMin` (`bad_field`,
+  "omit redMax and greenMin for rainbow"). Fixed for a running round like
+  the other scale fields.
+- The value is the step, 1-24; step 1 is where the column starts in reading
+  direction (from LED1 in `hochkant`).
+- Resolution: `correct` 1-24 in phase `closed`, the right step (`bad_field`,
+  "correct must be 1-24, in phase closed").
+- On the radio: bit 2 of the `QuizState` header `flags`; `correct` carries
+  the right step.
+- Device, open: the whole column shows the rainbow at 20 % of the
+  brightness, Up and Down white at 40 %. Before the first tap no step is
+  chosen; the first tap sets step 13 (Up) or 12 (Down), as in every scale.
+  Holding Up or Down steps on after 400 ms, once per 120 ms (in every scale
+  round). The chosen step shows like a chosen answer: steady white until
+  confirmed, then a pulse between white and its colour, and the ring in its
+  colour. `firstOnly` works as in every scale.
+- Device, result: the right step pulses between white and its colour. On
+  the right step the device celebrates (see the display below), then its
+  ring stays green. One step off: the own step in its colour and one soft
+  green pulse of the ring. Further off: the own step in orange red (the
+  "wrong" colour).
+
+The 24 colours (RGB at full brightness; the device scales them to its
+brightness, the console's screen and the slides use them as they are):
+
+| Step | RGB | Hex |
+|---|---|---|
+| 1 | 255, 0, 0 | `#ff0000` |
+| 2 | 255, 52, 0 | `#ff3400` |
+| 3 | 255, 103, 0 | `#ff6700` |
+| 4 | 255, 155, 0 | `#ff9b00` |
+| 5 | 255, 207, 0 | `#ffcf00` |
+| 6 | 251, 255, 0 | `#fbff00` |
+| 7 | 200, 255, 0 | `#c8ff00` |
+| 8 | 148, 255, 0 | `#94ff00` |
+| 9 | 96, 255, 0 | `#60ff00` |
+| 10 | 44, 255, 0 | `#2cff00` |
+| 11 | 0, 255, 7 | `#00ff07` |
+| 12 | 0, 255, 59 | `#00ff3b` |
+| 13 | 0, 255, 111 | `#00ff6f` |
+| 14 | 0, 255, 163 | `#00ffa3` |
+| 15 | 0, 255, 214 | `#00ffd6` |
+| 16 | 0, 244, 255 | `#00f4ff` |
+| 17 | 0, 192, 255 | `#00c0ff` |
+| 18 | 0, 140, 255 | `#008cff` |
+| 19 | 0, 89, 255 | `#0059ff` |
+| 20 | 0, 37, 255 | `#0025ff` |
+| 21 | 15, 0, 255 | `#0f00ff` |
+| 22 | 67, 0, 255 | `#4300ff` |
+| 23 | 118, 0, 255 | `#7600ff` |
+| 24 | 170, 0, 255 | `#aa00ff` |
+
+### Named or anonymous (`named`)
+
+After the admission, while login is open and no round other than `idle`
+runs, a participant chooses: Up plays with the device's animal name, Down
+anonymously. Without a choice it plays anonymously. It can choose again
+until login closes; the choice stays with the session entry, also across a
+restart in the session.
+
+- `join` and `device` lines carry `"named":true` or `"named":false`:
+  `{"ns":"game","ev":"device","n":7,"mac":"02:00:00:00:00:07","fw":"4a45fc32","proto":2,"bat":81,"chg":false,"rssi":-48,"round":0,"seq":1,"named":true}`
+- A choice sends a status at once, so a `device` line follows right away.
+- On the radio: bit 4 of the `QuizStatus` `flags`.
+- Display: Up and Down white at 40 %; the chosen key pulses once per second
+  between white and green (Up) or dimmed white (Down); the ring glows green
+  (named) or white at 40 % (anonymous). The green ring after the admission
+  shows first, for 2 s.
+
+### Display in rounds (Buzzerboard)
+
+Every level is scaled to the device's brightness (at least one LED step).
+
+| Round | Open, no answer | Answer, not yet confirmed | Answer confirmed by the bridge's echo |
+|---|---|---|---|
+| `choice` | answer keys white at 40 % | the chosen key steady white, the others white at 40 % | the chosen key pulses once per second between white and its direction colour, the others stay white at 40 %; the ring glows steadily in the direction colour |
+| `scale` | Up and Down white at 40 % | Up and Down stay; the column shows the value in its zone colour, pulsing | Up and Down stay; the column shows the value; the ring glows steadily in the zone colour |
+| `race` | the ring white at 40 % from the announced start, dark before it | the ring steady white | the ring steady blue |
+
+- With `firstOnly` the other answer keys (Up and Down in `scale`) go dark
+  once the device has sent its answer.
+- The chosen key and the ring stay after the round closes, until the result:
+  `correct` in `choice` (the correct key in its direction colour, the column
+  green or "wrong") and `winner` in `race` (the winner's ring and column
+  green, or the column "wrong" with `verdict` `wrong`).
+- "Wrong" (a wrong answer, a race winner rated wrong) is no punishment: the
+  column shows orange red, RGB 128, 40, 0 (`#802800`), half as bright as the
+  green of a right answer (RGB 0, 255, 0), both scaled to the brightness.
+- Celebration: a device that answered right (`choice` with `correct`) and
+  the race winner celebrate for 2 s: a bright head runs up the column twice
+  (once per second, in reading direction) and leaves it green, the ring
+  pulses softly between green and white. Then the result shows.
+- Race start: no countdown. With `openInMs` the device stays dark until the
+  announced start, then the ring lights. Use `openInMs` of at least 200 ms
+  (the bridge repeats a new state after 50 and 150 ms): every device then
+  knows the start in time, even when it missed the first frame.
+- Announced rounds, joining, the green ring after admission, the status dot,
+  locked devices and move rounds are unchanged.
+
+### Move rounds (`"type":"move"`)
+
+`{"ns":"game","cmd":"round","round":23417,"type":"move","phase":"open","keys":{"up":"white","right":"white","down":"white","left":"white"},"hold":"quer"}`
+
+- `keys`: exactly `up`, `right`, `down` and `left`. Phases as for other rounds.
+- While open, each press of a direction key is one key event (no
+  auto-repeat); buzz and enter do nothing. The device numbers its presses
+  with `kseq`: 8 bit, per device and round, 1-255, after 255 comes 1 (0
+  never occurs); a new join starts again at 1. It keeps up to 8
+  unacknowledged presses and sends them again until the bridge's echo
+  shows them. A `kseq` is new when it is 1-127 ahead of the last one, mod
+  256.
+- The bridge writes each press exactly once, in order per device:
+
+`{"ns":"game","ev":"key","n":7,"round":23417,"key":"right","kseq":12,"lage":"quer"}`
+
+| Field | Meaning |
+|---|---|
+| `n` | device number |
+| `round` | the round the press belongs to |
+| `key` | `up`, `right`, `down`, `left`: logical with `lage`, the physical key without it |
+| `kseq` | the device's press counter |
+| `lage` | the orientation the press was read in; left out when unknown |
+
+- The bridge passes a press on once its line has room in the bridge's queue
+  (64 presses); the device repeats the others. Key lines come before
+  `device` and `value` lines.
+- The game logic (positions, winner) stays in the console.
+- Device display (provisional): the four direction keys glow dimmed in the
+  round's key colour while open; a press pulses its key until acknowledged.
 
 ## Device states (Buzzerboard, outside a game session)
 
 | State | When | Behaviour |
 |---|---|---|
 | `active` | normal operation | keys, LEDs and mesh as usual; no fallback AP on the Buzzerboard |
-| `charging` | USB power and no host data link (no link traffic, the USB-Serial-JTAG sees no host) | keys do nothing, no AP, no WiFi except for an update, charging display at low brightness, radio only for fleet frames |
+| `charging` | USB power and no host data link (no link traffic, the USB-Serial-JTAG sees no host) | keys do nothing except Up and Down (brightness), no AP, no WiFi except for an update, charging display at low brightness, radio only for fleet frames |
 | `standby` | on battery, 8 h without key, session, USB or host link | LEDs and LED rail off, radio listens 500 ms of every second, fleet frames only |
 
 - From `standby` a key, a session invite, USB power or a host link brings the device back.
+- Up and Down step the brightness in every state outside a session, on the
+  press: active, `charging` and `standby`. Down at the lowest step switches
+  the LEDs off, Up switches them on again. Except in `charging` the column
+  then shows the battery level for 3 s at the new brightness, as with R2. A
+  press that wakes the device (from `standby` or sleep) only wakes it, and
+  while a session invite shows Up and Down do nothing. On a participant in a
+  session Up and Down stay answer keys.
 - `standby` ends in ESP deep sleep once the battery is at 80 % or below
   (without a battery percentage: VBAT at or below 4.02 V). In sleep the
   device wakes on BUZZ, UP, DOWN, LEFT, ENTER or POWER, and every 60 s on a
@@ -68,6 +404,12 @@ Codes of the gateway protocol (`bad_json`, `bad_field`, `unknown_ns`,
   below -40 mA) for 60 s while USB power is present, the device turns its
   LEDs off, lets the radio listen 500 ms of every second and sets error bit
   9, until USB is unplugged.
+- Charging starts off at boot and goes on once VBAT shows a cell (above
+  2.8 V, at least 15 s after charging went off). Without a cell it stays
+  off and the battery reads as unknown (`bat` and `vbat` `null`).
+- Input current limit 2 A with the ILIM pin off, at every USB source;
+  charge current 1000 mA. On a weaker source VBUS sags to 4.6 V (VINDPM)
+  and the charger takes less.
 - VBAT below 3.3 V for 30 s on USB (any state): ESP deep sleep while the
   charger charges on; the 60 s timer wake boots again from VBAT 3.5 V.
 - The low-battery cut-off (below 3.3 V for 30 s on battery → ship mode)
@@ -96,8 +438,10 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
 | `{"ns":"config","cmd":"wifi","id":1,"networks":[{"ssid":"Office","pass":"…"}]}` | `{"ns":"config","ev":"wifi","id":1,"ok":true,"count":1}` |
 | `{"ns":"config","cmd":"charge","id":2,"target":"event"}` | `{"ns":"config","ev":"charge","id":2,"ok":true,"target":"event"}` |
 | `{"ns":"config","cmd":"ap","id":3,"minutes":10}` | `{"ns":"config","ev":"ap","id":3,"ok":true,"minutes":10}` |
-| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"token":true,"target":"store","number":12,"fw":"4a45fc32"}` |
+| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"token":true,"target":"store","look":true,"name":"buzzer-12-koi","number":12,"fw":"4a45fc32"}` |
 | `{"ns":"config","cmd":"token","id":5,"token":"github_pat_…"}` | `{"ns":"config","ev":"token","id":5,"ok":true,"token":true}` |
+| `{"ns":"config","cmd":"look","id":6,"leds":["#ffffff","#ff0800",…,"#ff0800"]}` | `{"ns":"config","ev":"look","id":6,"ok":true,"leds":24}` |
+| `{"ns":"config","cmd":"name","id":7,"name":"buzzer-12-koi"}` | `{"ns":"config","ev":"name","id":7,"ok":true,"name":"buzzer-12-koi"}` |
 
 - `wifi` replaces the whole list: 0-5 networks, `ssid` 1-32 bytes, `pass` `""`
   (open network) or 8-63 bytes. Passwords are never echoed or logged. Five
@@ -120,7 +464,16 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
   radio channel. Buzzerboard only; it has no fallback AP. Holding L1 + R1 for
   3 s in active state opens it for 10 minutes as well. While it is open the
   status LED pulses blue slowly.
-- `get`: `number` is `null` without a device number; `fw` is the firmware
+- `look`: the device's own colours on the score column, 24 `"#rrggbb"`
+  from LED1 to the USB-C end, or `[]` to remove them. Stored in NVS. Active
+  and idle, the column breathes these colours at the display brightness
+  instead of the idle pattern, in turn with the battery level.
+- `name`: the device name, the same setting as the name in the web UI: the
+  mDNS host (`<name>.local`), the maintenance AP's SSID and the MQTT client.
+  1-31 of `a-z`, `0-9` and `-`, not starting or ending with `-`. Stored in
+  the config file, it applies from the next restart. Without one a device is
+  `light-` and the last 6 hex digits of its MAC.
+- `get`: `name` is the device name; `look` says whether own colours are set; `number` is `null` without a device number; `fw` is the firmware
   build (first 4 bytes of the app image's SHA-256, as in `link hello`).
 
 ## `fleet` (bridge)
@@ -132,11 +485,12 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
 | `{"ns":"fleet","cmd":"charge","id":6,"target":"event"}` | every device sets its charge target |
 | `{"ns":"fleet","cmd":"off","id":7}` | every device on battery enters ship mode; devices on USB ignore it |
 | `{"ns":"fleet","cmd":"ap","id":8,"mac":"02:00:00:00:00:11"}` | that device opens its maintenance AP for 10 minutes |
+| `{"ns":"fleet","cmd":"brightness","id":9,"level":8}` | every device sets its LED brightness |
 
 Each is answered with `{"ns":"fleet","ev":"sent","id":…}` once queued. The
 bridge sends every command three times, 300-700 ms apart, with one nonce;
 devices act once per nonce. Only Buzzerboards act on fleet commands, and
-not while in a game session.
+in a game session only on `brightness`.
 
 - `update`: a device needs a WiFi network and, on battery, VBAT of at least
   3.5 V. It connects WiFi for the update (also from charging mode), shows the
@@ -147,6 +501,18 @@ not while in a game session.
 - `charge`: a Buzzerboard bridge sets its own charge target too.
 - `off`, `ap`: not applied to the bridge itself (it runs on USB). A device
   in charging mode ignores `ap`.
+- `brightness`: `level` 0-255, the scale of every LightWitch brightness (8 is
+  about 3 %, the Buzzerboard default; one LED step is 1/255). Each device
+  sets it as the brightness override of its LEDs, the same setting Up and
+  Down change (stored in the flash only when it changes, 2 s after the last
+  change): it overrides the brightness of the device's group (the
+  "room"), and the keys go on from there. 0 switches the LEDs off as Down
+  does. A Buzzerboard bridge sets its own brightness too, at once. Also
+  while the bridge runs a game session: then it sends the command on the
+  session channel, the participants act on it (their session display
+  follows the brightness, at least 2) and the reply is `sent` as well; the
+  other fleet commands still get `session_active`. Devices outside the
+  session only get it while they listen on that channel.
 
 ### `status` event
 
@@ -211,12 +577,12 @@ while VBAT is between a lowered charge voltage and 4.25 V (see `config charge`).
   `charger.fault` the charger's FAULT_Status_0 register, `imu.id` the
   WHO_AM_I value (106 = 0x6A), `imu.g` one accelerometer reading in g.
   Without a charger reading the measurements are `null`; without an IMU `imu` is `null`.
-- `leds`: all 34 LEDs white, red, green, blue at brightness 20 (0.6 s each),
+- `leds`: all 34 LEDs white, red, green, blue at the display brightness, at least 8 (0.6 s each),
   then one white LED runs along the chain (60 ms per LED).
 - `keys`: each key lights an LED while the test runs: BUZZ the ring, the
   D-pad keys their own LED, L1, L2, R1, R2 and POWER every other column LED
   from the USB-C end. Keys do nothing else meanwhile.
 - `charge`: charges at the `event` target for 10 s with the LEDs dark and
   returns the mean IBUS, IBAT and VBUS of the charger ADC samples; `ok`
-  is `false` without samples. IBUS above about 500 mA means R5 (ILIM) is wrong.
+  is `false` without samples.
 - The link closing ends a running test.

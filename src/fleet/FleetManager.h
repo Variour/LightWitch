@@ -12,6 +12,7 @@
 #include "../buttons/ButtonRoles.h"
 #include "../config/BoardProfile.h"
 #include "../config/Config.h"
+#include "../config/LightLevel.h"
 #include "../game/GameManager.h"
 #include "../game/RxRing.h"
 #include "../led/LedDriver.h"
@@ -36,6 +37,8 @@ static_assert(fleet::kWifiNetworksMax == MAX_WIFI_NETWORKS,
               "config wifi takes as many networks as Config stores");
 static_assert(fleet::kTokenMax + 1 == sizeof(DeviceConfig::githubToken),
               "config token takes as long a token as Config stores");
+static_assert(fleet::kNameMax + 1 == sizeof(DeviceConfig::deviceName),
+              "config name takes as long a name as Config stores");
 static_assert(fleet::kEventVregMv <= PowerManager::CHARGE_VOLTAGE_MV,
               "the event target stays at or below the board's charge voltage");
 static_assert(MAX_BUTTONS <= 16, "the muted-key mask holds one bit per button");
@@ -55,15 +58,26 @@ class FleetManager {
         // An update or OTA runs outside the fleet (Updater checking,
         // downloading or done, ArduinoOTA): no standby, no sleep.
         std::function<bool()> updateBusy;
+        // Whether the short-press action of button slot `index` is a
+        // brightness step (LightBrightnessOverrideStep); with run, it runs it.
+        std::function<bool(uint8_t index, bool run)> brightnessKey;
+        // Sets light 0's brightness override to level (0-255), stored, as the
+        // keys do (fleet `brightness`).
+        std::function<void(uint8_t level)> setBrightness;
     };
 
-    // Before power.begin(): the stored charge target, so the charger starts with it.
+    // Before power.begin(): the stored charge target, so the charger starts
+    // with it, and the device's own colours.
     void loadStored() {
         Preferences p;
         if (p.begin(NVS_NS, /*readOnly=*/true)) {
             _target = p.getUChar(KEY_TARGET, 0) == (uint8_t)fleet::Target::Event
                           ? fleet::Target::Event
                           : fleet::Target::Store;
+            fleet::Look l;
+            if (p.getBytesLength(KEY_LOOK) == sizeof(l) && p.getBytes(KEY_LOOK, &l, sizeof(l)) &&
+                (l.count == 0 || l.count == fleet::kLookLeds))
+                _look = l;
             p.end();
         }
     }
@@ -143,21 +157,31 @@ class FleetManager {
     }
 
     // Raw key edge of button slot `index`. True: the fleet takes it
-    // (charging mode, standby wake, the key that woke the device, key test),
-    // so no other module sees it, and that key's actions stay muted until it
-    // has been up for kKeyQuietMs.
+    // (charging mode, standby wake, the key that woke the device, key test,
+    // a brightness step), so no other module sees it, and that key's actions
+    // stay muted until it has been up for kKeyQuietMs.
     bool onKey(uint8_t index, const char* role, bool pressed, uint32_t ms) {
         if (index >= MAX_BUTTONS) return false;
         uint16_t bit = (uint16_t)(1u << index);
         game::Key k = game::keyFromName(role);
         if (k == game::Key::L1) _l1Down = pressed;
         if (k == game::Key::R1) _r1Down = pressed;
+        // R2, active and outside a session: the battery level for
+        // kBatteryOverlayMs (Timo, 2026-11-09).
+        if (k == game::Key::R2 && pressed && _led && _managed() &&
+            _ps.state() == fleet::State::Active && !_game->radioQuiet() && !_test.running() &&
+            !_upd.running && _batteryPercent() != fleet::kNoBattery)
+            _batteryOverlayUntil = millis() + fleet::kBatteryOverlayMs;
         if (pressed) {
             _keysDown |= bit;
         } else {
             _keysDown &= (uint16_t)~bit;
             _keyUpMs[index] = ms;
         }
+        // A press that wakes the device: from standby, or held at the first
+        // loop pass (the press that woke it from sleep).
+        bool standbyWake = pressed && _managed() && _ps.state() == fleet::State::Standby;
+        bool bootPress = !_ticked || ms - _firstTickMs < fleet::kBootPressGraceMs;
         bool take = false;
         if (_test.kind() == fleet::FactoryTest::Kind::Keys) {
             if (pressed && k != game::Key::None) _link.onTestKey(k);
@@ -169,12 +193,23 @@ class FleetManager {
         } else if (_managed() && pressed) {
             // A press already held at the first loop pass woke the device:
             // it keeps the device awake but is no interaction.
-            bool wakePress = !_ticked || ms - _firstTickMs < fleet::kBootPressGraceMs;
-            if (wakePress)
+            if (bootPress)
                 _ps.activity(millis());
             else
                 _ps.interaction(millis());
-            take = wakePress;
+            take = bootPress;
+        }
+        // Up / Down step the brightness on the press, in every state outside
+        // a session and the key test; a wake press only wakes, and while an
+        // invite shows they do nothing (owner, 2026-11-10, FleetConfig.h).
+        if (pressed && (k == game::Key::Up || k == game::Key::Down) && _fleetDevice &&
+            !_game->ownsLeds() && _test.kind() != fleet::FactoryTest::Kind::Keys &&
+            _io.brightnessKey && _io.brightnessKey(index, false)) {
+            take = true;
+            if (!standbyWake && !bootPress && !_game->inviteVisible(millis())) {
+                _io.brightnessKey(index, true);
+                _showStep();
+            }
         }
         if (take && pressed) _quietMask |= bit;
         return take || (_quietMask & bit);
@@ -237,6 +272,7 @@ class FleetManager {
         if (sample) _testSample();
         _link.tick(now);
         _tickCombo(now);
+        _tickIdleLevel(now);
         SoftAp::tick(now);
         _tickKeys(now);
 
@@ -260,10 +296,15 @@ class FleetManager {
     // also in charging mode.
     bool updateRunning() const { return _upd.running; }
     bool hasLight() const { return _led != nullptr; }
+    // Standby: LEDs and LED rail off.
+    bool standby() const { return _ps.state() == fleet::State::Standby; }
 
-    // The fleet draws the light: factory test, update, charging, standby.
+    // The fleet draws the light: factory test, update, charging, standby,
+    // switched off on USB, the battery overlay, the device's own colours.
     bool ownsLeds() const {
-        return _led && (_test.running() || _upd.running || _ps.state() != fleet::State::Active);
+        return _led && (_test.running() || _upd.running || _ps.state() != fleet::State::Active ||
+                        _levelShowing || _offLevel() || _batteryOverlay() || _gatewayShowing() ||
+                        _lookShowing());
     }
 
     // Full frame while ownsLeds().
@@ -272,11 +313,23 @@ class FleetManager {
         _ledsOwned = true;
         game::Rgb px[game::kLedCount];
         if (_test.running())
-            _test.frame(now, px);
+            _test.frame(
+                now, px,
+                _displayLevel() < fleet::kTestLevelMin ? fleet::kTestLevelMin : _displayLevel());
         else if (_upd.running)
-            fleet::renderUpdate(_upd.pct, now, px);
-        else if (_ps.state() == fleet::State::Charging && !_weakNow())
-            fleet::renderCharging(_chargeView(now), now, px);
+            fleet::renderUpdate(_upd.pct, now, px, _displayLevel());
+        else if (_batteryOverlay())
+            fleet::renderLevel(_batteryPercent(), _ibatMa(), now, px, _displayLevel());
+        else if (_offLevel())
+            fleet::renderOffLevel(_batteryPercent(), _charge == fleet::Charge::Charging, now, px);
+        else if (_ps.state() == fleet::State::Charging && !_weakNow() && !_ledsSwitchedOff())
+            fleet::renderCharging(_chargeView(now), now, px, _displayLevel());
+        else if (_gatewayShowing())
+            fleet::renderGateway(_look, now, _displayLevel(), px);
+        else if (_levelShowing)
+            fleet::renderLevel(_batteryPercent(), _ibatMa(), now, px, _displayLevel());
+        else if (_lookShowing())
+            fleet::renderLook(_look, now - (_levelNext - fleet::kIdlePulseMs), _displayLevel(), px);
         else
             fleet::clearFrame(px);
         _show(px);
@@ -290,7 +343,7 @@ class FleetManager {
         if (!_led) return Overlay::None;
         if (SoftAp::maintenanceOpen() && _ps.state() == fleet::State::Active) {
             game::Rgb c = fleet::level(game::colorRgb(game::Color::Blue),
-                                       fleet::slowPulse(now, fleet::kApPulseMs));
+                                       fleet::slowPulse(now, fleet::kApPulseMs, _displayLevel()));
             _led->setPixel(game::kStatusDot, c.r, c.g, c.b);
             _led->show();
             _overlayOn = true;
@@ -306,7 +359,7 @@ class FleetManager {
         if (!_led) return;
         _ledsOwned = true;
         game::Rgb px[game::kLedCount];
-        fleet::renderUpdate(percent, now, px);
+        fleet::renderUpdate(percent, now, px, _displayLevel());
         _show(px);
     }
 
@@ -320,6 +373,7 @@ class FleetManager {
    private:
     static constexpr const char* NVS_NS = "fleet";
     static constexpr const char* KEY_TARGET = "target";
+    static constexpr const char* KEY_LOOK = "look";
 
     Io _io;
     PowerManager* _power = nullptr;
@@ -343,6 +397,12 @@ class FleetManager {
     uint16_t _errors = 0;
     bool _full = false;
     uint32_t _fullSince = 0;
+    bool _levelShowing = false;
+    bool _idle = false;                 // active and idle (see _tickIdleLevel)
+    fleet::Look _look;                  // the device's own colours (`config look`), count 0: none
+    uint32_t _batteryOverlayUntil = 0;  // millis(); 0 = no overlay
+    uint32_t _levelUntil = 0;
+    uint32_t _levelNext = 0;
     bool _applied = false;
     bool _radioInactive = false;
     bool _standbyRadio = false;
@@ -443,7 +503,109 @@ class FleetManager {
         v.charge = _charge;
         v.battery = _batteryPercent();
         v.fullForMs = _full ? now - _fullSince : 0;
+        v.ibatMa = _ibatMa();
         return v;
+    }
+
+    // The LEDs switched off with a key (light 0's brightness override at 0,
+    // see config/BoardProfile.cpp): on battery everything stays dark, on USB
+    // only _offLevel() shows (Timo, 2026-11-09).
+    bool _ledsSwitchedOff() const {
+        const LightHardwareConfig& l = Config::get().lights[0];
+        return l.brightnessOverrideEnabled && l.brightnessOverride == 0;
+    }
+
+    // The brightness of every fleet display: what light 0 renders at, at
+    // least kOffLevel (Timo, 2026-11-09).
+    uint8_t _displayLevel() const {
+        uint8_t b = currentLightLevel(0);
+        return b < fleet::kOffLevel ? fleet::kOffLevel : b;
+    }
+
+    bool _batteryOverlay() const {
+        return _batteryOverlayUntil != 0 && (int32_t)(millis() - _batteryOverlayUntil) < 0;
+    }
+
+    // After a brightness step: the battery level for kBatteryOverlayMs at the
+    // new brightness, as R2 shows it. None in charging mode (its display is
+    // the level) and none once the step switched the LEDs off (Timo,
+    // 2026-11-10).
+    void _showStep() {
+        if (_ledsSwitchedOff()) {
+            _batteryOverlayUntil = 0;
+            return;
+        }
+        if (_led && _managed() && _ps.state() != fleet::State::Charging && !_game->radioQuiet() &&
+            !_test.running() && !_upd.running && _batteryPercent() != fleet::kNoBattery)
+            _batteryOverlayUntil = millis() + fleet::kBatteryOverlayMs;
+    }
+
+    // The console's gateway, active and not switched off: renderGateway()
+    // (Timo, 2026-11-09: any device can be the gateway, it shows that on its
+    // column instead of a device of its own).
+    bool _gatewayShowing() const {
+        return _led && _game->gatewayActive() && _ps.state() == fleet::State::Active &&
+               !_test.running() && !_upd.running && !_ledsSwitchedOff();
+    }
+
+    bool _lookShowing() const { return _idle && !_levelShowing && _look.count == fleet::kLookLeds; }
+
+    // Stores the device's own colours (count 0 removes them) and shows them
+    // from the next idle breath on.
+    bool _setLook(const fleet::Look& l) {
+        Preferences p;
+        bool stored = p.begin(NVS_NS, false);
+        if (stored) {
+            if (l.count)
+                stored = p.putBytes(KEY_LOOK, &l, sizeof(l)) == sizeof(l);
+            else if (p.isKey(KEY_LOOK))
+                stored = p.remove(KEY_LOOK);
+            p.end();
+        }
+        if (!stored) {
+            Logger::e("[fleet] own colours could not be stored");
+            return false;
+        }
+        _look = l;
+        Logger::i("[fleet] own colours %s", l.count ? "set" : "removed");
+        return true;
+    }
+
+    // Switched off with a key, on USB with a cell: renderOffLevel()
+    // (Timo, 2026-11-09).
+    bool _offLevel() const {
+        return _ledsSwitchedOff() && _usb() && !_weakNow() &&
+               _batteryPercent() != fleet::kNoBattery;
+    }
+
+    int16_t _ibatMa() const {
+        if (!_managed()) return 0;
+        const Bq25628::Adc& a = _power->adc();
+        return a.ibatValid ? a.ibatMa : 0;
+    }
+
+    // Active and idle (no session, invite, test, update or maintenance AP):
+    // kIdlePulseMs of the idle pattern, or of the device's own colours when
+    // it has them, then kIdleLevelMs of the battery level, in turn (see
+    // kIdlePulseMs). Without a battery only the first.
+    void _tickIdleLevel(uint32_t now) {
+        bool idle = _led && _ps.state() == fleet::State::Active && !_test.running() &&
+                    !_upd.running && !_game->radioQuiet() && !_game->inviteVisible(now) &&
+                    !SoftAp::maintenanceOpen() && !_ledsSwitchedOff();
+        if (!idle || !_idle) {
+            _idle = idle;
+            _levelShowing = false;
+            _levelNext = now + fleet::kIdlePulseMs;
+            return;
+        }
+        if (_levelShowing) {
+            if ((int32_t)(now - _levelUntil) < 0) return;
+            _levelShowing = false;
+            _levelNext = now + fleet::kIdlePulseMs;
+        } else if (_batteryPercent() != fleet::kNoBattery && (int32_t)(now - _levelNext) >= 0) {
+            _levelShowing = true;
+            _levelUntil = now + fleet::kIdleLevelMs;
+        }
     }
 
     void _show(const game::Rgb* px) {
@@ -606,6 +768,14 @@ class FleetManager {
         return true;
     }
 
+    // ── Brightness ───────────────────────────────────────────────────────────
+    // fleet `brightness`: light 0's brightness override, stored, as Up and
+    // Down set it (owner, 2026-11-10, FleetConfig.h).
+    void _setBrightness(uint8_t level) {
+        if (_io.setBrightness) _io.setBrightness(level);
+        Logger::i("[fleet] brightness %u from the console", level);
+    }
+
     // ── Radio ────────────────────────────────────────────────────────────────
     void _onFrameLoop(const game::RxRing::Frame& f, uint32_t now) {
         if (f.data[0] == fleet::kMsgFleetStatus) {
@@ -617,9 +787,15 @@ class FleetManager {
         }
         fleet::FleetCommandMsg m;
         if (!fleet::decodeFleetFrame(f.data, f.len, fleet::kMsgFleetCommand, m)) return;
-        // Only Buzzerboards act on fleet commands, and not in a game session.
-        if (!_fleetDevice || _game->radioQuiet() || !_filter.accept(m, now)) return;
+        // Only Buzzerboards act on fleet commands; in a game session only on
+        // `brightness` (owner, 2026-11-10, FleetConfig.h).
+        if (!_fleetDevice) return;
+        if (_game->radioQuiet() && (fleet::Op)m.op != fleet::Op::Brightness) return;
+        if (!_filter.accept(m, now)) return;
         switch ((fleet::Op)m.op) {
+            case fleet::Op::Brightness:
+                _setBrightness(m.arg);
+                return;
             case fleet::Op::Update:
                 _startUpdate((fleet::Source)m.arg, m.pr);
                 return;
@@ -802,6 +978,15 @@ class FleetManager {
         io.hasToken = []() { return Config::get().githubToken[0] != '\0'; };
         io.setTarget = [this](fleet::Target t) { return _setTarget(t); };
         io.target = [this]() { return _target; };
+        io.setLook = [this](const fleet::Look& l) { return _setLook(l); };
+        io.lookLeds = [this]() { return _look.count; };
+        io.setName = [](const char* name) {
+            strlcpy(Config::get().deviceName, name, sizeof(Config::get().deviceName));
+            bool ok = Config::save();
+            Logger::i("[fleet] device name %s over USB", name);
+            return ok;
+        };
+        io.name = []() { return (const char*)Config::get().deviceName; };
         io.openAp = [](uint8_t minutes) {
             return SoftAp::openMaintenance(minutes, millis()) ? FleetLink::ApResult::Ok
                                                               : FleetLink::ApResult::Unsupported;
@@ -810,12 +995,14 @@ class FleetManager {
         io.fwBuild = [this]() { return _game->fwBuild(); };
         io.radioBusy = [this]() { return _game->radioQuiet(); };
         io.nonce = []() { return (uint32_t)esp_random(); };
-        // A Buzzerboard bridge applies `charge` at once and `update` once the
-        // repeats are out; `off` and `ap` are for the other devices.
+        // A Buzzerboard bridge applies `charge` and `brightness` at once and
+        // `update` once the repeats are out; `off` and `ap` are for the other
+        // devices.
         io.sent = [this](const fleet::FleetCommandMsg& m) {
             if (!_fleetDevice) return;
             if ((fleet::Op)m.op == fleet::Op::Charge && m.arg <= (uint8_t)fleet::Target::Event)
                 _setTarget((fleet::Target)m.arg);
+            if ((fleet::Op)m.op == fleet::Op::Brightness) _setBrightness(m.arg);
             if ((fleet::Op)m.op != fleet::Op::Update) return;
             _selfUpdate = true;
             _selfSource = (fleet::Source)m.arg;

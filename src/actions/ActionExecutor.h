@@ -16,6 +16,11 @@
 // doesn't need to know about mesh/mqtt/runners itself.
 class ActionExecutor {
    public:
+    // A light's brightness override is stored this long after its last
+    // change, so a run of steps writes the flash once and no step waits for
+    // it (Timo, 2026-11-10).
+    static constexpr uint32_t BRIGHTNESS_SAVE_DELAY_MS = 2000;
+
     using ApplyFn = std::function<void(uint8_t groupId, const LightConfig&)>;
     using BroadcastGroupSyncFn = std::function<void(const GroupConfig&)>;
     using ApplyLightBrightnessFn = std::function<void(uint8_t lightIndex)>;
@@ -40,6 +45,14 @@ class ActionExecutor {
     // wiring, same as the rest of this class; main.cpp wires it to
     // MeshManager::broadcastGenericEvent.
     void setSendEventFn(SendEventFn fn) { _sendEvent = fn; }
+
+    // Every loop() pass: stores a changed brightness override once it has
+    // been unchanged for BRIGHTNESS_SAVE_DELAY_MS.
+    void tick(uint32_t now) {
+        if (!_saveDue || (int32_t)(now - _saveAt) < 0) return;
+        _saveDue = false;
+        Config::save();
+    }
 
     void execute(const ButtonAction& action) {
         if (action.action == ActionId::None) return;
@@ -152,6 +165,8 @@ class ActionExecutor {
     ApplyLightBrightnessFn _applyLightBrightness;
     PlaySoundFn _playSound;
     SendEventFn _sendEvent;
+    bool _saveDue = false;  // a brightness override waits for Config::save()
+    uint32_t _saveAt = 0;
 
     // Mutates a light's own brightness override (not its group's LightConfig)
     // per ActionId::LightBrightnessOverride{Step,Set,Clear}. Step/Set enable
@@ -166,6 +181,8 @@ class ActionExecutor {
             Logger::w("[action] light %u not found — ignored", action.lightIndex);
             return;
         }
+        bool enabledBefore = l.brightnessOverrideEnabled;
+        uint8_t before = l.brightnessOverride;
 
         switch (action.action) {
             case ActionId::LightBrightnessOverrideStep: {
@@ -189,7 +206,12 @@ class ActionExecutor {
                 return;
         }
 
-        Config::save();
+        // Only a change is applied and, BRIGHTNESS_SAVE_DELAY_MS later, stored.
+        if (l.brightnessOverrideEnabled == enabledBefore &&
+            (!enabledBefore || l.brightnessOverride == before))
+            return;
+        _saveDue = true;
+        _saveAt = millis() + BRIGHTNESS_SAVE_DELAY_MS;
         if (_applyLightBrightness) _applyLightBrightness(action.lightIndex);
     }
 

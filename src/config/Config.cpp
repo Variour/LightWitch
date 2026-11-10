@@ -298,6 +298,31 @@ void deserializeAudioGroup(JsonVariant o, AudioGroupConfig& g) {
         (uint8_t)constrain((int)(o["volume"] | (uint8_t)200), SOUND_VOLUME_MIN, SOUND_VOLUME_MAX);
 }
 
+// "light-" and the last three bytes of the base MAC. esp_read_mac() with
+// ESP_MAC_BASE always gives 6 bytes; esp_efuse_mac_get_default() gives an
+// 8-byte EUI-64 on chips with IEEE 802.15.4 (ESP32-C5).
+static void defaultDeviceName(char* out, size_t len) {
+    uint8_t mac[6] = {};
+    esp_read_mac(mac, ESP_MAC_BASE);
+    snprintf(out, len, "light-%02x%02x%02x", mac[3], mac[4], mac[5]);
+}
+
+// Builds up to 2026-11-09 took the default name from the EUI-64's middle
+// bytes, the same on every ESP32-C5 of a batch ("light-feffb7"). Replace that
+// name with defaultDeviceName(); any other name stays.
+static bool renameEui64DeviceName(char* name, size_t len) {
+    uint8_t eui[8] = {};
+    esp_efuse_mac_get_default(eui);
+    char old[sizeof(DeviceConfig::deviceName)];
+    snprintf(old, sizeof(old), "light-%02x%02x%02x", eui[3], eui[4], eui[5]);
+    char fixed[sizeof(DeviceConfig::deviceName)];
+    defaultDeviceName(fixed, sizeof(fixed));
+    if (strcmp(name, old) != 0 || strcmp(old, fixed) == 0) return false;
+    Logger::i("[cfg] device name %s -> %s", name, fixed);
+    strlcpy(name, fixed, len);
+    return true;
+}
+
 static bool migrateDoc(JsonDocument& doc) {
     uint8_t ver = doc["schemaVersion"] | (uint8_t)0;
     // Unreleased builds wrote v6 for the additive Buzzerboard fields (see
@@ -460,6 +485,7 @@ bool Config::load() {
                 _ensureDefaultGroup();
                 _ensureDefaultAudioGroup();
                 Logger::d("[cfg] loaded from LittleFS");
+                if (renameEui64DeviceName(_cfg.deviceName, sizeof(_cfg.deviceName))) save();
                 return true;
             }
         }
@@ -472,6 +498,7 @@ bool Config::load() {
             _ensureDefaultGroup();
             _ensureDefaultAudioGroup();
             Logger::i("[cfg] no LittleFS config — restored from NVS");
+            renameEui64DeviceName(_cfg.deviceName, sizeof(_cfg.deviceName));
             save();
             return true;
         }
@@ -480,10 +507,7 @@ bool Config::load() {
     Logger::w("[cfg] no saved config — using defaults");
     _ensureDefaultGroup();
     _ensureDefaultAudioGroup();
-    uint8_t mac[6];
-    esp_efuse_mac_get_default(mac);
-    snprintf(_cfg.deviceName, sizeof(_cfg.deviceName), "light-%02x%02x%02x", mac[3], mac[4],
-             mac[5]);
+    defaultDeviceName(_cfg.deviceName, sizeof(_cfg.deviceName));
     // First boot of an unconfigured device: a board-specific build seeds its
     // board's hardware config when it finds that board, so identical devices
     // work without setup.

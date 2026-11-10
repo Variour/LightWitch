@@ -39,8 +39,8 @@ enum class Color : uint8_t {
 };
 static constexpr uint8_t kColorCount = 9;
 
-enum class RoundType : uint8_t { Idle = 0, Race = 1, Scale = 2, Choice = 3 };
-static constexpr uint8_t kRoundTypeCount = 4;
+enum class RoundType : uint8_t { Idle = 0, Race = 1, Scale = 2, Choice = 3, Move = 4 };
+static constexpr uint8_t kRoundTypeCount = 5;
 enum class Phase : uint8_t { Announced = 0, Open = 1, Closed = 2 };
 static constexpr uint8_t kPhaseCount = 3;
 
@@ -49,8 +49,15 @@ static constexpr uint8_t kStatusCharging = 1 << 0;
 static constexpr uint8_t kStatusJoin = 1 << 1;
 static constexpr uint8_t kStatusPressed = 1 << 2;
 static constexpr uint8_t kStatusRejoin = 1 << 3;
+// The player chose to play with the device's animal name (owner,
+// 2026-11-10); without it the device plays anonymously.
+static constexpr uint8_t kStatusNamed = 1 << 4;
 
-static constexpr uint8_t kNoValue = 0xFF;    // echo / report: no value
+static constexpr uint8_t kNoValue = 0xFF;  // echo / report: no value
+// Echo bit 7: the value is the answer of the race device with the turn (its
+// answer key), told apart from its buzz value 1.
+static constexpr uint8_t kEchoAnswer = 0x80;
+static constexpr uint8_t kNoKeySeq = 0;      // echo in a move round: no press passed on
 static constexpr uint8_t kNoBattery = 0xFF;  // battery percent unknown
 
 struct Rgb {
@@ -81,6 +88,23 @@ inline Rgb colorRgb(Color c) {
     }
 }
 
+// owner (2026-11-10): a wrong or lost answer is no punishment: the device
+// shows it in an orange red at half the brightness of the green of a right
+// one (the console's screen takes the same colour).
+static constexpr Rgb kWrongRgb = {128, 40, 0};
+
+// owner (2026-11-10): the 24 colours of a rainbow scale (link `game round`
+// display "rainbow"), step 1 (index 0, red) to step 24 (violet): hue 0-280
+// degrees in even steps at full saturation. The console's screen and the
+// slides take the same values.
+static constexpr uint8_t kRainbowSteps = 24;
+static constexpr Rgb kRainbow[kRainbowSteps] = {
+    {255, 0, 0},   {255, 52, 0},  {255, 103, 0}, {255, 155, 0}, {255, 207, 0}, {251, 255, 0},
+    {200, 255, 0}, {148, 255, 0}, {96, 255, 0},  {44, 255, 0},  {0, 255, 7},   {0, 255, 59},
+    {0, 255, 111}, {0, 255, 163}, {0, 255, 214}, {0, 244, 255}, {0, 192, 255}, {0, 140, 255},
+    {0, 89, 255},  {0, 37, 255},  {15, 0, 255},  {67, 0, 255},  {118, 0, 255}, {170, 0, 255},
+};
+
 inline Rgb scaleRgb(Rgb c, uint8_t level) {
     return {(uint8_t)(c.r * level / 255), (uint8_t)(c.g * level / 255),
             (uint8_t)(c.b * level / 255)};
@@ -91,7 +115,7 @@ static constexpr const char* kKeyNames[] = {"buzz", "up", "down", "left", "right
                                             "l1",   "l2", "r1",   "r2",   "power"};
 static constexpr const char* kColorNames[] = {"off",  "white",   "red",  "green", "yellow",
                                               "blue", "magenta", "cyan", "orange"};
-static constexpr const char* kRoundTypeNames[] = {"idle", "race", "scale", "choice"};
+static constexpr const char* kRoundTypeNames[] = {"idle", "race", "scale", "choice", "move"};
 static constexpr const char* kPhaseNames[] = {"announced", "open", "closed"};
 
 // Maps a key role name ("buzz", "up", ..., "power") to a Key; Key::None if unknown.

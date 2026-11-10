@@ -149,10 +149,11 @@ class MeshManager {
     void setOnQuizFrame(QuizFrameCb cb) { _onQuizFrame = cb; }
     void setOnFleetFrame(FleetFrameCb cb) { _onFleetFrame = cb; }
 
-    // Quiet: a game session owns the radio. Only quiz frames are sent and
-    // handled; tick() sends nothing (no Presence, Hello, MeshPolicy,
-    // GroupSync, AudioGroupSync, PhaseSync, proximity pings) and the
-    // proximity sniffer is off. Leaving a session restarts the device.
+    // Quiet: a game session owns the radio. Only quiz frames and fleet
+    // commands (fleet `brightness` reaches a session) are sent and handled;
+    // tick() sends nothing (no Presence, Hello, MeshPolicy, GroupSync,
+    // AudioGroupSync, PhaseSync, proximity pings) and the proximity sniffer
+    // is off. Leaving a session restarts the device.
     void setQuiet(bool quiet) { _quiet = quiet; }
     bool quiet() const { return _quiet; }
 
@@ -660,16 +661,21 @@ class MeshManager {
         static const uint8_t bcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 #if FEATURE_GAME
         uint8_t type = ((const uint8_t*)data)[0];
-        if (_quiet && !game::isQuizType(type)) return;
+        if (_quiet && !_quietType(type)) return;
         if (!_quiet && _fleetOnly && !fleet::isFleetType(type)) return;
 #endif
         esp_now_send(bcast, (uint8_t*)data, len);
     }
 
 #if FEATURE_GAME
+    // What a device in a game session sends and handles.
+    static bool _quietType(uint8_t type) {
+        return game::isQuizType(type) || type == fleet::kMsgFleetCommand;
+    }
+
     // What a device in a game session or in fleet-only mode handles.
     bool _receives(uint8_t type) const {
-        if (_quiet) return game::isQuizType(type);
+        if (_quiet) return _quietType(type);
         if (_fleetOnly) return fleet::isFleetType(type) || type == game::kMsgQuizInvite;
         return true;
     }
@@ -1311,7 +1317,8 @@ class MeshManager {
             case MsgType::QuizStatus:
             case MsgType::QuizAdmit:
             case MsgType::QuizRelease:
-            case MsgType::QuizChannel: {
+            case MsgType::QuizChannel:
+            case MsgType::QuizKeys: {
                 if (!game::quizFrameLenOk(data, (size_t)len)) return;
                 int8_t rssi = info->rx_ctrl ? (int8_t)info->rx_ctrl->rssi : 0;
                 if (_instance->_onQuizFrame) _instance->_onQuizFrame(data, len, rssi);

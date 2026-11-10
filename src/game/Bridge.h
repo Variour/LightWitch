@@ -8,6 +8,7 @@
 #include "GameConfig.h"
 #include "GameFrames.h"
 #include "GameTypes.h"
+#include "Lage.h"
 
 namespace game {
 
@@ -15,6 +16,8 @@ namespace game {
 // console sets, invites while login is open, admits and releases devices,
 // keeps the latest value per device for the echo, and hands everything to
 // the USB link through Listener and the device table (gateway protocol v0).
+// In a move round it passes each key press on once, through a queue the
+// link drains (firmware spec "Lage v0").
 //
 // Plain C++: radio and channel come in through Io, so this runs on the host.
 class Bridge {
@@ -36,6 +39,8 @@ class Bridge {
         int8_t rssi;
         bool pressed;
         bool rejoin;
+        bool named;    // plays with the animal name (kStatusNamed)
+        uint8_t lage;  // Lage, 0 = unknown
     };
 
     struct Listener {
@@ -67,8 +72,22 @@ class Bridge {
         uint32_t fw;
         uint16_t lastRound;
         uint16_t lastSeq;
+        uint8_t lage;       // from the last status, 0 = unknown
+        bool named;         // from the last status (kStatusNamed)
+        uint8_t valueLage;  // the value's input orientation, 0 = unknown
+        uint8_t keySeq;     // move round: last kseq passed on, kNoKeySeq = none
+        bool answerTaken;   // race: the value is the answering device's answer
         bool dirtyValue;
         bool dirtyDevice;
+    };
+
+    // A key press of a move round waiting for its USB line.
+    struct KeyEvent {
+        uint16_t n;
+        uint16_t round;
+        uint8_t kseq;
+        uint8_t key;   // Key
+        uint8_t lage;  // Lage, 0 = unknown: key is the physical one
     };
 
     struct RoundCmd {
@@ -82,6 +101,10 @@ class Bridge {
         uint16_t openInMs = 0;
         uint16_t winner = 0;
         uint8_t correct = 0;
+        Hold hold = Hold::Frei;
+        bool firstOnly = false;    // only each device's first answer counts
+        bool winnerWrong = false;  // the quizmaster rated the winner's answer wrong
+        bool rainbow = false;      // scale of 24 steps shown as the rainbow
     };
 
     struct StateInfo {
@@ -108,6 +131,7 @@ class Bridge {
     ~Bridge() {
         delete[] _devs;
         delete[] _admits;
+        delete[] _keys;
     }
 
     void begin(const Io& io, Listener* listener) {
@@ -122,12 +146,15 @@ class Bridge {
         if (!_active) {
             if (!_devs) _devs = new (std::nothrow) Device[kMaxNumber + 1]();
             if (!_admits) _admits = new (std::nothrow) PendingAdmit[kMaxPendingAdmits]();
-            if (!_devs || !_admits) return Err::NoMemory;
+            if (!_keys) _keys = new (std::nothrow) KeyEvent[kKeyQueueBridge]();
+            if (!_devs || !_admits || !_keys) return Err::NoMemory;
             if (!_quiet) {
                 _quiet = true;
                 if (_io.enterQuiet) _io.enterQuiet();
             }
             _clearTable();
+            _keyHead = 0;
+            _keyCount = 0;
             _active = true;
             _session = id;
             _channel = channel;
@@ -232,6 +259,10 @@ class Bridge {
             r.greenMin = c.greenMin;
             r.winner = c.winner;
             r.correct = c.correct;
+            r.hold = c.hold;
+            r.firstOnly = c.firstOnly;
+            r.winnerWrong = c.winnerWrong;
+            r.rainbow = c.rainbow;
             if (r.type != RoundType::Idle) _enterPhase(r.phase, c, now);
             for (uint16_t n = 1; n <= _maxNumber; n++) _clearValue(n);
             _arrivals = 0;
@@ -241,17 +272,53 @@ class Bridge {
         }
         if (c.type != r.type || c.keyMask != r.keyMask ||
             memcmp(c.keyColor, r.keyColor, sizeof(r.keyColor)) != 0 || c.min != r.min ||
-            c.max != r.max || c.redMax != r.redMax || c.greenMin != r.greenMin)
+            c.max != r.max || c.redMax != r.redMax || c.greenMin != r.greenMin ||
+            c.hold != r.hold || c.firstOnly != r.firstOnly || c.rainbow != r.rainbow)
             return Err::RoundFixed;
         Phase phase = r.type == RoundType::Idle ? Phase::Closed : c.phase;
         if ((uint8_t)phase < (uint8_t)r.phase) return Err::BadPhase;
-        if (phase == r.phase && c.winner == r.winner && c.correct == r.correct) return Err::None;
+        if (phase == r.phase && c.winner == r.winner && c.correct == r.correct &&
+            c.winnerWrong == r.winnerWrong)
+            return Err::None;
         if (phase != r.phase) _enterPhase(phase, c, now);
         r.phase = phase;
         r.winner = c.winner;
         r.correct = c.correct;
+        r.winnerWrong = c.winnerWrong;
         r.seq++;
         changed = true;
+        _markStateChanged(now);
+        return Err::None;
+    }
+
+    // The race device that answers now (n 0 = none) and its answer time
+    // (0 = no limit).
+    Err answering(uint16_t n, uint16_t ms, uint32_t now) {
+        if (!_active || _ending) return Err::NoSession;
+        RoundModel& r = _round;
+        if (r.type != RoundType::Race) return Err::BadPhase;
+        if (n == 0) ms = 0;
+        if (n == r.answering && ms == r.answerMs) return Err::None;
+        r.answering = n;
+        r.answerMs = ms;
+        r.answerAt = now;
+        r.seq++;
+        _markStateChanged(now);
+        return Err::None;
+    }
+
+    // A countdown for every device without an answer (ms 0 = none): an open
+    // choice or scale.
+    Err countdown(uint16_t ms, uint32_t now) {
+        if (!_active || _ending) return Err::NoSession;
+        RoundModel& r = _round;
+        if ((r.type != RoundType::Choice && r.type != RoundType::Scale) || r.phase != Phase::Open)
+            return Err::BadPhase;
+        if (r.answering == 0 && ms == r.answerMs) return Err::None;
+        r.answering = 0;
+        r.answerMs = ms;
+        r.answerAt = now;
+        r.seq++;
         _markStateChanged(now);
         return Err::None;
     }
@@ -275,6 +342,10 @@ class Bridge {
             QuizStatusMsg m;
             decodeFrame(d, len, kMsgQuizStatus, m);
             _onStatus(m, rssi);
+        } else if (h.type == kMsgQuizKeys && h.proto == kProto) {
+            QuizKeysMsg m;
+            decodeFrame(d, len, kMsgQuizKeys, m);
+            _onKeys(m);
         }
         (void)now;
     }
@@ -369,6 +440,14 @@ class Bridge {
         return s;
     }
 
+    // Key presses waiting for their USB line, oldest first.
+    uint8_t keyCount() const { return _keyCount; }
+    const KeyEvent& keyFront() const { return _keys[_keyHead]; }
+    void popKey() {
+        _keyHead = (uint8_t)((_keyHead + 1) % kKeyQueueBridge);
+        _keyCount--;
+    }
+
     void clearDirtyValue(uint16_t n) {
         if (_devs[n].dirtyValue) {
             _devs[n].dirtyValue = false;
@@ -403,6 +482,13 @@ class Bridge {
         uint8_t min = 0, max = 0, redMax = 0, greenMin = 0;
         uint16_t winner = 0;
         uint8_t correct = 0;
+        Hold hold = Hold::Frei;
+        bool firstOnly = false;
+        bool winnerWrong = false;
+        bool rainbow = false;
+        uint16_t answering = 0;  // race: the number answering now
+        uint16_t answerMs = 0;
+        uint32_t answerAt = 0;  // bridge time its answer time began
         bool opened = false;
         uint32_t openAt = 0;  // bridge time of the round start (open + openInMs)
         bool closedValid = false;
@@ -466,6 +552,9 @@ class Bridge {
 
     PendingAdmit* _admits = nullptr;  // kMaxPendingAdmits, allocated with the device table
     uint16_t _admitCount = 0;
+    KeyEvent* _keys = nullptr;  // kKeyQueueBridge, allocated with the device table
+    uint8_t _keyHead = 0;
+    uint8_t _keyCount = 0;
     PendingRelease _releases[kMaxPendingReleases];
     uint8_t _releaseCount = 0;
 
@@ -496,6 +585,9 @@ class Bridge {
     void _sendState(uint32_t now) {
         QuizStateMsg m{};
         _fillHeader(m.h, kMsgQuizState);
+        m.h.flags = (uint8_t)((_round.firstOnly ? kStateFirstOnly : 0) |
+                              (_round.winnerWrong ? kStateWinnerWrong : 0) |
+                              (_round.rainbow ? kStateRainbow : 0));
         m.session = _session;
         m.roundId = _round.id;
         m.stateSeq = _round.seq;
@@ -509,6 +601,10 @@ class Bridge {
         m.greenMin = _round.greenMin;
         m.winner = _round.winner;
         m.correct = _round.correct;
+        m.hold = (uint8_t)_round.hold;
+        m.turn = _round.answering;
+        m.turnMs = _round.answerMs;
+        bool move = _round.type == RoundType::Move;
         uint16_t first = 1;
         do {
             uint16_t remaining = _maxNumber >= first ? (uint16_t)(_maxNumber - first + 1) : 0;
@@ -517,10 +613,17 @@ class Bridge {
             m.echoCount = count;
             for (uint8_t i = 0; i < count; i++) {
                 const Device& dv = _devs[first + i];
-                m.echo[i] = dv.hasValue ? dv.value : kNoValue;
+                if (move)
+                    m.echo[i] = dv.keySeq;
+                else
+                    m.echo[i] = !dv.hasValue     ? kNoValue
+                                : dv.answerTaken ? (uint8_t)(kEchoAnswer | dv.value)
+                                                 : dv.value;
             }
             // Written as late as possible before sending (gateway protocol v0).
             m.openOffsetMs = _round.opened ? (int32_t)(now - _round.openAt) : 0;
+            uint32_t used = now - _round.answerAt;
+            m.turnLeftMs = used < _round.answerMs ? (uint16_t)(_round.answerMs - used) : 0;
             _send(&m, stateFrameLen(m));
             first = (uint16_t)(first + kEchoPageSize);
         } while (first <= _maxNumber);
@@ -601,9 +704,32 @@ class Bridge {
     void _onReport(const QuizReportMsg& m, int8_t rssi) {
         uint16_t n = m.h.origin;
         if (n < 1 || n > kMaxNumber) return;
-        if (m.roundId != _round.id || _round.type == RoundType::Idle) return;
+        if (m.roundId != _round.id || _round.type == RoundType::Idle ||
+            _round.type == RoundType::Move)
+            return;
         _noteNumber(n);
         Device& dv = _devs[n];
+        // The answering race device's answer key (1-5): its first answer,
+        // late after its answer time.
+        if (_round.type == RoundType::Race && n == _round.answering && dv.hasValue) {
+            if (dv.answerTaken || m.value < 1 || m.value > 5) return;
+            if (!dv.vseqReset && !seq8Newer(m.valueSeq, dv.vseq)) return;
+            dv.answerTaken = true;
+            dv.vseqReset = false;
+            dv.value = m.value;
+            dv.vseq = m.valueSeq;
+            dv.t = m.pressOffsetMs;
+            dv.late =
+                _round.opened && _round.answerMs != 0 &&
+                m.pressOffsetMs > (int32_t)(_round.answerAt + _round.answerMs - _round.openAt);
+            dv.valueRssi = rssi;
+            dv.valueBattery = m.battery;
+            dv.valueLage = m.lage < kLageCount ? m.lage : 0;
+            _setDirtyValue(n);
+            return;
+        }
+        // firstOnly: the first value stays, with its time.
+        if (_round.firstOnly && dv.hasValue) return;
         if (dv.hasValue && !dv.vseqReset && !seq8Newer(m.valueSeq, dv.vseq)) return;
         if (!dv.hasValue) dv.arr = ++_arrivals;
         dv.hasValue = true;
@@ -615,17 +741,50 @@ class Bridge {
         dv.late = _round.closedValid && m.pressOffsetMs > _round.closedAtMs;
         dv.valueRssi = rssi;
         dv.valueBattery = m.battery;
+        dv.valueLage = m.lage < kLageCount ? m.lage : 0;
         _setDirtyValue(n);
+    }
+
+    // Passes on each press newer than the last one passed on, in order, while
+    // the queue has room; the rest come again with the device's next repeat.
+    void _onKeys(const QuizKeysMsg& m) {
+        uint16_t n = m.h.origin;
+        if (n < 1 || n > kMaxNumber) return;
+        if (m.roundId != _round.id || _round.type != RoundType::Move) return;
+        for (uint8_t i = 0; i < m.count; i++)
+            if (m.keys[i].kseq == kNoKeySeq || !_isDirection((Key)m.keys[i].key) ||
+                m.keys[i].lage >= kLageCount)
+                return;
+        _noteNumber(n);
+        Device& dv = _devs[n];
+        for (uint8_t i = 0; i < m.count; i++) {
+            const QuizKey& p = m.keys[i];
+            if (dv.keySeq != kNoKeySeq && !seq8Newer(p.kseq, dv.keySeq)) continue;
+            if (_keyCount >= kKeyQueueBridge) return;
+            _keys[(_keyHead + _keyCount) % kKeyQueueBridge] =
+                KeyEvent{n, _round.id, p.kseq, p.key, p.lage};
+            _keyCount++;
+            dv.keySeq = p.kseq;
+        }
+    }
+
+    static bool _isDirection(Key k) {
+        return k == Key::Up || k == Key::Right || k == Key::Down || k == Key::Left;
     }
 
     void _onStatus(const QuizStatusMsg& m, int8_t rssi) {
         uint16_t n = m.h.origin;
         bool hasNumber = n >= 1 && n <= kMaxNumber;
+        uint8_t lage = m.lage < kLageCount ? m.lage : 0;
         if (m.flags & kStatusJoin) {
-            // A device rejoining after a reboot restarts its valueSeq.
-            if (hasNumber && n <= _maxNumber && (m.flags & kStatusRejoin) && _devs[n].macKnown &&
-                memcmp(_devs[n].mac, m.mac, 6) == 0)
-                _devs[n].vseqReset = true;
+            if (hasNumber && n <= _maxNumber && _devs[n].macKnown &&
+                memcmp(_devs[n].mac, m.mac, 6) == 0) {
+                // A device rejoining after a reboot restarts its valueSeq.
+                if (m.flags & kStatusRejoin) _devs[n].vseqReset = true;
+                // A joining device (it holds no round) restarts its press
+                // counter; a member's own report during login does not.
+                if (m.lastRoundId != _round.id) _devs[n].keySeq = kNoKeySeq;
+            }
             if (!_listener) return;
             JoinInfo j{};
             memcpy(j.mac, m.mac, 6);
@@ -638,6 +797,8 @@ class Bridge {
             j.rssi = rssi;
             j.pressed = (m.flags & kStatusPressed) != 0;
             j.rejoin = (m.flags & kStatusRejoin) != 0;
+            j.named = (m.flags & kStatusNamed) != 0;
+            j.lage = lage;
             _listener->onJoin(j);
             return;
         }
@@ -658,6 +819,8 @@ class Bridge {
         dv.rssi = rssi;
         dv.lastRound = m.lastRoundId;
         dv.lastSeq = m.lastStateSeq;
+        dv.lage = lage;
+        dv.named = (m.flags & kStatusNamed) != 0;
         _setDirtyDevice(n);
         for (uint16_t i = 0; i < _admitCount; i++) {
             PendingAdmit& a = _admits[i];
@@ -698,6 +861,9 @@ class Bridge {
         dv.vseq = 0;
         dv.arr = 0;
         dv.t = 0;
+        dv.valueLage = 0;
+        dv.keySeq = kNoKeySeq;
+        dv.answerTaken = false;
     }
 
     void _clearDevice(uint16_t n) {
