@@ -500,8 +500,9 @@ in a game session only on `brightness`.
   in charging mode ignores `ap`.
 - `brightness`: `level` 0-255, the scale of every LightWitch brightness (8 is
   about 3 %, the Buzzerboard default; one LED step is 1/255). Each device
-  sets it as the brightness override of its LEDs, stored, the same setting
-  Up and Down change: it overrides the brightness of the device's group (the
+  sets it as the brightness override of its LEDs, the same setting Up and
+  Down change (stored in the flash only when it changes, 2 s after the last
+  change): it overrides the brightness of the device's group (the
   "room"), and the keys go on from there. 0 switches the LEDs off as Down
   does. A Buzzerboard bridge sets its own brightness too, at once. Also
   while the bridge runs a game session: then it sends the command on the

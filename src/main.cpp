@@ -1217,6 +1217,7 @@ void loop() {
     // Ahead of the update early-return below: the charger watchdog reset and
     // the LED rail keep running during an HTTP update download.
     power.tick();
+    actionExecutor.tick(now);
 
 #if FEATURE_GAME
     // Every pass: the bridge repeats state at 50 ms and hops channels for 30 ms.
