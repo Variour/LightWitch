@@ -121,19 +121,20 @@ static constexpr uint8_t kApMinutesMax = 60;      // firmware: longest `config a
 // ── LED display (charging mode, update) ──────────────────────────────────────
 // owner (2026-11-09): every display follows the brightness light 0 renders at
 // (its brightness override, else its group's brightness), at least kOffLevel.
-static constexpr uint8_t kRedBelowPercent = 30;   // firmware: red below, yellow from here
-static constexpr uint8_t kGreenFromPercent = 80;  // firmware: green from the storage level
 // owner (display sketch): a full device shows the column for 1 h, then only
 // the status dot.
 static constexpr uint32_t kFullColumnMs = 60UL * 60UL * 1000UL;
 static constexpr uint32_t kTipPulseMs = 2000;  // firmware: slow pulse of the column tip
-// owner (2026-11-09): the column shows the level in colour and how strongly
-// the battery charges. A white dot runs from LED1 up to the level, one
-// run per kFlowMaMs / charge current: 200 mA 2 s, 1000 mA 0.4 s.
-static constexpr int16_t kFlowMinMa = 20;  // firmware: below this no dot
-static constexpr uint32_t kFlowMaMs = 400000;
-static constexpr uint32_t kFlowMinMs = 300;
-static constexpr uint32_t kFlowMaxMs = 3000;
+// owner (2026-11-10): every level on the column runs red at LED1 to green
+// at the USB-C end, as with the LEDs switched off. While the battery
+// charges, the level shows at kChargeFillPercent of lvl (at least
+// kOffLevel), and only its last kChargeGlowLeds LEDs glow up together per
+// kTipGlowMs to kChargeGlowPercent of lvl (at least kOffTipLevel). A full
+// column shows at the fill level.
+static constexpr int16_t kFlowMinMa = 20;          // firmware: charging from this current
+static constexpr uint8_t kChargeFillPercent = 20;  // owner (2026-11-10)
+static constexpr uint8_t kChargeGlowPercent = 40;  // owner (2026-11-10)
+static constexpr uint8_t kChargeGlowLeds = 3;      // owner (2026-11-10)
 // owner (2026-11-09): when active and idle, one breath of the idle pattern,
 // then the level on the column, in turn. kIdlePulseMs matches the idle
 // pattern's period (config/BoardProfile.cpp, Breathing at speed 1.0).
@@ -144,9 +145,9 @@ static constexpr uint32_t kIdleLevelMs = 3000;  // firmware
 // the USB-C end.
 // While charging, the last LED of the level pulses slowly. 1/255 is the
 // smallest step of the LEDs.
-static constexpr uint8_t kOffLevel = 2;           // about 0.8 %
-static constexpr uint8_t kOffTipLevel = 5;        // firmware: pulse peak, about 2 %
-static constexpr uint32_t kOffTipPulseMs = 3000;  // firmware
+static constexpr uint8_t kOffLevel = 2;       // about 0.8 %
+static constexpr uint8_t kOffTipLevel = 5;    // firmware: pulse peak, about 2 %
+static constexpr uint32_t kTipGlowMs = 3000;  // firmware: one glow of the last LED
 // owner (2026-11-09): the bottom-right side key (R2) shows the battery level
 // on the column for this long, active and outside a session.
 static constexpr uint32_t kBatteryOverlayMs = 3000;  // firmware

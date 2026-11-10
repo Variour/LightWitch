@@ -43,13 +43,6 @@ inline uint8_t columnCount(uint8_t percent) {
     return n == 0 ? 1 : n;
 }
 
-inline Rgb batteryColor(uint8_t percent) {
-    using game::Color;
-    if (percent < kRedBelowPercent) return game::colorRgb(Color::Red);
-    if (percent < kGreenFromPercent) return game::colorRgb(Color::Yellow);
-    return game::colorRgb(Color::Green);
-}
-
 // Triangle from top / 4 up to top, one cycle per period.
 inline uint8_t slowPulse(uint32_t now, uint32_t period, uint8_t top) {
     uint32_t ph = now % period;
@@ -66,31 +59,16 @@ struct ChargeView {
     int16_t ibatMa = 0;      // charge current, + = charging
 };
 
-// Battery level on the column in red/yellow/green at lvl, status dot in the
-// level colour. While the battery charges with at least kFlowMinMa, a white
-// dot at twice lvl runs from LED1 up to the top of the level, faster the
-// higher the current.
-inline void renderLevel(uint8_t battery, int16_t ibatMa, uint32_t now, Rgb* px, uint8_t lvl) {
-    using game::Color;
-    clearFrame(px);
-    if (battery == kNoBattery) return;
-    Rgb c = level(batteryColor(battery), lvl);
-    uint8_t n = columnCount(battery);
-    fillColumn(px, n, c);
-    if (ibatMa >= kFlowMinMa && n > 0) {
-        uint32_t period = kFlowMaMs / (uint32_t)ibatMa;
-        if (period < kFlowMinMs) period = kFlowMinMs;
-        if (period > kFlowMaxMs) period = kFlowMaxMs;
-        uint8_t pos = (uint8_t)((now % period) * n / period);
-        uint8_t flow = lvl > 127 ? 255 : (uint8_t)(2 * lvl);
-        px[columnLedFromLed1(pos)] = level(game::colorRgb(Color::White), flow);
-    }
-    px[game::kStatusDot] = c;
-}
-
 inline Rgb levelRounded(Rgb c, uint8_t lvl) {
     return {(uint8_t)((c.r * lvl + 127) / 255), (uint8_t)((c.g * lvl + 127) / 255),
             (uint8_t)((c.b * lvl + 127) / 255)};
+}
+
+// Raised cosine from lo up to hi and back, one cycle per period.
+inline uint8_t softPulse(uint32_t now, uint32_t period, uint8_t lo, uint8_t hi) {
+    float x = (float)(now % period) / (float)period;
+    float s = 0.5f - 0.5f * cosf(6.2831853f * x);
+    return (uint8_t)(lo + (uint8_t)lroundf((float)(hi - lo) * s));
 }
 
 // Level LED n (0 = the first LED of the level): red through yellow to green.
@@ -100,11 +78,41 @@ inline Rgb columnGradient(uint8_t n) {
     return Rgb{(uint8_t)(510 - t), 255, 0};
 }
 
-// Raised cosine from lo up to hi and back, one cycle per period.
-inline uint8_t softPulse(uint32_t now, uint32_t period, uint8_t lo, uint8_t hi) {
-    float x = (float)(now % period) / (float)period;
-    float s = 0.5f - 0.5f * cosf(6.2831853f * x);
-    return (uint8_t)(lo + (uint8_t)lroundf((float)(hi - lo) * s));
+// The charged LEDs while charging and when full: kChargeFillPercent of lvl,
+// at least kOffLevel.
+inline uint8_t chargeFillLevel(uint8_t lvl) {
+    uint8_t f = (uint8_t)((uint16_t)lvl * kChargeFillPercent / 100);
+    return f < kOffLevel ? kOffLevel : f;
+}
+
+// Peak of the glowing LEDs while charging: kChargeGlowPercent of lvl, at
+// least kOffTipLevel.
+inline uint8_t chargeGlowLevel(uint8_t lvl) {
+    uint8_t g = (uint8_t)((uint16_t)lvl * kChargeGlowPercent / 100);
+    return g < kOffTipLevel ? kOffTipLevel : g;
+}
+
+// Battery level on the column at lvl, filling from LED1, red at LED1 to green
+// at the USB-C end (columnGradient), status dot in the colour of the level's
+// last LED. While the battery charges with at least kFlowMinMa, the level
+// shows at chargeFillLevel(lvl) and its last kChargeGlowLeds LEDs glow up
+// together to chargeGlowLevel(lvl) once per kTipGlowMs.
+inline void renderLevel(uint8_t battery, int16_t ibatMa, uint32_t now, Rgb* px, uint8_t lvl) {
+    clearFrame(px);
+    if (battery == kNoBattery) return;
+    uint8_t n = columnCount(battery);
+    if (n == 0) return;
+    bool charging = ibatMa >= kFlowMinMa;
+    uint8_t fill = charging ? chargeFillLevel(lvl) : lvl;
+    for (uint8_t i = 0; i < n; i++)
+        px[columnLedFromLed1(i)] = levelRounded(columnGradient(i), fill);
+    if (charging) {
+        uint8_t glow = softPulse(now, kTipGlowMs, fill, chargeGlowLevel(lvl));
+        uint8_t from = n > kChargeGlowLeds ? (uint8_t)(n - kChargeGlowLeds) : 0;
+        for (uint8_t i = from; i < n; i++)
+            px[columnLedFromLed1(i)] = levelRounded(columnGradient(i), glow);
+    }
+    px[game::kStatusDot] = levelRounded(columnGradient(n - 1), lvl);
 }
 
 // LEDs switched off with a key, on USB: the level on the column at
@@ -119,7 +127,7 @@ inline void renderOffLevel(uint8_t battery, bool charging, uint32_t now, Rgb* px
         px[columnLedFromLed1(i)] = levelRounded(columnGradient(i), kOffLevel);
     if (charging && n > 0)
         px[columnLedFromLed1(n - 1)] = levelRounded(
-            columnGradient(n - 1), softPulse(now, kOffTipPulseMs, kOffLevel, kOffTipLevel));
+            columnGradient(n - 1), softPulse(now, kTipGlowMs, kOffLevel, kOffTipLevel));
 }
 
 // The device's own colours: the look's colour per column LED from LED1, one
@@ -158,8 +166,9 @@ inline void renderGateway(const Look& look, uint32_t now, uint8_t lvl, Rgb* px) 
     }
 }
 
-// Charging mode at lvl. Charging: renderLevel() (level and charge current).
-// Full: whole column and status dot green, after kFullColumnMs only the dot.
+// Charging mode at lvl. Charging: renderLevel(). Full: whole column in
+// columnGradient at chargeFillLevel(lvl), status dot green at lvl, after
+// kFullColumnMs only the dot.
 // Fault: ring blinks red, column off, status dot red.
 inline void renderCharging(const ChargeView& v, uint32_t now, Rgb* px, uint8_t lvl) {
     using game::Color;
@@ -173,7 +182,9 @@ inline void renderCharging(const ChargeView& v, uint32_t now, Rgb* px, uint8_t l
     }
     if (v.charge == Charge::Full) {
         Rgb green = level(game::colorRgb(Color::Green), lvl);
-        if (v.fullForMs < kFullColumnMs) fillColumn(px, game::kScoreCount, green);
+        if (v.fullForMs < kFullColumnMs)
+            for (uint8_t i = 0; i < game::kScoreCount; i++)
+                px[columnLedFromLed1(i)] = levelRounded(columnGradient(i), chargeFillLevel(lvl));
         px[game::kStatusDot] = green;
         return;
     }
