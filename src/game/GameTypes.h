@@ -53,7 +53,10 @@ static constexpr uint8_t kStatusRejoin = 1 << 3;
 // 2026-11-10); without it the device plays anonymously.
 static constexpr uint8_t kStatusNamed = 1 << 4;
 
-static constexpr uint8_t kNoValue = 0xFF;    // echo / report: no value
+static constexpr uint8_t kNoValue = 0xFF;  // echo / report: no value
+// Echo bit 7: the value is the answer of the race device with the turn (its
+// answer key), told apart from its buzz value 1.
+static constexpr uint8_t kEchoAnswer = 0x80;
 static constexpr uint8_t kNoKeySeq = 0;      // echo in a move round: no press passed on
 static constexpr uint8_t kNoBattery = 0xFF;  // battery percent unknown
 

@@ -615,6 +615,18 @@ class Participant {
             if (_logCount == 0) _keysRetryMs = 0;
             return;
         }
+        // The bridge holds this device's race answer (kEchoAnswer): after a
+        // restart in the round it is the device's answer again.
+        bool echoAnswer = echo != kNoValue && (echo & kEchoAnswer);
+        if (echoAnswer && !_answerGiven) {
+            _answerGiven = true;
+            _val = (uint8_t)(echo & ~kEchoAnswer);
+            _confirmed = true;
+            _confirmedMs = now;
+            _reported = true;
+            _sendArmed = false;
+            return;
+        }
         // First answer only: the value the bridge holds is the answer.
         if (_round.firstOnly && !_answerGiven && echo != kNoValue && echo != _val) {
             _val = echo;
@@ -624,9 +636,11 @@ class Participant {
             _sendArmed = false;
             return;
         }
-        // Echo: confirm, or resend if the bridge holds something else.
+        // Echo: confirm, or resend if the bridge holds something else. A
+        // race answer counts only as its marked echo, not as the buzz.
         if (_val == kNoValue) return;
-        if (echo == _val) {
+        uint8_t want = _answerGiven ? (uint8_t)(kEchoAnswer | _val) : _val;
+        if (echo == want) {
             if (!_confirmed) _confirmedMs = now;
             _confirmed = true;
             _sendArmed = false;

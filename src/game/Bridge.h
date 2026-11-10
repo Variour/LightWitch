@@ -615,7 +615,9 @@ class Bridge {
                 if (move)
                     m.echo[i] = dv.keySeq;
                 else
-                    m.echo[i] = dv.hasValue ? dv.value : kNoValue;
+                    m.echo[i] = !dv.hasValue     ? kNoValue
+                                : dv.answerTaken ? (uint8_t)(kEchoAnswer | dv.value)
+                                                 : dv.value;
             }
             // Written as late as possible before sending (gateway protocol v0).
             m.openOffsetMs = _round.opened ? (int32_t)(now - _round.openAt) : 0;
