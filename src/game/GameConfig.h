@@ -62,7 +62,10 @@ static constexpr uint8_t kRxQueueParticipant = 16;  // firmware: participants he
 
 // ── Participant timing ───────────────────────────────────────────────────────
 static constexpr uint32_t kScaleSendDelayMs = 150;  // fixed v0: send 150 ms after the last tap
-static constexpr uint32_t kRetryMinMs = 300;        // fixed v0: resend after 300-600 ms
+// firmware: in a round with firstOnly a scale value goes out, and stays,
+// this long after the last tap, so a few taps set it.
+static constexpr uint32_t kScaleCommitMs = 1000;
+static constexpr uint32_t kRetryMinMs = 300;  // fixed v0: resend after 300-600 ms
 static constexpr uint32_t kRetryMaxMs = 600;
 static constexpr uint32_t kRetryCapMs = 2000;      // fixed v0: doubling up to 2 s
 static constexpr uint32_t kJoinRepeatMinMs = 300;  // fixed v0: join request every 300-600 ms
@@ -84,8 +87,12 @@ static constexpr uint32_t kLeaveComboMs = 3000;    // proposal 14: BUZZ + ENTER 
 static constexpr uint32_t kLoginOpenHoldMs = 2500;
 // firmware: delay between "all LEDs off" and the restart, so the LEDs update.
 static constexpr uint32_t kLeaveRestartDelayMs = 200;
-static constexpr bool kChoiceChangeAllowed = true;  // proposal 8: last press counts
-static constexpr bool kPulseUntilConfirmed = true;  // proposal 11: pulse until the echo matches
+// proposal 8: the last press counts; owner (2026-11-10): a round with
+// firstOnly (link `game round`) takes only the first answer instead.
+static constexpr bool kChoiceChangeAllowed = true;
+// proposal 11: the scale column pulses until the echo matches (the keys
+// follow kLevelFree instead).
+static constexpr bool kPulseUntilConfirmed = true;
 
 // ── Orientation and move rounds (firmware spec "Lage v0") ────────────────────
 static constexpr uint32_t kLageSettleMs = 2000;  // decided: a new orientation counts after 2 s
@@ -125,6 +132,18 @@ static constexpr uint8_t kLevelFaint = 13;
 // kLevelBright shows at that brightness. At least kLevelShowMin, so a
 // session stays visible with the LEDs switched off.
 static constexpr uint8_t kLevelShowMin = 2;
+// owner (2026-11-10): in an open round the keys that take an answer glow
+// white at kLevelFree (40 %): the choice answers, Up and Down of a scale,
+// the buzzer ring of a race. The chosen answer shows steady white at
+// kLevelBright until the bridge confirms it, then pulses once per
+// kPulsePeriodMs between white and its direction colour, while the other
+// answer keys stay at kLevelFree (dark once a firstOnly round has the
+// answer). Confirmed, the ring glows steadily in the answer's colour:
+// direction colour, the scale value's zone colour, blue for a race. The
+// result of a closed round shows as before. GameManager scales every level
+// to the brightness with at least one LED step above 0 (scaleToLevel), so
+// kLevelFree stays visible at the lowest brightness.
+static constexpr uint8_t kLevelFree = 102;
 static constexpr uint32_t kPulsePeriodMs = 1000;  // firmware: one pulse per second
 static constexpr uint32_t kBlinkPeriodMs = 1000;  // fixed v0: status dot blinks at 1 Hz
 

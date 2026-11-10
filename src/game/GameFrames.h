@@ -30,9 +30,13 @@ struct __attribute__((packed)) QuizHeader {
     uint8_t ttl;      // always 0 in v0
     uint8_t hops;     // always 0 in v0
     uint8_t dist;     // 0 bridge, 1 device
-    uint8_t flags;    // reserved, 0
+    uint8_t flags;    // QuizState: kStateFirstOnly; otherwise 0
 };
 static_assert(sizeof(QuizHeader) == 12, "QuizHeader layout");
+
+// QuizState header flag: only the first answer of each device counts (link
+// `game round` field firstOnly). Receivers before this flag ignore it.
+static constexpr uint8_t kStateFirstOnly = 1 << 0;
 
 struct __attribute__((packed)) QuizInviteMsg {
     QuizHeader h;

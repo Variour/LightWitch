@@ -15,6 +15,8 @@ namespace game {
 // shows the bridge's round state, takes key input and reports its value until
 // the bridge's echo matches. Leaving the session always ends in a restart
 // into normal operation (round format v0, "Zurück in den Normalbetrieb").
+// In a round with firstOnly (owner, 2026-11-10) the first answer that goes
+// out stays; a scale value goes out kScaleCommitMs after the last tap.
 //
 // Orientation (firmware spec "Lage v0"): the sensor's position goes through
 // LageFilter; keys are read as logical inputs in the orientation whose
@@ -63,6 +65,7 @@ class Participant {
         uint16_t winner = 0;
         uint8_t correct = 0;
         Hold hold = Hold::Frei;
+        bool firstOnly = false;   // only the first answer counts (kStateFirstOnly)
         bool fixedKnown = false;  // hold fest: the orientation at the open
         Lage fixed = Lage::Unknown;
         bool startKnown = false;
@@ -246,6 +249,11 @@ class Participant {
     const Round& round() const { return _round; }
     uint8_t value() const { return _val; }
     bool confirmed() const { return _confirmed; }
+    // When the bridge's echo last confirmed the value (millis()).
+    uint32_t confirmedMs() const { return _confirmedMs; }
+    // A round with firstOnly whose answer has gone out: the keys take no
+    // other answer.
+    bool answerLocked() const { return _round.firstOnly && _val != kNoValue && _reported; }
     uint32_t gatewayAgeMs(uint32_t now) const { return now - _lastGatewayMs; }
     uint32_t admittedAgeMs(uint32_t now) const { return now - _admittedAt; }
     bool searching() const { return _searching; }
@@ -340,6 +348,8 @@ class Participant {
     uint8_t _vseq = 0;
     uint32_t _inputMs = 0;  // moment of the last input (millis())
     bool _confirmed = false;
+    uint32_t _confirmedMs = 0;
+    bool _reported = false;  // the value went out at least once
     bool _sendArmed = false;
     uint32_t _nextSendAt = 0;
     uint32_t _retryMs = 0;
@@ -488,6 +498,7 @@ class Participant {
             _round.winner = m.winner;
             _round.correct = m.correct;
             _round.hold = (Hold)m.hold;
+            _round.firstOnly = (m.h.flags & kStateFirstOnly) != 0;
             // Fest: the orientation at the moment the round opens stays.
             if (_round.hold == Hold::Fest && !_round.fixedKnown && _round.type != RoundType::Idle &&
                 _round.phase == Phase::Open) {
@@ -516,9 +527,19 @@ class Participant {
             if (_logCount == 0) _keysRetryMs = 0;
             return;
         }
+        // First answer only: the value the bridge holds is the answer.
+        if (_round.firstOnly && echo != kNoValue && echo != _val) {
+            _val = echo;
+            _confirmed = true;
+            _confirmedMs = now;
+            _reported = true;
+            _sendArmed = false;
+            return;
+        }
         // Echo: confirm, or resend if the bridge holds something else.
         if (_val == kNoValue) return;
         if (echo == _val) {
+            if (!_confirmed) _confirmedMs = now;
             _confirmed = true;
             _sendArmed = false;
         } else if (_confirmed) {
@@ -535,7 +556,8 @@ class Participant {
                m.phase == (uint8_t)r.phase && m.keyMask == r.keyMask &&
                memcmp(m.keyColor, r.keyColor, sizeof(r.keyColor)) == 0 && m.scaleMin == r.min &&
                m.scaleMax == r.max && m.redMax == r.redMax && m.greenMin == r.greenMin &&
-               m.winner == r.winner && m.correct == r.correct && m.hold == (uint8_t)r.hold;
+               m.winner == r.winner && m.correct == r.correct && m.hold == (uint8_t)r.hold &&
+               ((m.h.flags & kStateFirstOnly) != 0) == r.firstOnly;
     }
 
     void _resetValue() {
@@ -544,6 +566,8 @@ class Participant {
         _inputMs = 0;
         _valLage = 0;
         _confirmed = false;
+        _confirmedMs = 0;
+        _reported = false;
         _sendArmed = false;
         _retryMs = 0;
         // Move: the press counter restarts per round and with every join.
@@ -569,12 +593,13 @@ class Participant {
             case RoundType::Choice: {
                 uint8_t a = choiceAnswer(k);
                 if (a == 0) break;
-                if (_val == kNoValue || (kChoiceChangeAllowed && a != _val))
+                if (_val == kNoValue || (kChoiceChangeAllowed && !_round.firstOnly && a != _val))
                     _setValue(a, ms, now, 0);
                 break;
             }
             case RoundType::Scale: {
-                if ((k != Key::Up && k != Key::Down) || _round.max < _round.min) break;
+                if ((k != Key::Up && k != Key::Down) || _round.max < _round.min || answerLocked())
+                    break;
                 uint8_t steps = (uint8_t)(_round.max - _round.min + 1);
                 uint8_t v;
                 if (_val == kNoValue) {
@@ -586,7 +611,8 @@ class Participant {
                 } else {
                     v = _val > _round.min ? (uint8_t)(_val - 1) : _val;
                 }
-                if (v != _val) _setValue(v, ms, now, kScaleSendDelayMs);
+                if (v != _val)
+                    _setValue(v, ms, now, _round.firstOnly ? kScaleCommitMs : kScaleSendDelayMs);
                 break;
             }
             case RoundType::Move:
@@ -674,6 +700,7 @@ class Participant {
         m.rssi = _lastRssi;
         m.lage = _valLage;
         _send(&m, sizeof(m));
+        _reported = true;
         _retryMs = _retryMs == 0 ? _rand(kRetryMinMs, kRetryMaxMs)
                                  : (_retryMs * 2 > kRetryCapMs ? kRetryCapMs : _retryMs * 2);
         _nextSendAt = now + _retryMs;

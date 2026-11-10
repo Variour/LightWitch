@@ -11,9 +11,11 @@
 // Orientation (firmware spec "Lage v0"): colours belong to logical keys;
 // each lights the physical key that gives that input in the orientation
 // whose mapping applies (Participant::inputLage()). Choice answers take the
-// direction colours (owner decision), the other rounds the round's key
-// colours. The column fills in reading direction. Nothing blinks faster than
-// 3 Hz, pulses are soft, nothing blinks red.
+// direction colours (owner decision). The keys that take an answer glow
+// white at kLevelFree, the chosen answer and the confirmation ring follow
+// kLevelFree's owner decision (GameConfig.h). The column fills in reading
+// direction. Nothing blinks faster than 3 Hz, pulses are soft, nothing
+// blinks red.
 namespace game {
 
 // LED of a physical key; 0xFF for keys without one.
@@ -70,6 +72,24 @@ inline uint8_t pulseLevel(uint32_t now) {
 }
 
 inline bool blinkOn(uint32_t now) { return now % kBlinkPeriodMs < kBlinkPeriodMs / 2; }
+
+// a toward b by t/255.
+inline Rgb blendRgb(Rgb a, Rgb b, uint8_t t) {
+    return {(uint8_t)(a.r + ((int)b.r - a.r) * t / 255),
+            (uint8_t)(a.g + ((int)b.g - a.g) * t / 255),
+            (uint8_t)(a.b + ((int)b.b - a.b) * t / 255)};
+}
+
+// A key that takes an answer in an open round.
+inline Rgb freeKeyRgb() { return scaleRgb(colorRgb(Color::White), kLevelFree); }
+
+// The chosen answer's key: steady white until the bridge confirms it, then
+// a pulse between white and c, starting at white.
+inline Rgb chosenKeyRgb(const Participant& p, Rgb c, uint32_t now) {
+    Rgb white = colorRgb(Color::White);
+    if (!p.confirmed()) return white;
+    return blendRgb(white, c, softPulse(now - p.confirmedMs(), kPulsePeriodMs, 0, 255));
+}
 
 inline void fillRing(Rgb* px, Rgb c) {
     for (uint8_t i : kRingLeds) px[i] = c;
@@ -160,7 +180,6 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
     uint8_t inputLevel = (kPulseUntilConfirmed && val != kNoValue && !p.confirmed())
                              ? pulseLevel(now)
                              : kLevelBright;
-    auto keyColor = [&](Key k) { return (Color)getKeyColor(r.keyColor, (uint8_t)k); };
     auto inMask = [&](Key k) { return (r.keyMask & (1u << (uint8_t)k)) != 0; };
 
     if (anim.on) {
@@ -170,9 +189,9 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
     } else if (r.known && r.type != RoundType::Idle && r.phase != Phase::Announced) {
         switch (r.type) {
             case RoundType::Scale: {
-                if (r.phase == Phase::Open) {
+                if (r.phase == Phase::Open && !p.answerLocked()) {
                     for (Key k : {Key::Up, Key::Down})
-                        if (inMask(k)) px[logicalLed(l, k)] = colorRgb(keyColor(k));
+                        if (inMask(k)) px[logicalLed(l, k)] = freeKeyRgb();
                 }
                 if (val != kNoValue && r.max >= r.min && val >= r.min) {
                     uint8_t steps = (uint8_t)(r.max - r.min + 1);
@@ -182,6 +201,7 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                                                      : Color::Yellow;
                     fillScore(px, (uint8_t)(per * (val - r.min + 1)),
                               scaleRgb(colorRgb(zone), inputLevel), rev);
+                    if (p.confirmed()) fillRing(px, colorRgb(zone));
                 }
                 break;
             }
@@ -190,13 +210,14 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                 if (winner) {
                     fillRing(px, colorRgb(Color::Green));
                     fillScore(px, kScoreCount, colorRgb(Color::Green));
+                } else if (r.winner == 0 && val != kNoValue) {
+                    // Pressed: white until confirmed, then the ring glows blue.
+                    fillRing(px, colorRgb(p.confirmed() ? Color::Blue : Color::White));
                 } else if (r.phase == Phase::Open && inMask(Key::Buzz)) {
-                    if (val != kNoValue)
-                        fillRing(px, scaleRgb(colorRgb(Color::Blue), inputLevel));
-                    else if (p.beforeStart(now))
+                    if (p.beforeStart(now))
                         fillRing(px, scaleRgb(colorRgb(Color::Yellow), kLevelFaint));
                     else if (r.startKnown)
-                        fillRing(px, colorRgb(keyColor(Key::Buzz)));
+                        fillRing(px, freeKeyRgb());
                 }
                 break;
             }
@@ -214,12 +235,13 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                 for (uint8_t i = 0; i < 4; i++) {
                     Key k = answers[i];
                     if (!inMask(k)) continue;
-                    Rgb c = directionRgb(k);
                     if (val == i + 1)
-                        px[logicalLed(l, k)] = scaleRgb(c, inputLevel);
-                    else if (r.phase == Phase::Open)
-                        px[logicalLed(l, k)] = val == kNoValue ? c : scaleRgb(c, kLevelDimmed);
+                        px[logicalLed(l, k)] = chosenKeyRgb(p, directionRgb(k), now);
+                    else if (r.phase == Phase::Open && !p.answerLocked())
+                        px[logicalLed(l, k)] = freeKeyRgb();
                 }
+                if (val >= 1 && val <= 4 && p.confirmed())
+                    fillRing(px, directionRgb(answers[val - 1]));
                 break;
             }
             case RoundType::Move:

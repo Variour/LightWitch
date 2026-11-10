@@ -801,6 +801,21 @@ class Link : public Bridge::Listener {
             c.hold = (Hold)h;
         }
 
+        // firstOnly (absent = false): only each device's first answer counts
+        JsonVariantConst firstOnly = o["firstOnly"];
+        if (!firstOnly.isUnbound()) {
+            if (c.type != RoundType::Race && c.type != RoundType::Scale &&
+                c.type != RoundType::Choice) {
+                _badField(id, cmd, "firstOnly", "only for race, scale and choice");
+                return false;
+            }
+            if (!firstOnly.is<bool>()) {
+                _badField(id, cmd, "firstOnly", "firstOnly must be a boolean");
+                return false;
+            }
+            c.firstOnly = firstOnly.as<bool>();
+        }
+
         // openInMs
         Field f = _int(o, "openInMs", 0, 5000, v);
         if (f != Field::Missing) {
@@ -872,7 +887,7 @@ class Link : public Bridge::Listener {
                 return _sendState(id, changed, now);
             case Bridge::Err::RoundFixed:
                 return _error(id, "round_fixed", "game", "round", nullptr,
-                              "type, keys, hold and scale of a running round are fixed");
+                              "type, keys, hold, firstOnly and scale of a running round are fixed");
             case Bridge::Err::BadPhase:
                 return _error(id, "bad_phase", "game", "round", nullptr,
                               "phases only move forward");

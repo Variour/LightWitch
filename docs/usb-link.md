@@ -112,6 +112,50 @@ orientation, and leave it out otherwise:
   without a known orientation (no sensor, or none accepted yet) is never
   locked; its inputs carry no `lage`.
 
+### `firstOnly` in `game round`
+
+`{"ns":"game","cmd":"round","round":23418,"type":"choice","phase":"open","keys":{"up":"white","right":"white","down":"white","left":"white"},"firstOnly":true}`
+
+| `firstOnly` | Devices |
+|---|---|
+| `false` (default, may be left out) | a device may change its answer while the round is open; its last input counts |
+| `true` | only each device's first answer counts |
+
+- For `race`, `scale` and `choice` (`bad_field`, "only for race, scale and
+  choice"); a boolean (`bad_field`, "firstOnly must be a boolean"). Like
+  type, keys, scale and `hold`, `firstOnly` is fixed for a running round:
+  send the same value with every `game round` line of the round
+  (`round_fixed`).
+- `choice`: the first answer key pressed is the answer; the other answer
+  keys go dark and do nothing.
+- `scale`: Up and Down set the value as usual; it goes out 1 s after the
+  last tap (instead of 150 ms) and then stays, further taps do nothing.
+- `race`: one press counts anyway.
+- The bridge keeps each device's first value with its `t` and ignores later
+  reports of that device in the round, so `value` lines carry only the
+  first answer. A device that restarts in the round shows the answer the
+  bridge holds.
+- On the radio the flag is bit 0 of the `QuizState` header `flags`.
+
+### Display in rounds (Buzzerboard)
+
+Every level is scaled to the device's brightness (at least one LED step).
+
+| Round | Open, no answer | Answer, not yet confirmed | Answer confirmed by the bridge's echo |
+|---|---|---|---|
+| `choice` | answer keys white at 40 % | the chosen key steady white, the others white at 40 % | the chosen key pulses once per second between white and its direction colour, the others stay white at 40 %; the ring glows steadily in the direction colour |
+| `scale` | Up and Down white at 40 % | Up and Down stay; the column shows the value in its zone colour, pulsing | Up and Down stay; the column shows the value; the ring glows steadily in the zone colour |
+| `race` | the ring white at 40 % (yellow and faint before the announced start) | the ring steady white | the ring steady blue |
+
+- With `firstOnly` the other answer keys (Up and Down in `scale`) go dark
+  once the device has sent its answer.
+- The chosen key and the ring stay after the round closes, until the result:
+  `correct` in `choice` (the correct key in its direction colour, the column
+  green or red) and `winner` in `race` (the winner's ring and column green)
+  show as before.
+- Announced rounds, joining, the green ring after admission, the status dot,
+  locked devices and move rounds are unchanged.
+
 ### Move rounds (`"type":"move"`)
 
 `{"ns":"game","cmd":"round","round":23417,"type":"move","phase":"open","keys":{"up":"white","right":"white","down":"white","left":"white"},"hold":"quer"}`

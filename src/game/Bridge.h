@@ -99,6 +99,7 @@ class Bridge {
         uint16_t winner = 0;
         uint8_t correct = 0;
         Hold hold = Hold::Frei;
+        bool firstOnly = false;  // only each device's first answer counts
     };
 
     struct StateInfo {
@@ -254,6 +255,7 @@ class Bridge {
             r.winner = c.winner;
             r.correct = c.correct;
             r.hold = c.hold;
+            r.firstOnly = c.firstOnly;
             if (r.type != RoundType::Idle) _enterPhase(r.phase, c, now);
             for (uint16_t n = 1; n <= _maxNumber; n++) _clearValue(n);
             _arrivals = 0;
@@ -263,7 +265,8 @@ class Bridge {
         }
         if (c.type != r.type || c.keyMask != r.keyMask ||
             memcmp(c.keyColor, r.keyColor, sizeof(r.keyColor)) != 0 || c.min != r.min ||
-            c.max != r.max || c.redMax != r.redMax || c.greenMin != r.greenMin || c.hold != r.hold)
+            c.max != r.max || c.redMax != r.redMax || c.greenMin != r.greenMin ||
+            c.hold != r.hold || c.firstOnly != r.firstOnly)
             return Err::RoundFixed;
         Phase phase = r.type == RoundType::Idle ? Phase::Closed : c.phase;
         if ((uint8_t)phase < (uint8_t)r.phase) return Err::BadPhase;
@@ -438,6 +441,7 @@ class Bridge {
         uint16_t winner = 0;
         uint8_t correct = 0;
         Hold hold = Hold::Frei;
+        bool firstOnly = false;
         bool opened = false;
         uint32_t openAt = 0;  // bridge time of the round start (open + openInMs)
         bool closedValid = false;
@@ -534,6 +538,7 @@ class Bridge {
     void _sendState(uint32_t now) {
         QuizStateMsg m{};
         _fillHeader(m.h, kMsgQuizState);
+        if (_round.firstOnly) m.h.flags = kStateFirstOnly;
         m.session = _session;
         m.roundId = _round.id;
         m.stateSeq = _round.seq;
@@ -649,6 +654,8 @@ class Bridge {
             return;
         _noteNumber(n);
         Device& dv = _devs[n];
+        // firstOnly: the first value stays, with its time.
+        if (_round.firstOnly && dv.hasValue) return;
         if (dv.hasValue && !dv.vseqReset && !seq8Newer(m.valueSeq, dv.vseq)) return;
         if (!dv.hasValue) dv.arr = ++_arrivals;
         dv.hasValue = true;
