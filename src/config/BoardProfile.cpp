@@ -150,9 +150,11 @@ bool applyBoardProfile(DeviceConfig& cfg) {
         b.viaExpander = false;
         b.exists = true;
         // Timo, 2026-11-09, outside a game session: Up / Down step the
-        // brightness by about 3 %, down to 0 switches the LEDs off. R2 shows
-        // the battery level (FleetManager); its long press brings back the
-        // configured brightness.
+        // brightness by about 3 %, down to 0 switches the LEDs off. The fleet
+        // runs this step on the press, in every device state (2026-11-10,
+        // src/fleet/FleetConfig.h). R2 shows the battery level
+        // (FleetManager); its long press brings back the configured
+        // brightness.
         if (strcmp(k.role, ButtonRole::R2) == 0) {
             b.onLongPress.action = ActionId::LightBrightnessOverrideClear;
             b.onLongPress.lightIndex = 0;

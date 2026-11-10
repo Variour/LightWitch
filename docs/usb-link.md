@@ -148,10 +148,16 @@ orientation, and leave it out otherwise:
 | State | When | Behaviour |
 |---|---|---|
 | `active` | normal operation | keys, LEDs and mesh as usual; no fallback AP on the Buzzerboard |
-| `charging` | USB power and no host data link (no link traffic, the USB-Serial-JTAG sees no host) | keys do nothing, no AP, no WiFi except for an update, charging display at low brightness, radio only for fleet frames |
+| `charging` | USB power and no host data link (no link traffic, the USB-Serial-JTAG sees no host) | keys do nothing except Up and Down (brightness), no AP, no WiFi except for an update, charging display at low brightness, radio only for fleet frames |
 | `standby` | on battery, 8 h without key, session, USB or host link | LEDs and LED rail off, radio listens 500 ms of every second, fleet frames only |
 
 - From `standby` a key, a session invite, USB power or a host link brings the device back.
+- Up and Down step the brightness in every state outside a session, on the
+  press: active, `charging`, `standby` and with the key that wakes the device
+  from sleep. Down at the lowest step switches the LEDs off, Up switches them
+  on again. Except in `charging` the column then shows the battery level for
+  3 s at the new brightness, as with R2. On a participant in a session Up and
+  Down stay answer keys.
 - `standby` ends in ESP deep sleep once the battery is at 80 % or below
   (without a battery percentage: VBAT at or below 4.02 V). In sleep the
   device wakes on BUZZ, UP, DOWN, LEFT, ENTER or POWER, and every 60 s on a

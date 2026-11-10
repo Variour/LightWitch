@@ -753,6 +753,12 @@ void setup() {
         buttonManager.setExecutor(on ? &actionExecutor : nullptr);
     };
     fio.mutedKeys = [](uint16_t mask) { buttonManager.setMuted(mask); };
+    fio.brightnessKey = [](uint8_t index) {
+        const ButtonAction& a = Config::get().buttons[index].onShortPress;
+        if (a.action != ActionId::LightBrightnessOverrideStep) return false;
+        actionExecutor.execute(a);
+        return true;
+    };
     fio.updateBusy = []() {
         Updater::State s = Updater::status().state;
         return _otaActive || s == Updater::State::Checking || s == Updater::State::Downloading ||

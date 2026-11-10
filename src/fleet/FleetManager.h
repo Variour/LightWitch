@@ -58,6 +58,9 @@ class FleetManager {
         // An update or OTA runs outside the fleet (Updater checking,
         // downloading or done, ArduinoOTA): no standby, no sleep.
         std::function<bool()> updateBusy;
+        // Runs the short-press action of button slot `index` at once if it
+        // is a brightness step (LightBrightnessOverrideStep); false otherwise.
+        std::function<bool(uint8_t index)> brightnessKey;
     };
 
     // Before power.begin(): the stored charge target, so the charger starts
@@ -151,9 +154,9 @@ class FleetManager {
     }
 
     // Raw key edge of button slot `index`. True: the fleet takes it
-    // (charging mode, standby wake, the key that woke the device, key test),
-    // so no other module sees it, and that key's actions stay muted until it
-    // has been up for kKeyQuietMs.
+    // (charging mode, standby wake, the key that woke the device, key test,
+    // a brightness step), so no other module sees it, and that key's actions
+    // stay muted until it has been up for kKeyQuietMs.
     bool onKey(uint8_t index, const char* role, bool pressed, uint32_t ms) {
         if (index >= MAX_BUTTONS) return false;
         uint16_t bit = (uint16_t)(1u << index);
@@ -189,6 +192,14 @@ class FleetManager {
             else
                 _ps.interaction(millis());
             take = wakePress;
+        }
+        // Up / Down step the brightness on the press, in every state outside
+        // a session and the key test (owner, 2026-11-10, FleetConfig.h).
+        if (pressed && (k == game::Key::Up || k == game::Key::Down) && _fleetDevice &&
+            !_game->ownsLeds() && _test.kind() != fleet::FactoryTest::Kind::Keys &&
+            _io.brightnessKey && _io.brightnessKey(index)) {
+            take = true;
+            _showStep();
         }
         if (take && pressed) _quietMask |= bit;
         return take || (_quietMask & bit);
@@ -501,6 +512,20 @@ class FleetManager {
 
     bool _batteryOverlay() const {
         return _batteryOverlayUntil != 0 && (int32_t)(millis() - _batteryOverlayUntil) < 0;
+    }
+
+    // After a brightness step: the battery level for kBatteryOverlayMs at the
+    // new brightness, as R2 shows it. None in charging mode (its display is
+    // the level) and none once the step switched the LEDs off (Timo,
+    // 2026-11-10).
+    void _showStep() {
+        if (_ledsSwitchedOff()) {
+            _batteryOverlayUntil = 0;
+            return;
+        }
+        if (_led && _managed() && _ps.state() != fleet::State::Charging && !_game->radioQuiet() &&
+            !_test.running() && !_upd.running && _batteryPercent() != fleet::kNoBattery)
+            _batteryOverlayUntil = millis() + fleet::kBatteryOverlayMs;
     }
 
     // The console's gateway, active and not switched off: renderGateway()
