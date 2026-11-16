@@ -235,7 +235,14 @@ class FleetManager {
         fleet::PowerState::Inputs in;
         in.managed = _managed();
         in.usb = usb;
-        in.hostLink = _game->linkActive() || _usbHost();
+        // A host seen once counts until USB power goes away: an idle Mac
+        // suspends the port and stops the SOF frames HWCDC::isPlugged() reads.
+        if (!usb) {
+            _hostSeen = false;
+        } else if (_usbHost()) {
+            _hostSeen = true;
+        }
+        in.hostLink = _game->linkActive() || _hostSeen;
         in.session = session;
         in.hold = _upd.running || _test.running() || (_io.updateBusy && _io.updateBusy());
         in.battery = _batteryPercent();
@@ -418,6 +425,7 @@ class FleetManager {
     uint32_t _lastSleepTry = 0;
     fleet::UsbSupply _usbSupply;
     bool _weakLogged = false;
+    bool _hostSeen = false;  // a USB host since USB power came on
 
     uint16_t _keysDown = 0;               // bit per button slot
     uint32_t _keyUpMs[MAX_BUTTONS] = {};  // last release per slot
