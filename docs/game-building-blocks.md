@@ -80,6 +80,50 @@ numbers. No game logic on the hub screen.
   Devices without it run the v0 presets from `roundType`.
 - The v0 frames stay unchanged (D7). `roundType` stays as preset choice.
 
+## Proposal: `QuizRules` frame and link field `input`
+
+Open for review (owner and Variour) before any code.
+
+**Link:** `game round` takes an optional object `input`. Without it the
+device runs the preset of `type`.
+
+```json
+{"cmd": "game round", "round": 7, "type": "choice", "phase": "open",
+ "keys": {"up": "white", "down": "white"},
+ "input": {"mode": "pick", "values": {"up": 1, "down": 2}, "firstOnly": true}}
+```
+
+| Field | Modes | Meaning |
+| --- | --- | --- |
+| `mode` | all | `once`, `pick`, `counter`, `log` |
+| `values` | once, pick, log | value per key, 1-254; the keys must be in `keys` |
+| `firstOnly` | pick, counter | the first value that goes out stays |
+| `up`, `down`, `confirm` | counter | key names; `confirm` optional |
+| `min`, `max`, `firstUp`, `firstDown` | counter | 0-254, `min <= firstDown <= firstUp <= max` |
+| `repeat` | counter | holding up / down steps on |
+| `sendDelayMs` | all | 0-5000 |
+
+**Radio:** message type 47 `QuizRules`, bridge to devices, sent right after
+each `QuizState` of a round that has `input`.
+
+```
+QuizHeader h            12
+uint16 session           2
+uint16 roundId           2
+uint8  mode              1
+uint8  flags             1   bit 0 firstOnly, bit 1 repeat
+uint8  keyValue[10]     10   per Key slot, 0 = no value
+uint8  upKey, downKey, confirmKey   3   Key, 0xFF = none
+uint8  min, max, firstUp, firstDown 4
+uint16 sendDelayMs       2
+                        37 bytes
+```
+
+A device applies the rule for `roundId` once it has the round's `QuizState`;
+until then, and on devices without the frame, the preset of `roundType`
+applies. Display and sound rules follow as their own frame once the shared
+answer layout is settled.
+
 ## Mapping of the v0 round types
 
 | v0 | Input | Display rules (short) |
