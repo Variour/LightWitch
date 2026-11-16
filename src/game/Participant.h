@@ -279,9 +279,7 @@ class Participant {
     }
     // A scale that Enter logs in (link `confirm`): Up and Down set the value,
     // Enter sends it, then it stays.
-    bool confirmEnter() const {
-        return _rule.mode == InputMode::Counter && _rule.confirmed();
-    }
+    bool confirmEnter() const { return _rule.mode == InputMode::Counter && _rule.confirmed(); }
     uint32_t gatewayAgeMs(uint32_t now) const { return now - _lastGatewayMs; }
     uint32_t admittedAgeMs(uint32_t now) const { return now - _admittedAt; }
     bool searching() const { return _searching; }
@@ -579,8 +577,8 @@ class Participant {
             _round.hold = (Hold)m.hold;
             _round.firstOnly = (m.h.flags & kStateFirstOnly) != 0;
             _round.rainbow = (m.h.flags & kStateRainbow) != 0;
-            _rule = presetRule(_round.type, _round.keyMask, _round.min, _round.max,
-                               _round.firstOnly);
+            _rule =
+                presetRule(_round.type, _round.keyMask, _round.min, _round.max, _round.firstOnly);
             if (m.turn != _round.answering || m.turnMs != _round.answerMs) {
                 _round.answering = m.turn;
                 _round.answerMs = m.turnMs;
