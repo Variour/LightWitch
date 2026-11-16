@@ -222,23 +222,26 @@ class HubUi {
             snprintf(buf, sizeof(buf), "%u Akku schwach", v.lowBattery);
             _at(x, 45, buf);
         }
-        _font(u8g2_font_helvR10_tf, v.login ? kBlue : kDim);
-        snprintf(buf, sizeof(buf), "%s  K%u", v.login ? "offen" : "zu", v.channel);
+        _font(u8g2_font_helvR10_tf, kDim);
+        snprintf(buf, sizeof(buf), "Kanal %u", v.channel);
         _right(W - kPad, 45, buf);
     }
 
     void _drawTabs() {
-        static const char* kNames[4] = {"Auto", "Geräte", "Funk", "Hell"};
+        static const char* kNames[4] = {"Live", "Geräte", "Funk", "Licht"};
         _frame->fillRect(0, kTabY, W, kTabH, kPanel);
         _frame->drawFastHLine(0, kTabY, W, kLine);
         int16_t tw = W / 4;
         for (uint8_t i = 0; i < 4; i++) {
             bool active = i < 3 && (uint8_t)_page == i;
-            if (active) _frame->fillRect(i * tw, kTabY + 1, tw, 4, kBlue);
+            if (active) {
+                _frame->fillRect(i * tw, kTabY + 1, tw, kTabH - 1, kLine);
+                _frame->fillRect(i * tw, kTabY + 1, tw, 4, kBlue);
+            }
             if (i) _frame->drawFastVLine(i * tw, kTabY + 8, kTabH - 16, kLine);
             char buf[16];
             if (i == 3)
-                snprintf(buf, sizeof(buf), "Hell %u%%", kBrightness[_brightness]);
+                snprintf(buf, sizeof(buf), "Licht %u%%", kBrightness[_brightness]);
             else
                 snprintf(buf, sizeof(buf), "%s", kNames[i]);
             _font(active ? u8g2_font_helvB12_tf : u8g2_font_helvR12_tf, active ? kText : kDim);
@@ -259,8 +262,8 @@ class HubUi {
         _font(u8g2_font_helvB24_tf, kText);
         _center(W / 2, 200, "Bereit");
         _font(u8g2_font_helvR14_tf, kDim);
-        _center(W / 2, 240, v.console ? "Konsole verbunden," : "Warte auf die Konsole");
-        if (v.console) _center(W / 2, 264, "noch keine Sitzung");
+        _center(W / 2, 240, v.console ? "Konsole verbunden," : "Konsole am Laptop starten");
+        _center(W / 2, 264, v.console ? "noch keine Sitzung" : "und den Hub anstecken");
     }
 
     void _drawOverview(const HubView& v) {
@@ -271,6 +274,10 @@ class HubUi {
             _font(u8g2_font_helvB14_tf, kText);
             _center(W / 2, y + 24, "Anmeldung offen");
             y += 46;
+        } else {
+            _font(u8g2_font_helvR12_tf, kDim);
+            _at(kPad, y + 14, "Anmeldung geschlossen");
+            y += 26;
         }
         _font(u8g2_font_logisoso42_tn, kText);
         snprintf(buf, sizeof(buf), "%u", v.present);
@@ -284,7 +291,9 @@ class HubUi {
         snprintf(buf, sizeof(buf), "seit %s", dur);
         _at(nx, y + 44, buf);
         y += 64;
-        _drawGrid(v, y, kTabY - 8 - y, false);
+        _drawGrid(v, y, kTabY - 30 - y, false);
+        _font(u8g2_font_helvR10_tf, kDim);
+        _at(kPad, kTabY - 10, "grau = offline,  orange Rahmen = Akku schwach");
     }
 
     // Member numbers as tiles. Offline grey, low battery orange frame,
@@ -355,12 +364,14 @@ class HubUi {
         _font(u8g2_font_logisoso32_tn, kDim);
         _at(x + wA + wV, y + 62, tot);
         _font(u8g2_font_helvR12_tf, kDim);
-        _center(W / 2, y + 88, v.type == game::RoundType::Race ? "gedrückt" : "eingeloggt");
+        _center(W / 2, y + 88, v.type == game::RoundType::Race ? "haben gedrückt" : "haben geantwortet");
 
         // Time since open.
         y += 130;
         char t[16];
         _mmss(t, sizeof(t), v.sinceOpenMs);
+        _font(u8g2_font_helvR12_tf, kDim);
+        _at(kPad, y, "läuft seit");
         _font(u8g2_font_helvB18_tf, kText);
         _center(W / 2, y, t);
 
@@ -453,7 +464,11 @@ class HubUi {
             if (right) _frame->drawRoundRect(x, ry, w, rowH, 6, kGreen);
             _frame->fillCircle(x + 14, ry + rowH / 2, 6, col);
             _font(u8g2_font_helvB12_tf, kText);
-            _at(x + 26, ry + 31, kKey[k - 1]);
+            _at(x + 26, ry + (right ? 24 : 31), kKey[k - 1]);
+            if (right) {
+                _font(u8g2_font_helvB10_tf, kGreen);
+                _at(x + 26, ry + 40, "richtig");
+            }
             int16_t bx = x + labelW + 24, bw = w - labelW - 24 - numW;
             int16_t len = (int16_t)((int32_t)bw * v.counts[k] / most);
             _frame->fillRect(bx, ry + 14, len, rowH - 28, col);
@@ -496,7 +511,7 @@ class HubUi {
         snprintf(buf, sizeof(buf), "%u von %u", v.valueCount, v.present);
         _right(x + w, y + 70, buf);
         // Distribution.
-        int16_t gy = y + 96, gh = h - 96 - 24;
+        int16_t gy = y + 110, gh = h - 110 - 24;
         uint16_t most = 1;
         for (uint8_t s = lo; s <= hi; s++)
             if (v.counts[s] > most) most = v.counts[s];
@@ -514,6 +529,11 @@ class HubUi {
             int16_t bh = (int16_t)((int32_t)gh * v.counts[s] / most);
             int16_t bx = x + (s - lo) * bw;
             _frame->fillRect(bx + 1, gy + gh - bh, bw - 2, bh, col);
+            if (steps <= 12) {
+                snprintf(buf, sizeof(buf), "%u", v.counts[s]);
+                _font(u8g2_font_helvB10_tf, kText);
+                _center(bx + bw / 2, gy + gh - bh - 4, buf);
+            }
             _frame->drawFastHLine(bx, gy + gh, bw, kLine);
             if (steps <= 12 || s == lo || s == hi) {
                 snprintf(buf, sizeof(buf), "%u", s);
@@ -539,20 +559,21 @@ class HubUi {
         snprintf(buf, sizeof(buf), "%u", v.winner);
         _center(x + w / 2, y + 130, buf);
         _font(u8g2_font_helvB14_tf, col);
-        _center(x + w / 2, y + 160, v.winnerWrong ? "daneben" : "richtig");
+        _center(x + w / 2, y + 160, v.winnerWrong ? "Antwort daneben" : "Antwort richtig");
     }
 
     // ── Devices ──────────────────────────────────────────────────────────────
     void _drawDevices(const HubView& v) {
         char buf[32];
-        const int16_t rowH = 24, perCol = (kContentH - 44) / rowH, perPage = perCol * 2;
+        const int16_t rowH = 24, perCol = (kContentH - 52) / rowH, perPage = perCol * 2;
         uint16_t pages = v.listedCount ? (uint16_t)((v.listedCount + perPage - 1) / perPage) : 1;
         if (_devicePage >= pages) _devicePage = 0;
         _font(u8g2_font_helvB14_tf, kText);
         _at(kPad, kContentY + 28, "Geräte");
         _font(u8g2_font_helvR10_tf, kDim);
-        snprintf(buf, sizeof(buf), "Seite %u/%u, tippen blättert", _devicePage + 1, pages);
+        snprintf(buf, sizeof(buf), "Seite %u/%u (antippen)", _devicePage + 1, pages);
         _right(W - kPad, kContentY + 28, buf);
+        _at(kPad, kContentY + 44, "Nr.   Akku (+ lädt)   Signal");
         if (!v.listedCount) {
             _font(u8g2_font_helvR14_tf, kDim);
             _center(W / 2, kContentY + 140, v.session ? "Noch keine Geräte" : "Keine Sitzung");
@@ -564,7 +585,7 @@ class HubUi {
             if (idx >= v.listedCount) break;
             const HubView::Member& m = v.listed[idx];
             int16_t cx = kPad + (i / perCol) * colW;
-            int16_t cy = kContentY + 44 + (i % perCol) * rowH;
+            int16_t cy = kContentY + 50 + (i % perCol) * rowH;
             _font(u8g2_font_helvB10_tf, m.present ? kText : kDim);
             snprintf(buf, sizeof(buf), "%u", m.n);
             _at(cx, cy + 16, buf);
