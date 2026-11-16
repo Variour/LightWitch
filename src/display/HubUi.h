@@ -317,9 +317,12 @@ class HubUi {
             }
             int16_t x0 = kPad + (shown % cols) * (tw + gap);
             int16_t y0 = y + (shown / cols) * (th + gap);
-            uint16_t fill = !m.present ? kBg : (showAnswered && m.answered) ? rgb(0, 110, 60) : kPanel;
+            uint16_t fill = !m.present                     ? kBg
+                            : (showAnswered && m.answered) ? rgb(0, 110, 60)
+                                                           : kPanel;
             _frame->fillRoundRect(x0, y0, tw, th, 4, fill);
-            bool low = m.present && m.battery != game::kNoBattery && m.battery < HubView::kLowBattery;
+            bool low =
+                m.present && m.battery != game::kNoBattery && m.battery < HubView::kLowBattery;
             _frame->drawRoundRect(x0, y0, tw, th, 4, low ? kOrange : kLine);
             char num[6];
             snprintf(num, sizeof(num), "%u", m.n);
@@ -364,7 +367,8 @@ class HubUi {
         _font(u8g2_font_logisoso32_tn, kDim);
         _at(x + wA + wV, y + 62, tot);
         _font(u8g2_font_helvR12_tf, kDim);
-        _center(W / 2, y + 88, v.type == game::RoundType::Race ? "haben gedrückt" : "haben geantwortet");
+        _center(W / 2, y + 88,
+                v.type == game::RoundType::Race ? "haben gedrückt" : "haben geantwortet");
 
         // Time since open.
         y += 130;
@@ -458,7 +462,8 @@ class HubUi {
         for (uint8_t k = 1; k <= 5; k++) {
             int16_t ry = y + (k - 1) * (rowH + 4);
             bool right = v.correct == k;
-            uint16_t col = v.keyColor[k - 1] ? rgb(game::colorRgb((game::Color)v.keyColor[k - 1])) : kDim;
+            uint16_t col =
+                v.keyColor[k - 1] ? rgb(game::colorRgb((game::Color)v.keyColor[k - 1])) : kDim;
             // Right answer: the row itself is marked (light green field).
             _frame->fillRoundRect(x, ry, w, rowH, 6, right ? rgb(0, 90, 50) : kPanel);
             if (right) _frame->drawRoundRect(x, ry, w, rowH, 6, kGreen);
@@ -482,7 +487,8 @@ class HubUi {
         int16_t fy = y + 5 * (rowH + 4) + 24;
         if (v.correct >= 1 && v.correct <= 5 && total) {
             _font(u8g2_font_helvB14_tf, kGreen);
-            snprintf(buf, sizeof(buf), "%u%% richtig", (unsigned)(v.counts[v.correct] * 100 / total));
+            snprintf(buf, sizeof(buf), "%u%% richtig",
+                     (unsigned)(v.counts[v.correct] * 100 / total));
             _at(x, fy, buf);
         }
         _font(u8g2_font_helvR12_tf, kDim);
@@ -501,7 +507,8 @@ class HubUi {
         _at(x, y + 18, "Durchschnitt");
         if (v.valueCount) {
             uint32_t tenth = (v.valueSum * 10 + v.valueCount / 2) / v.valueCount;
-            snprintf(buf, sizeof(buf), "%lu,%lu", (unsigned long)(tenth / 10), (unsigned long)(tenth % 10));
+            snprintf(buf, sizeof(buf), "%lu,%lu", (unsigned long)(tenth / 10),
+                     (unsigned long)(tenth % 10));
         } else {
             snprintf(buf, sizeof(buf), "-");
         }
@@ -551,7 +558,8 @@ class HubUi {
             return;
         }
         uint16_t col = v.winnerWrong ? kWrong : kGreen;
-        _frame->fillRoundRect(x, y + 20, w, 150, 10, v.winnerWrong ? rgb(70, 22, 0) : rgb(0, 90, 50));
+        _frame->fillRoundRect(x, y + 20, w, 150, 10,
+                              v.winnerWrong ? rgb(70, 22, 0) : rgb(0, 90, 50));
         _frame->drawRoundRect(x, y + 20, w, 150, 10, col);
         _font(u8g2_font_helvR14_tf, kText);
         _center(x + w / 2, y + 52, "Schnellste Nummer");
@@ -627,12 +635,13 @@ class HubUi {
             _center(W / 2, kContentY + 140, "Keine Sitzung");
             return;
         }
-        add("Kanal", v.offChannel ? kOrange : kText, v.offChannel ? "%u (Wechsel)" : "%u", v.channel);
+        add("Kanal", v.offChannel ? kOrange : kText, v.offChannel ? "%u (Wechsel)" : "%u",
+            v.channel);
         add("Empfangen", kText, "%lu Frames", (unsigned long)v.rxFrames);
         add("Gesendet", kText, "%lu Frames", (unsigned long)v.txFrames);
         if (v.present)
-            add("Schwächstes Signal", v.weakestRssi < HubView::kWeakRssi ? kOrange : kText, "%d dBm",
-                v.weakestRssi);
+            add("Schwächstes Signal", v.weakestRssi < HubView::kWeakRssi ? kOrange : kText,
+                "%d dBm", v.weakestRssi);
         else
             add("Schwächstes Signal", kDim, "%s", "-");
         add("Schwaches Signal", v.weakCount ? kOrange : kText, "%u Geräte", v.weakCount);
@@ -663,7 +672,8 @@ class HubUi {
         }
         if (first < 0) return;
         _board.pushRows(cur, (uint16_t)first, (uint16_t)last);
-        memcpy(_last + (size_t)first * W, cur + (size_t)first * W, (size_t)(last - first + 1) * W * 2);
+        memcpy(_last + (size_t)first * W, cur + (size_t)first * W,
+               (size_t)(last - first + 1) * W * 2);
     }
 };
 

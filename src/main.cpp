@@ -1249,7 +1249,8 @@ void loop() {
             hubSessionAt = now;
         }
         if (!on) hubSessionId = 0;
-        hubView.fill(b, gameSession.isBridge(), gameSession.gatewayActive(), now - hubSessionAt, now);
+        hubView.fill(b, gameSession.isBridge(), gameSession.gatewayActive(), now - hubSessionAt,
+                     now);
         hubUi.tick(hubView, now);
     }
 #endif
