@@ -11,6 +11,10 @@
 
 namespace display {
 
+constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
+    return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+}
+
 // Hub display (FEATURE_DISPLAY). Portrait 320 x 480:
 //   header  y 0-56    session, console, channel, members, login, low battery
 //   content y 56-432  page by state (Auto) or the page picked on the tab bar
@@ -65,22 +69,20 @@ class HubUi {
     static constexpr uint32_t kLongPressMs = 800;
     static constexpr uint8_t kBrightness[3] = {100, 60, 30};
 
-    static constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
-        return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
-    }
-    static uint16_t rgb(game::Rgb c) { return rgb(c.r, c.g, c.b); }
+    static constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) { return rgb565(r, g, b); }
+    static uint16_t rgb(game::Rgb c) { return rgb565(c.r, c.g, c.b); }
 
     // farben-standard: green for right and logged in, orange red (dimmed)
     // for wrong, orange for no connection, blue for login / invite.
-    static constexpr uint16_t kBg = rgb(10, 10, 14);
-    static constexpr uint16_t kPanel = rgb(32, 34, 42);
-    static constexpr uint16_t kLine = rgb(60, 62, 72);
-    static constexpr uint16_t kText = rgb(240, 240, 240);
-    static constexpr uint16_t kDim = rgb(150, 152, 160);
-    static constexpr uint16_t kGreen = rgb(0x2F, 0xFB, 0x95);
-    static constexpr uint16_t kWrong = rgb(200, 62, 0);  // 128/40/0 lifted for the screen
-    static constexpr uint16_t kOrange = rgb(255, 140, 0);
-    static constexpr uint16_t kBlue = rgb(60, 120, 255);
+    static constexpr uint16_t kBg = rgb565(10, 10, 14);
+    static constexpr uint16_t kPanel = rgb565(32, 34, 42);
+    static constexpr uint16_t kLine = rgb565(60, 62, 72);
+    static constexpr uint16_t kText = rgb565(240, 240, 240);
+    static constexpr uint16_t kDim = rgb565(150, 152, 160);
+    static constexpr uint16_t kGreen = rgb565(0x2F, 0xFB, 0x95);
+    static constexpr uint16_t kWrong = rgb565(200, 62, 0);  // 128/40/0 lifted for the screen
+    static constexpr uint16_t kOrange = rgb565(255, 140, 0);
+    static constexpr uint16_t kBlue = rgb565(60, 120, 255);
 
     HubBoard _board;
     GFXcanvas16* _frame = nullptr;
@@ -611,7 +613,7 @@ class HubUi {
             add("Schwächstes Signal", v.weakestRssi < HubView::kWeakRssi ? kOrange : kText, "%d dBm",
                 v.weakestRssi);
         else
-            add("Schwächstes Signal", kDim, "-");
+            add("Schwächstes Signal", kDim, "%s", "-");
         add("Schwaches Signal", v.weakCount ? kOrange : kText, "%u Geräte", v.weakCount);
         add("Offline", v.members > v.present ? kOrange : kText, "%u Geräte",
             (unsigned)(v.members - v.present));
