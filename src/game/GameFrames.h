@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "GameConfig.h"
+#include "GameTypes.h"
 
 // Radio frames of the game session (gateway protocol v0, "Abbildung auf die
 // Funk-Nachrichten"). Packed, no padding, little-endian like the ESP32 and the
@@ -20,6 +21,7 @@ static constexpr uint8_t kMsgQuizRelease = 42;
 static constexpr uint8_t kMsgQuizChannel = 43;
 // 44 and 45 are the fleet frames (src/fleet/FleetFrames.h).
 static constexpr uint8_t kMsgQuizKeys = 46;
+static constexpr uint8_t kMsgQuizRules = 47;
 
 struct __attribute__((packed)) QuizHeader {
     uint8_t type;
@@ -154,12 +156,35 @@ static constexpr size_t kQuizKeysHeadLen = offsetof(QuizKeysMsg, keys);
 static_assert(kQuizKeysHeadLen == 17, "QuizKeysMsg layout");
 static_assert(sizeof(QuizKeysMsg) <= 250, "ESP-NOW v1 payload limit");
 
+// QuizRules flags.
+static constexpr uint8_t kRuleFirstOnly = 1 << 0;
+static constexpr uint8_t kRuleRepeat = 1 << 1;
+
+// Bridge -> devices, right after each QuizState of a round with link field
+// `input` (docs/game-building-blocks.md): the round's input rule (InputRule.h).
+struct __attribute__((packed)) QuizRulesMsg {
+    QuizHeader h;
+    uint16_t session;
+    uint16_t roundId;
+    uint8_t mode;          // InputMode
+    uint8_t flags;         // kRuleFirstOnly | kRuleRepeat
+    uint8_t keyValue[10];  // per Key slot, 0 = no value
+    uint8_t upKey;         // Key, 0xFF = none
+    uint8_t downKey;
+    uint8_t confirmKey;
+    uint8_t min, max, firstUp, firstDown;
+    uint16_t sendDelayMs;
+};
+static_assert(sizeof(QuizRulesMsg) == 37, "QuizRulesMsg layout");
+static_assert(sizeof(((QuizRulesMsg*)nullptr)->keyValue) == kKeySlots, "one value per key slot");
+
 static constexpr size_t kMaxFrameLen = sizeof(QuizStateMsg);
 static_assert(kMaxFrameLen <= 250, "ESP-NOW v1 payload limit");
 static_assert(sizeof(QuizKeysMsg) <= kMaxFrameLen, "RxRing slots hold every quiz frame");
 
 inline bool isQuizType(uint8_t type) {
-    return (type >= kMsgQuizInvite && type <= kMsgQuizChannel) || type == kMsgQuizKeys;
+    return (type >= kMsgQuizInvite && type <= kMsgQuizChannel) || type == kMsgQuizKeys ||
+           type == kMsgQuizRules;
 }
 
 // Strict framing: fixed frames need their exact size, QuizState needs its
@@ -185,6 +210,8 @@ inline bool quizFrameLenOk(const uint8_t* d, size_t len) {
             return len == sizeof(QuizReleaseMsg);
         case kMsgQuizChannel:
             return len == sizeof(QuizChannelMsg);
+        case kMsgQuizRules:
+            return len == sizeof(QuizRulesMsg);
         case kMsgQuizKeys: {
             if (len < kQuizKeysHeadLen) return false;
             uint8_t count = d[offsetof(QuizKeysMsg, count)];

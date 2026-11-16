@@ -1318,7 +1318,8 @@ class MeshManager {
             case MsgType::QuizAdmit:
             case MsgType::QuizRelease:
             case MsgType::QuizChannel:
-            case MsgType::QuizKeys: {
+            case MsgType::QuizKeys:
+            case MsgType::QuizRules: {
                 if (!game::quizFrameLenOk(data, (size_t)len)) return;
                 int8_t rssi = info->rx_ctrl ? (int8_t)info->rx_ctrl->rssi : 0;
                 if (_instance->_onQuizFrame) _instance->_onQuizFrame(data, len, rssi);

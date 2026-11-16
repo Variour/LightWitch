@@ -47,8 +47,10 @@ A round names its inputs and one rule per input group.
   retries stay as they are.
 - Phases announced, open, closed; open and close times; the device with
   the turn and its time; a result value per round (`correct`, `winner`).
-- Device states the round can refer to: `free`, `chosen`, `confirmed`,
-  `locked`, `turn`, `right`, `wrong`, `winner`.
+- Device states the round can refer to: `free`, `chosen`, `confirmed`
+  (logged in), `checking` (logged in, resolution pending), `locked`, `turn`,
+  `right`, `wrong`, `none` (no rating: nothing in or late), `winner`.
+- At the resolution the zone "right key" gets its own rule.
 
 ### 3. LED output
 
@@ -97,11 +99,13 @@ device runs the preset of `type`.
 | --- | --- | --- |
 | `mode` | all | `once`, `pick`, `counter`, `log` |
 | `values` | once, pick, log | value per key, 1-254; the keys must be in `keys` |
-| `firstOnly` | pick, counter | the first value that goes out stays |
 | `up`, `down`, `confirm` | counter | key names; `confirm` optional |
 | `min`, `max`, `firstUp`, `firstDown` | counter | 0-254, `min <= firstDown <= firstUp <= max` |
 | `repeat` | counter | holding up / down steps on |
 | `sendDelayMs` | all | 0-5000 |
+
+The rule takes `firstOnly` from the round. `log` goes with type `move` and
+only with it. With `input`, `keys` needs no type-specific key set.
 
 **Radio:** message type 47 `QuizRules`, bridge to devices, sent right after
 each `QuizState` of a round that has `input`.

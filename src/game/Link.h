@@ -10,6 +10,7 @@
 #include "Bridge.h"
 #include "GameConfig.h"
 #include "GameTypes.h"
+#include "InputRule.h"
 #include "Lage.h"
 
 namespace game {
@@ -755,7 +756,8 @@ class Link : public Bridge::Listener {
                 ok = answerSet(c.keyMask);
                 rule = "choice takes 2-5 of up, right, down, left, enter";
             }
-            if (!ok) {
+            // With `input` the rule names the keys' roles instead.
+            if (!ok && o["input"].isUnbound()) {
                 _badField(id, cmd, "keys", rule);
                 return false;
             }
@@ -942,6 +944,115 @@ class Link : public Bridge::Listener {
             }
             c.correct = (uint8_t)v;
         }
+
+        // input (absent = the preset of type): the round's input rule
+        JsonVariantConst input = o["input"];
+        if (!input.isUnbound()) {
+            if (idle) {
+                _badField(id, cmd, "input", "omit input for idle");
+                return false;
+            }
+            if (!_parseInput(input, id, c)) return false;
+        }
+        return true;
+    }
+
+    // Link field `input` of `game round` (docs/game-building-blocks.md).
+    bool _parseInput(JsonVariantConst in, const ReqId& id, Bridge::RoundCmd& c) {
+        const char* cmd = "round";
+        if (!in.is<JsonObjectConst>()) {
+            _badField(id, cmd, "input", "input must be an object");
+            return false;
+        }
+        JsonObjectConst o = in.as<JsonObjectConst>();
+        static constexpr const char* kModes[] = {"once", "pick", "counter", "log"};
+        int mode = indexOfName(o["mode"].is<const char*>() ? o["mode"].as<const char*>() : nullptr,
+                               kModes, 4);
+        if (mode < 0) {
+            _badField(id, cmd, "input", "mode must be once, pick, counter or log");
+            return false;
+        }
+        InputRule r;
+        r.mode = (InputMode)(mode + 1);
+        // The bridge passes on key presses only in a move round, and values
+        // only in the others.
+        if ((r.mode == InputMode::Log) != (c.type == RoundType::Move)) {
+            _badField(id, cmd, "input", "mode log goes with type move, and only with it");
+            return false;
+        }
+        r.firstOnly = c.firstOnly;
+        bool counter = r.mode == InputMode::Counter;
+        JsonVariantConst values = o["values"];
+        if (counter != values.isUnbound()) {
+            _badField(id, cmd, "input", counter ? "omit values for counter" : "values missing");
+            return false;
+        }
+        if (!counter) {
+            if (!values.is<JsonObjectConst>()) {
+                _badField(id, cmd, "input", "values must be an object");
+                return false;
+            }
+            for (JsonPairConst kv : values.as<JsonObjectConst>()) {
+                Key k = keyFromName(kv.key().c_str());
+                if ((uint8_t)k >= kKeySlots || !kv.value().is<long long>() ||
+                    kv.value().as<long long>() < 1 || kv.value().as<long long>() > 254) {
+                    _badField(id, cmd, "input", "values: key name to 1-254");
+                    return false;
+                }
+                r.keyValue[(uint8_t)k] = (uint8_t)kv.value().as<long long>();
+            }
+            for (const char* f :
+                 {"up", "down", "confirm", "min", "max", "firstUp", "firstDown", "repeat"})
+                if (!o[f].isUnbound()) {
+                    _badField(id, cmd, "input",
+                              "up, down, confirm, min, max, firstUp, firstDown "
+                              "and repeat only for counter");
+                    return false;
+                }
+        } else {
+            auto keyOf = [&](const char* f) {
+                JsonVariantConst v = o[f];
+                return v.is<const char*>() ? keyFromName(v.as<const char*>()) : Key::None;
+            };
+            r.upKey = keyOf("up");
+            r.downKey = keyOf("down");
+            r.confirmKey = o["confirm"].isUnbound() ? Key::None : keyOf("confirm");
+            if (!o["confirm"].isUnbound() && r.confirmKey == Key::None) {
+                _badField(id, cmd, "input", "confirm must be a key name");
+                return false;
+            }
+            long long mn, mx, fu, fd;
+            if (_int(o, "min", 0, 254, mn) != Field::Ok ||
+                _int(o, "max", mn, 254, mx) != Field::Ok ||
+                _int(o, "firstDown", mn, mx, fd) != Field::Ok ||
+                _int(o, "firstUp", fd, mx, fu) != Field::Ok) {
+                _badField(id, cmd, "input", "min <= firstDown <= firstUp <= max, 0-254");
+                return false;
+            }
+            r.min = (uint8_t)mn;
+            r.max = (uint8_t)mx;
+            r.firstUp = (uint8_t)fu;
+            r.firstDown = (uint8_t)fd;
+            JsonVariantConst rep = o["repeat"];
+            if (!rep.isUnbound() && !rep.is<bool>()) {
+                _badField(id, cmd, "input", "repeat must be a boolean");
+                return false;
+            }
+            r.repeat = rep.is<bool>() && rep.as<bool>();
+        }
+        long long delay = 0;
+        Field fdl = _int(o, "sendDelayMs", 0, kMaxSendDelayMs, delay);
+        if (fdl != Field::Ok && fdl != Field::Missing) {
+            _badField(id, cmd, "input", "sendDelayMs must be 0-5000");
+            return false;
+        }
+        r.sendDelayMs = (uint16_t)delay;
+        if (!ruleValid(r, c.keyMask)) {
+            _badField(id, cmd, "input", "every input key must be one of the round's keys");
+            return false;
+        }
+        c.hasInput = true;
+        c.input = r;
         return true;
     }
 

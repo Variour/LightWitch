@@ -8,6 +8,7 @@
 #include "GameConfig.h"
 #include "GameFrames.h"
 #include "GameTypes.h"
+#include "InputRule.h"
 #include "Lage.h"
 
 namespace game {
@@ -105,6 +106,8 @@ class Bridge {
         bool firstOnly = false;    // only each device's first answer counts
         bool winnerWrong = false;  // the quizmaster rated the winner's answer wrong
         bool rainbow = false;      // scale of 24 steps shown as the rainbow
+        bool hasInput = false;     // link field `input`: sent as QuizRules
+        InputRule input;
     };
 
     struct StateInfo {
@@ -263,6 +266,8 @@ class Bridge {
             r.firstOnly = c.firstOnly;
             r.winnerWrong = c.winnerWrong;
             r.rainbow = c.rainbow;
+            r.hasInput = c.hasInput;
+            if (c.hasInput) ruleToFrame(c.input, r.rules);
             if (r.type != RoundType::Idle) _enterPhase(r.phase, c, now);
             for (uint16_t n = 1; n <= _maxNumber; n++) _clearValue(n);
             _arrivals = 0;
@@ -273,7 +278,8 @@ class Bridge {
         if (c.type != r.type || c.keyMask != r.keyMask ||
             memcmp(c.keyColor, r.keyColor, sizeof(r.keyColor)) != 0 || c.min != r.min ||
             c.max != r.max || c.redMax != r.redMax || c.greenMin != r.greenMin ||
-            c.hold != r.hold || c.firstOnly != r.firstOnly || c.rainbow != r.rainbow)
+            c.hold != r.hold || c.firstOnly != r.firstOnly || c.rainbow != r.rainbow ||
+            !_sameInput(c, r))
             return Err::RoundFixed;
         Phase phase = r.type == RoundType::Idle ? Phase::Closed : c.phase;
         if ((uint8_t)phase < (uint8_t)r.phase) return Err::BadPhase;
@@ -486,6 +492,8 @@ class Bridge {
         bool firstOnly = false;
         bool winnerWrong = false;
         bool rainbow = false;
+        bool hasInput = false;
+        QuizRulesMsg rules{};    // its frame, header filled at send
         uint16_t answering = 0;  // race: the number answering now
         uint16_t answerMs = 0;
         uint32_t answerAt = 0;  // bridge time its answer time began
@@ -575,6 +583,16 @@ class Bridge {
         }
     }
 
+    static bool _sameInput(const RoundCmd& c, const RoundModel& r) {
+        if (c.hasInput != r.hasInput) return false;
+        if (!c.hasInput) return true;
+        QuizRulesMsg m{};
+        ruleToFrame(c.input, m);
+        size_t from = offsetof(QuizRulesMsg, mode);
+        return memcmp((const uint8_t*)&m + from, (const uint8_t*)&r.rules + from,
+                      sizeof(m) - from) == 0;
+    }
+
     void _markStateChanged(uint32_t now) {
         _burstStep = 0;
         _nextStateAt = now;
@@ -627,6 +645,13 @@ class Bridge {
             _send(&m, stateFrameLen(m));
             first = (uint16_t)(first + kEchoPageSize);
         } while (first <= _maxNumber);
+        if (_round.hasInput) {
+            QuizRulesMsg& rm = _round.rules;
+            _fillHeader(rm.h, kMsgQuizRules);
+            rm.session = _session;
+            rm.roundId = _round.id;
+            _send(&rm, sizeof(rm));
+        }
 
         _lastStateAt = now;
         _stateSentOnce = true;
