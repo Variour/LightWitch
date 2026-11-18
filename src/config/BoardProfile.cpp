@@ -188,6 +188,57 @@ uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) {
     return configuredMa;
 }
 
+#elif defined(BOARD_HUB_C5_LCD35)
+
+// Hub board: Waveshare ESP32-C5-Touch-LCD-3.5. Pins from Waveshare's board
+// support package (waveshareteam/ESP32-C5-Touch-LCD-3.5 @ ef03a84,
+// examples/esp-idf/*/components/waveshare__esp32_c5_touch_lcd_3_5/include/
+// bsp/esp32_c5_touch_lcd_3_5.h). SDA and SCL sit the other way round than on
+// the Buzzerboard. Display (ST7796 on SPI2: SCLK 6, MOSI 7, DC 5, CS 8; reset
+// and backlight on the CH32V003 IO expander), touch interrupt (GPIO3), BOOT
+// key (GPIO28) and audio follow with the display module.
+
+#include <Arduino.h>
+#include <Wire.h>
+
+#include "../logging/Logger.h"
+
+namespace {
+
+constexpr uint8_t kI2cSdaPin = 27;
+constexpr uint8_t kI2cSclPin = 26;
+constexpr uint8_t kTouchAddress = 0x38;  // FT6336
+
+bool sDetected = false;
+
+}  // namespace
+
+void detectBoard() {
+    sDetected = false;
+    if (!Wire.begin(kI2cSdaPin, kI2cSclPin)) {
+        Logger::w("[cfg] hub check: I2C on GPIO%u/%u did not start", kI2cSdaPin, kI2cSclPin);
+        return;
+    }
+    Wire.beginTransmission(kTouchAddress);
+    sDetected = Wire.endTransmission() == 0;
+    Wire.end();
+    Logger::i("[cfg] %s", sDetected ? "hub board detected (FT6336 at 0x38)"
+                                    : "no hub board: no FT6336 at 0x38");
+}
+
+bool applyBoardProfile(DeviceConfig& cfg) {
+    if (!sDetected) return false;
+    cfg.i2cSdaPin = kI2cSdaPin;
+    cfg.i2cSclPin = kI2cSclPin;
+    return true;
+}
+
+uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) { return configuredMa; }
+uint16_t boardLedRefreshMs() { return 0; }
+bool boardDetected() { return sDetected; }
+bool boardHasFallbackAp() { return true; }
+int8_t boardImuIntPin() { return -1; }
+
 #else
 
 void detectBoard() {}
