@@ -81,8 +81,7 @@ class HubUi {
     static constexpr uint16_t kText = rgb565(255, 255, 255);
     static constexpr uint16_t kDim = rgb565(0xA8, 0xC2, 0xB8);
     static constexpr uint16_t kGrey = rgb565(0xC3, 0xC3, 0xC3);  // closed, other answers
-    static constexpr uint16_t kRingOff =
-        rgb565(0x0B, 0x33, 0x23);  // expired segment, like an LED off
+    static constexpr uint16_t kRingOff = 0x0000;  // expired segment: black, like an LED off
     static constexpr uint16_t kGreen = rgb565(0x2F, 0xFB, 0x95);  // right, and only that
     static constexpr uint16_t kNeben = rgb565(0xFF, 0x9C, 0x5C);  // daneben
     static constexpr uint16_t kNone = rgb565(0xA7, 0x74, 0xD8);   // nicht abgegeben
@@ -490,8 +489,8 @@ class HubUi {
     // The middle field: no answer, a small word for the centre key's function.
     void _middle(const char* word, int32_t number) {
         int16_t x0 = kCrossX - kKey / 2, y0 = kCrossY - kKey / 2;
-        _frame->drawRoundRect(x0, y0, kKey, kKey, 6, kRingOff);
-        _frame->drawRoundRect(x0 + 1, y0 + 1, kKey - 2, kKey - 2, 5, kRingOff);
+        _frame->drawRoundRect(x0, y0, kKey, kKey, 6, kLine);
+        _frame->drawRoundRect(x0 + 1, y0 + 1, kKey - 2, kKey - 2, 5, kLine);
         if (number >= 0) {
             char buf[12];
             snprintf(buf, sizeof(buf), "%ld", (long)number);
@@ -522,7 +521,7 @@ class HubUi {
                  closed ? (int32_t)v.counts[value] : -1);
         }
         bool enterAnswer = (v.keyMask & (1u << (uint8_t)game::Key::Enter)) != 0;
-        _middle(closed ? "" : "lösen", closed && enterAnswer ? (int32_t)v.counts[5] : -1);
+        _middle(closed ? "" : "ändern", closed && enterAnswer ? (int32_t)v.counts[5] : -1);
     }
 
     // Category line in place of the old status pill: round type and number.
