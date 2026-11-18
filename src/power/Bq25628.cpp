@@ -46,10 +46,10 @@ bool Bq25628::probe() {
 }
 
 bool Bq25628::readStatus(Status& out) {
-    // REG0x16..0x20 in one burst: control 0-3, NTC control 0-2, status 0-1,
-    // fault status 0, charger flag 0. Of these only the flag register is
+    // REG0x16..0x21 in one burst: control 0-3, NTC control 0-2, status 0-1,
+    // fault status 0, charger flag 0-1. Of these only the flag registers are
     // cleared by reading (§8.3.8.1).
-    uint8_t b[11];
+    uint8_t b[12];
     if (!_read(REG_CHG_CTRL_0, b, sizeof(b))) return false;
     out.ctrl0 = b[REG_CHG_CTRL_0 - REG_CHG_CTRL_0];
     out.ctrl2 = b[REG_CHG_CTRL_2 - REG_CHG_CTRL_0];
@@ -58,6 +58,7 @@ bool Bq25628::readStatus(Status& out) {
     out.stat1 = b[REG_CHG_STAT_1 - REG_CHG_CTRL_0];
     out.fault = b[REG_FAULT_STAT_0 - REG_CHG_CTRL_0];
     out.flag0 = b[REG_CHG_FLAG_0 - REG_CHG_CTRL_0];
+    out.flag1 = b[REG_CHG_FLAG_1 - REG_CHG_CTRL_0];
     return true;
 }
 
@@ -67,7 +68,7 @@ bool Bq25628::configure(const Settings& s) {
     // first.
     bool ok =
         _update8(REG_CHG_CTRL_0, CTRL0_WATCHDOG_MASK | CTRL0_WD_RST | CTRL0_EN_CHG | CTRL0_EN_HIZ,
-                 CTRL0_WATCHDOG_200S | CTRL0_WD_RST | CTRL0_EN_CHG);
+                 CTRL0_WATCHDOG_200S | CTRL0_WD_RST | (s.chargeEnabled ? CTRL0_EN_CHG : 0));
 
     uint16_t ichg = constrain(s.chargeCurrentMa, ICHG_MIN_MA, ICHG_MAX_MA) / ICHG_STEP_MA;
     ok &= _write16(REG_ICHG, (uint16_t)(ichg << ICHG_SHIFT) & ICHG_MASK);
@@ -88,10 +89,8 @@ bool Bq25628::configure(const Settings& s) {
     // Boost OTG (VOTG on PMID), not bypass (PMID = VBAT).
     ok &= _update8(REG_CHG_CTRL_2, CTRL2_EN_BYPASS_OTG, 0);
 
-    // Input current from the ILIM pin; the lower of the ILIM pin and IINDPM
-    // limits apply (§8.3.3.4). IINDPM is left to the D+/D- input source
-    // detection, which sets it to 500 mA or more (Table 8-11).
-    ok &= _update8(REG_CHG_CTRL_3, CTRL3_EN_EXTILIM, CTRL3_EN_EXTILIM);
+    // Input current limit: ILIM pin and / or IINDPM (§8.3.3.4).
+    ok &= setInputLimit(s.inputLimitPin, s.inputLimitMa);
 
     ok &= _update8(REG_CHG_CTRL_3, CTRL3_IBAT_PK_MASK, s.batteryPeakCurrent & CTRL3_IBAT_PK_MASK);
 
@@ -116,12 +115,29 @@ bool Bq25628::configure(const Settings& s) {
     return ok;
 }
 
+bool Bq25628::setInputLimit(bool pin, uint16_t ma) {
+    uint16_t steps = constrain(ma, IINDPM_MIN_MA, IINDPM_MAX_MA) / IINDPM_STEP_MA;
+    uint16_t v = (uint16_t)(steps << IINDPM_SHIFT) & IINDPM_MASK;
+    if (pin) {
+        return _update8(REG_CHG_CTRL_3, CTRL3_EN_EXTILIM, CTRL3_EN_EXTILIM) &&
+               _write16(REG_IINDPM, v);
+    }
+    return _write16(REG_IINDPM, v) && _update8(REG_CHG_CTRL_3, CTRL3_EN_EXTILIM, 0);
+}
+
 bool Bq25628::kickWatchdog() { return _update8(REG_CHG_CTRL_0, CTRL0_WD_RST, CTRL0_WD_RST); }
 
 bool Bq25628::disableWatchdog() {
     uint8_t v;
     return _update8(REG_CHG_CTRL_0, CTRL0_WATCHDOG_MASK, 0) && _read8(REG_CHG_CTRL_0, v) &&
            (v & CTRL0_WATCHDOG_MASK) == 0;
+}
+
+bool Bq25628::setChargeCurrent(uint16_t ma) {
+    uint16_t ichg = constrain(ma, ICHG_MIN_MA, ICHG_MAX_MA) / ICHG_STEP_MA;
+    if (!_write16(REG_ICHG, (uint16_t)(ichg << ICHG_SHIFT) & ICHG_MASK)) return false;
+    Logger::i("[pwr] ICHG %u mA", ichg * ICHG_STEP_MA);
+    return true;
 }
 
 bool Bq25628::setChargeVoltage(uint16_t mv) {
@@ -140,6 +156,10 @@ bool Bq25628::setChargeVoltage(uint16_t mv) {
 
 bool Bq25628::setOtg(bool enable) {
     return _update8(REG_CHG_CTRL_2, CTRL2_EN_OTG | CTRL2_EN_BYPASS_OTG, enable ? CTRL2_EN_OTG : 0);
+}
+
+bool Bq25628::setChargeEnabled(bool enable) {
+    return _update8(REG_CHG_CTRL_0, CTRL0_EN_CHG, enable ? CTRL0_EN_CHG : 0);
 }
 
 bool Bq25628::setTsAdc(bool enable) {

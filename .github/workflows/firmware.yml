@@ -5,7 +5,7 @@ on:
     inputs:
       environments:
         description: 'PlatformIO environments to build (comma-separated)'
-        default: 'esp32dev,esp32c3,esp32s3,esp32c5'
+        default: 'esp32dev,esp32c3,esp32s3,esp32c5,esp32c5-hub'
         required: true
   pull_request:
     paths:
@@ -35,7 +35,7 @@ jobs:
     steps:
       - id: matrix
         run: |
-          ENVIRONMENTS="${{ github.event_name == 'pull_request' && 'esp32dev,esp32c3,esp32s3,esp32c5' || github.event.inputs.environments || 'esp32dev,esp32c3,esp32s3,esp32c5' }}"
+          ENVIRONMENTS="${{ github.event_name == 'pull_request' && 'esp32dev,esp32c3,esp32s3,esp32c5,esp32c5-hub' || github.event.inputs.environments || 'esp32dev,esp32c3,esp32s3,esp32c5,esp32c5-hub' }}"
           JSON=$(echo "$ENVIRONMENTS" \
             | tr ',' '\n' | sed 's/[[:space:]]//g' | jq -R . | jq -sc .)
           echo "value={\"env\":${JSON}}" >> "$GITHUB_OUTPUT"

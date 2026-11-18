@@ -30,6 +30,8 @@ class Ws2801Driver : public LedDriver {
 
     void setColorOrder(ColorOrder order) override { _order = order; }
 
+    uint16_t pixelCount() const override { return _numLeds; }
+
    protected:
     void writeColor(uint8_t r, uint8_t g, uint8_t b) override {
         uint8_t a, bb, c;

@@ -55,6 +55,17 @@ static constexpr uint32_t kHostDetectMs = 200;
 // every key has been up this long: ButtonManager fires a short press
 // DOUBLE_CLICK_WINDOW_MS (350 ms) after the release.
 static constexpr uint32_t kKeyQuietMs = 500;
+// owner (2026-11-10): Up and Down step the brightness at any time outside a
+// game session: active, in charging mode and in standby. The fleet runs the
+// key's own short-press step (config/BoardProfile.cpp) on the press and
+// takes the key, so it steps once per press without waiting for
+// ButtonManager. Down to 0 switches the LEDs off, Up from 0 on again. Except
+// in charging mode (its display is the level) the battery level then shows
+// for kBatteryOverlayMs at the new brightness. A participant in a session
+// keeps Up and Down as answer keys.
+// decided (2026-11-10, review): a press that wakes the device (from standby
+// or sleep) only wakes it, and while an invite shows Up and Down do nothing
+// (the screen asks for them right after the join).
 
 // ── Sleep (ESP deep sleep) ───────────────────────────────────────────────────
 static constexpr uint32_t kSleepWakeIntervalS = 60;  // owner: check USB and VBAT every 60 s
@@ -108,6 +119,13 @@ static constexpr uint8_t kCommandSlots = 4;      // firmware: commands in flight
 static constexpr uint8_t kMaxTargets = 32;       // firmware: MACs per command (0 = all devices)
 static constexpr uint8_t kNonceMemory = 8;       // firmware: remembered nonces per device
 static constexpr uint32_t kNonceHoldMs = 10000;  // firmware: a nonce counts as seen this long
+// owner (2026-11-10): the console sets the brightness of every Buzzerboard
+// (fleet `brightness`, 0-255 like every LightWitch brightness): light 0's
+// brightness override, stored, as Up and Down set it, so it overrides the
+// room's (group's) brightness; the keys go on from there. It also applies in
+// a game session: there the bridge sends the command on the session channel
+// (MeshManager lets FleetCommand through quiet mode) and the devices act on
+// no other op. A Buzzerboard bridge applies it to itself at once.
 
 // ── Bridge: fleet table ──────────────────────────────────────────────────────
 static constexpr uint16_t kMaxFleetDevices = 128;  // firmware: the oldest entry makes room
@@ -119,15 +137,49 @@ static constexpr uint8_t kApMinutesDefault = 10;  // owner: 10 min
 static constexpr uint8_t kApMinutesMax = 60;      // firmware: longest `config ap`
 
 // ── LED display (charging mode, update) ──────────────────────────────────────
-static constexpr uint8_t kDisplayLevel = 26;      // firmware: low brightness, about 10 %
-static constexpr uint8_t kRedBelowPercent = 30;   // firmware: red below, yellow from here
-static constexpr uint8_t kGreenFromPercent = 80;  // firmware: green from the storage level
+// owner (2026-11-09): every display follows the brightness light 0 renders at
+// (its brightness override, else its group's brightness), at least kOffLevel.
+// owner (2026-11-10): the breath, the charging glow and the gateway pulse
+// fade very smoothly: they run at a fine level, dithered over the LEDs
+// (led/Dither.h, FleetRender.h; the idle pattern in patterns/Breathing.h),
+// and outside a session the Buzzerboard draws at 100 Hz (main.cpp,
+// FLEET_TICK_INTERVAL_MS).
 // owner (display sketch): a full device shows the column for 1 h, then only
 // the status dot.
 static constexpr uint32_t kFullColumnMs = 60UL * 60UL * 1000UL;
-static constexpr uint32_t kTipPulseMs = 2000;    // firmware: slow pulse of the column tip
-static constexpr uint32_t kFaultBlinkMs = 1000;  // firmware: ring blinks at 1 Hz
-static constexpr uint32_t kRingChaseMs = 150;    // firmware: update ring, one step per 150 ms
+static constexpr uint32_t kTipPulseMs = 2000;  // firmware: slow pulse of the column tip
+// owner (2026-11-10): every level on the column runs red at LED1 to green
+// at the USB-C end, as with the LEDs switched off. While the battery
+// charges, the level shows at kChargeFillPercent of lvl (at least
+// kOffLevel), and only its last kChargeGlowLeds LEDs glow up together per
+// kTipGlowMs to kChargeGlowPercent of lvl (at least kOffTipLevel). A full
+// column shows at the fill level.
+static constexpr int16_t kFlowMinMa = 20;          // firmware: charging from this current
+static constexpr uint8_t kChargeFillPercent = 20;  // owner (2026-11-10)
+static constexpr uint8_t kChargeGlowPercent = 40;  // owner (2026-11-10)
+static constexpr uint8_t kChargeGlowLeds = 3;      // owner (2026-11-10)
+// owner (2026-11-09): when active and idle, one breath of the idle pattern,
+// then the level on the column, in turn. kIdlePulseMs matches the idle
+// pattern's period (config/BoardProfile.cpp, Breathing at speed 1.0).
+static constexpr uint32_t kIdlePulseMs = 4000;
+static constexpr uint32_t kIdleLevelMs = 3000;  // firmware
+// owner (2026-11-09): LEDs switched off with a key, on USB: only the column
+// shows the level at about 1 %, filling from LED1, red at LED1 to green at
+// the USB-C end.
+// While charging, the last LED of the level pulses slowly. 1/255 is the
+// smallest step of the LEDs.
+static constexpr uint8_t kOffLevel = 2;       // about 0.8 %
+static constexpr uint8_t kOffTipLevel = 5;    // firmware: pulse peak, about 2 %
+static constexpr uint32_t kTipGlowMs = 3000;  // firmware: one glow of the last LED
+// owner (2026-11-09): the bottom-right side key (R2) shows the battery level
+// on the column for this long, active and outside a session.
+static constexpr uint32_t kBatteryOverlayMs = 3000;  // firmware
+// owner (2026-11-09): any device can be the gateway. While it is, a soft white
+// pulse runs from the USB-C end down the column over its own colours, once
+// per kGatewayFlowMs.
+static constexpr uint32_t kGatewayFlowMs = 2500;  // firmware
+static constexpr uint32_t kFaultBlinkMs = 1000;   // firmware: ring blinks at 1 Hz
+static constexpr uint32_t kRingChaseMs = 150;     // firmware: update ring, one step per 150 ms
 
 // ── Standby radio ────────────────────────────────────────────────────────────
 // firmware: ESP-NOW listens kStandbyWakeWindowMs of every kStandbyWakeIntervalMs.
@@ -147,8 +199,15 @@ static constexpr uint8_t kPassMax = 63;
 // ── USB `config token` ───────────────────────────────────────────────────────
 static constexpr uint8_t kTokenMax = 127;  // = sizeof(DeviceConfig::githubToken) - 1
 
+// ── USB `config name` ────────────────────────────────────────────────────────
+// owner (2026-11-09): the production script names each Buzzerboard
+// "buzzer-<number>-<animal>". One DNS label: a-z, 0-9 and '-'.
+static constexpr uint8_t kNameMax = 31;  // = sizeof(DeviceConfig::deviceName) - 1
+
 // ── Factory test (USB `test`) ────────────────────────────────────────────────
-static constexpr uint8_t kTestLevel = 20;            // spec: brightness about 20
+// owner (2026-11-09): the test frames follow the display brightness, at
+// least kTestLevelMin so every colour stays easy to judge.
+static constexpr uint8_t kTestLevelMin = 8;
 static constexpr uint32_t kTestColorMs = 600;        // firmware: each colour on all LEDs
 static constexpr uint32_t kTestChaseStepMs = 60;     // firmware: chase, per LED
 static constexpr uint32_t kTestChargeMs = 10000;     // spec: charge for 10 s

@@ -37,6 +37,7 @@ class Bq25628 {
     static constexpr uint8_t REG_CHG_STAT_1 = 0x1E;      // Table 8-27
     static constexpr uint8_t REG_FAULT_STAT_0 = 0x1F;    // Table 8-28
     static constexpr uint8_t REG_CHG_FLAG_0 = 0x20;      // Table 8-29
+    static constexpr uint8_t REG_CHG_FLAG_1 = 0x21;      // Table 8-30
     static constexpr uint8_t REG_ADC_CTRL = 0x26;        // Table 8-35
     static constexpr uint8_t REG_ADC_FUNC_DIS_0 = 0x27;  // Table 8-36
     static constexpr uint8_t REG_IBUS_ADC = 0x28;        // 16-bit, Table 8-37
@@ -48,6 +49,13 @@ class Bq25628 {
     static constexpr uint8_t REG_TS_ADC = 0x34;          // 16-bit, Table 8-43
     static constexpr uint8_t REG_TDIE_ADC = 0x36;        // 16-bit, Table 8-44
     static constexpr uint8_t REG_PART_INFO = 0x38;       // Table 8-45
+
+    // ── REG0x06 IINDPM, bits 11:4, 20 mA/LSB, 100-3200 mA (Table 8-11).
+    static constexpr uint16_t IINDPM_SHIFT = 4;
+    static constexpr uint16_t IINDPM_MASK = 0xFF << IINDPM_SHIFT;
+    static constexpr uint16_t IINDPM_STEP_MA = 20;
+    static constexpr uint16_t IINDPM_MIN_MA = 100;
+    static constexpr uint16_t IINDPM_MAX_MA = 3200;
 
     // ── REG0x02 ICHG, bits 10:5, 40 mA/LSB, 40-2000 mA, POR 320 mA. Watchdog
     // expiry halves it (Table 8-9).
@@ -134,6 +142,9 @@ class Bq25628 {
     // ── REG0x20 Charger Flag 0 (Table 8-29): latched, cleared by reading.
     static constexpr uint8_t FLAG0_WD = 1 << 0;  // watchdog expired since the last read
 
+    // ── REG0x21 Charger Flag 1 (Table 8-30): latched, cleared by reading.
+    static constexpr uint8_t FLAG1_CHG = 1 << 3;  // charge status changed since the last read
+
     // ── REG0x26 ADC Control (Table 8-35, POR 30h).
     static constexpr uint8_t ADC_EN = 1 << 7;               // reset by WATCHDOG to 0
     static constexpr uint8_t ADC_RATE = 1 << 6;             // 0 continuous, 1 one-shot
@@ -162,6 +173,7 @@ class Bq25628 {
         uint8_t stat1 = 0;  // REG0x1E
         uint8_t fault = 0;  // REG0x1F
         uint8_t flag0 = 0;  // REG0x20 (latched)
+        uint8_t flag1 = 0;  // REG0x21 (latched)
 
         uint8_t vbusStat() const { return stat1 & STAT1_VBUS_MASK; }
         // Power good: the charger runs from a qualified USB adapter.
@@ -197,6 +209,9 @@ class Bq25628 {
         uint16_t otgVoltageMv;          // VOTG
         uint16_t terminationCurrentMa;  // ITERM
         uint8_t batteryPeakCurrent;     // IBAT_PK: CTRL3_IBAT_PK_6A or _12A
+        bool chargeEnabled = true;      // EN_CHG
+        bool inputLimitPin = true;      // EN_EXTILIM: ILIM pin on (see setInputLimit())
+        uint16_t inputLimitMa = 500;    // IINDPM
     };
 
     explicit Bq25628(TwoWire& wire = Wire) : _wire(wire) {}
@@ -206,8 +221,8 @@ class Bq25628 {
     // Device revision from the last successful probe() (PART_INFO bits 2:0).
     uint8_t revision() const { return _revision; }
 
-    // Reads REG0x16..0x20. Reading clears the latched flags in REG0x20
-    // (§8.3.8.1); nothing else uses them.
+    // Reads REG0x16..0x21. Reading clears the latched flags in REG0x20 and
+    // REG0x21 (§8.3.8.1); nothing else uses them.
     bool readStatus(Status& out);
 
     // Moves the charger to host mode and writes every setting below, none
@@ -216,10 +231,10 @@ class Bq25628 {
     // (§8.4.1), which resets several fields.
     //   - watchdog 200 s (reset WD_RST every kick)
     //   - ICHG, VREG, VOTG, ITERM and IBAT_PK from s
-    //   - charging enabled, HIZ off
+    //   - charging (EN_CHG) from s, HIZ off
     //   - safety timers on (EN_SAFETY_TMRS = 1)
     //   - TS feedback used (TS_IGNORE = 0)
-    //   - ILIM pin input-current limit on (EN_EXTILIM = 1)
+    //   - input current limit from s (setInputLimit())
     //   - boost (not bypass) OTG
     // Returns false on an I2C error or if VREG does not read back as written.
     bool configure(const Settings& s);
@@ -237,8 +252,22 @@ class Bq25628 {
     // default mode. False on an I2C error or a read-back mismatch.
     bool setChargeVoltage(uint16_t mv);
 
+    // Writes ICHG alone (Table 8-9), held within ICHG_MIN_MA..ICHG_MAX_MA.
+    // The watchdog halves it; configure() writes it again.
+    bool setChargeCurrent(uint16_t ma);
+
+    // Input current limit (§8.3.3.4). pin = true: the ILIM pin limits
+    // (EN_EXTILIM = 1) and IINDPM is written too; the lower of both applies.
+    // pin = false: IINDPM alone (EN_EXTILIM = 0). Lowering sets the pin
+    // first, raising writes IINDPM before the pin goes off. The watchdog sets
+    // EN_EXTILIM back to 1.
+    bool setInputLimit(bool pin, uint16_t ma);
+
     // Sets or clears EN_OTG. Boost mode only (EN_BYPASS_OTG stays 0).
     bool setOtg(bool enable);
+
+    // Sets or clears EN_CHG (Table 8-19). The watchdog sets it back to 1.
+    bool setChargeEnabled(bool enable);
 
     // Includes the TS channel in ADC conversions or leaves it out
     // (TS_ADC_DIS). On battery only, with the TS channel on, the ADC only
