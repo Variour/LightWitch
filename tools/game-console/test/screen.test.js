@@ -139,11 +139,18 @@ test('every view renders without console errors', { timeout: 180000 }, async (t)
     await act('next');
     await act('next');
     await waitFor(() => game.snapshot().round.results.answered >= 30, { timeoutMs: 20000, what: 'answers' });
-    await shot('auswahl', '.answered');
+    await shot('auswahl', '.clock-under b');
+    assert.match(await page.textContent('.clock-under b'), /^\d+ von 50$/);
+    assert.equal(await page.textContent('#mid'), 'lösen');
+    assert.equal(await page.locator('.atile').count(), 4);
     await waitFor(() => game.snapshot().round.results.answered >= 40, { timeoutMs: 20000, what: 'answers' });
     await act('next');
+    await page.waitForSelector('.clock-mid .lock');
+    await shot('auswahl-zu', '.atile .cnt:not(:empty)');
     await act('next');
-    await shot('auswahl-aufloesung', '.answer.right');
+    await shot('auswahl-aufloesung', '.atile.hit .check');
+    assert.equal(await page.locator('.atile.miss').count(), 3);
+    assert.equal(await page.textContent('#mid'), '');
 
     // The move round requires quer: "x von y bereit" while announced.
     await act('next');

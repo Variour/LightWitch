@@ -41,13 +41,28 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const de = (n, digits = 0) => Number(n).toLocaleString('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
-  const SYMBOLS = [
-    '<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 14 L88 82 L12 82 Z"/></svg>',
-    '<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="35"/></svg>',
-    '<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M22 22 L78 78 M78 22 L22 78"/></svg>',
-    '<svg viewBox="0 0 100 100" aria-hidden="true"><rect x="19" y="19" width="62" height="62"/></svg>',
-  ];
-  const SYMBOL_NAMES = ['Dreieck', 'Kreis', 'Kreuz', 'Quadrat'];
+  // Answer i sits on the device key CHOICE_KEYS[i]: up, right, down, left.
+  const CROSS = ['up', 'right', 'down', 'left'];
+  const CHECK = '<svg class="check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 L10 17.5 L19 7.5"/></svg>';
+  const BARS = '<svg class="bars" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20 V12 M10 20 V6 M15 20 V10 M20 20 V14 M3 20.5 H22"/></svg>';
+  const LOCK = '<svg class="lock" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="1.5"/><path d="M8 11 V8 a4 4 0 0 1 8 0 V11"/></svg>';
+
+  // The ring of the buzzer, 8 segments from 12 o'clock clockwise.
+  function clock(lit, cls) {
+    const r = 42;
+    const gap = 7;
+    const pt = (deg) => {
+      const a = ((deg - 90) * Math.PI) / 180;
+      return `${(50 + r * Math.cos(a)).toFixed(2)} ${(50 + r * Math.sin(a)).toFixed(2)}`;
+    };
+    const segs = Array.from({ length: 8 }, (_, i) => {
+      const a0 = i * 45 + gap / 2;
+      const a1 = (i + 1) * 45 - gap / 2;
+      return `<path class="${i < lit ? cls : 'off'}" d="M${pt(a0)} A${r} ${r} 0 0 1 ${pt(a1)}"/>`;
+    }).join('');
+    return `<svg class="clock-ring" viewBox="0 0 100 100" aria-hidden="true">${segs}</svg>`;
+  }
+
   const LEDS = 16; // segments per column, like the buzzer's score column
   const RANK_ROWS = 8;
 
@@ -498,53 +513,76 @@
     choice: {
       build: (s) => {
         const r = s.round;
-        const [pt, pc] = phaseLabel(r);
         const answers = r.answers.length ? r.answers : ['Antwort 1', 'Antwort 2', 'Antwort 3', 'Antwort 4'];
-        const rows = answers.map((a, i) => {
-          const mark = r.revealed ? (r.correct === i + 1 ? ' right' : ' wrong') : '';
-          return `<div class="answer k${i + 1}${mark}" data-a="${i}">
-            <span class="fill" style="width:0"></span>
-            <span class="key" title="${SYMBOL_NAMES[i]}">${SYMBOLS[i]}</span>
-            <span class="text">${esc(a)}</span><span class="cnt"></span></div>`;
-        }).join('');
-        return `${head(r.title, pt, pc, r.question)}
+        const tiles = answers.map((a, i) => `<div class="atile ${CROSS[i]}" data-a="${i}">
+            <span class="tri"></span><span class="text">${esc(a)}</span><span class="cnt"></span></div>`).join('');
+        const q = r.question ? `<h2 class="question${r.question.length > 110 ? ' long' : ''}">${esc(r.question)}</h2>` : '';
+        return `<header class="head choice-head"><div class="round-title">${esc(r.title)}</div><div class="head-row">${q}<span class="category">${r.hasCorrect ? 'Quiz' : 'Umfrage'}</span></div></header>
           <div class="body">
-            <div class="answers">${rows}</div>
-            <div class="choice-side" id="side"></div>
-          </div>`;
+            <div class="cross">${tiles}<div class="mid"><span id="mid"></span></div></div>
+            <div class="clock">
+              <div class="clock-face" id="clock"></div>
+              <div class="clock-under" id="under"></div>
+            </div>
+          </div>
+          <p class="foot" id="foot"></p>`;
       },
       update: (s) => {
         const r = s.round;
         const res = r.results;
-        const side = document.getElementById('side');
-        let html;
+        const missing = Math.max(0, res.participants - res.answered);
+        const right = res.right || [];
+        let ring;
+        let under;
+        let foot;
+        let mid = '';
         if (r.phase === 'announced') {
-          html = '<p class="big-note">Antworten mit den Tasten, sobald die Runde offen ist.</p>';
+          ring = `${clock(0, 'on')}<div class="clock-mid"><span class="word">gleich</span></div>`;
+          under = '';
+          foot = 'Gleich geht’s los.';
         } else if (r.phase === 'open') {
-          const n = Math.max(1, Math.min(res.participants, 50));
-          const on = res.participants ? Math.round((res.answered / res.participants) * n) : 0;
-          html = `<div class="answered"><b>${res.answered}</b><span>von ${res.participants} haben geantwortet</span></div>
-            <div class="progress">${Array.from({ length: n }, (_, i) => `<i${i < on ? ' class="on"' : ''}></i>`).join('')}</div>`;
+          ring = `${clock(8, 'on')}<div class="clock-mid"><span class="word">offen</span></div>`;
+          under = `<b>${res.answered} von ${res.participants}</b><span>abgegeben</span>`;
+          foot = 'Pfeil drücken, fertig. Mit der Mitte lösen.';
+          mid = 'lösen';
         } else if (r.revealed) {
-          const right = res.right || [];
-          html = `<p class="stat"><b>${right.length}</b> von ${res.answered} lagen richtig</p>
-            ${right.length ? `<p class="right-list"><b>${right.map(esc).join(', ')}</b></p>` : ''}`;
+          const share = res.participants ? Math.round((8 * right.length) / res.participants) : 0;
+          const lit = right.length ? Math.max(1, share) : 0;
+          ring = `${clock(lit, 'hit')}<div class="clock-mid"><b>${right.length}</b><span class="word hit">richtig</span><span class="of">von ${res.participants}</span></div>`;
+          under = `${missing ? `<span>${missing} nicht abgegeben</span>` : ''}${right.length ? `<p class="right-list">${right.map(esc).join(', ')}</p>` : ''}`;
+          foot = 'Dein Gerät: <i class="sw hit"></i> richtig <i class="sw miss"></i> daneben <i class="sw none"></i> nicht abgegeben';
         } else {
-          html = `<p class="stat"><b>${res.answered}</b> von ${res.participants} haben geantwortet</p>${r.hasCorrect ? '<p class="big-note">Auflösung folgt.</p>' : ''}`;
+          ring = `${clock(8, 'zu')}<div class="clock-mid">${r.hasCorrect ? LOCK : BARS}<span class="word">zu</span></div>`;
+          under = `<b>${res.answered} von ${res.participants}</b><span>abgegeben</span>`;
+          foot = r.hasCorrect ? 'Gleich kommt die Auflösung.' : '';
         }
-        if (side.dataset.html !== html) {
-          side.innerHTML = html;
-          side.dataset.html = html;
-        }
-        if (res.counts) {
-          const total = res.counts.reduce((a, b) => a + b, 0) || 1;
-          res.counts.forEach((c, i) => {
-            const row = stage.querySelector(`.answer[data-a="${i}"]`);
-            if (!row) return;
-            row.querySelector('.fill').style.width = `${(c / total) * 100}%`;
-            row.querySelector('.cnt').innerHTML = `${c}<small>${de((c / total) * 100)} %</small>`;
-          });
-        }
+        const put = (id, html) => {
+          const el = document.getElementById(id);
+          if (el && el.dataset.html !== html) {
+            el.innerHTML = html;
+            el.dataset.html = html;
+          }
+        };
+        put('clock', ring);
+        put('under', under);
+        put('foot', foot);
+        put('mid', mid);
+        stage.querySelectorAll('.atile').forEach((tile) => {
+          const i = Number(tile.dataset.a);
+          const state = r.revealed && r.correct ? (r.correct === i + 1 ? 'hit' : 'miss') : '';
+          if (tile.dataset.state !== state) {
+            tile.dataset.state = state;
+            tile.classList.toggle('hit', state === 'hit');
+            tile.classList.toggle('miss', state === 'miss');
+          }
+          const c = res.counts ? res.counts[i] : null;
+          const cnt = c === null || c === undefined ? '' : `${state === 'hit' ? CHECK : ''}${c}`;
+          const el = tile.querySelector('.cnt');
+          if (el.dataset.html !== cnt) {
+            el.innerHTML = cnt;
+            el.dataset.html = cnt;
+          }
+        });
       },
     },
 
