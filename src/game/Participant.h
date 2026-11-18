@@ -7,6 +7,7 @@
 #include "GameConfig.h"
 #include "GameFrames.h"
 #include "GameTypes.h"
+#include "InputRule.h"
 #include "Lage.h"
 
 namespace game {
@@ -265,6 +266,8 @@ class Participant {
     uint16_t session() const { return _session; }
     uint8_t channel() const { return _channel; }
     const Round& round() const { return _round; }
+    // The input rule of the current round (InputRule.h).
+    const InputRule& rule() const { return _rule; }
     uint8_t value() const { return _val; }
     bool confirmed() const { return _confirmed; }
     // When the bridge's echo last confirmed the value (millis()).
@@ -276,9 +279,7 @@ class Participant {
     }
     // A scale that Enter logs in (link `confirm`): Up and Down set the value,
     // Enter sends it, then it stays.
-    bool confirmEnter() const {
-        return _round.type == RoundType::Scale && (_round.keyMask & (1u << (uint8_t)Key::Enter));
-    }
+    bool confirmEnter() const { return _rule.mode == InputMode::Counter && _rule.confirmed(); }
     uint32_t gatewayAgeMs(uint32_t now) const { return now - _lastGatewayMs; }
     uint32_t admittedAgeMs(uint32_t now) const { return now - _admittedAt; }
     bool searching() const { return _searching; }
@@ -409,6 +410,7 @@ class Participant {
 
     // Round and own value.
     Round _round;
+    InputRule _rule;  // from the round (presetRule of its type)
     uint8_t _val = kNoValue;
     uint8_t _vseq = 0;
     uint32_t _inputMs = 0;  // moment of the last input (millis())
@@ -575,6 +577,8 @@ class Participant {
             _round.hold = (Hold)m.hold;
             _round.firstOnly = (m.h.flags & kStateFirstOnly) != 0;
             _round.rainbow = (m.h.flags & kStateRainbow) != 0;
+            _rule =
+                presetRule(_round.type, _round.keyMask, _round.min, _round.max, _round.firstOnly);
             if (m.turn != _round.answering || m.turnMs != _round.answerMs) {
                 _round.answering = m.turn;
                 _round.answerMs = m.turnMs;
@@ -609,7 +613,7 @@ class Participant {
         }
         if (_number == 0 || _number < m.echoFirst || _number >= m.echoFirst + m.echoCount) return;
         uint8_t echo = m.echo[_number - m.echoFirst];
-        if (_round.type == RoundType::Move) {
+        if (_rule.mode == InputMode::Log) {
             // The last press the bridge passed on.
             if (echo == kNoKeySeq || _logCount == 0) return;
             uint8_t keep = 0;
@@ -696,10 +700,13 @@ class Participant {
         }
         // The answering race device: its first answer key is the answer, in
         // any phase, within its answer time.
-        if (answerOpen(ms) && choiceAnswer(k) != 0 && (_round.keyMask & (1u << (uint8_t)k))) {
-            _answerGiven = true;
-            _setValue(choiceAnswer(k), ms, now, 0);
-            return;
+        if (answerOpen(ms)) {
+            uint8_t a = turnRule(_round.keyMask).valueOf(k);
+            if (a != 0) {
+                _answerGiven = true;
+                _setValue(a, ms, now, 0);
+                return;
+            }
         }
         if (!keyFree(k, ms)) {
             // Round format v0, "Nummern": a member pressing the buzzer while
@@ -707,49 +714,48 @@ class Participant {
             if (k == Key::Buzz && loginOpen(now)) _sendStatus(kStatusJoin | kStatusPressed);
             return;
         }
-        switch (_round.type) {
-            case RoundType::Race:
-                if (k == Key::Buzz && _val == kNoValue) _setValue(1, ms, now, 0);
+        if (!_rule.takes(k)) return;
+        switch (_rule.mode) {
+            case InputMode::Once:
+                if (_val == kNoValue) _setValue(_rule.valueOf(k), ms, now, _rule.sendDelayMs);
                 break;
-            case RoundType::Choice: {
-                uint8_t a = choiceAnswer(k);
-                if (a == 0) break;
-                if (_val == kNoValue || (kChoiceChangeAllowed && !_round.firstOnly && a != _val))
-                    _setValue(a, ms, now, 0);
+            case InputMode::Pick: {
+                uint8_t a = _rule.valueOf(k);
+                if (_val == kNoValue || (!_rule.firstOnly && a != _val))
+                    _setValue(a, ms, now, _rule.sendDelayMs);
                 break;
             }
-            case RoundType::Scale:
-                if (k == Key::Enter)
-                    _scaleEnter(ms, now);
+            case InputMode::Counter:
+                if (k == _rule.confirmKey)
+                    _counterConfirm(ms, now);
                 else
-                    _scaleTap(k, ms, now);
+                    _counterStep(k, ms, now);
                 break;
-            case RoundType::Move:
+            case InputMode::Log:
                 // One press, one event: only press edges reach this point.
-                if (choiceAnswer(k) >= 1 && choiceAnswer(k) <= 4) _pressKey(k, phys, now);
+                _pressKey(k, phys, now);
                 break;
             default:
                 break;
         }
     }
 
-    // One step of a scale value with Up or Down (k: logical).
-    void _scaleTap(Key k, uint32_t ms, uint32_t now) {
-        if ((k != Key::Up && k != Key::Down) || _round.max < _round.min || answerLocked()) return;
-        uint8_t steps = (uint8_t)(_round.max - _round.min + 1);
+    // One step of a counter with its up or down key (k: logical).
+    void _counterStep(Key k, uint32_t ms, uint32_t now) {
+        const InputRule& r = _rule;
+        if ((k != r.upKey && k != r.downKey) || r.max < r.min || answerLocked()) return;
+        bool up = k == r.upKey;
         uint8_t v;
         if (_val == kNoValue) {
-            // Proposal 2: the first tap sets the middle.
-            v = k == Key::Up ? (uint8_t)(_round.min + steps / 2)
-                             : (uint8_t)(_round.min + (steps - 1) / 2);
-        } else if (k == Key::Up) {
-            v = _val < _round.max ? (uint8_t)(_val + 1) : _val;
+            v = up ? r.firstUp : r.firstDown;
+        } else if (up) {
+            v = _val < r.max ? (uint8_t)(_val + 1) : _val;
         } else {
-            v = _val > _round.min ? (uint8_t)(_val - 1) : _val;
+            v = _val > r.min ? (uint8_t)(_val - 1) : _val;
         }
         if (v == _val) return;
-        if (confirmEnter()) {
-            // Held until Enter logs it in.
+        if (r.confirmed()) {
+            // Held until the confirm key logs it in.
             _val = v;
             _inputMs = ms;
             _valLage = (uint8_t)_shown;
@@ -757,12 +763,12 @@ class Participant {
             _sendArmed = false;
             return;
         }
-        _setValue(v, ms, now, _round.firstOnly ? kScaleCommitMs : kScaleSendDelayMs);
+        _setValue(v, ms, now, r.sendDelayMs);
     }
 
-    // Enter in a scale with confirm: sends the value set, which then stays.
-    void _scaleEnter(uint32_t ms, uint32_t now) {
-        if (!confirmEnter() || _val == kNoValue || answerLocked()) return;
+    // The confirm key of a counter: sends the value set, which then stays.
+    void _counterConfirm(uint32_t ms, uint32_t now) {
+        if (!_rule.confirmed() || _val == kNoValue || answerLocked()) return;
         _setValue(_val, ms, now, 0);
     }
 
@@ -770,7 +776,8 @@ class Participant {
     // kScaleRepeatMs after kScaleRepeatDelayMs.
     void _serviceRepeat(uint32_t now) {
         if (_repeatKey == Key::None) return;
-        if (!_down[(uint8_t)_repeatKey] || !_round.known || _round.type != RoundType::Scale) {
+        if (!_down[(uint8_t)_repeatKey] || !_round.known || _rule.mode != InputMode::Counter ||
+            !_rule.repeat) {
             _repeatKey = Key::None;
             return;
         }
@@ -778,7 +785,7 @@ class Participant {
         _repeatAt = now + kScaleRepeatMs;
         if (locked()) return;
         Key k = roundKey(logicalInput(_shown, _repeatKey));
-        if (keyFree(k, now)) _scaleTap(k, now, now);
+        if (keyFree(k, now)) _counterStep(k, now, now);
     }
 
     void _pressKey(Key k, Key phys, uint32_t now) {
