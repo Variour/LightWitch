@@ -72,8 +72,9 @@ class HubUi {
     static constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) { return rgb565(r, g, b); }
     static uint16_t rgb(game::Rgb c) { return rgb565(c.r, c.g, c.b); }
 
-    // farben-standard: green for right and logged in, orange red (dimmed)
-    // for wrong, orange for no connection, blue for login / invite.
+    // Colours of the shared design system (gestaltung-buzzer/SYSTEM.md, v6/v7):
+    // background 075033, green only for "right", FF9C5C "daneben", A774D8
+    // "nicht abgegeben", grey for closed. No blue.
     static constexpr uint16_t kBg = rgb565(0x07, 0x50, 0x33);     // dark green 075033
     static constexpr uint16_t kPanel = rgb565(0x05, 0x3C, 0x26);  // header, tabs, boxes
     static constexpr uint16_t kLine = rgb565(0x2E, 0x7A, 0x58);
@@ -85,7 +86,9 @@ class HubUi {
     static constexpr uint16_t kGreen = rgb565(0x2F, 0xFB, 0x95);  // right, and only that
     static constexpr uint16_t kNeben = rgb565(0xFF, 0x9C, 0x5C);  // daneben
     static constexpr uint16_t kNone = rgb565(0xA7, 0x74, 0xD8);   // nicht abgegeben
-    static constexpr uint16_t kWarn = rgb565(0xFF, 0xD5, 0x4A);   // technical: battery, signal
+    // Technical warnings (battery, signal, console) are white with a warning
+    // sign: every colour above already has a meaning.
+    static constexpr uint16_t kWarn = kText;
 
     HubBoard _board;
     GFXcanvas16* _frame = nullptr;
@@ -139,6 +142,14 @@ class HubUi {
     }
 
     // ── Text helpers ─────────────────────────────────────────────────────────
+    // Warning sign, 12 px wide, standing on baseline y; returns its width.
+    int16_t _warnIcon(int16_t x, int16_t y) {
+        _frame->fillTriangle(x + 6, y - 11, x, y, x + 12, y, kText);
+        _frame->drawFastVLine(x + 6, y - 7, 4, kBg);
+        _frame->drawPixel(x + 6, y - 2, kBg);
+        return 16;
+    }
+
     void _font(const uint8_t* f, uint16_t color) {
         _text.setFont(f);
         _text.setFontMode(1);  // setFont() switches back to a solid background
@@ -205,7 +216,10 @@ class HubUi {
         _font(u8g2_font_helvR10_tf, v.console ? kText : kWarn);
         const char* con = v.console ? "Konsole" : "ohne Konsole";
         int16_t conX = W - kPad - _width(con);
-        _frame->fillCircle(conX - 9, 16, 4, v.console ? kText : kWarn);
+        if (v.console)
+            _frame->fillCircle(conX - 9, 16, 4, kText);
+        else
+            _warnIcon(conX - 17, 21);
         _at(conX, 21, con);
         // Row 2: members, login, low battery, channel.
         if (!v.session) return;
@@ -222,6 +236,7 @@ class HubUi {
             x += _width(buf) + 12;
         }
         if (v.lowBattery) {
+            x += _warnIcon(x, 45);
             _font(u8g2_font_helvR10_tf, kWarn);
             snprintf(buf, sizeof(buf), "%u Akku schwach", v.lowBattery);
             _at(x, 45, buf);
@@ -296,7 +311,7 @@ class HubUi {
         y += 64;
         _drawGrid(v, y, kTabY - 30 - y, false);
         _font(u8g2_font_helvR10_tf, kDim);
-        _at(kPad, kTabY - 10, "grau = offline,  gelber Rahmen = Akku schwach");
+        _at(kPad, kTabY - 10, "grau = offline,  weißer Rahmen = Akku schwach");
     }
 
     // Member numbers as tiles. Offline grey, low battery orange frame,
@@ -325,6 +340,7 @@ class HubUi {
             bool low =
                 m.present && m.battery != game::kNoBattery && m.battery < HubView::kLowBattery;
             _frame->drawRoundRect(x0, y0, tw, th, 4, low ? kWarn : kLine);
+            if (low) _frame->drawRoundRect(x0 + 1, y0 + 1, tw - 2, th - 2, 3, kWarn);
             char num[6];
             snprintf(num, sizeof(num), "%u", m.n);
             _font(u8g2_font_helvB10_tf, m.present ? kText : kDim);
@@ -713,12 +729,15 @@ class HubUi {
             else
                 snprintf(buf, sizeof(buf), "%u%%%s", m.battery, m.charging ? "+" : "");
             _at(cx + 40, cy + 16, buf);
-            _font(u8g2_font_helvR10_tf, m.present && m.rssi < HubView::kWeakRssi ? kWarn : kDim);
+            if (m.present && low) _warnIcon(cx + 24, cy + 16);
+            bool weak = m.present && m.rssi < HubView::kWeakRssi;
+            _font(u8g2_font_helvR10_tf, weak ? kWarn : kDim);
             if (m.present)
                 snprintf(buf, sizeof(buf), "%d dBm", m.rssi);
             else
                 snprintf(buf, sizeof(buf), "offline");
             _right(cx + colW - 10, cy + 16, buf);
+            if (weak) _warnIcon(cx + colW - 10 - _width(buf) - 15, cy + 16);
         }
     }
 
@@ -731,11 +750,13 @@ class HubUi {
             const char* label;
             char value[24];
             uint16_t color;
+            bool warn;
         } rows[6];
         uint8_t n = 0;
-        auto add = [&](const char* label, uint16_t color, const char* fmt, auto... args) {
+        auto add = [&](const char* label, bool warn, const char* fmt, auto... args) {
             rows[n].label = label;
-            rows[n].color = color;
+            rows[n].color = warn ? kWarn : kText;
+            rows[n].warn = warn;
             snprintf(rows[n].value, sizeof(rows[n].value), fmt, args...);
             n++;
         };
@@ -744,17 +765,15 @@ class HubUi {
             _center(W / 2, kContentY + 140, "Keine Sitzung");
             return;
         }
-        add("Kanal", v.offChannel ? kWarn : kText, v.offChannel ? "%u (Wechsel)" : "%u", v.channel);
-        add("Empfangen", kText, "%lu Frames", (unsigned long)v.rxFrames);
-        add("Gesendet", kText, "%lu Frames", (unsigned long)v.txFrames);
+        add("Kanal", v.offChannel, v.offChannel ? "%u (Wechsel)" : "%u", v.channel);
+        add("Empfangen", false, "%lu Frames", (unsigned long)v.rxFrames);
+        add("Gesendet", false, "%lu Frames", (unsigned long)v.txFrames);
         if (v.present)
-            add("Schwächstes Signal", v.weakestRssi < HubView::kWeakRssi ? kWarn : kText, "%d dBm",
-                v.weakestRssi);
+            add("Schwächstes Signal", v.weakestRssi < HubView::kWeakRssi, "%d dBm", v.weakestRssi);
         else
-            add("Schwächstes Signal", kDim, "%s", "-");
-        add("Schwaches Signal", v.weakCount ? kWarn : kText, "%u Geräte", v.weakCount);
-        add("Offline", v.members > v.present ? kWarn : kText, "%u Geräte",
-            (unsigned)(v.members - v.present));
+            add("Schwächstes Signal", false, "%s", "-");
+        add("Schwaches Signal", v.weakCount > 0, "%u Geräte", v.weakCount);
+        add("Offline", v.members > v.present, "%u Geräte", (unsigned)(v.members - v.present));
         for (uint8_t i = 0; i < n; i++) {
             int16_t ry = kContentY + 50 + i * 44;
             _frame->fillRoundRect(kPad, ry, W - 2 * kPad, 38, 6, kPanel);
@@ -762,6 +781,7 @@ class HubUi {
             _at(kPad + 10, ry + 25, rows[i].label);
             _font(u8g2_font_helvB12_tf, rows[i].color);
             _right(W - kPad - 10, ry + 25, rows[i].value);
+            if (rows[i].warn) _warnIcon(W - kPad - 10 - _width(rows[i].value) - 18, ry + 25);
         }
         (void)buf;
     }
