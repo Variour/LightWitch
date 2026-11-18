@@ -160,7 +160,7 @@ run the preset.
 
 Owner, 2026-11-18 (`gestaltung-buzzer/SYSTEM.md`, "Entscheidungen v7"). The presets of `choice` and of `scale` with `"confirm":"enter"` use `release` unless the round has `firstOnly`.
 
-- `choice`: a direction key gives the answer at once; the other keys then do nothing. Enter releases the answer, then every answer key is free again. Enter is no answer in `choice`.
+- `choice`: a direction key gives the answer at once; the other keys then do nothing. Enter releases the answer, then every answer key is free again. A `choice` whose `keys` name `enter` has five answers: Enter is answer 5 and the first press stays.
 - `scale` with `"confirm":"enter"`: Up and Down set the value, Enter gives it, Enter again releases it.
 - A release goes out as a report with value 255 and a new `valueSeq`. The bridge then holds no value for the device and its `value` line carries `"v":null`: count the device as not answered. The device keeps resending the release until the echo shows no value.
 
@@ -261,9 +261,10 @@ Owner, 2026-11-18: one Rev-1 buzzer per session can be the teacher device. It is
 
 ### Answer keys, Enter to log in
 
-- `choice` since 2026-11-18: Enter is no answer, it releases the answer
-  given (see "One press gives the answer"). A race with answer keys still
-  takes Enter as answer 5.
+- `choice` since 2026-11-18: Enter releases the answer given (see "One
+  press gives the answer"). A `choice` whose `keys` name `enter` has five
+  answers: Enter is answer 5 and the first press stays. A race with answer
+  keys takes Enter as answer 5 as before.
 - Answer keys of a `choice` (and of a race with answer keys): any 2-5 of
   `up` (answer 1), `right` (2), `down` (3), `left` (4) and `enter` (5, the
   centre key), e.g. `up` and `down` for true or false. The answer number

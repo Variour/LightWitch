@@ -77,12 +77,16 @@ inline InputRule presetRule(RoundType type, uint16_t keyMask, uint8_t min, uint8
             break;
         case RoundType::Choice:
             // Owner (2026-11-18): a direction gives the answer at once, Enter
-            // releases it; Enter is no answer. firstOnly: no release.
-            r.mode = InputMode::Pick;
+            // releases it. A round that frees Enter has five answers: Enter
+            // is answer 5 and the first press stays. firstOnly: no release.
             setChoiceValues(r);
-            r.keyValue[(uint8_t)Key::Enter] = 0;
             r.firstOnly = firstOnly;
-            r.release = !firstOnly;
+            if (keyMask & (1u << (uint8_t)Key::Enter)) {
+                r.mode = InputMode::Once;
+            } else {
+                r.mode = InputMode::Pick;
+                r.release = !firstOnly;
+            }
             break;
         case RoundType::Scale: {
             r.mode = InputMode::Counter;
