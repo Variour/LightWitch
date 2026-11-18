@@ -99,7 +99,8 @@ class FleetManager {
         return true;
     }
 
-    // The light the fleet renders on: the first one with the Buzzerboard's 34 LEDs.
+    // The light the fleet renders on: the first one with the Buzzerboard's LED count
+    // (game::kLedCount).
     void setLight(LedDriver* led, uint16_t ledCount) {
         if (!_led && ledCount == game::kLedCount) _led = led;
     }

@@ -8,11 +8,11 @@
 #include "FleetConfig.h"
 #include "FleetTypes.h"
 
-// The fleet package's frames on the 34 Buzzerboard LEDs (owner's display
+// The fleet package's frames on the Buzzerboard LEDs (owner's display
 // sketch "Was zeigt ein Buzzer im Lademodus?"): charging, full, fault and
-// update. Plain C++, no driver access. USB-C is on the top edge and LED1-24
-// run bottom to top (Buzzerboard hardware/README.md). Owner (2026-11-09):
-// every level on the score column fills from LED1 upwards.
+// update. Plain C++, no driver access. USB-C is on the top edge and the
+// score column (LED1-24, rev 2 LED1-21) runs bottom to top (Buzzerboard hardware/README.md). Owner
+// (2026-11-09): every level on the score column fills from LED1 upwards.
 //
 // Fades (the idle breath of the own colours, the charging glow, the gateway
 // pulse) run at a fine level with 8 fractional bits and are dithered by
@@ -158,12 +158,14 @@ inline void renderOffLevel(uint8_t battery, bool charging, uint32_t now, Rgb* px
 // The device's own colours: the look's colour per column LED from LED1, one
 // breath per kIdlePulseMs from lvl / 5 up to lvl and back, t = time since the
 // breath began. Ring and status dot stay dark.
-static_assert(kLookLeds == game::kScoreCount, "one look colour per column LED");
+// A board with fewer column LEDs than kLookLeds (rev 2: 21) shows the
+// first kScoreCount colours.
+static_assert(kLookLeds >= game::kScoreCount, "one look colour per column LED");
 inline void renderLook(const Look& look, uint32_t t, uint8_t lvl, Rgb* px) {
     clearFrame(px);
     if (look.count != kLookLeds) return;
     uint16_t b = softPulse(t, kIdlePulseMs, (uint16_t)(dither::fine(lvl) / 5), dither::fine(lvl));
-    for (uint8_t i = 0; i < kLookLeds; i++) {
+    for (uint8_t i = 0; i < game::kScoreCount; i++) {
         uint8_t led = columnLedFromLed1(i);
         px[led] = levelFine(Rgb{look.rgb[i][0], look.rgb[i][1], look.rgb[i][2]}, b, led);
     }
@@ -178,9 +180,10 @@ inline void renderGateway(const Look& look, uint32_t now, uint8_t lvl, Rgb* px) 
     uint32_t run = kGatewayFlowMs * 7 / 10;
     // Pulse centre from 2 LEDs above the top to 2 below LED1.
     float pos =
-        ph < run ? (float)(kLookLeds + 1) - (float)ph * (kLookLeds + 4) / (float)run : -100.0f;
+        ph < run ? (float)(game::kScoreCount + 1) - (float)ph * (game::kScoreCount + 4) / (float)run
+                 : -100.0f;
     float k = (float)dither::fine(lvl) / 255.0f;  // full scale -> fine level
-    for (uint8_t i = 0; i < kLookLeds; i++) {
+    for (uint8_t i = 0; i < game::kScoreCount; i++) {
         Rgb c = look.count == kLookLeds ? Rgb{look.rgb[i][0], look.rgb[i][1], look.rgb[i][2]}
                                         : Rgb{0, 48, 255};
         float d = fabsf((float)i - pos);
@@ -231,8 +234,8 @@ inline void renderUpdate(uint8_t percent, uint32_t now, Rgb* px, uint8_t lvl) {
     clearFrame(px);
     Rgb blue = level(game::colorRgb(Color::Blue), lvl);
     fillColumn(px, columnCount(percent), blue);
-    // Ring order around the circle: lower left, upper left, upper right, lower right.
-    px[game::kRingLeds[(now / kRingChaseMs) % 4]] = blue;
+    // Ring order around the circle: clockwise from the lower left.
+    px[game::kRingLeds[(now / kRingChaseMs) % game::kRingCount]] = blue;
     px[game::kStatusDot] = blue;
 }
 

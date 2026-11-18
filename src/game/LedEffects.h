@@ -47,6 +47,12 @@ inline void fillRing(const LedZones& z, Rgb* px, Rgb c) {
     for (uint8_t i : z.ring) px[i] = c;
 }
 
+// Every LED of a physical key; nothing for a key without one.
+inline void fillKey(const LedZones& z, Rgb* px, Key k, Rgb c) {
+    uint8_t first = z.keyLed(k);
+    for (uint8_t i = 0; i < z.keyLeds(k); i++) px[first + i] = c;
+}
+
 // Bar: the first count column LEDs in reading direction.
 inline void fillColumn(const LedZones& z, Rgb* px, uint8_t count, Rgb c, bool reversed = false) {
     for (uint8_t i = 0; i < count && i < z.columnCount; i++) px[z.columnLed(i, reversed)] = c;

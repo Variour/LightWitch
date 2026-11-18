@@ -189,7 +189,7 @@ class FactoryTest {
                 px[game::kLedRight] = c;
                 return;
             case Key::Enter:
-                px[game::kLedEnter] = c;
+                for (uint8_t i = 0; i < game::kLedEnterCount; i++) px[game::kLedEnter + i] = c;
                 return;
             default:
                 px[columnLed((uint8_t)(2 * ((uint8_t)k - (uint8_t)Key::L1)))] = c;

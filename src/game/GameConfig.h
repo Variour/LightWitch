@@ -112,21 +112,51 @@ static constexpr uint32_t kLageAnimColumnMs = 720;
 // firmware: status dot pulse while the round's hold locks the device (0.5 Hz).
 static constexpr uint32_t kLockPulseMs = 2000;
 
-// ── LEDs (Buzzerboard rev A0) ────────────────────────────────────────────────
-// One chain of 34 SK6812MINI-E. Verified against the routed board
-// (buzzerboard.kicad_pcb: LEDn DIN = LED_D(n-1), positions) and
+// ── LEDs ─────────────────────────────────────────────────────────────────────
+// BUZZERBOARD_REV (platformio.ini) selects the board's chain; 1 without it.
+#ifndef BUZZERBOARD_REV
+#define BUZZERBOARD_REV 1
+#endif
+#if BUZZERBOARD_REV == 2
+// Buzzerboard rev 2 draft (B0, not built). One chain of 36 SK6812MINI-E,
+// chain index = LEDn - 1. From the board repo's hardware/gen/buzzer.py
+// ROLES (rev 2) and hardware/README.md "Buzzer window LED gone, chain
+// renumbered (2026-11-17)"; positions from buzzerboard-rev2.kicad_pcb.
+static constexpr uint16_t kLedCount = 36;
+static constexpr uint8_t kScoreFirst = 0;  // LED1-21: score column, bottom to top
+static constexpr uint8_t kScoreCount = 21;
+// LED22-29: buzzer ring, clockwise from the lower left (lower left, left,
+// upper left, top, upper right, right, lower right, bottom). The bottom LED
+// (LED29) is the status dot, so the ring zone has the other seven.
+static constexpr uint8_t kRingCount = 7;
+static constexpr uint8_t kRingLeds[kRingCount] = {21, 22, 23, 24, 25, 26, 27};
+static constexpr uint8_t kStatusDot = 28;  // LED29: ring bottom, the status dot
+static constexpr uint8_t kLedUp = 29;      // LED30
+static constexpr uint8_t kLedLeft = 30;    // LED31
+static constexpr uint8_t kLedEnter = 31;   // LED32-34: switch window, side 1, side 2
+static constexpr uint8_t kLedEnterCount = 3;
+static constexpr uint8_t kLedRight = 34;  // LED35
+static constexpr uint8_t kLedDown = 35;   // LED36
+#else
+// Buzzerboard rev A0. One chain of 34 SK6812MINI-E. Verified against the
+// routed board (buzzerboard.kicad_pcb: LEDn DIN = LED_D(n-1), positions) and
 // hardware/gen/buzzer.py ROLES: chain index = LEDn - 1.
 static constexpr uint16_t kLedCount = 34;
 static constexpr uint8_t kScoreFirst = 0;  // LED1-24: score column, bottom to top
 static constexpr uint8_t kScoreCount = 24;
 // LED25-28: buzzer ring corners (lower left, upper left, upper right, lower right).
-static constexpr uint8_t kRingLeds[4] = {24, 25, 26, 27};
+static constexpr uint8_t kRingCount = 4;
+static constexpr uint8_t kRingLeds[kRingCount] = {24, 25, 26, 27};
 static constexpr uint8_t kStatusDot = 28;  // LED29: switch window, the status dot
 static constexpr uint8_t kLedUp = 29;      // LED30
 static constexpr uint8_t kLedLeft = 30;    // LED31
 static constexpr uint8_t kLedEnter = 31;   // LED32
-static constexpr uint8_t kLedRight = 32;   // LED33
-static constexpr uint8_t kLedDown = 33;    // LED34
+static constexpr uint8_t kLedEnterCount = 1;
+static constexpr uint8_t kLedRight = 32;  // LED33
+static constexpr uint8_t kLedDown = 33;   // LED34
+#endif
+// fixed v0: a scale has at most 24 steps (link `game round`), on every board.
+static constexpr uint8_t kScaleMaxSteps = 24;
 
 // Brightness levels ("hell", "gedimmt" ~20 %, "schwach" ~5 %). The light's
 // brightness clamp and the driver's current budget still apply on top.

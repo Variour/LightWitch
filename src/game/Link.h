@@ -812,7 +812,7 @@ class Link : public Bridge::Listener {
                 _badField(id, cmd, "max", "max must be > min and <= 99");
                 return false;
             }
-            if (mx - mn + 1 > kScoreCount) {
+            if (mx - mn + 1 > kScaleMaxSteps) {
                 _badField(id, cmd, "max", "max - min + 1 must be <= 24");
                 return false;
             }
