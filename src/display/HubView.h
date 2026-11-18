@@ -43,7 +43,8 @@ struct HubView {
     uint32_t countdownMs = 0;  // round or answer time, 0 = no limit
     uint32_t remainingMs = 0;
     uint16_t keyMask = 0;
-    uint16_t answered = 0;  // present members with a value
+    bool anonymous = false;  // anonymous round: the middle field offers "Ergebnis" (set with #506)
+    uint16_t answered = 0;   // present members with a value
     uint16_t answering = 0;
     uint16_t winner = 0;
     bool winnerWrong = false;

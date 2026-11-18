@@ -521,7 +521,10 @@ class HubUi {
                  closed ? (int32_t)v.counts[value] : -1);
         }
         bool enterAnswer = (v.keyMask & (1u << (uint8_t)game::Key::Enter)) != 0;
-        _middle(closed ? "" : "ändern", closed && enterAnswer ? (int32_t)v.counts[5] : -1);
+        _middle(!closed                   ? "ändern"
+                : resolved && v.anonymous ? "Ergebnis"
+                                          : "",
+                closed && enterAnswer ? (int32_t)v.counts[5] : -1);
     }
 
     // Category line in place of the old status pill: round type and number.
