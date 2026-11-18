@@ -165,14 +165,27 @@ class Link : public Bridge::Listener {
         _numOrNull(bat, j.battery != kNoBattery, j.battery);
         _lagePart(lage, j.lage);
         char line[kEventLineMax];
-        int len =
-            snprintf(line, sizeof(line),
-                     "{\"ns\":\"game\",\"ev\":\"join\",\"mac\":\"%s\",\"n\":%s,\"fw\":\"%08lx\","
-                     "\"proto\":%u,\"fleet\":%u,\"bat\":%s,\"chg\":%s,\"rssi\":%d,"
-                     "\"pressed\":%s,\"rejoin\":%s,\"named\":%s%s}\n",
-                     mac, n, (unsigned long)j.fw, j.proto, j.fleet, bat, _b(j.charging), j.rssi,
-                     _b(j.pressed), _b(j.rejoin), _b(j.named), lage);
+        int len = snprintf(
+            line, sizeof(line),
+            "{\"ns\":\"game\",\"ev\":\"join\",\"mac\":\"%s\",\"n\":%s,\"fw\":\"%08lx\","
+            "\"proto\":%u,\"fleet\":%u,\"bat\":%s,\"chg\":%s,\"rssi\":%d,"
+            "\"pressed\":%s,\"rejoin\":%s,\"named\":%s%s%s}\n",
+            mac, n, (unsigned long)j.fw, j.proto, j.fleet, bat, _b(j.charging), j.rssi,
+            _b(j.pressed), _b(j.rejoin), _b(j.named), lage, j.teacher ? ",\"teacher\":true" : "");
         _enqueueRaw(line, len);
+    }
+
+    void onTeacher(uint16_t n, const uint8_t* mac, uint8_t key, bool hold) override {
+        if (!_helloDone) return;
+        JsonDocument d;
+        _head(d, "game", "teacher", ReqId{});
+        char m[18];
+        formatMac(mac, m);
+        d["n"] = n;
+        d["mac"] = m;
+        d["key"] = key < sizeof(kKeyNames) / sizeof(kKeyNames[0]) ? kKeyNames[key] : "?";
+        d["hold"] = hold;
+        _enqueue(d);
     }
 
     void onAdmitted(const ReqId& id, const uint8_t* mac, uint16_t n) override {
@@ -328,9 +341,10 @@ class Link : public Bridge::Listener {
                 int len = snprintf(line, sizeof(line),
                                    "{\"ns\":\"game\",\"ev\":\"device\",\"n\":%u,\"mac\":\"%s\","
                                    "\"fw\":\"%08lx\",\"proto\":%u,\"bat\":%s,\"chg\":%s,"
-                                   "\"rssi\":%d,\"round\":%u,\"seq\":%u,\"named\":%s%s}\n",
+                                   "\"rssi\":%d,\"round\":%u,\"seq\":%u,\"named\":%s%s%s}\n",
                                    n, mac, (unsigned long)dv->fw, dv->proto, bat, _b(dv->charging),
-                                   dv->rssi, dv->lastRound, dv->lastSeq, _b(dv->named), lage);
+                                   dv->rssi, dv->lastRound, dv->lastSeq, _b(dv->named), lage,
+                                   dv->teacher ? ",\"teacher\":true" : "");
                 if (!_write(line, len)) return false;
                 _bridge->clearDirtyDevice(n);
             }

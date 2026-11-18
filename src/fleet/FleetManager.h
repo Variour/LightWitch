@@ -1000,6 +1000,8 @@ class FleetManager {
                                                               : FleetLink::ApResult::Unsupported;
         };
         io.number = [this]() { return _game->number(); };
+        io.setTeacher = [this](bool t) { return _game->storeTeacher(t); };
+        io.teacher = [this]() { return _game->teacher(); };
         io.fwBuild = [this]() { return _game->fwBuild(); };
         io.radioBusy = [this]() { return _game->radioQuiet(); };
         io.nonce = []() { return (uint32_t)esp_random(); };

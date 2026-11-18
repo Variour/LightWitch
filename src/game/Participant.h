@@ -129,6 +129,15 @@ class Participant {
     // not the bridge.
     void setCanJoin(bool can) { _canJoin = can; }
 
+    // Teacher device (owner, 2026-11-18, lehrer-geraet-hub-und-sitzung.md):
+    // joins every session it is invited to without a press, plays in no
+    // round and sends its keys to the bridge as QuizTeacher frames.
+    void setTeacher(bool t) { _teacher = t; }
+    bool teacher() const { return _teacher; }
+    bool keyDown(Key k) const { return (uint8_t)k < kKeySlots && _down[(uint8_t)k]; }
+    // Teacher: devices other than itself with a value in the round (echo).
+    uint16_t givenCount() const { return _given; }
+
     void onFrame(const uint8_t* d, size_t len, int8_t rssi, uint32_t now) {
         if (!quizFrameLenOk(d, len)) return;
         QuizHeader h;
@@ -206,9 +215,19 @@ class Participant {
         if ((uint8_t)k >= (uint8_t)Key::Power) return;
         _down[(uint8_t)k] = pressed;
         if (pressed) _downAt[(uint8_t)k] = ms;
-        if (!pressed) return;
+        if (!pressed) {
+            if (_teacher && k == _teacherDown) {
+                if (!_teacherHeld && _state == State::Member) _teacherSend(k, false, now);
+                _teacherDown = Key::None;
+            }
+            return;
+        }
         if (_state == State::Normal) {
             if (k == Key::Buzz && inviteVisible(now)) _joinFromInvite(now);
+        } else if (_state == State::Member && _teacher) {
+            _teacherDown = k;
+            _teacherDownAt = ms;
+            _teacherHeld = false;
         } else if (_state == State::Member) {
             _onMemberPress(k, ms, now);
             // Held, Up and Down step on in a scale round (kScaleRepeatDelayMs).
@@ -251,6 +270,7 @@ class Participant {
         }
         _serviceChannelSwitch(now);
         _serviceSearch(now);
+        _serviceTeacher(now);
         _serviceSend(now);
         _serviceKeys(now);
         _serviceRepeat(now);
@@ -337,7 +357,7 @@ class Participant {
     }
 
     bool namingOpen(uint32_t now) const {
-        return _state == State::Member && loginOpen(now) &&
+        return !_teacher && _state == State::Member && loginOpen(now) &&
                !(_round.known && _round.type != RoundType::Idle);
     }
 
@@ -441,7 +461,15 @@ class Participant {
     uint32_t _confirmedMs = 0;
     bool _reported = false;     // the value went out at least once
     bool _answerGiven = false;  // race: this device answered with an answer key
-    bool _peeked = false;       // anonymous result shown on Enter (kPeekMs)
+    bool _teacher = false;
+    Key _teacherDown = Key::None;  // the key held now
+    uint32_t _teacherDownAt = 0;
+    bool _teacherHeld = false;  // its hold went out
+    uint8_t _teacherSeq = 0;
+    uint8_t _teacherKey = 0, _teacherHold = 0, _teacherLeft = 0;
+    uint32_t _teacherNextAt = 0;
+    uint16_t _given = 0;
+    bool _peeked = false;  // anonymous result shown on Enter (kPeekMs)
     uint32_t _peekMs = 0;
     bool _sendArmed = false;
     uint32_t _nextSendAt = 0;
@@ -490,6 +518,7 @@ class Participant {
         _inviteMs = now;
         _inviteSession = m.session;
         _inviteChannel = m.channel;
+        if (_teacher && _canJoin) _joinFromInvite(now);
     }
 
     void _joinFromInvite(uint32_t now) {
@@ -637,6 +666,17 @@ class Participant {
                 _round.deadline = end;
                 _round.deadlineKnown = true;
             }
+        }
+        if (_teacher) {
+            // The first page holds numbers 1-200, the first fleet's size.
+            if (m.echoFirst == 1) {
+                uint16_t given = 0;
+                bool log = _round.type == RoundType::Move;
+                for (uint8_t i = 0; i < m.echoCount; i++)
+                    if (i + 1 != _number && m.echo[i] != (log ? kNoKeySeq : kNoValue)) given++;
+                _given = given;
+            }
+            return;
         }
         if (_number == 0 || _number < m.echoFirst || _number >= m.echoFirst + m.echoCount) return;
         uint8_t echo = m.echo[_number - m.echoFirst];
@@ -993,6 +1033,34 @@ class Participant {
         h.flags = 0;
     }
 
+    // Teacher: a held key sends its hold once after kTeacherHoldMs.
+    void _serviceTeacher(uint32_t now) {
+        if (!_teacher) return;
+        if (_teacherDown != Key::None && !_teacherHeld && now - _teacherDownAt >= kTeacherHoldMs) {
+            _teacherHeld = true;
+            _teacherSend(_teacherDown, true, now);
+        }
+        if (_teacherLeft == 0 || (int32_t)(now - _teacherNextAt) < 0) return;
+        QuizTeacherMsg m{};
+        _fillHeader(m.h, kMsgQuizTeacher);
+        m.session = _session;
+        m.key = _teacherKey;
+        m.hold = _teacherHold;
+        m.seq = _teacherSeq;
+        _send(&m, sizeof(m));
+        _teacherLeft--;
+        _teacherNextAt = now + kTeacherRepeatMs;
+    }
+
+    void _teacherSend(Key k, bool hold, uint32_t now) {
+        _teacherSeq = (uint8_t)(_teacherSeq % 255 + 1);
+        _teacherKey = (uint8_t)k;
+        _teacherHold = hold ? 1 : 0;
+        _teacherLeft = kTeacherRepeats;
+        _teacherNextAt = now;
+        _serviceTeacher(now);
+    }
+
     void _sendStatus(uint8_t flags) {
         QuizStatusMsg m{};
         _fillHeader(m.h, kMsgQuizStatus);
@@ -1001,8 +1069,8 @@ class Participant {
         m.fwBuild = _io.fwBuild ? _io.fwBuild() : 0;
         Health hl = _health();
         m.battery = hl.battery;
-        m.flags =
-            (uint8_t)(flags | (hl.charging ? kStatusCharging : 0) | (named() ? kStatusNamed : 0));
+        m.flags = (uint8_t)(flags | (hl.charging ? kStatusCharging : 0) |
+                            (named() ? kStatusNamed : 0) | (_teacher ? kStatusTeacher : 0));
         m.rssi = _lastRssi;
         m.lastRoundId = _round.known ? _round.id : 0;
         m.lastStateSeq = _round.known ? _round.seq : 0;

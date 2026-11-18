@@ -52,6 +52,9 @@ static constexpr uint8_t kStatusRejoin = 1 << 3;
 // The player chose to play with the device's animal name (owner,
 // 2026-11-10); without it the device plays anonymously.
 static constexpr uint8_t kStatusNamed = 1 << 4;
+// Owner (2026-11-18): the teacher device, a remote for the console; it
+// plays in no round and counts in no result.
+static constexpr uint8_t kStatusTeacher = 1 << 5;
 
 static constexpr uint8_t kNoValue = 0xFF;  // echo / report: no value
 // Echo bit 7: the value is the answer of the race device with the turn (its

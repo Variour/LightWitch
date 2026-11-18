@@ -22,6 +22,7 @@ static constexpr uint8_t kMsgQuizChannel = 43;
 // 44 and 45 are the fleet frames (src/fleet/FleetFrames.h).
 static constexpr uint8_t kMsgQuizKeys = 46;
 static constexpr uint8_t kMsgQuizRules = 47;
+static constexpr uint8_t kMsgQuizTeacher = 48;
 
 struct __attribute__((packed)) QuizHeader {
     uint8_t type;
@@ -110,6 +111,7 @@ struct __attribute__((packed)) QuizStatusMsg {
     uint32_t fwBuild;
     uint8_t battery;
     uint8_t flags;  // kStatusCharging | kStatusJoin | kStatusPressed | kStatusRejoin | kStatusNamed
+                    // | kStatusTeacher
     int8_t rssi;
     uint16_t lastRoundId;
     uint16_t lastStateSeq;
@@ -184,13 +186,25 @@ struct __attribute__((packed)) QuizRulesMsg {
 static_assert(sizeof(QuizRulesMsg) == 37, "QuizRulesMsg layout");
 static_assert(sizeof(((QuizRulesMsg*)nullptr)->keyValue) == kKeySlots, "one value per key slot");
 
+// Teacher device to bridge: a key of the teacher device (owner, 2026-11-18).
+// Each command goes out kTeacherRepeats times with the same seq; the bridge
+// passes each seq on once.
+struct __attribute__((packed)) QuizTeacherMsg {
+    QuizHeader h;
+    uint16_t session;
+    uint8_t key;   // Key (physical)
+    uint8_t hold;  // 0 short press, 1 held kTeacherHoldMs
+    uint8_t seq;   // per command, 1-255
+};
+static_assert(sizeof(QuizTeacherMsg) == 17, "QuizTeacherMsg layout");
+
 static constexpr size_t kMaxFrameLen = sizeof(QuizStateMsg);
 static_assert(kMaxFrameLen <= 250, "ESP-NOW v1 payload limit");
 static_assert(sizeof(QuizKeysMsg) <= kMaxFrameLen, "RxRing slots hold every quiz frame");
 
 inline bool isQuizType(uint8_t type) {
     return (type >= kMsgQuizInvite && type <= kMsgQuizChannel) || type == kMsgQuizKeys ||
-           type == kMsgQuizRules;
+           type == kMsgQuizRules || type == kMsgQuizTeacher;
 }
 
 // Strict framing: fixed frames need their exact size, QuizState needs its
@@ -218,6 +232,8 @@ inline bool quizFrameLenOk(const uint8_t* d, size_t len) {
             return len == sizeof(QuizChannelMsg);
         case kMsgQuizRules:
             return len == sizeof(QuizRulesMsg);
+        case kMsgQuizTeacher:
+            return len == sizeof(QuizTeacherMsg);
         case kMsgQuizKeys: {
             if (len < kQuizKeysHeadLen) return false;
             uint8_t count = d[offsetof(QuizKeysMsg, count)];

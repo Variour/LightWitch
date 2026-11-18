@@ -182,8 +182,15 @@ static constexpr uint32_t kBlinkPeriodMs = 1000;  // fixed v0: status dot blinks
 // after the resolution: no result colours, the given key yellow at
 // kLevelDimmed, the ring warm white at kLevelFaint, Enter breathes white
 // and shows the result for kPeekMs when pressed.
+// Teacher device (owner, 2026-11-18): a key held kTeacherHoldMs sends a
+// hold, else its release a short press; each command kTeacherRepeats times,
+// kTeacherRepeatMs apart. Its status dot is white at kLevelFree while the
+// buzz key closes the open round.
+static constexpr uint32_t kTeacherHoldMs = 800;
+static constexpr uint8_t kTeacherRepeats = 3;
+static constexpr uint32_t kTeacherRepeatMs = 40;
 static constexpr uint8_t kLevelGiven = 230;
-static constexpr uint8_t kLevelRelease = 26;
+static constexpr uint8_t kLevelRelease = 64;  // 25 %, after the v7 comprehension test
 static constexpr uint8_t kLevelRight = 153;
 static constexpr uint32_t kClosedShowMs = 2000;
 static constexpr uint32_t kWrongWaveMs = 1200;

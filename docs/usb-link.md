@@ -172,6 +172,17 @@ Owner, 2026-11-18 (`gestaltung-buzzer/SYSTEM.md`, "Entscheidungen v7"). The pres
 - Devices show the round as usual while it is open. After the resolution they show no result colours: the given key yellow dimmed, the ring warm white faint, Enter breathes white; pressing Enter shows the result for 3 s.
 - On the radio bit 3 of the `QuizState` header `flags`.
 
+### Teacher device (`game` event `teacher`)
+
+Owner, 2026-11-18: one Rev-1 buzzer per session can be the teacher device. It is a remote for the console and gives no answers.
+
+- Set the role on the device with `config role` (below). The device stores it and joins every session on its own when invited, without a buzz press and without an animal name.
+- `join` and `device` lines of the teacher end with `"teacher":true`. Admit it like any device and leave it out of every tally.
+- Every key press of the teacher arrives as `{"ns":"game","ev":"teacher","n":2,"mac":"aa:bb:cc:dd:ee:ff","key":"right","hold":false}`. `key` is the key name as in `keys`; `hold` is true for a key held for 0.8 s and false for a short press. A held key sends no short press.
+- Console mapping in v1: Right short = next, Left short = back, buzz short while a round is open = close it, a direction held in a closed `choice` = mark that answer correct and resolve.
+- The device lights only keys that do something, in white: Right and Left while no round is open, the status dot while the buzz key closes the open round, the round's direction keys in a closed `choice` without `correct`. A held key is bright. The column shows one white LED per given answer, the ring is the round's clock.
+- On the radio type 48 `QuizTeacher` and bit 5 of the `QuizStatus` flags, see [mesh-compatibility.md](mesh-compatibility.md).
+
 ### `verdict` in `game round` (race)
 
 `{"ns":"game","cmd":"round","round":23419,"type":"race","phase":"closed","keys":{"buzz":"white"},"winner":7,"verdict":"wrong"}`
@@ -357,7 +368,7 @@ Every level is scaled to the device's brightness (at least one LED step).
 
 | Round | Open, no answer | Answer, not yet confirmed | Answer confirmed by the bridge's echo |
 |---|---|---|---|
-| `choice` | answer keys white at 40 %; the ring is the clock: white, all four corners, or ceil(4 · left / ms) corners clockwise from the upper right while a `countdown` runs | the given key yellow, pulsing; the others off; Enter white at 10 % | the given key steady yellow at 90 %; the clock on the ring in yellow; Enter white at 10 % while it can release |
+| `choice` | answer keys white at 40 %; the ring is the clock: white, all four corners, or ceil(4 · left / ms) corners clockwise from the upper right while a `countdown` runs | the given key yellow, pulsing; the others off; Enter white at 25 % | the given key steady yellow at 90 %; the clock on the ring in yellow; Enter white at 25 % while it can release |
 | `scale` | Up and Down white at 40 % | Up and Down stay; the column shows the value in its zone colour, pulsing | Up and Down stay; the column shows the value; the ring glows steadily in the zone colour |
 | `race` | the ring white at 40 % from the announced start, dark before it | the ring steady white | the ring steady blue |
 
@@ -480,10 +491,11 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
 | `{"ns":"config","cmd":"wifi","id":1,"networks":[{"ssid":"Office","pass":"…"}]}` | `{"ns":"config","ev":"wifi","id":1,"ok":true,"count":1}` |
 | `{"ns":"config","cmd":"charge","id":2,"target":"event"}` | `{"ns":"config","ev":"charge","id":2,"ok":true,"target":"event"}` |
 | `{"ns":"config","cmd":"ap","id":3,"minutes":10}` | `{"ns":"config","ev":"ap","id":3,"ok":true,"minutes":10}` |
-| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"token":true,"target":"store","look":true,"name":"buzzer-12-koi","number":12,"fw":"4a45fc32"}` |
+| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"token":true,"target":"store","look":true,"name":"buzzer-12-koi","number":12,"fw":"4a45fc32","role":"player"}` |
 | `{"ns":"config","cmd":"token","id":5,"token":"github_pat_…"}` | `{"ns":"config","ev":"token","id":5,"ok":true,"token":true}` |
 | `{"ns":"config","cmd":"look","id":6,"leds":["#ffffff","#ff0800",…,"#ff0800"]}` | `{"ns":"config","ev":"look","id":6,"ok":true,"leds":24}` |
 | `{"ns":"config","cmd":"name","id":7,"name":"buzzer-12-koi"}` | `{"ns":"config","ev":"name","id":7,"ok":true,"name":"buzzer-12-koi"}` |
+| `{"ns":"config","cmd":"role","id":8,"role":"teacher"}` | `{"ns":"config","ev":"role","id":8,"ok":true,"role":"teacher"}` |
 
 - `wifi` replaces the whole list: 0-5 networks, `ssid` 1-32 bytes, `pass` `""`
   (open network) or 8-63 bytes. Passwords are never echoed or logged. Five
@@ -515,8 +527,9 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
   1-31 of `a-z`, `0-9` and `-`, not starting or ending with `-`. Stored in
   the config file, it applies from the next restart. Without one a device is
   `light-` and the last 6 hex digits of its MAC.
+- `role`: `player` or `teacher` (the teacher device, see "Teacher device" above). Stored in NVS, default `player`. Outside a session it applies at once, in a session from the next one; `store_failed` if NVS does not take it.
 - `get`: `name` is the device name; `look` says whether own colours are set; `number` is `null` without a device number; `fw` is the firmware
-  build (first 4 bytes of the app image's SHA-256, as in `link hello`).
+  build (first 4 bytes of the app image's SHA-256, as in `link hello`); `role` is `player` or `teacher`.
 
 ## `fleet` (bridge)
 

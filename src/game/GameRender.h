@@ -325,6 +325,36 @@ inline void renderChoice(const Participant& p, uint32_t now, Rgb* px) {
     renderRingClock(p, now, scaleRgb(yellow, kLevelGiven), px);
 }
 
+// Teacher device (owner, 2026-11-18, SYSTEM.md v7): only keys that do
+// something now glow white. Right (next) and Left (back) always; in a closed
+// choice without its resolution the answer keys too (held: this answer is
+// right). The held key lights brighter. The column shows how many devices
+// gave a value, one LED each; the ring is the round's clock while it runs.
+inline void renderTeacher(const Participant& p, uint32_t now, Rgb* px) {
+    const Participant::Round& r = p.round();
+    auto key = [&](Key k) {
+        uint8_t led = kZones.keyLed(k);
+        if (led != kNoLed)
+            px[led] = scaleRgb(colorRgb(Color::White), p.keyDown(k) ? kLevelBright : kLevelFree);
+    };
+    bool open = r.known && r.type != RoundType::Idle && r.phase == Phase::Open;
+    if (open) {
+        if (p.gatewayAgeMs(now) < kNoGatewayWarnMs)
+            px[kZones.dot] = scaleRgb(colorRgb(Color::White), kLevelFree);
+    } else {
+        key(Key::Right);
+        key(Key::Left);
+    }
+    if (r.known && r.type == RoundType::Choice && r.phase == Phase::Closed && r.correct == 0)
+        for (Key k : {Key::Up, Key::Right, Key::Down, Key::Left})
+            if (r.keyMask & (1u << (uint8_t)k)) key(k);
+    uint16_t given = p.givenCount();
+    if (r.known && r.type != RoundType::Idle && given > 0)
+        fillColumn(kZones, px, given > kZones.columnCount ? kZones.columnCount : (uint8_t)given,
+                   scaleRgb(colorRgb(Color::White), kLevelDimmed));
+    if (open) renderRingClock(p, now, freeKeyRgb(), px);
+}
+
 // Full frame while the device is in a session. px has kLedCount entries.
 inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
     allOff(kZones, px);
@@ -345,6 +375,8 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
     } else {
         px[kZones.dot] = scaleRgb(colorRgb(Color::White), kLevelFaint);
     }
+
+    if (p.teacher()) return renderTeacher(p, now, px);
 
     const Participant::Round& r = p.round();
     const Participant::LageAnim& anim = p.lageAnim();

@@ -88,6 +88,10 @@ class FleetLink : public game::Link::Extension {
         std::function<bool(const char*)> setName;
         std::function<const char*()> name;
         std::function<uint16_t()> number;
+        // Teacher device (owner, 2026-11-18): stores the role (NVS); false if
+        // it could not be stored.
+        std::function<bool(bool teacher)> setTeacher;
+        std::function<bool()> teacher;
         std::function<uint32_t()> fwBuild;
         // fleet
         std::function<bool()> radioBusy;  // the bridge's radio belongs to a game session
@@ -242,6 +246,21 @@ class FleetLink : public game::Link::Extension {
         if (strcmp(cmd, "wifi") == 0) return _configWifi(link, o, id);
         if (strcmp(cmd, "look") == 0) return _configLook(link, o, id);
         if (strcmp(cmd, "name") == 0) return _configName(link, o, id);
+        if (strcmp(cmd, "role") == 0) {
+            static constexpr const char* kRoles[] = {"player", "teacher"};
+            int r = nameIndex(_str(o, "role"), kRoles, 2);
+            if (r < 0)
+                return _badField(link, id, "config", cmd, "role", "role must be player or teacher");
+            if (!_io.setTeacher || !_io.setTeacher(r == 1))
+                return link.error(id, "store_failed", "config", cmd, nullptr,
+                                  "the role could not be saved");
+            JsonDocument d;
+            Link::head(d, "config", "role", id);
+            _ok(d);
+            d["role"] = kRoles[r];
+            link.emit(d);
+            return;
+        }
         if (strcmp(cmd, "token") == 0) {
             // Never echoed or logged.
             const char* token = _str(o, "token");
@@ -298,6 +317,7 @@ class FleetLink : public game::Link::Extension {
             d["target"] = kTargetNames[(uint8_t)t];
             d["look"] = _io.lookLeds ? _io.lookLeds() != 0 : false;
             d["name"] = _io.name ? _io.name() : "";
+            d["role"] = _io.teacher && _io.teacher() ? "teacher" : "player";
             uint16_t n = _io.number ? _io.number() : 0;
             if (n)
                 d["number"] = n;
@@ -310,7 +330,7 @@ class FleetLink : public game::Link::Extension {
             return;
         }
         link.error(id, "unknown_cmd", "config", cmd, nullptr,
-                   "config commands: wifi, token, charge, ap, look, name, get");
+                   "config commands: wifi, token, charge, ap, look, name, role, get");
     }
 
     // Replaces the whole list. Passwords are never echoed or logged.

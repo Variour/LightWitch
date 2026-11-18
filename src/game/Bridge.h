@@ -41,6 +41,7 @@ class Bridge {
         bool pressed;
         bool rejoin;
         bool named;    // plays with the animal name (kStatusNamed)
+        bool teacher;  // the teacher device (kStatusTeacher)
         uint8_t lage;  // Lage, 0 = unknown
     };
 
@@ -50,6 +51,8 @@ class Bridge {
         virtual void onAdmitted(const ReqId& id, const uint8_t* mac, uint16_t n) = 0;
         virtual void onAdmitTimeout(const ReqId& id, const uint8_t* mac, uint16_t n) = 0;
         virtual void onSessionEnded(const ReqId& id) = 0;
+        // A key of a teacher device (QuizTeacher), each command once.
+        virtual void onTeacher(uint16_t n, const uint8_t* mac, uint8_t key, bool hold) = 0;
     };
 
     // Per device number, the latest value of the running round and the last status.
@@ -73,11 +76,13 @@ class Bridge {
         uint32_t fw;
         uint16_t lastRound;
         uint16_t lastSeq;
-        uint8_t lage;       // from the last status, 0 = unknown
-        bool named;         // from the last status (kStatusNamed)
-        uint8_t valueLage;  // the value's input orientation, 0 = unknown
-        uint8_t keySeq;     // move round: last kseq passed on, kNoKeySeq = none
-        bool answerTaken;   // race: the value is the answering device's answer
+        uint8_t lage;        // from the last status, 0 = unknown
+        bool named;          // from the last status (kStatusNamed)
+        bool teacher;        // from the last status (kStatusTeacher)
+        uint8_t teacherSeq;  // last QuizTeacher seq passed on, 0 = none
+        uint8_t valueLage;   // the value's input orientation, 0 = unknown
+        uint8_t keySeq;      // move round: last kseq passed on, kNoKeySeq = none
+        bool answerTaken;    // race: the value is the answering device's answer
         bool dirtyValue;
         bool dirtyDevice;
     };
@@ -354,6 +359,10 @@ class Bridge {
             QuizKeysMsg m;
             decodeFrame(d, len, kMsgQuizKeys, m);
             _onKeys(m);
+        } else if (h.type == kMsgQuizTeacher && h.proto == kProto) {
+            QuizTeacherMsg m;
+            decodeFrame(d, len, kMsgQuizTeacher, m);
+            _onTeacher(m);
         }
         (void)now;
     }
@@ -797,6 +806,16 @@ class Bridge {
         }
     }
 
+    // Only an admitted teacher device; each seq once.
+    void _onTeacher(const QuizTeacherMsg& m) {
+        uint16_t n = m.h.origin;
+        if (n < 1 || n > _maxNumber || m.seq == 0 || m.key >= kKeySlots) return;
+        Device& dv = _devs[n];
+        if (!dv.macKnown || !dv.teacher || m.seq == dv.teacherSeq) return;
+        dv.teacherSeq = m.seq;
+        if (_listener) _listener->onTeacher(n, dv.mac, m.key, m.hold != 0);
+    }
+
     static bool _isDirection(Key k) {
         return k == Key::Up || k == Key::Right || k == Key::Down || k == Key::Left;
     }
@@ -827,6 +846,7 @@ class Bridge {
             j.pressed = (m.flags & kStatusPressed) != 0;
             j.rejoin = (m.flags & kStatusRejoin) != 0;
             j.named = (m.flags & kStatusNamed) != 0;
+            j.teacher = (m.flags & kStatusTeacher) != 0;
             j.lage = lage;
             _listener->onJoin(j);
             return;
@@ -850,6 +870,7 @@ class Bridge {
         dv.lastSeq = m.lastStateSeq;
         dv.lage = lage;
         dv.named = (m.flags & kStatusNamed) != 0;
+        dv.teacher = (m.flags & kStatusTeacher) != 0;
         _setDirtyDevice(n);
         for (uint16_t i = 0; i < _admitCount; i++) {
             PendingAdmit& a = _admits[i];
