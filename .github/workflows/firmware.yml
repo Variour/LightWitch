@@ -5,7 +5,7 @@ on:
     inputs:
       environments:
         description: 'PlatformIO environments to build (comma-separated)'
-        default: 'esp32dev,esp32c3,esp32s3,esp32c5,esp32c5-hub'
+        default: 'esp32dev,esp32c3,esp32s3,esp32c5,esp32c5-hub,esp32c6'
         required: true
   pull_request:
     paths:
@@ -35,7 +35,7 @@ jobs:
     steps:
       - id: matrix
         run: |
-          ENVIRONMENTS="${{ github.event_name == 'pull_request' && 'esp32dev,esp32c3,esp32s3,esp32c5,esp32c5-hub' || github.event.inputs.environments || 'esp32dev,esp32c3,esp32s3,esp32c5,esp32c5-hub' }}"
+          ENVIRONMENTS="${{ github.event_name == 'pull_request' && 'esp32dev,esp32c3,esp32s3,esp32c5,esp32c5-hub,esp32c6' || github.event.inputs.environments || 'esp32dev,esp32c3,esp32s3,esp32c5,esp32c5-hub,esp32c6' }}"
           JSON=$(echo "$ENVIRONMENTS" \
             | tr ',' '\n' | sed 's/[[:space:]]//g' | jq -R . | jq -sc .)
           echo "value={\"env\":${JSON}}" >> "$GITHUB_OUTPUT"
@@ -157,7 +157,7 @@ jobs:
             littlefs.bin
           generate_release_notes: true
 
-  # Publishes every PR's esp32dev, esp32s3 and esp32c5 builds as a prerelease so they
+  # Publishes every PR's esp32dev, esp32s3, esp32c5 and esp32c6 builds as a prerelease so they
   # can be installed via OTA from the device's "install from PR" picker (see
   # src/update/Updater.h). Re-running this on a later push to the same PR
   # updates the existing pr-<number> release/assets in place.
@@ -178,6 +178,7 @@ jobs:
           cp artifacts/firmware-esp32dev/firmware.bin firmware-esp32dev.bin
           cp artifacts/firmware-esp32s3/firmware.bin firmware-esp32s3.bin
           cp artifacts/firmware-esp32c5/firmware.bin firmware-esp32c5.bin
+          cp artifacts/firmware-esp32c6/firmware.bin firmware-esp32c6.bin
           cp artifacts/littlefs/littlefs.bin littlefs.bin
 
       - uses: softprops/action-gh-release@v3
@@ -190,4 +191,5 @@ jobs:
             firmware-esp32dev.bin
             firmware-esp32s3.bin
             firmware-esp32c5.bin
+            firmware-esp32c6.bin
             littlefs.bin

@@ -222,10 +222,26 @@ static constexpr uint8_t kD6dPositionMask = 0x3F;
 // out of the package top. So, as seen from the front in hochkant:
 //   +X = toward the left edge (the LED column), +Y = toward USB-C,
 //   +Z = out of the back.
+//
+// Rev 2 draft (buzzerboard-rev2.kicad_pcb, not built): U5 on B.Cu at
+// (19.95, 95.028), rotation -90; pad 1 at (19.2, 93.866), pads 2-4 to its
+// right in +x, pad 14 below it at (19.037, 94.528). By the same reading:
+//   +X = toward the bottom edge (away from USB-C), +Y = toward the left
+//   edge (the LED column), +Z = out of the back.
 struct D6dLage {
     uint8_t bit;
     Lage lage;
 };
+#if BUZZERBOARD_REV == 2
+static constexpr D6dLage kD6dLage[6] = {
+    {kD6dXL, Lage::Hochkant},   // USB-C up
+    {kD6dYH, Lage::Quer},       // LED column up
+    {kD6dYL, Lage::QuerLinks},  // LED column down
+    {kD6dZL, Lage::Liegend},    // front up
+    {kD6dXH, Lage::Unknown},    // upside down: no orientation
+    {kD6dZH, Lage::Unknown},    // front down: no orientation
+};
+#else
 static constexpr D6dLage kD6dLage[6] = {
     {kD6dYH, Lage::Hochkant},   // USB-C up
     {kD6dXH, Lage::Quer},       // LED column up
@@ -234,6 +250,7 @@ static constexpr D6dLage kD6dLage[6] = {
     {kD6dYL, Lage::Unknown},    // upside down: no orientation
     {kD6dZH, Lage::Unknown},    // front down: no orientation
 };
+#endif
 
 // The orientation of a D6D_SRC value: exactly one position bit, else Unknown.
 inline Lage lageFromD6d(uint8_t src) {

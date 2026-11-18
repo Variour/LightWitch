@@ -24,7 +24,7 @@ uint16_t boardLedCurrentLimitMa(uint16_t configuredMa);
 uint16_t boardLedRefreshMs();
 
 // Whether detectBoard() found the board this build targets at this boot (the
-// Buzzerboard on esp32c5 builds; false on every other build).
+// Buzzerboard on esp32c5 and esp32c6 builds; false on every other build).
 bool boardDetected();
 
 // The GPIO of the orientation sensor's interrupt line (LSM6DS3TR-C INT1) on

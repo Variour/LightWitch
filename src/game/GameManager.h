@@ -221,10 +221,10 @@ class GameManager {
     // light's config so the pattern repaints the ring.
     Overlay renderOverlay(uint32_t now) {
         if (!_led) return Overlay::None;
-        game::Rgb ring[4];
+        game::Rgb ring[game::kRingCount];
         if (game::renderInviteOverlay(_participant, now, ring)) {
             uint8_t lvl = _showLevel();
-            for (uint8_t i = 0; i < 4; i++)
+            for (uint8_t i = 0; i < game::kRingCount; i++)
                 _led->setPixel(game::kRingLeds[i], scaleToLevel(ring[i].r, lvl),
                                scaleToLevel(ring[i].g, lvl), scaleToLevel(ring[i].b, lvl));
             _led->show();

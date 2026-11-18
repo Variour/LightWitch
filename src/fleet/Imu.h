@@ -10,7 +10,7 @@
 //   data rate is back to what it was afterwards.
 // - orientationOn()/Off(): the built-in 6D orientation detection for a game
 //   session (firmware spec "Lage v0"): accelerometer at 26 Hz, 6D event
-//   latched on INT1 (GPIO25), position in D6D_SRC. readD6d() reads the
+//   latched on INT1 (boardImuIntPin()), position in D6D_SRC. readD6d() reads the
 //   position and clears the latch.
 namespace fleet {
 

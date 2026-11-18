@@ -6,7 +6,7 @@ most 512 bytes per line in both directions. Commands carry `"ns"` and
 `"cmd"`, replies and events carry `"ns"` and `"ev"`, and an optional `"id"`
 (integer, or a string of 1-16 characters) is echoed in the reply.
 
-Builds with `FEATURE_GAME=1` (esp32dev, esp32s3, esp32c5) have the link; the
+Builds with `FEATURE_GAME=1` (esp32dev, esp32s3, esp32c5, esp32c6) have the link; the
 esp32c3 build does not.
 
 ## Namespaces

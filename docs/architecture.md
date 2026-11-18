@@ -32,7 +32,7 @@ codebase for the first time. For build/flash/update instructions see
 
 ## Build features
 
-`FEATURE_GAME` (0 or 1, set in every env's `build_flags` in `platformio.ini`) compiles the `game` and `fleet` modules in. It is 1 for esp32dev, esp32s3 and esp32c5, and 0 for esp32c3, whose OTA slot has no room for them; there the firmware behaves as before the game module.
+`FEATURE_GAME` (0 or 1, set in every env's `build_flags` in `platformio.ini`) compiles the `game` and `fleet` modules in. It is 1 for esp32dev, esp32s3, esp32c5 and esp32c6, and 0 for esp32c3, whose OTA slot has no room for them; there the firmware behaves as before the game module.
 
 ## Control flow
 

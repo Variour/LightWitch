@@ -2,9 +2,10 @@
 
 #include "../buttons/ButtonRoles.h"
 
-// BOARD_BUZZERBOARD (esp32c5 env) compiles the Buzzerboard detection and
-// profile into the C5 image only: GPIO26/27 are general-purpose pins on the
-// C5, but SPI flash/PSRAM pins on the ESP32-S3.
+// BOARD_BUZZERBOARD compiles the Buzzerboard detection and profile into the
+// C5 image (rev 1, esp32c5 env) and the C6 image (rev 2, esp32c6 env,
+// BUZZERBOARD_REV=2) only: GPIO26/27 are general-purpose pins on the C5, but
+// SPI flash/PSRAM pins on the ESP32-S3.
 #ifdef BOARD_BUZZERBOARD
 
 #include <Arduino.h>
@@ -13,9 +14,10 @@
 #include "../logging/Logger.h"
 #include "../power/Bq25628.h"
 
-// Buzzerboard rev A0 (ESP32-C5-WROOM-1U-N8R8). Source of every value below:
-// the board repo's hardware/gen/buzzer.py (nets) and hardware/README.md
-// ("GPIO map (ESP32-C5-WROOM-1U)", "LED rail = PMID", charger table).
+#ifndef BUZZERBOARD_REV
+#define BUZZERBOARD_REV 1
+#endif
+
 namespace {
 
 struct KeyPin {
@@ -23,6 +25,47 @@ struct KeyPin {
     const char* name;
     uint8_t gpio;
 };
+
+#if BUZZERBOARD_REV == 2
+
+// Buzzerboard rev 2 draft (B0, ESP32-C6-MINI-1-H8, placed, not routed, not
+// built). Source of every value below: the board repo's hardware/gen/buzzer.py
+// with BUZZ_REV=2 (nets) and hardware/README.md ("Module: ESP32-C6-MINI-1-H8
+// (2026-11-17)" pin map, "Buzzer window LED gone, chain renumbered").
+
+// Every key switches its net to GND and has an external 10k pull-up to 3V3
+// plus 100 nF to GND, so all of them are active low. POWER reaches GPIO4
+// through one half of a BAT54C (the other half drives the charger's QON).
+// The left paddles L1 / L2 have no switch on rev 2: each moves a magnet over
+// a TMAG5273 Hall sensor (INT on GPIO17, src/io/Tmag5273.h), not wired up
+// here yet.
+constexpr KeyPin kKeys[] = {
+    {ButtonRole::BUZZ, "Buzzer", 2},   // KEY_BUZZ, module pin 5
+    {ButtonRole::UP, "Up", 3},         // KEY_UP, module pin 6
+    {ButtonRole::DOWN, "Down", 5},     // KEY_DOWN, module pin 10
+    {ButtonRole::LEFT, "Left", 1},     // KEY_LEFT, module pin 13
+    {ButtonRole::RIGHT, "Right", 15},  // KEY_RIGHT, module pin 20
+    {ButtonRole::ENTER, "Enter", 0},   // KEY_ENTER, module pin 12
+    {ButtonRole::R1, "R1", 8},         // KEY_SIDE_R1, module pin 22 (GPIO8 strap)
+    {ButtonRole::R2, "R2", 9},         // KEY_SIDE_R2, module pin 23 (BOOT strap)
+    {ButtonRole::POWER, "Power", 4},   // PWR_KEY, module pin 9 (via BAT54C)
+};
+
+// I2C bus: BQ25628 (0x6A) and LSM6DS3TR-C (0x6B), 4.7k pull-ups.
+constexpr uint8_t kI2cSdaPin = 22;
+constexpr uint8_t kI2cSclPin = 23;
+// LSM6DS3TR-C INT1 (net IMU_INT, module pin 27); not an LP GPIO.
+constexpr uint8_t kImuIntPin = 21;
+
+// 36 x SK6812MINI-E in one chain behind the SN74LV1T34 5 V buffer, GRB.
+constexpr uint8_t kLedDataPin = 14;
+constexpr uint16_t kLedCount = 36;
+
+#else
+
+// Buzzerboard rev A0 (ESP32-C5-WROOM-1U-N8R8). Source of every value below:
+// the board repo's hardware/gen/buzzer.py (nets) and hardware/README.md
+// ("GPIO map (ESP32-C5-WROOM-1U)", "LED rail = PMID", charger table).
 
 // Every key switches its net to GND and has an external 10k pull-up to 3V3
 // plus 100 nF to GND, so all of them are active low. POWER reaches GPIO4
@@ -55,6 +98,8 @@ constexpr uint8_t kImuIntPin = 25;
 constexpr uint8_t kLedDataPin = 8;
 constexpr uint16_t kLedCount = 34;
 
+#endif
+
 // LED current cap for the whole chain. The LEDs hang on the charger's PMID
 // node, which the charger cannot regulate: on a default USB source the input
 // is held at the ILIM pin's 446 mA (5.6k, 398-496 mA with KILIM and 1 %
@@ -64,10 +109,11 @@ constexpr uint16_t kLedCount = 34;
 // 398 x 1.125 = 448 mA. The pixels at the cap (300 mA), the chain's idle
 // current (34 x 1 mA, IDD typ., OPSCO SK6812MINI-E datasheet Rev. 04, §9)
 // and ~75 mA for the C5 when the cell cannot supplement the system add up
-// to ~409 mA. On battery the boost could deliver more (board budget
-// 1.22 A), but one cap has to hold on USB too.
-// UNVERIFIED: the ~75 mA system figure is an estimate; measure IBUS with
-// the LEDs dark and at the cap on a 500 mA USB port.
+// to ~409 mA. Rev 2 keeps the charger, ILIM and cap: 36 x 1 mA idle, ~411 mA
+// with the same ~75 mA for the C6 (UNVERIFIED, like the C5 figure). On battery the boost could
+// deliver more (board budget 1.22 A), but one cap has to hold on USB too. UNVERIFIED: the ~75 mA
+// system figure is an estimate; measure IBUS with the LEDs dark and at the cap on a 500 mA USB
+// port.
 constexpr uint16_t kLedCurrentLimitMa = 300;
 
 // Up / Down brightness step, about 3 % of 255.
@@ -88,8 +134,8 @@ bool hasPullUp(uint8_t pin) {
 
 }  // namespace
 
-// A Buzzerboard is a C5 with a BQ25628 (PART_INFO part number 2) at 0x6A on
-// GPIO26/27. The bus runs at Wire's default 100 kHz.
+// A Buzzerboard is a C5 (rev 1) or C6 (rev 2) with a BQ25628 (PART_INFO part
+// number 2) at 0x6A on the board's I2C pins. The bus runs at Wire's default 100 kHz.
 void detectBoard() {
     sDetected = false;
     if (!hasPullUp(kI2cSdaPin) || !hasPullUp(kI2cSclPin)) {
