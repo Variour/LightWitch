@@ -45,7 +45,7 @@ static constexpr LedZones kBuzzerboardZones = {
     kScoreCount,
 #if BUZZERBOARD_REV == 2
     {kRingLeds[0], kRingLeds[1], kRingLeds[2], kRingLeds[3], kRingLeds[4], kRingLeds[5],
-     kRingLeds[6]},
+     kRingLeds[6], kRingLeds[7]},
 #else
     {kRingLeds[0], kRingLeds[1], kRingLeds[2], kRingLeds[3]},
 #endif

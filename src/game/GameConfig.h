@@ -126,15 +126,16 @@ static constexpr uint16_t kLedCount = 36;
 static constexpr uint8_t kScoreFirst = 0;  // LED1-21: score column, bottom to top
 static constexpr uint8_t kScoreCount = 21;
 // LED22-29: buzzer ring, clockwise from the lower left (lower left, left,
-// upper left, top, upper right, right, lower right, bottom). The bottom LED
-// (LED29) is the status dot, so the ring zone has the other seven.
-static constexpr uint8_t kRingCount = 7;
-static constexpr uint8_t kRingLeds[kRingCount] = {21, 22, 23, 24, 25, 26, 27};
-static constexpr uint8_t kStatusDot = 28;  // LED29: ring bottom, the status dot
-static constexpr uint8_t kLedUp = 29;      // LED30
-static constexpr uint8_t kLedLeft = 30;    // LED31
-static constexpr uint8_t kLedEnter = 31;   // LED32-34: switch window, side 1, side 2
-static constexpr uint8_t kLedEnterCount = 3;
+// upper left, top, upper right, right, lower right, bottom).
+static constexpr uint8_t kRingCount = 8;
+static constexpr uint8_t kRingLeds[kRingCount] = {21, 22, 23, 24, 25, 26, 27, 28};
+static constexpr uint8_t kLedUp = 29;    // LED30
+static constexpr uint8_t kLedLeft = 30;  // LED31
+// LED32: ENTER's switch window, the status dot (Timo, 2026-11-18). ENTER's
+// key zone is its two side LEDs.
+static constexpr uint8_t kStatusDot = 31;
+static constexpr uint8_t kLedEnter = 32;  // LED33-34: ENTER side 1, side 2
+static constexpr uint8_t kLedEnterCount = 2;
 static constexpr uint8_t kLedRight = 34;  // LED35
 static constexpr uint8_t kLedDown = 35;   // LED36
 #else
