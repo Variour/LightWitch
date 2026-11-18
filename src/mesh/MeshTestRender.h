@@ -134,7 +134,7 @@ inline void renderMeshTest(const Router& r, const game::LedZones& z, uint32_t no
     // Trace wave.
     uint32_t tr = _ageOf(r, Router::Act::Trace, now);
     if (tr < flashMs) {
-        uint8_t lvl = (uint8_t)(255 - tr * 200 / flashMs);
+        uint8_t lvl = (uint8_t)(255 - tr * 115 / flashMs);  // down to the ring's 140
         Rgb c = game::scaleRgb(hc, lvl);
         game::fillRing(z, px, c);
         for (uint8_t i = 0; i < game::kKeySlots; i++)

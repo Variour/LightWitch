@@ -154,7 +154,7 @@ static constexpr uint32_t kDedupMs = 4000;
 static constexpr uint32_t kNodeLostMs = 3 * kTopoTestMs + 1000;
 static constexpr uint8_t kMaxNeighbors = 16;
 static constexpr uint8_t kMaxNodes = 64;
-static constexpr uint8_t kRxSlots = 48;
+static constexpr uint8_t kRxSlots = 32;
 
 inline bool seqNewer(uint16_t a, uint16_t b) {
     uint16_t d = (uint16_t)(a - b);
