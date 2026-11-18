@@ -244,6 +244,87 @@ inline void renderMove(const Participant& p, uint32_t now, Rgb* px) {
     }
 }
 
+// The round's clock on the ring (SYSTEM.md v7): while the console's countdown
+// runs, ceil(4 * left / duration) corners clockwise from the upper right,
+// else all four, in c.
+inline void renderRingClock(const Participant& p, uint32_t now, Rgb c, Rgb* px) {
+    const Participant::Round& r = p.round();
+    uint8_t lit = 4;
+    if (r.answering == 0 && r.answerMs != 0 && r.deadlineKnown) {
+        int32_t left = (int32_t)(r.deadline - now);
+        lit = left <= 0 ? 0 : (uint8_t)((4 * (uint32_t)left + r.answerMs - 1) / r.answerMs);
+        if (lit > 4) lit = 4;
+    }
+    // kZones.ring: lower left, upper left, upper right, lower right.
+    static constexpr uint8_t kClockwise[4] = {2, 3, 0, 1};
+    for (uint8_t i = 0; i < lit; i++) px[kZones.ring[kClockwise[i]]] = c;
+}
+
+// One ring corner after the other, clockwise, once per kWrongWaveMs.
+inline void renderRingWave(uint32_t t, Rgb c, Rgb* px) {
+    static constexpr uint8_t kClockwise[4] = {2, 3, 0, 1};
+    px[kZones.ring[kClockwise[(t * 4 / kWrongWaveMs) % 4]]] = c;
+}
+
+// Choice round (owner, 2026-11-18, SYSTEM.md "Entscheidungen v7", levels in
+// GameConfig.h): one press gives the answer, Enter releases it.
+inline void renderChoice(const Participant& p, uint32_t now, Rgb* px) {
+    const Participant::Round& r = p.round();
+    Lage l = p.inputLage();
+    bool rev = columnReversed(l);
+    const Key answers[4] = {Key::Up, Key::Right, Key::Down, Key::Left};
+    auto inMask = [&](Key k) { return (r.keyMask & (1u << (uint8_t)k)) != 0; };
+    uint8_t val = p.value();
+    bool given = val >= 1 && val <= 4;
+    Rgb yellow = colorRgb(Color::Yellow);
+    Rgb enterLed{};
+    if (r.phase == Phase::Closed && r.correct >= 1 && r.correct <= 4) {
+        bool peek = p.peeking(now);
+        if (r.anonymous && !peek) {
+            if (given) px[logicalLed(l, answers[val - 1])] = scaleRgb(yellow, kLevelDimmed);
+            fillRing(kZones, px, scaleRgb(kWarmWhiteRgb, kLevelFaint));
+            px[logicalLed(l, Key::Enter)] = scaleRgb(
+                colorRgb(Color::White), softPulse(now, kBreathMs, kLevelShowMin, kLevelRelease));
+            return;
+        }
+        uint32_t t = now - (peek ? p.peekMs() : r.resultMs);
+        bool right = given && val == r.correct;
+        if (right && t < kCelebrateMs)
+            renderCelebration(t, rev, px);
+        else if (!given)
+            fillRing(kZones, px, kNotGivenRgb);
+        else if (!right && t < kWrongWaveMs)
+            renderRingWave(t, kWrongRgb, px);
+        px[logicalLed(l, answers[r.correct - 1])] = scaleRgb(colorRgb(Color::Green), kLevelRight);
+        if (given)
+            px[logicalLed(l, answers[val - 1])] =
+                scaleRgb(right ? colorRgb(Color::Green) : kWrongRgb,
+                         softPulse(t, kPulsePeriodMs, kLevelDimmed, kLevelBright));
+        return;
+    }
+    if (r.phase == Phase::Closed) {
+        if (given) px[logicalLed(l, answers[val - 1])] = scaleRgb(yellow, kLevelDimmed);
+        uint32_t t = now - r.closedMs;
+        if (t < kClosedShowMs)
+            fillRing(kZones, px,
+                     scaleRgb(kWarmWhiteRgb,
+                              softPulse(t, kClosedShowMs / 2, kLevelDimmed, kLevelBright)));
+        return;
+    }
+    if (!given) {
+        for (Key k : answers)
+            if (inMask(k)) px[logicalLed(l, k)] = freeKeyRgb();
+        renderRingClock(p, now, freeKeyRgb(), px);
+        return;
+    }
+    // Given: yellow, pulsing until the bridge confirms it.
+    uint8_t lvl = p.confirmed() ? kLevelGiven : pulseLevel(now);
+    px[logicalLed(l, answers[val - 1])] = scaleRgb(yellow, lvl);
+    if (p.rule().release) enterLed = scaleRgb(colorRgb(Color::White), kLevelRelease);
+    px[logicalLed(l, Key::Enter)] = enterLed;
+    renderRingClock(p, now, scaleRgb(yellow, kLevelGiven), px);
+}
+
 // Full frame while the device is in a session. px has kLedCount entries.
 inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
     allOff(kZones, px);
@@ -282,7 +363,7 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
     } else if (p.namingOpen(now)) {
         renderNaming(p, now, px);
     } else if (r.known && r.type != RoundType::Idle && r.phase != Phase::Announced) {
-        if (p.countdownMe()) renderCountdown(p, now, px);
+        if (p.countdownMe() && r.type != RoundType::Choice) renderCountdown(p, now, px);
         switch (r.type) {
             case RoundType::Scale: {
                 if (r.rainbow) {
@@ -330,31 +411,9 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                 }
                 break;
             }
-            case RoundType::Choice: {
-                // Answer colours belong to the direction, not to the round.
-                const Key answers[5] = {Key::Up, Key::Right, Key::Down, Key::Left, Key::Enter};
-                if (r.phase == Phase::Closed && r.correct >= 1 && r.correct <= 5) {
-                    Key ck = answers[r.correct - 1];
-                    px[logicalLed(l, ck)] = directionRgb(ck);
-                    if (val == r.correct && now - r.resultMs < kCelebrateMs)
-                        renderCelebration(now - r.resultMs, rev, px);
-                    else if (val != kNoValue)
-                        fillColumn(kZones, px, kZones.columnCount,
-                                   val == r.correct ? colorRgb(Color::Green) : kWrongRgb);
-                    break;
-                }
-                for (uint8_t i = 0; i < 5; i++) {
-                    Key k = answers[i];
-                    if (!inMask(k)) continue;
-                    if (val == i + 1)
-                        px[logicalLed(l, k)] = chosenKeyRgb(p, directionRgb(k), now);
-                    else if (r.phase == Phase::Open && !p.answerLocked())
-                        px[logicalLed(l, k)] = freeKeyRgb();
-                }
-                if (val >= 1 && val <= 5 && p.confirmed())
-                    fillRing(kZones, px, directionRgb(answers[val - 1]));
+            case RoundType::Choice:
+                renderChoice(p, now, px);
                 break;
-            }
             case RoundType::Move:
                 renderMove(p, now, px);
                 break;

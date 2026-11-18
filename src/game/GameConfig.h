@@ -93,9 +93,6 @@ static constexpr uint32_t kLeaveComboMs = 3000;    // proposal 14: BUZZ + ENTER 
 static constexpr uint32_t kLoginOpenHoldMs = 2500;
 // firmware: delay between "all LEDs off" and the restart, so the LEDs update.
 static constexpr uint32_t kLeaveRestartDelayMs = 200;
-// proposal 8: the last press counts; owner (2026-11-10): a round with
-// firstOnly (link `game round`) takes only the first answer instead.
-static constexpr bool kChoiceChangeAllowed = true;
 // proposal 11: the scale column pulses until the echo matches (the keys
 // follow kLevelFree instead).
 static constexpr bool kPulseUntilConfirmed = true;
@@ -171,5 +168,26 @@ static constexpr uint32_t kAnswerOverMs = 600;
 // running down: the green pulses softly down to kLevelTurnLow and back.
 static constexpr uint8_t kLevelTurnLow = 128;
 static constexpr uint32_t kBlinkPeriodMs = 1000;  // fixed v0: status dot blinks at 1 Hz
+
+// Choice rounds (owner, 2026-11-18, gestaltung-buzzer/SYSTEM.md "Entscheidungen
+// v7"): one press gives the answer, Enter releases it. Free answer keys white
+// at kLevelFree; the given key yellow at kLevelGiven, the other keys off,
+// Enter white at kLevelRelease while it can release. The ring is the round's
+// clock: lit corners = ceil(4 * left / duration) while the console's
+// countdown runs, else all four; white before the answer, yellow after. Closed:
+// the given key yellow at kLevelDimmed, the ring warm white for kClosedShowMs.
+// Resolution: the right key steady green at kLevelRight, the own key pulses
+// green (right, with the celebration) or kWrongRgb (a wave runs around the
+// ring for kWrongWaveMs); no answer: ring kNotGivenRgb. Anonymous round
+// after the resolution: no result colours, the given key yellow at
+// kLevelDimmed, the ring warm white at kLevelFaint, Enter breathes white
+// and shows the result for kPeekMs when pressed.
+static constexpr uint8_t kLevelGiven = 230;
+static constexpr uint8_t kLevelRelease = 26;
+static constexpr uint8_t kLevelRight = 153;
+static constexpr uint32_t kClosedShowMs = 2000;
+static constexpr uint32_t kWrongWaveMs = 1200;
+static constexpr uint32_t kPeekMs = 3000;
+static constexpr uint32_t kBreathMs = 3000;
 
 }  // namespace game

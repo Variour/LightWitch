@@ -106,6 +106,7 @@ class Bridge {
         bool firstOnly = false;    // only each device's first answer counts
         bool winnerWrong = false;  // the quizmaster rated the winner's answer wrong
         bool rainbow = false;      // scale of 24 steps shown as the rainbow
+        bool anonymous = false;    // no result colours on the devices
         bool hasInput = false;     // link field `input`: sent as QuizRules
         InputRule input;
     };
@@ -266,6 +267,7 @@ class Bridge {
             r.firstOnly = c.firstOnly;
             r.winnerWrong = c.winnerWrong;
             r.rainbow = c.rainbow;
+            r.anonymous = c.anonymous;
             r.hasInput = c.hasInput;
             if (c.hasInput) ruleToFrame(c.input, r.rules);
             if (r.type != RoundType::Idle) _enterPhase(r.phase, c, now);
@@ -279,7 +281,7 @@ class Bridge {
             memcmp(c.keyColor, r.keyColor, sizeof(r.keyColor)) != 0 || c.min != r.min ||
             c.max != r.max || c.redMax != r.redMax || c.greenMin != r.greenMin ||
             c.hold != r.hold || c.firstOnly != r.firstOnly || c.rainbow != r.rainbow ||
-            !_sameInput(c, r))
+            c.anonymous != r.anonymous || !_sameInput(c, r))
             return Err::RoundFixed;
         Phase phase = r.type == RoundType::Idle ? Phase::Closed : c.phase;
         if ((uint8_t)phase < (uint8_t)r.phase) return Err::BadPhase;
@@ -492,6 +494,7 @@ class Bridge {
         bool firstOnly = false;
         bool winnerWrong = false;
         bool rainbow = false;
+        bool anonymous = false;
         bool hasInput = false;
         QuizRulesMsg rules{};    // its frame, header filled at send
         uint16_t answering = 0;  // race: the number answering now
@@ -605,7 +608,8 @@ class Bridge {
         _fillHeader(m.h, kMsgQuizState);
         m.h.flags = (uint8_t)((_round.firstOnly ? kStateFirstOnly : 0) |
                               (_round.winnerWrong ? kStateWinnerWrong : 0) |
-                              (_round.rainbow ? kStateRainbow : 0));
+                              (_round.rainbow ? kStateRainbow : 0) |
+                              (_round.anonymous ? kStateAnonymous : 0));
         m.session = _session;
         m.roundId = _round.id;
         m.stateSeq = _round.seq;

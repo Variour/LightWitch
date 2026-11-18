@@ -12,9 +12,10 @@
 namespace game {
 
 enum class InputMode : uint8_t {
-    None = 0,     // no input
-    Once = 1,     // the first press of a key sets its value, then the value stays
-    Pick = 2,     // each key maps to a value; the last press counts, or the first with firstOnly
+    None = 0,  // no input
+    Once = 1,  // the first press of a key sets its value, then the value stays
+    Pick =
+        2,  // each key maps to a value; the last press counts, the first with firstOnly or release
     Counter = 3,  // upKey / downKey step a value between min and max
     Log = 4,      // every press goes into the key log (QuizKeys)
 };
@@ -33,6 +34,10 @@ struct InputRule {
     uint8_t min = 0, max = 0;
     uint8_t firstUp = 0, firstDown = 0;  // value of the first step up / down
     bool repeat = false;                 // holding upKey / downKey steps on
+    // Pick, and Counter with confirmKey Enter: a value given stays until Enter
+    // releases it (owner, 2026-11-18: one press gives the answer, the middle
+    // takes it back). Not with firstOnly.
+    bool release = false;
     // Send policy: a value goes out sendDelayMs after its input (0 = at once).
     uint16_t sendDelayMs = 0;
 
@@ -71,10 +76,13 @@ inline InputRule presetRule(RoundType type, uint16_t keyMask, uint8_t min, uint8
             r.keyValue[(uint8_t)Key::Buzz] = 1;
             break;
         case RoundType::Choice:
+            // Owner (2026-11-18): a direction gives the answer at once, Enter
+            // releases it; Enter is no answer. firstOnly: no release.
             r.mode = InputMode::Pick;
             setChoiceValues(r);
-            // proposal 8: the last press counts; firstOnly takes the first.
-            r.firstOnly = firstOnly || !kChoiceChangeAllowed;
+            r.keyValue[(uint8_t)Key::Enter] = 0;
+            r.firstOnly = firstOnly;
+            r.release = !firstOnly;
             break;
         case RoundType::Scale: {
             r.mode = InputMode::Counter;
@@ -89,6 +97,8 @@ inline InputRule presetRule(RoundType type, uint16_t keyMask, uint8_t min, uint8
             r.firstDown = (uint8_t)(min + (steps ? (steps - 1) / 2 : 0));
             r.repeat = true;
             r.firstOnly = firstOnly;
+            // Enter logs the value in and, once more, releases it.
+            r.release = r.confirmKey == Key::Enter && !firstOnly;
             r.sendDelayMs = (uint16_t)(firstOnly ? kScaleCommitMs : kScaleSendDelayMs);
             break;
         }
@@ -124,6 +134,12 @@ inline bool keyOrNone(uint8_t k) { return k < kKeySlots || k == (uint8_t)Key::No
 inline bool ruleValid(const InputRule& r, uint16_t keyMask) {
     if (r.mode == InputMode::None || (uint8_t)r.mode > (uint8_t)InputMode::Log) return false;
     if (r.sendDelayMs > kMaxSendDelayMs) return false;
+    if (r.release) {
+        if (r.firstOnly) return false;
+        if (r.mode == InputMode::Pick && r.keyValue[(uint8_t)Key::Enter] != 0) return false;
+        if (r.mode == InputMode::Counter && r.confirmKey != Key::Enter) return false;
+        if (r.mode != InputMode::Pick && r.mode != InputMode::Counter) return false;
+    }
     bool any = false;
     for (uint8_t i = 0; i < kKeySlots; i++) {
         if (r.keyValue[i] == 0) continue;
@@ -143,7 +159,8 @@ inline bool ruleValid(const InputRule& r, uint16_t keyMask) {
 
 inline void ruleToFrame(const InputRule& r, QuizRulesMsg& m) {
     m.mode = (uint8_t)r.mode;
-    m.flags = (uint8_t)((r.firstOnly ? kRuleFirstOnly : 0) | (r.repeat ? kRuleRepeat : 0));
+    m.flags = (uint8_t)((r.firstOnly ? kRuleFirstOnly : 0) | (r.repeat ? kRuleRepeat : 0) |
+                        (r.release ? kRuleRelease : 0));
     for (uint8_t i = 0; i < kKeySlots; i++) m.keyValue[i] = r.keyValue[i];
     m.upKey = (uint8_t)r.upKey;
     m.downKey = (uint8_t)r.downKey;
@@ -162,6 +179,7 @@ inline bool ruleFromFrame(const QuizRulesMsg& m, uint16_t keyMask, InputRule& ou
     r.mode = (InputMode)m.mode;
     r.firstOnly = (m.flags & kRuleFirstOnly) != 0;
     r.repeat = (m.flags & kRuleRepeat) != 0;
+    r.release = (m.flags & kRuleRelease) != 0;
     for (uint8_t i = 0; i < kKeySlots; i++) r.keyValue[i] = m.keyValue[i];
     r.upKey = (Key)m.upKey;
     r.downKey = (Key)m.downKey;

@@ -119,7 +119,7 @@ orientation, and leave it out otherwise:
 
 | `firstOnly` | Devices |
 |---|---|
-| `false` (default, may be left out) | a device may change its answer while the round is open; its last input counts |
+| `false` (default, may be left out) | one press gives the answer, Enter releases it (see "One press gives the answer"); the last answer given counts |
 | `true` | only each device's first answer counts |
 
 - For `race`, `scale` and `choice` (`bad_field`, "only for race, scale and
@@ -153,7 +153,24 @@ run the preset.
 - `min`, `max`, `firstDown`, `firstUp` (counter): `min <= firstDown <= firstUp <= max`, 0-254.
 - `repeat` (counter): holding `up` or `down` steps on.
 - `sendDelayMs`: 0-5000, absent 0.
+- `release` (pick, and counter with `"confirm":"enter"`): Enter releases the value given; not with `firstOnly`, and in `pick` Enter takes no value (`bad_field`, "release: pick without a value on enter or counter with confirm enter, not with firstOnly"). Absent false. On the radio bit 2 of the `QuizRules` `flags`.
 - The rule takes `firstOnly` from the round. A round keeps its `input` like its `keys`.
+
+### One press gives the answer, Enter releases it
+
+Owner, 2026-11-18 (`gestaltung-buzzer/SYSTEM.md`, "Entscheidungen v7"). The presets of `choice` and of `scale` with `"confirm":"enter"` use `release` unless the round has `firstOnly`.
+
+- `choice`: a direction key gives the answer at once; the other keys then do nothing. Enter releases the answer, then every answer key is free again. Enter is no answer in `choice`.
+- `scale` with `"confirm":"enter"`: Up and Down set the value, Enter gives it, Enter again releases it.
+- A release goes out as a report with value 255 and a new `valueSeq`. The bridge then holds no value for the device and its `value` line carries `"v":null`: count the device as not answered. The device keeps resending the release until the echo shows no value.
+
+### `anonymous` in `game round`
+
+`{"ns":"game","cmd":"round","round":23425,"type":"choice","phase":"closed","keys":{"up":"white","right":"white","down":"white","left":"white"},"correct":2,"anonymous":true}`
+
+- For `choice` and `scale` (`bad_field`, "only for scale and choice"), a boolean (`bad_field`, "anonymous must be a boolean"); absent false. Fixed for a running round like `firstOnly` (`round_fixed`).
+- Devices show the round as usual while it is open. After the resolution they show no result colours: the given key yellow dimmed, the ring warm white faint, Enter breathes white; pressing Enter shows the result for 3 s.
+- On the radio bit 3 of the `QuizState` header `flags`.
 
 ### `verdict` in `game round` (race)
 
@@ -231,8 +248,11 @@ run the preset.
   evenly in reading direction, white at 40 %. Devices with an answer show
   their answer as before.
 
-### Answer keys, Enter as answer 5, Enter to log in
+### Answer keys, Enter to log in
 
+- `choice` since 2026-11-18: Enter is no answer, it releases the answer
+  given (see "One press gives the answer"). A race with answer keys still
+  takes Enter as answer 5.
 - Answer keys of a `choice` (and of a race with answer keys): any 2-5 of
   `up` (answer 1), `right` (2), `down` (3), `left` (4) and `enter` (5, the
   centre key), e.g. `up` and `down` for true or false. The answer number
@@ -337,15 +357,20 @@ Every level is scaled to the device's brightness (at least one LED step).
 
 | Round | Open, no answer | Answer, not yet confirmed | Answer confirmed by the bridge's echo |
 |---|---|---|---|
-| `choice` | answer keys white at 40 % | the chosen key steady white, the others white at 40 % | the chosen key pulses once per second between white and its direction colour, the others stay white at 40 %; the ring glows steadily in the direction colour |
+| `choice` | answer keys white at 40 %; the ring is the clock: white, all four corners, or ceil(4 · left / ms) corners clockwise from the upper right while a `countdown` runs | the given key yellow, pulsing; the others off; Enter white at 10 % | the given key steady yellow at 90 %; the clock on the ring in yellow; Enter white at 10 % while it can release |
 | `scale` | Up and Down white at 40 % | Up and Down stay; the column shows the value in its zone colour, pulsing | Up and Down stay; the column shows the value; the ring glows steadily in the zone colour |
 | `race` | the ring white at 40 % from the announced start, dark before it | the ring steady white | the ring steady blue |
 
 - With `firstOnly` the other answer keys (Up and Down in `scale`) go dark
   once the device has sent its answer.
+- `choice` after closing: the given key yellow at 20 %, the ring warm white
+  (RGB 255, 170, 90) for 2 s, then off. With `correct`: the right key steady
+  green at 60 %; the own key pulses green (right, with the celebration) or
+  orange red (wrong, one wave around the ring); without an answer the ring
+  shows violet (RGB 120, 0, 255). The countdown no longer runs on the
+  column in `choice`.
 - The chosen key and the ring stay after the round closes, until the result:
-  `correct` in `choice` (the correct key in its direction colour, the column
-  green or "wrong") and `winner` in `race` (the winner's ring and column
+  `winner` in `race` (the winner's ring and column
   green, or the column "wrong" with `verdict` `wrong`).
 - "Wrong" (a wrong answer, a race winner rated wrong) is no punishment: the
   column shows orange red, RGB 128, 40, 0 (`#802800`), half as bright as the

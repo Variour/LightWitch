@@ -32,7 +32,8 @@ struct __attribute__((packed)) QuizHeader {
     uint8_t ttl;      // always 0 in v0
     uint8_t hops;     // always 0 in v0
     uint8_t dist;     // 0 bridge, 1 device
-    uint8_t flags;    // QuizState: kStateFirstOnly | kStateWinnerWrong | kStateRainbow; else 0
+    uint8_t flags;    // QuizState: kStateFirstOnly | kStateWinnerWrong | kStateRainbow |
+                      // kStateAnonymous; else 0
 };
 static_assert(sizeof(QuizHeader) == 12, "QuizHeader layout");
 
@@ -45,6 +46,9 @@ static constexpr uint8_t kStateWinnerWrong = 1 << 1;
 // QuizState header flag: a scale of 24 steps shown as the rainbow (link
 // `game round` field display "rainbow"); `correct` is then the right step.
 static constexpr uint8_t kStateRainbow = 1 << 2;
+// QuizState header flag: an anonymous round (link `game round` field
+// anonymous): devices show no result colours after the resolution.
+static constexpr uint8_t kStateAnonymous = 1 << 3;
 
 struct __attribute__((packed)) QuizInviteMsg {
     QuizHeader h;
@@ -159,6 +163,8 @@ static_assert(sizeof(QuizKeysMsg) <= 250, "ESP-NOW v1 payload limit");
 // QuizRules flags.
 static constexpr uint8_t kRuleFirstOnly = 1 << 0;
 static constexpr uint8_t kRuleRepeat = 1 << 1;
+// Enter releases the value given (InputRule::release).
+static constexpr uint8_t kRuleRelease = 1 << 2;
 
 // Bridge -> devices, right after each QuizState of a round with link field
 // `input` (docs/game-building-blocks.md): the round's input rule (InputRule.h).
@@ -167,7 +173,7 @@ struct __attribute__((packed)) QuizRulesMsg {
     uint16_t session;
     uint16_t roundId;
     uint8_t mode;          // InputMode
-    uint8_t flags;         // kRuleFirstOnly | kRuleRepeat
+    uint8_t flags;         // kRuleFirstOnly | kRuleRepeat | kRuleRelease
     uint8_t keyValue[10];  // per Key slot, 0 = no value
     uint8_t upKey;         // Key, 0xFF = none
     uint8_t downKey;
