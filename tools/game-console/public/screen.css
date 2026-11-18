@@ -22,6 +22,17 @@
   --white: #f2f2f2;
   --violet: #a879ff;
   --on-zone: #111;
+  --tile: #f2f2f2;
+  --on-tile: #111;
+  --hit: #2ffb95;
+  --on-hit: #0b2a1a;
+  --hit-text: #2ffb95;
+  --miss: #4a4a4a;
+  --on-miss: #c3c3c3;
+  --miss-led: #ff9c5c;
+  --none-led: #a774d8;
+  --key: #c3c3c3;
+  --on-key: #111;
   --u: min(1vh, 0.5625vw); /* 1 % of the height of a 16:9 frame */
   color-scheme: dark;
 }
@@ -45,6 +56,17 @@
   --white: #6b6b6b;
   --violet: #7a46d8;
   --on-zone: #fff;
+  --tile: #fff;
+  --on-tile: #151515;
+  --hit: #2ffb95;
+  --on-hit: #0b2a1a;
+  --hit-text: #17914b;
+  --miss: #d6d9d3;
+  --on-miss: #5c615a;
+  --miss-led: #e8792e;
+  --none-led: #8a5bc7;
+  --key: #c9ccc6;
+  --on-key: #151515;
   color-scheme: light;
 }
 
@@ -267,54 +289,97 @@ body {
 .ranking .more { font-size: calc(3 * var(--u)); color: var(--muted); padding-left: calc(2 * var(--u)); }
 .invalid { font-size: calc(3.2 * var(--u)); color: var(--red); font-weight: 700; }
 
-/* ── Choice ─────────────────────────────────────────────────────────── */
-.answers { flex: 1; display: flex; flex-direction: column; gap: calc(1.8 * var(--u)); min-width: 0; }
-.answer {
-  position: relative;
-  display: grid;
-  grid-template-columns: calc(10 * var(--u)) 1fr auto;
-  align-items: center;
-  gap: calc(3 * var(--u));
-  padding: calc(1.6 * var(--u)) calc(3 * var(--u)) calc(1.6 * var(--u)) calc(1.6 * var(--u));
-  border-radius: calc(1.6 * var(--u));
+/* ── Choice: answer cross like the device keys, ring like the buzzer ── */
+.choice-head .head-row { align-items: flex-start; }
+.choice-head .question { flex: 1; min-width: 0; font-size: calc(7.4 * var(--u)); }
+.choice-head .round-title { font-size: calc(3 * var(--u)); }
+.category {
+  flex: none;
+  font-size: calc(2.8 * var(--u));
+  font-weight: 650;
+  padding: calc(0.8 * var(--u)) calc(2.4 * var(--u));
+  border-radius: 999px;
   background: var(--surface);
-  overflow: hidden;
+  color: var(--muted);
+  white-space: nowrap;
 }
-.answer .fill {
+/* Sizes follow the slides (folien-v7): tile 9.5 x 2.5 cm, gap 0.5 cm, 1 cm = 5.25 u. */
+.cross {
+  --tw: calc(50 * var(--u));
+  --th: calc(13 * var(--u));
+  --g: calc(2.6 * var(--u));
+  position: relative;
+  flex: none;
+  align-self: center;
+  width: calc(2 * var(--tw) + var(--th) + 2 * var(--g));
+  height: calc(3 * var(--th) + 2 * var(--g));
+}
+.atile {
   position: absolute;
-  inset: 0 auto 0 0;
-  background: color-mix(in srgb, var(--k) 22%, transparent);
-  transition: width .6s ease-out;
+  width: var(--tw);
+  height: var(--th);
+  display: flex;
+  align-items: center;
+  gap: calc(2 * var(--u));
+  padding: 0 calc(3 * var(--u));
+  background: var(--tile);
+  color: var(--on-tile);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
-.answer > *:not(.fill) { position: relative; }
-.answer .text { font-size: calc(4.6 * var(--u)); font-weight: 650; line-height: 1.15; }
-.answer .cnt { font-size: calc(4.6 * var(--u)); font-weight: 850; text-align: right; }
-.answer .cnt small { font-size: .6em; color: var(--muted); font-weight: 650; margin-left: calc(1 * var(--u)); }
-.answer.right { box-shadow: inset 0 0 0 calc(0.6 * var(--u)) var(--k); }
-.answer.wrong { opacity: .38; }
-.key {
-  width: calc(10 * var(--u));
-  height: calc(10 * var(--u));
-  border-radius: calc(1.6 * var(--u));
-  background: var(--bg);
-  box-shadow: inset 0 0 0 calc(0.6 * var(--u)) var(--k);
+.atile.up, .atile.down { left: calc(50% - var(--tw) / 2); }
+.atile.up { top: 0; }
+.atile.down { bottom: 0; }
+.atile.left, .atile.right { top: calc(var(--th) + var(--g)); }
+.atile.left { left: 0; padding-left: calc(5 * var(--u)); }
+.atile.right { right: 0; padding-right: calc(5 * var(--u)); }
+.atile .text { flex: 1; min-width: 0; font-size: calc(4.4 * var(--u)); font-weight: 700; line-height: 1.15; }
+.atile .cnt { display: flex; align-items: center; gap: calc(0.8 * var(--u)); font-size: calc(4.4 * var(--u)); font-weight: 800; }
+.atile .check { width: calc(4 * var(--u)); height: calc(4 * var(--u)); fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+/* Equilateral triangle at the middle of the outer edge, pointing outwards. */
+.tri { position: absolute; background: currentColor; width: calc(3.2 * var(--u)); height: calc(2.77 * var(--u)); }
+.up .tri { top: calc(0.6 * var(--u)); left: calc(50% - 1.6 * var(--u)); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.down .tri { bottom: calc(0.6 * var(--u)); left: calc(50% - 1.6 * var(--u)); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.right .tri, .left .tri { width: calc(2.77 * var(--u)); height: calc(3.2 * var(--u)); top: calc(50% - 1.6 * var(--u)); }
+.right .tri { right: calc(0.6 * var(--u)); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.left .tri { left: calc(0.6 * var(--u)); clip-path: polygon(100% 0, 100% 100%, 0 50%); }
+.atile.hit { background: var(--hit); color: var(--on-hit); box-shadow: none; }
+.atile.miss { background: var(--miss); color: var(--on-miss); box-shadow: none; }
+/* The fifth key: no answer, a small word for what it does right now. */
+.mid {
+  position: absolute;
+  left: calc(var(--tw) + var(--g));
+  top: calc(var(--th) + var(--g));
+  width: var(--th);
+  height: var(--th);
+  background: var(--key);
+  color: var(--on-key);
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: calc(2.6 * var(--u));
+  font-weight: 700;
 }
-.key svg { width: 58%; height: 58%; stroke: var(--k); fill: none; stroke-width: 9; stroke-linejoin: round; stroke-linecap: round; }
-.k1 { --k: var(--yellow); }
-.k2 { --k: var(--blue); }
-.k3 { --k: var(--magenta); }
-.k4 { --k: var(--cyan); }
-.choice-side { flex: 0 0 30%; display: flex; flex-direction: column; justify-content: center; gap: calc(2.4 * var(--u)); }
-.answered b { display: block; font-size: calc(14 * var(--u)); font-weight: 850; line-height: 1; }
-.answered span { font-size: calc(4 * var(--u)); color: var(--muted); }
-.progress { display: flex; gap: calc(0.4 * var(--u)); height: calc(2.6 * var(--u)); }
-.progress i { flex: 1; border-radius: calc(0.4 * var(--u)); background: var(--led-off); }
-.progress i.on { background: var(--accent); }
-.right-list { font-size: calc(3 * var(--u)); color: var(--muted); line-height: 1.35; }
-.right-list b { color: var(--text); }
+.clock { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(3 * var(--u)); text-align: center; }
+.clock-face { position: relative; width: calc(31.5 * var(--u)); aspect-ratio: 1; }
+.clock-ring { width: 100%; height: 100%; }
+.clock-ring path { fill: none; stroke-width: 9; stroke: var(--led-off); }
+.clock-ring path.on { stroke: var(--white); }
+.clock-ring path.zu { stroke: var(--muted); }
+.clock-ring path.hit { stroke: var(--hit); }
+.clock-mid { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; }
+.clock-mid b { font-size: calc(6.7 * var(--u)); font-weight: 800; }
+.clock-mid .word { font-size: calc(3 * var(--u)); color: var(--muted); font-weight: 650; }
+.clock-mid .word.hit { color: var(--hit-text); }
+.clock-mid .of { font-size: calc(3 * var(--u)); color: var(--muted); }
+.clock-mid .lock, .clock-mid .bars { width: calc(7 * var(--u)); height: calc(7 * var(--u)); fill: none; stroke: var(--muted); stroke-width: 2; }
+.clock-under { display: flex; flex-direction: column; align-items: center; gap: calc(0.4 * var(--u)); font-size: calc(3 * var(--u)); color: var(--muted); }
+.clock-under b { font-size: calc(3.7 * var(--u)); color: var(--text); font-weight: 800; }
+.right-list { font-size: calc(2.4 * var(--u)); color: var(--muted); line-height: 1.35; max-width: calc(40 * var(--u)); }
+.foot { font-size: calc(3 * var(--u)); color: var(--muted); display: flex; align-items: center; gap: calc(1 * var(--u)); min-height: 1.2em; }
+.foot .sw { display: inline-block; width: calc(2 * var(--u)); height: calc(2 * var(--u)); margin-left: calc(1.2 * var(--u)); }
+.sw.hit { background: var(--hit); }
+.sw.miss { background: var(--miss-led); }
+.sw.none { background: var(--none-led); }
 
 /* ── Move (the board itself is in PowerPoint) ───────────────────────── */
 .move-side { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: calc(2.5 * var(--u)); }
@@ -437,6 +502,5 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .pop, .winner.reveal { animation: none; }
   .ring::before { animation: none; }
-  .answer .fill { transition: none; }
   .ft-ubar i { transition: none; }
 }
