@@ -603,3 +603,31 @@ while VBAT is between a lowered charge voltage and 4.25 V (see `config charge`).
   returns the mean IBUS, IBAT and VBUS of the charger ADC samples; `ok`
   is `false` without samples.
 - The link closing ends a running test.
+
+## `mesh` (any device)
+
+Multi-hop forwarding and the mesh test (docs/mesh-routing.md).
+
+| Command | Reply |
+|---|---|
+| `{"ns":"mesh","cmd":"test","mode":"tree","s":300,"id":1}` | `{"ns":"mesh","ev":"test","id":1,"mode":"tree","s":300}` |
+| `{"ns":"mesh","cmd":"test","mode":"off","id":2}` | `{"ns":"mesh","ev":"test","id":2,"mode":"off","s":0}` |
+| `{"ns":"mesh","cmd":"power","mode":"max","id":3}` | `{"ns":"mesh","ev":"power","id":3,"mode":"max"}` |
+| `{"ns":"mesh","cmd":"status","id":4}` | `status`, see below |
+| `{"ns":"mesh","cmd":"nodes","id":5}` | `{"ns":"mesh","ev":"nodes","id":5,"root":true,"count":10}`, then one `node` event per device |
+
+- `test`: `mode` is `tree` (normal speed), `slow` (slow motion) or `off`;
+  `s` 10-3600, default 300. The device that receives it becomes the root for
+  the test, every device in reach takes the test over within about a second
+  and shows it on its LEDs until `s` runs out or `off` comes.
+- `power`: `max` puts the whole mesh on full transmit power (carried in the
+  root's beacons), `auto` goes back to adaptive power. Not stored.
+- `status`:
+  `{"ns":"mesh","ev":"status","id":4,"root":false,"hops":2,"parent":"…","parentRssi":-61,"tx":6,"txMax":19,"powerMax":false,"children":1,"roundOpen":false,"test":"tree","testLeft":212,"sent":812,"relayed":95,"failed":3,"switches":2,"overflow":0,"neighbors":[{"mac":"…","n":4,"hops":1,"rssi":-61,"loss":67,"prr":96,"age":0}]}`.
+  `hops` and `parent` are `null` without a route, `loss` is the path loss in
+  dB, `prr` the share of the neighbour's beacons received in %.
+- `node` (from the root's table):
+  `{"ns":"mesh","ev":"node","mac":"…","n":7,"parent":"…","hops":2,"rssi":-61,"tx":6,"children":0,"neighbors":4,"bat":81,"usb":false,"mobile":false,"sent":812,"relayed":0,"failed":3,"switches":2,"lost":false,"age":1}`.
+  `lost` is `true` when the device has not reported for 7 s during the test
+  (65 s outside it). While the test runs, each new report follows as a
+  `node` event.

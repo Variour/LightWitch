@@ -98,6 +98,9 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `FleetCommand` | `FleetCommandMsg` variable-length (11-byte head + `targetCount` MACs) | head must be present, `targetCount <= 32`, and `len` must equal head + 6 × `targetCount` | Fleet package. Bridge to all or to the listed MACs, three times with one nonce. |
 | `QuizKeys` | `QuizKeysMsg` variable-length (17-byte head + 3 bytes per press) | head must be present, `count` 1-8, and `len` must equal head + 3 × `count` | Game session, move rounds. Device to bridge: every unacknowledged key press. |
 | `QuizRules` | `QuizRulesMsg` fixed 37 bytes | `len` must be exactly 37 | Game session. Bridge to devices, after each `QuizState` of a round with link field `input`: the round's input rule. Devices without it run the preset of `roundType`. |
+| `MeshBeacon` | `BeaconMsg` fixed-size, 29 bytes, `ver` 1 | exact `sizeof(BeaconMsg)` and `ver == 1` | Mesh routing (docs/mesh-routing.md). Every game build to its neighbours, never relayed. |
+| `MeshTopo` | `TopoMsg` fixed-size, 36 bytes, `ver` 1 | exact `sizeof(TopoMsg)` and `ver == 1` | Mesh routing. Device to the root over the tree. |
+| `MeshTrace` | `TraceMsg` fixed-size, 7 bytes, `ver` 1 | exact `sizeof(TraceMsg)` and `ver == 1` | Mesh test. Root to all over the tree. |
 
 ## The `Hello` exception
 
