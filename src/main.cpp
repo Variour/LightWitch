@@ -1285,6 +1285,7 @@ void loop() {
         self.number = gameSession.number();
         const auto& bs = battery.status();
         if (bs.present) self.battery = bs.percent;
+        self.mobile = gameSession.teacher();
         self.usb = power.online() && power.status().powerGood();
         meshRouter.setSelf(self);
         meshRouter.setRoot(gameSession.gatewayActive());

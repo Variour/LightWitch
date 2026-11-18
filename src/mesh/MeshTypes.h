@@ -64,7 +64,9 @@ enum class MsgType : uint8_t {
     QuizKeys = 46,
     // Game session: the input rule of a round (src/game/GameFrames.h).
     QuizRules = 47,
-    // 48 and 49: game session (teacher device), see src/game/GameFrames.h.
+    // Game session: a key of the teacher device (src/game/GameFrames.h).
+    QuizTeacher = 48,
+    // 49: game session, see src/game/GameFrames.h.
     // Mesh routing (src/mesh/MeshRoute.h): beacon, topology report, trace.
     // 52 and 54 are kept free for the mesh.
     MeshBeacon = 50,
@@ -79,7 +81,8 @@ static_assert((uint8_t)MsgType::QuizInvite == game::kMsgQuizInvite &&
                   (uint8_t)MsgType::QuizRelease == game::kMsgQuizRelease &&
                   (uint8_t)MsgType::QuizChannel == game::kMsgQuizChannel &&
                   (uint8_t)MsgType::QuizKeys == game::kMsgQuizKeys &&
-                  (uint8_t)MsgType::QuizRules == game::kMsgQuizRules,
+                  (uint8_t)MsgType::QuizRules == game::kMsgQuizRules &&
+                  (uint8_t)MsgType::QuizTeacher == game::kMsgQuizTeacher,
               "quiz MsgTypes must match src/game/GameFrames.h");
 static_assert((uint8_t)MsgType::MeshBeacon == meshnet::kMsgBeacon &&
                   (uint8_t)MsgType::MeshTopo == meshnet::kMsgTopo &&

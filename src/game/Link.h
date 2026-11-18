@@ -165,14 +165,27 @@ class Link : public Bridge::Listener {
         _numOrNull(bat, j.battery != kNoBattery, j.battery);
         _lagePart(lage, j.lage);
         char line[kEventLineMax];
-        int len =
-            snprintf(line, sizeof(line),
-                     "{\"ns\":\"game\",\"ev\":\"join\",\"mac\":\"%s\",\"n\":%s,\"fw\":\"%08lx\","
-                     "\"proto\":%u,\"fleet\":%u,\"bat\":%s,\"chg\":%s,\"rssi\":%d,"
-                     "\"pressed\":%s,\"rejoin\":%s,\"named\":%s%s}\n",
-                     mac, n, (unsigned long)j.fw, j.proto, j.fleet, bat, _b(j.charging), j.rssi,
-                     _b(j.pressed), _b(j.rejoin), _b(j.named), lage);
+        int len = snprintf(
+            line, sizeof(line),
+            "{\"ns\":\"game\",\"ev\":\"join\",\"mac\":\"%s\",\"n\":%s,\"fw\":\"%08lx\","
+            "\"proto\":%u,\"fleet\":%u,\"bat\":%s,\"chg\":%s,\"rssi\":%d,"
+            "\"pressed\":%s,\"rejoin\":%s,\"named\":%s%s%s}\n",
+            mac, n, (unsigned long)j.fw, j.proto, j.fleet, bat, _b(j.charging), j.rssi,
+            _b(j.pressed), _b(j.rejoin), _b(j.named), lage, j.teacher ? ",\"teacher\":true" : "");
         _enqueueRaw(line, len);
+    }
+
+    void onTeacher(uint16_t n, const uint8_t* mac, uint8_t key, bool hold) override {
+        if (!_helloDone) return;
+        JsonDocument d;
+        _head(d, "game", "teacher", ReqId{});
+        char m[18];
+        formatMac(mac, m);
+        d["n"] = n;
+        d["mac"] = m;
+        d["key"] = key < sizeof(kKeyNames) / sizeof(kKeyNames[0]) ? kKeyNames[key] : "?";
+        d["hold"] = hold;
+        _enqueue(d);
     }
 
     void onAdmitted(const ReqId& id, const uint8_t* mac, uint16_t n) override {
@@ -328,21 +341,24 @@ class Link : public Bridge::Listener {
                 int len = snprintf(line, sizeof(line),
                                    "{\"ns\":\"game\",\"ev\":\"device\",\"n\":%u,\"mac\":\"%s\","
                                    "\"fw\":\"%08lx\",\"proto\":%u,\"bat\":%s,\"chg\":%s,"
-                                   "\"rssi\":%d,\"round\":%u,\"seq\":%u,\"named\":%s%s}\n",
+                                   "\"rssi\":%d,\"round\":%u,\"seq\":%u,\"named\":%s%s%s}\n",
                                    n, mac, (unsigned long)dv->fw, dv->proto, bat, _b(dv->charging),
-                                   dv->rssi, dv->lastRound, dv->lastSeq, _b(dv->named), lage);
+                                   dv->rssi, dv->lastRound, dv->lastSeq, _b(dv->named), lage,
+                                   dv->teacher ? ",\"teacher\":true" : "");
                 if (!_write(line, len)) return false;
                 _bridge->clearDirtyDevice(n);
             }
             if (dv->dirtyValue) {
-                char bat[8], lage[24];
+                char bat[8], lage[24], val[8];
                 _numOrNull(bat, dv->valueBattery != kNoBattery, dv->valueBattery);
+                // null: the device released its answer (InputRule::release).
+                _numOrNull(val, dv->value != kNoValue, dv->value);
                 _lagePart(lage, dv->valueLage);
                 int len = snprintf(line, sizeof(line),
                                    "{\"ns\":\"game\",\"ev\":\"value\",\"n\":%u,\"round\":%u,"
-                                   "\"v\":%u,\"vseq\":%u,\"t\":%ld,\"arr\":%u,\"late\":%s,"
+                                   "\"v\":%s,\"vseq\":%u,\"t\":%ld,\"arr\":%u,\"late\":%s,"
                                    "\"rssi\":%d,\"bat\":%s%s%s}\n",
-                                   n, _bridge->stateInfo(0).round, dv->value, dv->vseq, (long)dv->t,
+                                   n, _bridge->stateInfo(0).round, val, dv->vseq, (long)dv->t,
                                    dv->arr, _b(dv->late), dv->valueRssi, bat, lage,
                                    dv->answerTaken ? ",\"answer\":true" : "");
                 if (!_write(line, len)) return false;
@@ -877,6 +893,20 @@ class Link : public Bridge::Listener {
             c.firstOnly = firstOnly.as<bool>();
         }
 
+        // anonymous (absent = false): no result colours on the devices
+        JsonVariantConst anon = o["anonymous"];
+        if (!anon.isUnbound()) {
+            if (c.type != RoundType::Scale && c.type != RoundType::Choice) {
+                _badField(id, cmd, "anonymous", "only for scale and choice");
+                return false;
+            }
+            if (!anon.is<bool>()) {
+                _badField(id, cmd, "anonymous", "anonymous must be a boolean");
+                return false;
+            }
+            c.anonymous = anon.as<bool>();
+        }
+
         // openInMs
         Field f = _int(o, "openInMs", 0, 5000, v);
         if (f != Field::Missing) {
@@ -1047,6 +1077,21 @@ class Link : public Bridge::Listener {
             return false;
         }
         r.sendDelayMs = (uint16_t)delay;
+        JsonVariantConst rel = o["release"];
+        if (!rel.isUnbound() && !rel.is<bool>()) {
+            _badField(id, cmd, "input", "release must be a boolean");
+            return false;
+        }
+        r.release = rel.is<bool>() && rel.as<bool>();
+        if (r.release &&
+            (r.firstOnly || (r.mode != InputMode::Pick && r.mode != InputMode::Counter) ||
+             (r.mode == InputMode::Pick && r.keyValue[(uint8_t)Key::Enter] != 0) ||
+             (r.mode == InputMode::Counter && r.confirmKey != Key::Enter))) {
+            _badField(id, cmd, "input",
+                      "release: pick without a value on enter or counter with confirm enter, "
+                      "not with firstOnly");
+            return false;
+        }
         if (!ruleValid(r, c.keyMask)) {
             _badField(id, cmd, "input", "every input key must be one of the round's keys");
             return false;
@@ -1130,7 +1175,8 @@ class Link : public Bridge::Listener {
                 return _sendState(id, changed, now);
             case Bridge::Err::RoundFixed:
                 return _error(id, "round_fixed", "game", "round", nullptr,
-                              "type, keys, hold, firstOnly and scale of a running round are fixed");
+                              "type, keys, hold, firstOnly, anonymous and scale of a running round "
+                              "are fixed");
             case Bridge::Err::BadPhase:
                 return _error(id, "bad_phase", "game", "round", nullptr,
                               "phases only move forward");
