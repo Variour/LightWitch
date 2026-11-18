@@ -40,6 +40,9 @@ struct HubView {
     uint16_t round = 0;
     bool opened = false;
     uint32_t sinceOpenMs = 0;
+    uint32_t countdownMs = 0;  // round or answer time, 0 = no limit
+    uint32_t remainingMs = 0;
+    uint16_t keyMask = 0;
     uint16_t answered = 0;  // present members with a value
     uint16_t answering = 0;
     uint16_t winner = 0;
@@ -84,6 +87,12 @@ struct HubView {
         opened = s.sinceOpenValid;
         sinceOpenMs = s.sinceOpenValid && s.sinceOpenMs > 0 ? (uint32_t)s.sinceOpenMs : 0;
         answering = r.answering;
+        keyMask = r.keyMask;
+        if (r.phase == game::Phase::Open && r.answerMs) {
+            countdownMs = r.answerMs;
+            uint32_t gone = now - r.answerAt;
+            remainingMs = gone < r.answerMs ? r.answerMs - gone : 0;
+        }
         winner = r.winner;
         winnerWrong = r.winnerWrong;
         correct = r.correct;

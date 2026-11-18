@@ -74,15 +74,18 @@ class HubUi {
 
     // farben-standard: green for right and logged in, orange red (dimmed)
     // for wrong, orange for no connection, blue for login / invite.
-    static constexpr uint16_t kBg = rgb565(10, 10, 14);
-    static constexpr uint16_t kPanel = rgb565(32, 34, 42);
-    static constexpr uint16_t kLine = rgb565(60, 62, 72);
-    static constexpr uint16_t kText = rgb565(240, 240, 240);
-    static constexpr uint16_t kDim = rgb565(150, 152, 160);
-    static constexpr uint16_t kGreen = rgb565(0x2F, 0xFB, 0x95);
-    static constexpr uint16_t kWrong = rgb565(200, 62, 0);  // 128/40/0 lifted for the screen
-    static constexpr uint16_t kOrange = rgb565(255, 140, 0);
-    static constexpr uint16_t kBlue = rgb565(60, 120, 255);
+    static constexpr uint16_t kBg = rgb565(0x07, 0x50, 0x33);     // dark green 075033
+    static constexpr uint16_t kPanel = rgb565(0x05, 0x3C, 0x26);  // header, tabs, boxes
+    static constexpr uint16_t kLine = rgb565(0x2E, 0x7A, 0x58);
+    static constexpr uint16_t kText = rgb565(255, 255, 255);
+    static constexpr uint16_t kDim = rgb565(0xA8, 0xC2, 0xB8);
+    static constexpr uint16_t kGrey = rgb565(0xC3, 0xC3, 0xC3);  // closed, other answers
+    static constexpr uint16_t kRingOff =
+        rgb565(0x0B, 0x33, 0x23);  // expired segment, like an LED off
+    static constexpr uint16_t kGreen = rgb565(0x2F, 0xFB, 0x95);  // right, and only that
+    static constexpr uint16_t kNeben = rgb565(0xFF, 0x9C, 0x5C);  // daneben
+    static constexpr uint16_t kNone = rgb565(0xA7, 0x74, 0xD8);   // nicht abgegeben
+    static constexpr uint16_t kWarn = rgb565(0xFF, 0xD5, 0x4A);   // technical: battery, signal
 
     HubBoard _board;
     GFXcanvas16* _frame = nullptr;
@@ -138,6 +141,7 @@ class HubUi {
     // ── Text helpers ─────────────────────────────────────────────────────────
     void _font(const uint8_t* f, uint16_t color) {
         _text.setFont(f);
+        _text.setFontMode(1);  // setFont() switches back to a solid background
         _text.setForegroundColor(color);
     }
     int16_t _width(const char* s) { return _text.getUTF8Width(s); }
@@ -198,10 +202,10 @@ class HubUi {
         else
             snprintf(buf, sizeof(buf), "Keine Sitzung");
         _at(kPad, 21, buf);
-        _font(u8g2_font_helvR10_tf, v.console ? kGreen : kOrange);
+        _font(u8g2_font_helvR10_tf, v.console ? kText : kWarn);
         const char* con = v.console ? "Konsole" : "ohne Konsole";
         int16_t conX = W - kPad - _width(con);
-        _frame->fillCircle(conX - 9, 16, 4, v.console ? kGreen : kOrange);
+        _frame->fillCircle(conX - 9, 16, 4, v.console ? kText : kWarn);
         _at(conX, 21, con);
         // Row 2: members, login, low battery, channel.
         if (!v.session) return;
@@ -218,7 +222,7 @@ class HubUi {
             x += _width(buf) + 12;
         }
         if (v.lowBattery) {
-            _font(u8g2_font_helvR10_tf, kOrange);
+            _font(u8g2_font_helvR10_tf, kWarn);
             snprintf(buf, sizeof(buf), "%u Akku schwach", v.lowBattery);
             _at(x, 45, buf);
         }
@@ -236,7 +240,7 @@ class HubUi {
             bool active = i < 3 && (uint8_t)_page == i;
             if (active) {
                 _frame->fillRect(i * tw, kTabY + 1, tw, kTabH - 1, kLine);
-                _frame->fillRect(i * tw, kTabY + 1, tw, 4, kBlue);
+                _frame->fillRect(i * tw, kTabY + 1, tw, 4, kText);
             }
             if (i) _frame->drawFastVLine(i * tw, kTabY + 8, kTabH - 16, kLine);
             char buf[16];
@@ -252,9 +256,8 @@ class HubUi {
     // ── Auto: the page follows the session ───────────────────────────────────
     void _drawAuto(const HubView& v) {
         if (!v.session) return _drawNoSession(v);
-        if (v.type != game::RoundType::Idle && v.phase != game::Phase::Closed) return _drawOpen(v);
-        if (v.type != game::RoundType::Idle && v.phase == game::Phase::Closed && v.opened)
-            return renderAnswers(v, kPad, kContentY, W - 2 * kPad, kContentH);
+        bool round = v.type != game::RoundType::Idle && v.type != game::RoundType::Move;
+        if (round && (v.phase != game::Phase::Closed || v.opened)) return _drawRound(v);
         _drawOverview(v);
     }
 
@@ -270,8 +273,8 @@ class HubUi {
         char buf[32];
         int16_t y = kContentY + 16;
         if (v.login) {
-            _frame->fillRoundRect(kPad, y, W - 2 * kPad, 34, 6, kBlue);
-            _font(u8g2_font_helvB14_tf, kText);
+            _frame->fillRoundRect(kPad, y, W - 2 * kPad, 34, 6, kText);
+            _font(u8g2_font_helvB14_tf, kBg);
             _center(W / 2, y + 24, "Anmeldung offen");
             y += 46;
         } else {
@@ -293,7 +296,7 @@ class HubUi {
         y += 64;
         _drawGrid(v, y, kTabY - 30 - y, false);
         _font(u8g2_font_helvR10_tf, kDim);
-        _at(kPad, kTabY - 10, "grau = offline,  orange Rahmen = Akku schwach");
+        _at(kPad, kTabY - 10, "grau = offline,  gelber Rahmen = Akku schwach");
     }
 
     // Member numbers as tiles. Offline grey, low battery orange frame,
@@ -317,13 +320,11 @@ class HubUi {
             }
             int16_t x0 = kPad + (shown % cols) * (tw + gap);
             int16_t y0 = y + (shown / cols) * (th + gap);
-            uint16_t fill = !m.present                     ? kBg
-                            : (showAnswered && m.answered) ? rgb(0, 110, 60)
-                                                           : kPanel;
+            uint16_t fill = !m.present ? kBg : (showAnswered && m.answered) ? kLine : kPanel;
             _frame->fillRoundRect(x0, y0, tw, th, 4, fill);
             bool low =
                 m.present && m.battery != game::kNoBattery && m.battery < HubView::kLowBattery;
-            _frame->drawRoundRect(x0, y0, tw, th, 4, low ? kOrange : kLine);
+            _frame->drawRoundRect(x0, y0, tw, th, 4, low ? kWarn : kLine);
             char num[6];
             snprintf(num, sizeof(num), "%u", m.n);
             _font(u8g2_font_helvB10_tf, m.present ? kText : kDim);
@@ -332,71 +333,265 @@ class HubUi {
         }
     }
 
-    // ── Round announced or open ──────────────────────────────────────────────
-    void _drawOpen(const HubView& v) {
-        char buf[40];
-        int16_t y = kContentY + 30;
-        _font(u8g2_font_helvB14_tf, kText);
-        snprintf(buf, sizeof(buf), "%s", _typeName(v.type, v.rainbow));
-        _at(kPad, y, buf);
-        _font(u8g2_font_helvR12_tf, kDim);
-        snprintf(buf, sizeof(buf), "Runde %u", v.round);
-        _right(W - kPad, y, buf);
+    // ── Round: ring, "x von y", answer cross ─────────────────────────────────
+    // Shared answer layout (gestaltung-buzzer/SYSTEM.md, decisions v7): the
+    // same grid in every state. Ring left (time and status), "x von y
+    // abgegeben" right, below it the answer cross in key positions with a
+    // fifth field in the middle for the centre key's current function.
+    static constexpr int16_t kRingX = 70, kRingY = 152, kRingOut = 58, kRingIn = 48;
+    static constexpr int16_t kCrossX = 160, kCrossY = 323, kKey = 66, kGrid = 72;
 
-        if (v.phase == game::Phase::Announced) {
-            _font(u8g2_font_helvB18_tf, kText);
-            _center(W / 2, y + 120, "Gleich geht es los");
-            return;
-        }
-        // x of y, large.
-        y += 24;
-        _font(u8g2_font_logisoso58_tn, kText);
-        snprintf(buf, sizeof(buf), "%u", v.answered);
-        int16_t wA = _width(buf);
-        char tot[8];
-        snprintf(tot, sizeof(tot), "%u", v.present);
-        _font(u8g2_font_logisoso32_tn, kDim);
-        int16_t wT = _width(tot);
-        _font(u8g2_font_helvR14_tf, kDim);
-        int16_t wV = _width(" von ");
-        int16_t x = (W - (wA + wV + wT)) / 2;
-        _font(u8g2_font_logisoso58_tn, v.present && v.answered >= v.present ? kGreen : kText);
-        _at(x, y + 62, buf);
-        _font(u8g2_font_helvR14_tf, kDim);
-        _at(x + wA, y + 62, " von ");
-        _font(u8g2_font_logisoso32_tn, kDim);
-        _at(x + wA + wV, y + 62, tot);
-        _font(u8g2_font_helvR12_tf, kDim);
-        _center(W / 2, y + 88,
-                v.type == game::RoundType::Race ? "haben gedrückt" : "haben geantwortet");
+    enum class RingState : uint8_t { Running, Closed, Resolved };
 
-        // Time since open.
-        y += 130;
-        char t[16];
-        _mmss(t, sizeof(t), v.sinceOpenMs);
-        _font(u8g2_font_helvR12_tf, kDim);
-        _at(kPad, y, "läuft seit");
-        _font(u8g2_font_helvB18_tf, kText);
-        _center(W / 2, y, t);
-
-        // Race: the device with the turn.
-        y += 20;
-        if (v.type == game::RoundType::Race && v.answering) {
-            _frame->fillRoundRect(kPad, y, W - 2 * kPad, 40, 6, kPanel);
-            _font(u8g2_font_helvB14_tf, kText);
-            snprintf(buf, sizeof(buf), "Nr. %u antwortet", v.answering);
-            _center(W / 2, y + 27, buf);
-            y += 50;
-        }
-        // Missing devices.
-        if (v.present > v.answered) {
-            _font(u8g2_font_helvR10_tf, kDim);
-            _at(kPad, y + 14, "fehlt noch:");
-            _drawMissing(v, y + 20);
+    // Segment i (0 = top, clockwise) of 8, 45 deg each with a 14 deg gap,
+    // filled from 8 quads so the pieces stay apart without anti-aliasing.
+    void _segment(uint8_t i, uint16_t color) {
+        const float d2r = 3.14159265f / 180.0f;
+        float a0 = (i * 45.0f + 7.0f - 90.0f) * d2r, a1 = (i * 45.0f + 38.0f - 90.0f) * d2r;
+        const uint8_t steps = 8;
+        for (uint8_t s = 0; s < steps; s++) {
+            float b0 = a0 + (a1 - a0) * s / steps, b1 = a0 + (a1 - a0) * (s + 1) / steps;
+            int16_t ox0 = kRingX + lroundf(kRingOut * cosf(b0)),
+                    oy0 = kRingY + lroundf(kRingOut * sinf(b0));
+            int16_t ox1 = kRingX + lroundf(kRingOut * cosf(b1)),
+                    oy1 = kRingY + lroundf(kRingOut * sinf(b1));
+            int16_t ix0 = kRingX + lroundf(kRingIn * cosf(b0)),
+                    iy0 = kRingY + lroundf(kRingIn * sinf(b0));
+            int16_t ix1 = kRingX + lroundf(kRingIn * cosf(b1)),
+                    iy1 = kRingY + lroundf(kRingIn * sinf(b1));
+            _frame->fillTriangle(ox0, oy0, ox1, oy1, ix0, iy0, color);
+            _frame->fillTriangle(ix0, iy0, ox1, oy1, ix1, iy1, color);
         }
     }
 
+    void _lock(int16_t cx, int16_t cy, uint16_t color) {
+        for (int8_t r = 7; r >= 5; r--) _frame->drawCircle(cx, cy - 6, r, color);
+        _frame->fillRect(cx - 4, cy - 6, 9, 6, kBg);
+        _frame->fillRect(cx - 7, cy - 6, 3, 6, color);
+        _frame->fillRect(cx + 5, cy - 6, 3, 6, color);
+        _frame->fillRoundRect(cx - 10, cy, 21, 15, 3, color);
+    }
+
+    // Check mark on a round plaque, diameter 20.
+    void _check(int16_t cx, int16_t cy, uint16_t plaque, uint16_t mark) {
+        _frame->fillCircle(cx, cy, 10, plaque);
+        for (int8_t o = -1; o <= 1; o++) {
+            _frame->drawLine(cx - 5, cy + o, cx - 1, cy + 4 + o, mark);
+            _frame->drawLine(cx - 1, cy + 4 + o, cx + 6, cy - 4 + o, mark);
+        }
+    }
+
+    void _drawRing(const HubView& v, RingState st, uint16_t right) {
+        char buf[16];
+        if (st == RingState::Running) {
+            uint8_t lit = 8;
+            if (v.countdownMs) {
+                lit = (uint8_t)((8UL * v.remainingMs + v.countdownMs - 1) / v.countdownMs);
+                if (lit > 8) lit = 8;
+            }
+            for (uint8_t i = 0; i < 8; i++) _segment(i, i < lit ? kText : kRingOff);
+            if (v.countdownMs) {
+                _mmss(buf, sizeof(buf), v.remainingMs + 999);
+                _font(u8g2_font_helvB18_tf, kText);
+                _center(kRingX, kRingY + 1, buf);
+                _font(u8g2_font_helvR12_tf, kText);
+                _center(kRingX, kRingY + 23, "noch");
+            } else {
+                _font(u8g2_font_helvB18_tf, kText);
+                _center(kRingX, kRingY + 8, "-");
+            }
+            return;
+        }
+        if (st == RingState::Closed) {
+            for (uint8_t i = 0; i < 8; i++) _segment(i, kGrey);
+            _lock(kRingX, kRingY - 8, kGrey);
+            _font(u8g2_font_helvR12_tf, kGrey);
+            _center(kRingX, kRingY + 26, "zu");
+            return;
+        }
+        uint8_t n = 0;
+        if (v.present) {
+            n = (uint8_t)((8UL * right + v.present / 2) / v.present);
+            if (right > 0 && n == 0) n = 1;
+            if (right < v.present && n == 8) n = 7;
+        }
+        for (uint8_t i = 0; i < 8; i++) _segment(i, i < n ? kGreen : kGrey);
+        snprintf(buf, sizeof(buf), "%u", right);
+        _font(u8g2_font_helvB18_tf, kText);
+        _center(kRingX, kRingY + 1, buf);
+        _font(u8g2_font_helvB12_tf, kGreen);
+        _center(kRingX, kRingY + 23, "richtig");
+    }
+
+    // One answer key, centre cx/cy. dir: 0 up, 1 right, 2 down, 3 left.
+    enum class KeyLook : uint8_t { Open, Counted, Right, Other };
+    void _key(int16_t cx, int16_t cy, uint8_t dir, KeyLook look, int32_t number) {
+        int16_t x0 = cx - kKey / 2, y0 = cy - kKey / 2;
+        uint16_t fill = look == KeyLook::Right ? kGreen : look == KeyLook::Other ? kGrey : kText;
+        _frame->fillRoundRect(x0, y0, kKey, kKey, 6, fill);
+        // Equilateral triangle, side 16, tip 5 px from the outer edge.
+        const int16_t s = 16, h = 14, tip = 5;
+        int16_t tx, ty, bx0, by0, bx1, by1;
+        switch (dir) {
+            case 0:
+                tx = cx, ty = y0 + tip, bx0 = cx - s / 2, by0 = ty + h, bx1 = cx + s / 2,
+                by1 = ty + h;
+                break;
+            case 1:
+                tx = x0 + kKey - 1 - tip, ty = cy, bx0 = tx - h, by0 = cy - s / 2, bx1 = tx - h,
+                by1 = cy + s / 2;
+                break;
+            case 2:
+                tx = cx, ty = y0 + kKey - 1 - tip, bx0 = cx - s / 2, by0 = ty - h, bx1 = cx + s / 2,
+                by1 = ty - h;
+                break;
+            default:
+                tx = x0 + tip, ty = cy, bx0 = tx + h, by0 = cy - s / 2, bx1 = tx + h,
+                by1 = cy + s / 2;
+                break;
+        }
+        _frame->fillTriangle(tx, ty, bx0, by0, bx1, by1, kBg);
+        if (number < 0) return;
+        // Content area: the outer edge keeps 18 px for the triangle.
+        int16_t ccx = cx + (dir == 1 ? -9 : dir == 3 ? 9 : 0);
+        int16_t ccy = cy + (dir == 0 ? 9 : dir == 2 ? -9 : 0);
+        char buf[12];
+        snprintf(buf, sizeof(buf), "%ld", (long)number);
+        _font(number >= 10 && (dir == 1 || dir == 3) && look == KeyLook::Right
+                  ? u8g2_font_helvB12_tf
+                  : u8g2_font_helvB18_tf,
+              kBg);
+        int16_t tw = _width(buf);
+        if (look == KeyLook::Right) {
+            int16_t gw = 20 + 3 + tw, gx = ccx - gw / 2;
+            _check(gx + 10, ccy, kBg, kGreen);
+            _at(gx + 23, ccy + 9, buf);
+        } else {
+            _at(ccx - tw / 2, ccy + 9, buf);
+        }
+    }
+
+    // The middle field: no answer, a small word for the centre key's function.
+    void _middle(const char* word, int32_t number) {
+        int16_t x0 = kCrossX - kKey / 2, y0 = kCrossY - kKey / 2;
+        _frame->drawRoundRect(x0, y0, kKey, kKey, 6, kRingOff);
+        _frame->drawRoundRect(x0 + 1, y0 + 1, kKey - 2, kKey - 2, 5, kRingOff);
+        if (number >= 0) {
+            char buf[12];
+            snprintf(buf, sizeof(buf), "%ld", (long)number);
+            _font(u8g2_font_helvB12_tf, kDim);
+            _center(kCrossX, kCrossY + 2, buf);
+        }
+        if (word && *word) {
+            _font(u8g2_font_helvR10_tf, kDim);
+            _center(kCrossX, kCrossY + (number >= 0 ? 20 : 5), word);
+        }
+    }
+
+    void _drawCross(const HubView& v, bool closed, bool resolved) {
+        static const int8_t kDx[4] = {0, 1, 0, -1}, kDy[4] = {-1, 0, 1, 0};
+        static const game::Key kKeys[4] = {game::Key::Up, game::Key::Right, game::Key::Down,
+                                           game::Key::Left};
+        bool anyDir = false;
+        for (uint8_t d = 0; d < 4; d++)
+            if (v.keyMask & (1u << (uint8_t)kKeys[d])) anyDir = true;
+        for (uint8_t d = 0; d < 4; d++) {
+            if (anyDir && !(v.keyMask & (1u << (uint8_t)kKeys[d]))) continue;
+            uint8_t value = (uint8_t)(d + 1);  // choice values: 1 up, 2 right, 3 down, 4 left
+            KeyLook look = !closed              ? KeyLook::Open
+                           : !resolved          ? KeyLook::Counted
+                           : v.correct == value ? KeyLook::Right
+                                                : KeyLook::Other;
+            _key(kCrossX + kDx[d] * kGrid, kCrossY + kDy[d] * kGrid, d, look,
+                 closed ? (int32_t)v.counts[value] : -1);
+        }
+        bool enterAnswer = (v.keyMask & (1u << (uint8_t)game::Key::Enter)) != 0;
+        _middle(closed ? "" : "lösen", closed && enterAnswer ? (int32_t)v.counts[5] : -1);
+    }
+
+    // Category line in place of the old status pill: round type and number.
+    void _drawCategory(const HubView& v) {
+        char buf[40];
+        snprintf(buf, sizeof(buf), "%s · Runde %u", _typeName(v.type, v.rainbow), v.round);
+        _font(u8g2_font_helvR12_tf, kDim);
+        _at(kPad, kContentY + 22, buf);
+    }
+
+    void _drawRound(const HubView& v) {
+        char buf[40];
+        const bool closed = v.phase == game::Phase::Closed;
+        const bool choice = v.type == game::RoundType::Choice;
+        const bool resolved = closed && choice && v.correct >= 1 && v.correct <= 5;
+        _drawCategory(v);
+        if (v.phase == game::Phase::Announced) {
+            _font(u8g2_font_helvB18_tf, kText);
+            _center(W / 2, kContentY + 150, "Gleich geht es los");
+            return;
+        }
+        uint16_t right = resolved ? v.counts[v.correct] : 0;
+        _drawRing(v,
+                  !closed    ? RingState::Running
+                  : resolved ? RingState::Resolved
+                             : RingState::Closed,
+                  right);
+        // Right of the ring, the same in every state.
+        snprintf(buf, sizeof(buf), "%u von %u", v.answered, v.present);
+        _font(u8g2_font_helvB18_tf, kText);
+        _at(140, 134, buf);
+        _font(u8g2_font_helvR12_tf, kText);
+        _at(140, 158, v.type == game::RoundType::Race ? "gedrückt" : "abgegeben");
+        if (resolved) {
+            uint16_t wrong = v.valueCount > right ? (uint16_t)(v.valueCount - right) : 0;
+            uint16_t none = v.present > v.answered ? (uint16_t)(v.present - v.answered) : 0;
+            snprintf(buf, sizeof(buf), "%u", wrong);
+            _font(u8g2_font_helvB12_tf, kNeben);
+            _right(168, 184, buf);
+            _font(u8g2_font_helvR10_tf, kText);
+            _at(174, 184, "daneben");
+            if (none) {
+                snprintf(buf, sizeof(buf), "%u", none);
+                _font(u8g2_font_helvB12_tf, kNone);
+                _right(168, 206, buf);
+                _font(u8g2_font_helvR10_tf, kText);
+                _at(174, 206, "nicht abgegeben");
+            }
+        }
+        // Below: the cross (choice), or what the round type needs.
+        const int16_t below = 222;
+        switch (v.type) {
+            case game::RoundType::Choice:
+                _drawCross(v, closed, resolved);
+                break;
+            case game::RoundType::Scale:
+                if (closed)
+                    _answersScale(v, kPad, below, W - 2 * kPad, kTabY - 8 - below);
+                else
+                    _drawMissing(v, below);
+                break;
+            case game::RoundType::Race:
+                if (closed)
+                    _answersRace(v, kPad, below, W - 2 * kPad);
+                else if (v.answering) {
+                    _frame->fillRoundRect(kPad, below, W - 2 * kPad, 40, 6, kPanel);
+                    _font(u8g2_font_helvB14_tf, kText);
+                    snprintf(buf, sizeof(buf), "Nr. %u antwortet", v.answering);
+                    _center(W / 2, below + 27, buf);
+                    _drawMissing(v, below + 52);
+                } else {
+                    _drawMissing(v, below);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    // Device numbers still without a value (open scale or race).
     void _drawMissing(const HubView& v, int16_t y) {
+        if (v.present <= v.answered) return;
+        _font(u8g2_font_helvR10_tf, kDim);
+        _at(kPad, y + 12, "fehlt noch:");
+        y += 18;
         int16_t x = kPad;
         _font(u8g2_font_helvB10_tf, kText);
         for (uint16_t i = 0; i < v.listedCount; i++) {
@@ -411,7 +606,7 @@ class HubUi {
             }
             if (y + 20 > kTabY - 4) {
                 _font(u8g2_font_helvR10_tf, kDim);
-                _at(x, y, "...");
+                _at(x, y + 15, "...");
                 return;
             }
             _frame->drawRoundRect(x, y, w - 4, 20, 4, kLine);
@@ -420,91 +615,14 @@ class HubUi {
         }
     }
 
-    // ── Result (closed round) ────────────────────────────────────────────────
-    // Swappable: the shared answer layout for slides, devices and hub (thread
-    // "Einheitliches Antwort-Layout") replaces this function. Draws into the
-    // rectangle x, y, w, h only.
-    void renderAnswers(const HubView& v, int16_t x, int16_t y, int16_t w, int16_t h) {
-        char buf[40];
-        _font(u8g2_font_helvB14_tf, kText);
-        _at(x, y + 30, _typeName(v.type, v.rainbow));
-        _font(u8g2_font_helvR12_tf, kDim);
-        snprintf(buf, sizeof(buf), "Runde %u beendet", v.round);
-        _right(x + w, y + 30, buf);
-        int16_t top = y + 50;
-        switch (v.type) {
-            case game::RoundType::Choice:
-                _answersChoice(v, x, top, w, y + h - top);
-                break;
-            case game::RoundType::Scale:
-                _answersScale(v, x, top, w, y + h - top);
-                break;
-            case game::RoundType::Race:
-                _answersRace(v, x, top, w);
-                break;
-            default:
-                _font(u8g2_font_helvR14_tf, kText);
-                snprintf(buf, sizeof(buf), "%u von %u dabei", v.present, v.members);
-                _center(x + w / 2, top + 80, buf);
-                break;
-        }
-    }
-
-    void _answersChoice(const HubView& v, int16_t x, int16_t y, int16_t w, int16_t h) {
-        static const char* kKey[5] = {"oben", "rechts", "unten", "links", "Mitte"};
-        char buf[24];
-        uint16_t total = 0, most = 1;
-        for (uint8_t k = 1; k <= 5; k++) {
-            total += v.counts[k];
-            if (v.counts[k] > most) most = v.counts[k];
-        }
-        const int16_t rowH = 50, labelW = 64, numW = 74;
-        for (uint8_t k = 1; k <= 5; k++) {
-            int16_t ry = y + (k - 1) * (rowH + 4);
-            bool right = v.correct == k;
-            uint16_t col =
-                v.keyColor[k - 1] ? rgb(game::colorRgb((game::Color)v.keyColor[k - 1])) : kDim;
-            // Right answer: the row itself is marked (light green field).
-            _frame->fillRoundRect(x, ry, w, rowH, 6, right ? rgb(0, 90, 50) : kPanel);
-            if (right) _frame->drawRoundRect(x, ry, w, rowH, 6, kGreen);
-            _frame->fillCircle(x + 14, ry + rowH / 2, 6, col);
-            _font(u8g2_font_helvB12_tf, kText);
-            _at(x + 26, ry + (right ? 24 : 31), kKey[k - 1]);
-            if (right) {
-                _font(u8g2_font_helvB10_tf, kGreen);
-                _at(x + 26, ry + 40, "richtig");
-            }
-            int16_t bx = x + labelW + 24, bw = w - labelW - 24 - numW;
-            int16_t len = (int16_t)((int32_t)bw * v.counts[k] / most);
-            _frame->fillRect(bx, ry + 14, len, rowH - 28, col);
-            _font(u8g2_font_helvB14_tf, kText);
-            snprintf(buf, sizeof(buf), "%u", v.counts[k]);
-            _right(x + w - 40, ry + 32, buf);
-            _font(u8g2_font_helvR10_tf, kDim);
-            snprintf(buf, sizeof(buf), "%u%%", total ? (unsigned)(v.counts[k] * 100 / total) : 0u);
-            _right(x + w - 6, ry + 32, buf);
-        }
-        int16_t fy = y + 5 * (rowH + 4) + 24;
-        if (v.correct >= 1 && v.correct <= 5 && total) {
-            _font(u8g2_font_helvB14_tf, kGreen);
-            snprintf(buf, sizeof(buf), "%u%% richtig",
-                     (unsigned)(v.counts[v.correct] * 100 / total));
-            _at(x, fy, buf);
-        }
-        _font(u8g2_font_helvR12_tf, kDim);
-        snprintf(buf, sizeof(buf), "%u von %u", total, v.present);
-        _right(x + w, fy, buf);
-        (void)h;
-    }
-
+    // Scale result: average and distribution in zone or rainbow colours.
     void _answersScale(const HubView& v, int16_t x, int16_t y, int16_t w, int16_t h) {
         char buf[24];
         uint8_t lo = v.min ? v.min : 1, hi = v.max > lo ? v.max : lo;
         if (hi > HubView::kMaxValue) hi = HubView::kMaxValue;
         uint8_t steps = (uint8_t)(hi - lo + 1);
-        // Average, large.
         _font(u8g2_font_helvR12_tf, kDim);
-        _at(x, y + 18, "Durchschnitt");
+        _at(x, y + 14, "Durchschnitt");
         if (v.valueCount) {
             uint32_t tenth = (v.valueSum * 10 + v.valueCount / 2) / v.valueCount;
             snprintf(buf, sizeof(buf), "%lu,%lu", (unsigned long)(tenth / 10),
@@ -512,62 +630,53 @@ class HubUi {
         } else {
             snprintf(buf, sizeof(buf), "-");
         }
-        _font(u8g2_font_logisoso42_tf, kText);
-        _at(x, y + 70, buf);
-        _font(u8g2_font_helvR12_tf, kDim);
-        snprintf(buf, sizeof(buf), "%u von %u", v.valueCount, v.present);
-        _right(x + w, y + 70, buf);
-        // Distribution.
-        int16_t gy = y + 110, gh = h - 110 - 24;
+        _font(u8g2_font_helvB18_tf, kText);
+        _at(x + 110, y + 16, buf);
+        int16_t gy = y + 40, gh = h - 40 - 20;
         uint16_t most = 1;
         for (uint8_t s = lo; s <= hi; s++)
             if (v.counts[s] > most) most = v.counts[s];
         int16_t bw = w / steps;
         for (uint8_t s = lo; s <= hi; s++) {
-            uint16_t col = kDim;
-            if (v.rainbow && s >= 1 && s <= game::kRainbowSteps)
-                col = rgb(game::kRainbow[s - 1]);
-            else if (v.redMax && s <= v.redMax)
-                col = kWrong;
-            else if (v.greenMin && s >= v.greenMin)
-                col = kGreen;
-            else if (v.redMax || v.greenMin)
-                col = rgb(255, 170, 0);
-            int16_t bh = (int16_t)((int32_t)gh * v.counts[s] / most);
+            uint16_t col = kGrey;
+            if (v.rainbow && s >= 1 && s <= game::kRainbowSteps) col = rgb(game::kRainbow[s - 1]);
+            int16_t bh = (int16_t)((int32_t)(gh - 16) * v.counts[s] / most);
             int16_t bx = x + (s - lo) * bw;
             _frame->fillRect(bx + 1, gy + gh - bh, bw - 2, bh, col);
+            _frame->drawFastHLine(bx, gy + gh, bw, kLine);
             if (steps <= 12) {
                 snprintf(buf, sizeof(buf), "%u", v.counts[s]);
                 _font(u8g2_font_helvB10_tf, kText);
                 _center(bx + bw / 2, gy + gh - bh - 4, buf);
             }
-            _frame->drawFastHLine(bx, gy + gh, bw, kLine);
             if (steps <= 12 || s == lo || s == hi) {
                 snprintf(buf, sizeof(buf), "%u", s);
                 _font(u8g2_font_helvR10_tf, kDim);
-                _center(bx + bw / 2, gy + gh + 16, buf);
+                _center(bx + bw / 2, gy + gh + 15, buf);
             }
         }
     }
 
+    // Race result: the fastest number; right in green, wrong in the
+    // "daneben" orange.
     void _answersRace(const HubView& v, int16_t x, int16_t y, int16_t w) {
         char buf[24];
         if (!v.winner) {
             _font(u8g2_font_helvR14_tf, kDim);
-            _center(x + w / 2, y + 100, "Kein Sieger");
+            _center(x + w / 2, y + 60, "Kein Sieger");
             return;
         }
-        uint16_t col = v.winnerWrong ? kWrong : kGreen;
-        _frame->fillRoundRect(x, y + 20, w, 150, 10,
-                              v.winnerWrong ? rgb(70, 22, 0) : rgb(0, 90, 50));
-        _frame->drawRoundRect(x, y + 20, w, 150, 10, col);
+        uint16_t col = v.winnerWrong ? kNeben : kGreen;
+        _frame->fillRoundRect(x, y, w, 140, 10, kPanel);
+        _frame->drawRoundRect(x, y, w, 140, 10, col);
+        _frame->drawRoundRect(x + 1, y + 1, w - 2, 138, 9, col);
         _font(u8g2_font_helvR14_tf, kText);
-        _center(x + w / 2, y + 52, "Schnellste Nummer");
-        _font(u8g2_font_logisoso58_tn, kText);
+        _center(x + w / 2, y + 30, "Schnellste Nummer");
+        _font(u8g2_font_logisoso42_tn, kText);
         snprintf(buf, sizeof(buf), "%u", v.winner);
-        _center(x + w / 2, y + 130, buf);
+        _center(x + w / 2, y + 92, buf);
         _font(u8g2_font_helvB14_tf, col);
-        _center(x + w / 2, y + 160, v.winnerWrong ? "Antwort daneben" : "Antwort richtig");
+        _center(x + w / 2, y + 124, v.winnerWrong ? "daneben" : "richtig");
     }
 
     // ── Devices ──────────────────────────────────────────────────────────────
@@ -598,13 +707,13 @@ class HubUi {
             snprintf(buf, sizeof(buf), "%u", m.n);
             _at(cx, cy + 16, buf);
             bool low = m.battery != game::kNoBattery && m.battery < HubView::kLowBattery;
-            _font(u8g2_font_helvR10_tf, !m.present ? kDim : low ? kOrange : kText);
+            _font(u8g2_font_helvR10_tf, !m.present ? kDim : low ? kWarn : kText);
             if (m.battery == game::kNoBattery)
                 snprintf(buf, sizeof(buf), "-");
             else
                 snprintf(buf, sizeof(buf), "%u%%%s", m.battery, m.charging ? "+" : "");
             _at(cx + 40, cy + 16, buf);
-            _font(u8g2_font_helvR10_tf, m.present && m.rssi < HubView::kWeakRssi ? kOrange : kDim);
+            _font(u8g2_font_helvR10_tf, m.present && m.rssi < HubView::kWeakRssi ? kWarn : kDim);
             if (m.present)
                 snprintf(buf, sizeof(buf), "%d dBm", m.rssi);
             else
@@ -635,17 +744,16 @@ class HubUi {
             _center(W / 2, kContentY + 140, "Keine Sitzung");
             return;
         }
-        add("Kanal", v.offChannel ? kOrange : kText, v.offChannel ? "%u (Wechsel)" : "%u",
-            v.channel);
+        add("Kanal", v.offChannel ? kWarn : kText, v.offChannel ? "%u (Wechsel)" : "%u", v.channel);
         add("Empfangen", kText, "%lu Frames", (unsigned long)v.rxFrames);
         add("Gesendet", kText, "%lu Frames", (unsigned long)v.txFrames);
         if (v.present)
-            add("Schwächstes Signal", v.weakestRssi < HubView::kWeakRssi ? kOrange : kText,
-                "%d dBm", v.weakestRssi);
+            add("Schwächstes Signal", v.weakestRssi < HubView::kWeakRssi ? kWarn : kText, "%d dBm",
+                v.weakestRssi);
         else
             add("Schwächstes Signal", kDim, "%s", "-");
-        add("Schwaches Signal", v.weakCount ? kOrange : kText, "%u Geräte", v.weakCount);
-        add("Offline", v.members > v.present ? kOrange : kText, "%u Geräte",
+        add("Schwaches Signal", v.weakCount ? kWarn : kText, "%u Geräte", v.weakCount);
+        add("Offline", v.members > v.present ? kWarn : kText, "%u Geräte",
             (unsigned)(v.members - v.present));
         for (uint8_t i = 0; i < n; i++) {
             int16_t ry = kContentY + 50 + i * 44;
