@@ -97,6 +97,7 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `FleetStatus` | `FleetStatusMsg` fixed-size, 20 bytes | exact `sizeof(FleetStatusMsg)` | Fleet package, see below. Every device to all, about every 30 s and on a change. |
 | `FleetCommand` | `FleetCommandMsg` variable-length (11-byte head + `targetCount` MACs) | head must be present, `targetCount <= 32`, and `len` must equal head + 6 × `targetCount` | Fleet package. Bridge to all or to the listed MACs, three times with one nonce. |
 | `QuizKeys` | `QuizKeysMsg` variable-length (17-byte head + 3 bytes per press) | head must be present, `count` 1-8, and `len` must equal head + 3 × `count` | Game session, move rounds. Device to bridge: every unacknowledged key press. |
+| `QuizRules` | `QuizRulesMsg` fixed 37 bytes | `len` must be exactly 37 | Game session. Bridge to devices, after each `QuizState` of a round with link field `input`: the round's input rule. Devices without it run the preset of `roundType`. |
 
 ## The `Hello` exception
 
@@ -123,6 +124,7 @@ The `Quiz*` types belong to the game session module (`src/game/`). Their layouts
 - Echo bit 7 (`kEchoAnswer`): in a race the value is the answer key of the device with the turn (1-5 below the bit), told apart from its buzz value 1. Other echo values stay below 128 (`kNoValue` 255 = none).
 - `QuizState` carries `turn` (the number that has the turn, 0 = none), `turnMs` (its time) and `turnLeftMs` (of that left at send, 0 = over) after `hold` (proto 2). Only the device with the turn takes input with the keys the round frees for it; in a race that is the device that answers (link `game answering`). The field does not depend on the round type, so turn-based rounds can use it the same way.
 - Move rounds (`roundType` 4): `QuizKeys` (type 46, after the fleet frames) carries a device's unacknowledged presses, oldest first, each as `kseq` (press counter, per device and round: 1-255, after 255 comes 1; 0 never occurs), `key` (the `Key` index of up, down, left or right: logical with a `lage`, the physical key without) and `lage`. In a move round the `QuizState` echo holds per number the last `kseq` the bridge passed on (0 = none). The bridge passes each press on once: only a `kseq` newer than the last one (mod 256, 1-127 ahead); a join status from a device that holds no round (`lastRoundId` other than the bridge's round) starts that count again.
+- Input rules: `QuizRules` (type 47) carries `session`, `roundId`, `mode` (1 once, 2 pick, 3 counter, 4 log), `flags` (bit 0 firstOnly, bit 1 repeat), `keyValue[10]` (per `Key` index, 0 = no input), `upKey`, `downKey`, `confirmKey` (`Key` index, 0xFF = none), `min`, `max`, `firstUp`, `firstDown` and `sendDelayMs` (uint16). A device applies it to the round with that `roundId` and falls back to the preset of `roundType` for a frame that does not fit the round's keys.
 
 ### Quiet mode and the Hello rule
 

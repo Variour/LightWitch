@@ -138,6 +138,23 @@ orientation, and leave it out otherwise:
   bridge holds.
 - On the radio the flag is bit 0 of the `QuizState` header `flags`.
 
+### `input` in `game round`
+
+Optional. Sets the round's input rule instead of the preset of `type`
+(docs/game-building-blocks.md). The bridge sends it to the devices as
+`QuizRules` (message type 47) after each `QuizState`; devices without it
+run the preset.
+
+`{"ns":"game","cmd":"round","round":23424,"type":"choice","phase":"open","keys":{"buzz":"white","enter":"white"},"input":{"mode":"pick","values":{"buzz":1,"enter":2}}}`
+
+- `mode`: `once`, `pick`, `counter` or `log`. `log` goes with type `move`, and only with it.
+- `values` (once, pick, log): key name to value 1-254; every key must be in `keys`.
+- `up`, `down`, optional `confirm` (counter): key names from `keys`.
+- `min`, `max`, `firstDown`, `firstUp` (counter): `min <= firstDown <= firstUp <= max`, 0-254.
+- `repeat` (counter): holding `up` or `down` steps on.
+- `sendDelayMs`: 0-5000, absent 0.
+- The rule takes `firstOnly` from the round. A round keeps its `input` like its `keys`.
+
 ### `verdict` in `game round` (race)
 
 `{"ns":"game","cmd":"round","round":23419,"type":"race","phase":"closed","keys":{"buzz":"white"},"winner":7,"verdict":"wrong"}`

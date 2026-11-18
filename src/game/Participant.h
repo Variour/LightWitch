@@ -184,6 +184,8 @@ class Participant {
                     _onAdmit(d, len, now);
                 else if (h.type == kMsgQuizState)
                     _onState(d, len, now);
+                else if (h.type == kMsgQuizRules)
+                    _onRules(d, len);
                 break;
             default:
                 break;
@@ -410,7 +412,9 @@ class Participant {
 
     // Round and own value.
     Round _round;
-    InputRule _rule;  // from the round (presetRule of its type)
+    InputRule _rule;        // from the round: its QuizRules frame, else presetRule of its type
+    QuizRulesMsg _rules{};  // the last QuizRules frame
+    bool _rulesKnown = false;
     uint8_t _val = kNoValue;
     uint8_t _vseq = 0;
     uint32_t _inputMs = 0;  // moment of the last input (millis())
@@ -577,8 +581,7 @@ class Participant {
             _round.hold = (Hold)m.hold;
             _round.firstOnly = (m.h.flags & kStateFirstOnly) != 0;
             _round.rainbow = (m.h.flags & kStateRainbow) != 0;
-            _rule =
-                presetRule(_round.type, _round.keyMask, _round.min, _round.max, _round.firstOnly);
+            _applyRule();
             if (m.turn != _round.answering || m.turnMs != _round.answerMs) {
                 _round.answering = m.turn;
                 _round.answerMs = m.turnMs;
@@ -658,6 +661,27 @@ class Participant {
             _retryMs = 0;
             _nextSendAt = now + _rand(kRetryMinMs, kRetryMaxMs);
         }
+    }
+
+    // The round's rule: from its QuizRules frame if one came, else the
+    // preset of its type.
+    void _applyRule() {
+        if (_rulesKnown && _rules.roundId == _round.id &&
+            ruleFromFrame(_rules, _round.keyMask, _rule))
+            return;
+        _rule = presetRule(_round.type, _round.keyMask, _round.min, _round.max, _round.firstOnly);
+    }
+
+    void _onRules(const uint8_t* d, size_t len) {
+        QuizRulesMsg m;
+        if (!decodeFrame(d, len, kMsgQuizRules, m)) return;
+        if (_rulesKnown &&
+            memcmp((const uint8_t*)&m + sizeof(m.h), (const uint8_t*)&_rules + sizeof(m.h),
+                   sizeof(m) - sizeof(m.h)) == 0)
+            return;
+        _rules = m;
+        _rulesKnown = true;
+        if (_round.known && m.roundId == _round.id) _applyRule();
     }
 
     bool _sameState(const QuizStateMsg& m) const {

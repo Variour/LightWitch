@@ -61,6 +61,8 @@ enum class MsgType : uint8_t {
     FleetCommand = 45,
     // Game session: key presses of a move round (src/game/GameFrames.h).
     QuizKeys = 46,
+    // Game session: the input rule of a round (src/game/GameFrames.h).
+    QuizRules = 47,
 };
 static_assert((uint8_t)MsgType::QuizInvite == game::kMsgQuizInvite &&
                   (uint8_t)MsgType::QuizState == game::kMsgQuizState &&
@@ -69,7 +71,8 @@ static_assert((uint8_t)MsgType::QuizInvite == game::kMsgQuizInvite &&
                   (uint8_t)MsgType::QuizAdmit == game::kMsgQuizAdmit &&
                   (uint8_t)MsgType::QuizRelease == game::kMsgQuizRelease &&
                   (uint8_t)MsgType::QuizChannel == game::kMsgQuizChannel &&
-                  (uint8_t)MsgType::QuizKeys == game::kMsgQuizKeys,
+                  (uint8_t)MsgType::QuizKeys == game::kMsgQuizKeys &&
+                  (uint8_t)MsgType::QuizRules == game::kMsgQuizRules,
               "quiz MsgTypes must match src/game/GameFrames.h");
 static_assert((uint8_t)MsgType::FleetStatus == fleet::kMsgFleetStatus &&
                   (uint8_t)MsgType::FleetCommand == fleet::kMsgFleetCommand,
