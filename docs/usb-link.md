@@ -119,7 +119,7 @@ orientation, and leave it out otherwise:
 
 | `firstOnly` | Devices |
 |---|---|
-| `false` (default, may be left out) | a device may change its answer while the round is open; its last input counts |
+| `false` (default, may be left out) | one press gives the answer, Enter releases it (see "One press gives the answer"); the last answer given counts |
 | `true` | only each device's first answer counts |
 
 - For `race`, `scale` and `choice` (`bad_field`, "only for race, scale and
@@ -153,7 +153,35 @@ run the preset.
 - `min`, `max`, `firstDown`, `firstUp` (counter): `min <= firstDown <= firstUp <= max`, 0-254.
 - `repeat` (counter): holding `up` or `down` steps on.
 - `sendDelayMs`: 0-5000, absent 0.
+- `release` (pick, and counter with `"confirm":"enter"`): Enter releases the value given; not with `firstOnly`, and in `pick` Enter takes no value (`bad_field`, "release: pick without a value on enter or counter with confirm enter, not with firstOnly"). Absent false. On the radio bit 2 of the `QuizRules` `flags`.
 - The rule takes `firstOnly` from the round. A round keeps its `input` like its `keys`.
+
+### One press gives the answer, Enter releases it
+
+Owner, 2026-11-18 (`gestaltung-buzzer/SYSTEM.md`, "Entscheidungen v7"). The presets of `choice` and of `scale` with `"confirm":"enter"` use `release` unless the round has `firstOnly`.
+
+- `choice`: a direction key gives the answer at once; the other keys then do nothing. Enter releases the answer, then every answer key is free again. A `choice` whose `keys` name `enter` has five answers: Enter is answer 5 and the first press stays.
+- `scale` with `"confirm":"enter"`: Up and Down set the value, Enter gives it, Enter again releases it.
+- A release goes out as a report with value 255 and a new `valueSeq`. The bridge then holds no value for the device and its `value` line carries `"v":null`: count the device as not answered. The device keeps resending the release until the echo shows no value.
+
+### `anonymous` in `game round`
+
+`{"ns":"game","cmd":"round","round":23425,"type":"choice","phase":"closed","keys":{"up":"white","right":"white","down":"white","left":"white"},"correct":2,"anonymous":true}`
+
+- For `choice` and `scale` (`bad_field`, "only for scale and choice"), a boolean (`bad_field`, "anonymous must be a boolean"); absent false. Fixed for a running round like `firstOnly` (`round_fixed`).
+- Devices show the round as usual while it is open. After the resolution they show no result colours: the given key yellow dimmed, the ring warm white faint, Enter breathes white; pressing Enter shows the result for 3 s.
+- On the radio bit 3 of the `QuizState` header `flags`.
+
+### Teacher device (`game` event `teacher`)
+
+Owner, 2026-11-18: one Rev-1 buzzer per session can be the teacher device. It is a remote for the console and gives no answers.
+
+- Set the role on the device with `config role` (below). The device stores it and joins every session on its own when invited, without a buzz press and without an animal name.
+- `join` and `device` lines of the teacher end with `"teacher":true`. Admit it like any device and leave it out of every tally.
+- Every key press of the teacher arrives as `{"ns":"game","ev":"teacher","n":2,"mac":"aa:bb:cc:dd:ee:ff","key":"right","hold":false}`. `key` is the key name as in `keys`; `hold` is true for a key held for 0.8 s and false for a short press. A held key sends no short press.
+- Console mapping in v1: Right short = next, Left short = back, buzz short while a round is open = close it, a direction held in a closed `choice` = mark that answer correct and resolve.
+- The device lights only keys that do something, in white: Right and Left while no round is open, the status dot while the buzz key closes the open round, the round's direction keys in a closed `choice` without `correct`. A held key is bright. The column shows one white LED per given answer, the ring is the round's clock.
+- On the radio type 48 `QuizTeacher` and bit 5 of the `QuizStatus` flags, see [mesh-compatibility.md](mesh-compatibility.md).
 
 ### `verdict` in `game round` (race)
 
@@ -231,8 +259,12 @@ run the preset.
   evenly in reading direction, white at 40 %. Devices with an answer show
   their answer as before.
 
-### Answer keys, Enter as answer 5, Enter to log in
+### Answer keys, Enter to log in
 
+- `choice` since 2026-11-18: Enter releases the answer given (see "One
+  press gives the answer"). A `choice` whose `keys` name `enter` has five
+  answers: Enter is answer 5 and the first press stays. A race with answer
+  keys takes Enter as answer 5 as before.
 - Answer keys of a `choice` (and of a race with answer keys): any 2-5 of
   `up` (answer 1), `right` (2), `down` (3), `left` (4) and `enter` (5, the
   centre key), e.g. `up` and `down` for true or false. The answer number
@@ -337,15 +369,20 @@ Every level is scaled to the device's brightness (at least one LED step).
 
 | Round | Open, no answer | Answer, not yet confirmed | Answer confirmed by the bridge's echo |
 |---|---|---|---|
-| `choice` | answer keys white at 40 % | the chosen key steady white, the others white at 40 % | the chosen key pulses once per second between white and its direction colour, the others stay white at 40 %; the ring glows steadily in the direction colour |
+| `choice` | answer keys white at 40 %; the ring is the clock: white, all four corners, or ceil(4 · left / ms) corners clockwise from the upper right while a `countdown` runs | the given key yellow, pulsing; the others off; Enter white at 25 % | the given key steady yellow at 90 %; the clock on the ring in yellow; Enter white at 25 % while it can release |
 | `scale` | Up and Down white at 40 % | Up and Down stay; the column shows the value in its zone colour, pulsing | Up and Down stay; the column shows the value; the ring glows steadily in the zone colour |
 | `race` | the ring white at 40 % from the announced start, dark before it | the ring steady white | the ring steady blue |
 
 - With `firstOnly` the other answer keys (Up and Down in `scale`) go dark
   once the device has sent its answer.
+- `choice` after closing: the given key yellow at 20 %, the ring warm white
+  (RGB 255, 170, 90) for 2 s, then off. With `correct`: the right key steady
+  green at 60 %; the own key pulses green (right, with the celebration) or
+  orange red (wrong, one wave around the ring); without an answer the ring
+  shows violet (RGB 120, 0, 255). The countdown no longer runs on the
+  column in `choice`.
 - The chosen key and the ring stay after the round closes, until the result:
-  `correct` in `choice` (the correct key in its direction colour, the column
-  green or "wrong") and `winner` in `race` (the winner's ring and column
+  `winner` in `race` (the winner's ring and column
   green, or the column "wrong" with `verdict` `wrong`).
 - "Wrong" (a wrong answer, a race winner rated wrong) is no punishment: the
   column shows orange red, RGB 128, 40, 0 (`#802800`), half as bright as the
@@ -455,10 +492,11 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
 | `{"ns":"config","cmd":"wifi","id":1,"networks":[{"ssid":"Office","pass":"…"}]}` | `{"ns":"config","ev":"wifi","id":1,"ok":true,"count":1}` |
 | `{"ns":"config","cmd":"charge","id":2,"target":"event"}` | `{"ns":"config","ev":"charge","id":2,"ok":true,"target":"event"}` |
 | `{"ns":"config","cmd":"ap","id":3,"minutes":10}` | `{"ns":"config","ev":"ap","id":3,"ok":true,"minutes":10}` |
-| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"token":true,"target":"store","look":true,"name":"buzzer-12-koi","number":12,"fw":"4a45fc32"}` |
+| `{"ns":"config","cmd":"get","id":4}` | `{"ns":"config","ev":"config","id":4,"wifiCount":1,"token":true,"target":"store","look":true,"name":"buzzer-12-koi","number":12,"fw":"4a45fc32","role":"player"}` |
 | `{"ns":"config","cmd":"token","id":5,"token":"github_pat_…"}` | `{"ns":"config","ev":"token","id":5,"ok":true,"token":true}` |
 | `{"ns":"config","cmd":"look","id":6,"leds":["#ffffff","#ff0800",…,"#ff0800"]}` | `{"ns":"config","ev":"look","id":6,"ok":true,"leds":24}` |
 | `{"ns":"config","cmd":"name","id":7,"name":"buzzer-12-koi"}` | `{"ns":"config","ev":"name","id":7,"ok":true,"name":"buzzer-12-koi"}` |
+| `{"ns":"config","cmd":"role","id":8,"role":"teacher"}` | `{"ns":"config","ev":"role","id":8,"ok":true,"role":"teacher"}` |
 
 - `wifi` replaces the whole list: 0-5 networks, `ssid` 1-32 bytes, `pass` `""`
   (open network) or 8-63 bytes. Passwords are never echoed or logged. Five
@@ -490,8 +528,9 @@ in `src/fleet/FleetConfig.h`), e.g. in `PLATFORMIO_BUILD_FLAGS` or a local
   1-31 of `a-z`, `0-9` and `-`, not starting or ending with `-`. Stored in
   the config file, it applies from the next restart. Without one a device is
   `light-` and the last 6 hex digits of its MAC.
+- `role`: `player` or `teacher` (the teacher device, see "Teacher device" above). Stored in NVS, default `player`. Outside a session it applies at once, in a session from the next one; `store_failed` if NVS does not take it.
 - `get`: `name` is the device name; `look` says whether own colours are set; `number` is `null` without a device number; `fw` is the firmware
-  build (first 4 bytes of the app image's SHA-256, as in `link hello`).
+  build (first 4 bytes of the app image's SHA-256, as in `link hello`); `role` is `player` or `teacher`.
 
 ## `fleet` (bridge)
 
@@ -603,3 +642,31 @@ while VBAT is between a lowered charge voltage and 4.25 V (see `config charge`).
   returns the mean IBUS, IBAT and VBUS of the charger ADC samples; `ok`
   is `false` without samples.
 - The link closing ends a running test.
+
+## `mesh` (any device)
+
+Multi-hop forwarding and the mesh test (docs/mesh-routing.md).
+
+| Command | Reply |
+|---|---|
+| `{"ns":"mesh","cmd":"test","mode":"tree","s":300,"id":1}` | `{"ns":"mesh","ev":"test","id":1,"mode":"tree","s":300}` |
+| `{"ns":"mesh","cmd":"test","mode":"off","id":2}` | `{"ns":"mesh","ev":"test","id":2,"mode":"off","s":0}` |
+| `{"ns":"mesh","cmd":"power","mode":"max","id":3}` | `{"ns":"mesh","ev":"power","id":3,"mode":"max"}` |
+| `{"ns":"mesh","cmd":"status","id":4}` | `status`, see below |
+| `{"ns":"mesh","cmd":"nodes","id":5}` | `{"ns":"mesh","ev":"nodes","id":5,"root":true,"count":10}`, then one `node` event per device |
+
+- `test`: `mode` is `tree` (normal speed), `slow` (slow motion) or `off`;
+  `s` 10-3600, default 300. The device that receives it becomes the root for
+  the test, every device in reach takes the test over within about a second
+  and shows it on its LEDs until `s` runs out or `off` comes.
+- `power`: `max` puts the whole mesh on full transmit power (carried in the
+  root's beacons), `auto` goes back to adaptive power. Not stored.
+- `status`:
+  `{"ns":"mesh","ev":"status","id":4,"root":false,"hops":2,"parent":"…","parentRssi":-61,"tx":6,"txMax":19,"powerMax":false,"children":1,"roundOpen":false,"test":"tree","testLeft":212,"sent":812,"relayed":95,"failed":3,"switches":2,"overflow":0,"neighbors":[{"mac":"…","n":4,"hops":1,"rssi":-61,"loss":67,"prr":96,"age":0}]}`.
+  `hops` and `parent` are `null` without a route, `loss` is the path loss in
+  dB, `prr` the share of the neighbour's beacons received in %.
+- `node` (from the root's table):
+  `{"ns":"mesh","ev":"node","mac":"…","n":7,"parent":"…","hops":2,"rssi":-61,"tx":6,"children":0,"neighbors":4,"bat":81,"usb":false,"mobile":false,"sent":812,"relayed":0,"failed":3,"switches":2,"lost":false,"age":1}`.
+  `lost` is `true` when the device has not reported for 7 s during the test
+  (65 s outside it). While the test runs, each new report follows as a
+  `node` event.
