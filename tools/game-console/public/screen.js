@@ -543,8 +543,8 @@
         } else if (r.phase === 'open') {
           ring = `${clock(8, 'on')}<div class="clock-mid"><span class="word">offen</span></div>`;
           under = `<b>${res.answered} von ${res.participants}</b><span>abgegeben</span>`;
-          foot = 'Pfeil drücken, fertig. Mit der Mitte lösen.';
-          mid = 'lösen';
+          foot = 'Pfeil drücken, fertig. Ändern mit der Mitte.';
+          mid = 'ändern';
         } else if (r.revealed) {
           const share = res.participants ? Math.round((8 * right.length) / res.participants) : 0;
           const lit = right.length ? Math.max(1, share) : 0;

@@ -141,7 +141,7 @@ test('every view renders without console errors', { timeout: 180000 }, async (t)
     await waitFor(() => game.snapshot().round.results.answered >= 30, { timeoutMs: 20000, what: 'answers' });
     await shot('auswahl', '.clock-under b');
     assert.match(await page.textContent('.clock-under b'), /^\d+ von 50$/);
-    assert.equal(await page.textContent('#mid'), 'lösen');
+    assert.equal(await page.textContent('#mid'), 'ändern');
     assert.equal(await page.locator('.atile').count(), 4);
     await waitFor(() => game.snapshot().round.results.answered >= 40, { timeoutMs: 20000, what: 'answers' });
     await act('next');
