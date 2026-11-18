@@ -46,6 +46,20 @@
 #include "mesh/MeshRoute.h"
 #include "mesh/MeshTestRender.h"
 #endif
+#ifndef FEATURE_DISPLAY
+#define FEATURE_DISPLAY 0
+#endif
+#if FEATURE_DISPLAY
+#if !FEATURE_GAME
+#error "FEATURE_DISPLAY needs FEATURE_GAME=1"
+#endif
+#include "display/HubUi.h"
+#include "display/HubView.h"
+static display::HubUi hubUi;
+static display::HubView hubView;
+static uint32_t hubSessionAt = 0;
+static uint16_t hubSessionId = 0;
+#endif
 
 static Ws2812bDriver _ws2812bPool[MAX_LIGHTS];
 static Ws2801Driver _ws2801Pool[MAX_LIGHTS];
@@ -841,6 +855,10 @@ void setup() {
     linkChain.begin(fleetManager.linkExtension(), &meshLink);
     gameSession.setLinkExtension(&linkChain);
 #endif
+#if FEATURE_DISPLAY
+    hubUi.begin();
+    hubUi.setMesh(&meshRouter);
+#endif
 
     // Wire SceneSyncManager → MeshManager
     sceneSync.setBroadcastFns(
@@ -1270,13 +1288,29 @@ void loop() {
         self.usb = power.online() && power.status().powerGood();
         meshRouter.setSelf(self);
         meshRouter.setRoot(gameSession.gatewayActive());
-        // Below full power only while the session holds the radio (no WiFi link).
-        meshRouter.setAdaptiveAllowed(gameSession.radioQuiet() && WiFi.status() != WL_CONNECTED);
+        // Below full power only while the session holds the radio or the mesh
+        // test runs, and never with a WiFi connection.
+        meshRouter.setAdaptiveAllowed((gameSession.radioQuiet() || meshRouter.testActive()) &&
+                                      WiFi.status() != WL_CONNECTED);
         meshRouter.tick(now);
     }
     // Every pass: the bridge repeats state at 50 ms and hops channels for 30 ms.
     gameSession.tick(now);
     const bool gameQuiet = gameSession.radioQuiet();
+#if FEATURE_DISPLAY
+    {
+        const game::Bridge& b = gameSession.bridge();
+        bool on = gameSession.isBridge() && b.active();
+        if (on && b.sessionId() != hubSessionId) {
+            hubSessionId = b.sessionId();
+            hubSessionAt = now;
+        }
+        if (!on) hubSessionId = 0;
+        hubView.fill(b, gameSession.isBridge(), gameSession.gatewayActive(), now - hubSessionAt,
+                     now);
+        hubUi.tick(hubView, now);
+    }
+#endif
     // Device states, fleet frames, update all, factory test (src/fleet/).
     fleetManager.tick(now);
     // Charging mode and standby: no WiFi, AP, web, OTA, MQTT, time or

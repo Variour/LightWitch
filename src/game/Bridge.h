@@ -80,6 +80,7 @@ class Bridge {
         bool answerTaken;   // race: the value is the answering device's answer
         bool dirtyValue;
         bool dirtyDevice;
+        uint32_t seenAt;  // bridge time of its last frame (hub display)
     };
 
     // A key press of a move round waiting for its USB line.
@@ -334,6 +335,7 @@ class Bridge {
         if (!quizFrameLenOk(d, len)) return;
         _rxFrames++;
         if (!_active || _ending) return;
+        _rxNow = now;
         QuizHeader h;
         memcpy(&h, d, sizeof(h));
         if (h.origin == 0) return;  // another bridge
@@ -353,7 +355,6 @@ class Bridge {
             decodeFrame(d, len, kMsgQuizKeys, m);
             _onKeys(m);
         }
-        (void)now;
     }
 
     void tick(uint32_t now) {
@@ -433,6 +434,33 @@ class Bridge {
         return (_devs && n >= 1 && n <= kMaxNumber) ? &_devs[n] : nullptr;
     }
 
+    // The running round as the bridge repeats it (hub display).
+    struct RoundModel {
+        uint16_t id = 0;
+        uint16_t seq = 1;
+        RoundType type = RoundType::Idle;
+        Phase phase = Phase::Closed;
+        uint16_t keyMask = 0;
+        uint8_t keyColor[5] = {};
+        uint8_t min = 0, max = 0, redMax = 0, greenMin = 0;
+        uint16_t winner = 0;
+        uint8_t correct = 0;
+        Hold hold = Hold::Frei;
+        bool firstOnly = false;
+        bool winnerWrong = false;
+        bool rainbow = false;
+        bool hasInput = false;
+        QuizRulesMsg rules{};    // its frame, header filled at send
+        uint16_t answering = 0;  // race: the number answering now
+        uint16_t answerMs = 0;
+        uint32_t answerAt = 0;  // bridge time its answer time began
+        bool opened = false;
+        uint32_t openAt = 0;  // bridge time of the round start (open + openInMs)
+        bool closedValid = false;
+        int32_t closedAtMs = 0;
+    };
+    const RoundModel& roundModel() const { return _round; }
+
     StateInfo stateInfo(uint32_t now) const {
         StateInfo s{};
         s.round = _round.id;
@@ -478,30 +506,6 @@ class Bridge {
     }
 
    private:
-    struct RoundModel {
-        uint16_t id = 0;
-        uint16_t seq = 1;
-        RoundType type = RoundType::Idle;
-        Phase phase = Phase::Closed;
-        uint16_t keyMask = 0;
-        uint8_t keyColor[5] = {};
-        uint8_t min = 0, max = 0, redMax = 0, greenMin = 0;
-        uint16_t winner = 0;
-        uint8_t correct = 0;
-        Hold hold = Hold::Frei;
-        bool firstOnly = false;
-        bool winnerWrong = false;
-        bool rainbow = false;
-        bool hasInput = false;
-        QuizRulesMsg rules{};    // its frame, header filled at send
-        uint16_t answering = 0;  // race: the number answering now
-        uint16_t answerMs = 0;
-        uint32_t answerAt = 0;  // bridge time its answer time began
-        bool opened = false;
-        uint32_t openAt = 0;  // bridge time of the round start (open + openInMs)
-        bool closedValid = false;
-        int32_t closedAtMs = 0;
-    };
     struct PendingAdmit {
         uint8_t mac[6];
         uint16_t n;
@@ -516,6 +520,7 @@ class Bridge {
     };
 
     Io _io;
+    uint32_t _rxNow = 0;  // time of the frame in onFrame
     Listener* _listener = nullptr;
     Device* _devs = nullptr;  // index = number, 1..kMaxNumber
     bool _quiet = false;
@@ -837,6 +842,7 @@ class Bridge {
         memcpy(dv.mac, m.mac, 6);
         dv.macKnown = true;
         dv.hasStatus = true;
+        dv.seenAt = _rxNow;
         dv.fw = m.fwBuild;
         dv.proto = m.h.proto;
         dv.battery = m.battery;
@@ -858,10 +864,12 @@ class Bridge {
     }
 
     void _noteNumber(uint16_t n) {
-        if (n <= _maxNumber) return;
-        for (uint16_t k = (uint16_t)(_maxNumber + 1); k <= n; k++) _devs[k] = Device{};
-        _devs[n].value = kNoValue;
-        _maxNumber = n;
+        if (n > _maxNumber) {
+            for (uint16_t k = (uint16_t)(_maxNumber + 1); k <= n; k++) _devs[k] = Device{};
+            _devs[n].value = kNoValue;
+            _maxNumber = n;
+        }
+        _devs[n].seenAt = _rxNow;
     }
 
     void _setDirtyValue(uint16_t n) {

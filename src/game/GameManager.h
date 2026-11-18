@@ -183,6 +183,9 @@ class GameManager {
     // is open with `link hello`.
     bool gatewayActive() const { return _isBridge && _link.helloDone(); }
     uint16_t number() const { return _number; }
+    // Hub display: the bridge side and whether this device is the bridge.
+    bool isBridge() const { return _isBridge; }
+    const game::Bridge& bridge() const { return _bridge; }
     // An invite ring shows (normal operation, device with a buzz key).
     bool inviteVisible(uint32_t now) const {
         return _participant.state() == game::Participant::State::Normal &&
