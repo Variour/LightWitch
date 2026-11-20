@@ -56,17 +56,17 @@ inline Rgb freeKeyRgb() { return scaleRgb(colorRgb(Color::White), kLevelFree); }
 
 // The chosen answer's key: steady white until the bridge confirms it, then
 // a pulse between white and c, starting at white.
-inline Rgb chosenKeyRgb(const Participant& p, Rgb c, uint32_t now) {
+inline RgbF chosenKeyRgb(const Participant& p, RgbF c, uint32_t now) {
     Rgb white = colorRgb(Color::White);
     if (!p.confirmed()) return white;
-    return blendRgb(white, c, softPulse(now - p.confirmedMs(), kPulsePeriodMs, 0, 255));
+    return blendF(white, c, softMix(now - p.confirmedMs(), kPulsePeriodMs));
 }
 
 // Ring overlay over the normal light pattern while an invite is visible.
 // Returns false (and leaves ring untouched) when there is nothing to show.
-inline bool renderInviteOverlay(const Participant& p, uint32_t now, Rgb* ring4) {
+inline bool renderInviteOverlay(const Participant& p, uint32_t now, RgbF* ring4) {
     if (p.state() != Participant::State::Normal || !p.inviteVisible(now)) return false;
-    Rgb c = scaleRgb(colorRgb(Color::Blue), pulseLevel(now));
+    RgbF c = scaleF(colorRgb(Color::Blue), pulseLevel(now));
     for (uint8_t i = 0; i < 4; i++) ring4[i] = c;
     return true;
 }
@@ -74,7 +74,7 @@ inline bool renderInviteOverlay(const Participant& p, uint32_t now, Rgb* ring4) 
 // Change animation: the direction colours run once around the key circle and
 // on to their keys in the new orientation, then one LED runs through the
 // column in its new reading direction.
-inline void renderLageAnim(const Participant::LageAnim& a, uint32_t now, Rgb* px) {
+inline void renderLageAnim(const Participant::LageAnim& a, uint32_t now, RgbF* px) {
     uint32_t t = now - a.start;
     LageAnimPlan plan = lageAnimPlan(a.from, a.to);
     uint32_t step = t / kLageAnimStepMs;
@@ -94,17 +94,17 @@ inline void renderLageAnim(const Participant::LageAnim& a, uint32_t now, Rgb* px
 // since the result came: a bright head runs up the column in reading
 // direction once per kCelebrateRunMs and leaves it green, the ring pulses
 // softly between green and white. Each LED lights up once per run.
-inline void renderCelebration(uint32_t t, bool rev, Rgb* px) {
+inline void renderCelebration(uint32_t t, bool rev, RgbF* px) {
     Rgb green = colorRgb(Color::Green);
     Rgb white = colorRgb(Color::White);
     columnRun(kZones, px, t, kCelebrateRunMs, green, white, rev);
-    fillRing(kZones, px, blendRgb(green, white, softPulse(t, kCelebrateRunMs, 0, 255)));
+    fillRing(kZones, px, blendF(green, white, softMix(t, kCelebrateRunMs)));
 }
 
 // The console's countdown on a device without an answer (link `game
 // countdown`): the column runs down evenly in reading direction, white at
 // kLevelFree.
-inline void renderCountdown(const Participant& p, uint32_t now, Rgb* px) {
+inline void renderCountdown(const Participant& p, uint32_t now, RgbF* px) {
     const Participant::Round& r = p.round();
     int32_t left = (int32_t)(r.deadline - now);
     if (left <= 0 || r.answerMs == 0) return;
@@ -121,7 +121,7 @@ inline void renderCountdown(const Participant& p, uint32_t now, Rgb* px) {
 // free answer keys glow white at kLevelFree, the given answer shows like a
 // chosen answer. Time over without an answer: ring and column in kWrongRgb,
 // after kAnswerOverMs the column alone.
-inline void renderAnswering(const Participant& p, uint32_t now, Rgb* px) {
+inline void renderAnswering(const Participant& p, uint32_t now, RgbF* px) {
     const Participant::Round& r = p.round();
     Lage l = p.inputLage();
     bool rev = columnReversed(l);
@@ -142,13 +142,13 @@ inline void renderAnswering(const Participant& p, uint32_t now, Rgb* px) {
         uint32_t used = unlimited                     ? now - r.turnSeenMs
                         : r.answerMs > (uint32_t)left ? r.answerMs - (uint32_t)left
                                                       : 0;
-        uint8_t dip = p.answerGiven() ? 0 : softPulse(used, kPulsePeriodMs, 0, 255 - kLevelTurnLow);
-        Rgb g = scaleRgb(colorRgb(Color::Green), (uint8_t)(255 - dip));
+        float lvl = p.answerGiven() ? 255.0f : softPulse(used, kPulsePeriodMs, 255, kLevelTurnLow);
+        RgbF g = scaleF(colorRgb(Color::Green), lvl);
         fillColumn(kZones, px, kZones.columnCount, g, rev);
         fillRing(kZones, px, g);
     } else {
         // The column runs down and turns from green to kWrongRgb.
-        Rgb c = blendRgb(colorRgb(Color::Green), kWrongRgb, (uint8_t)(255.0f * (1.0f - halves)));
+        RgbF c = blendF(colorRgb(Color::Green), kWrongRgb, 1.0f - halves);
         columnLevel(kZones, px, halves * kZones.columnCount, c, rev);
         fillRing(kZones, px, c);
     }
@@ -171,7 +171,7 @@ inline void renderAnswering(const Participant& p, uint32_t now, Rgb* px) {
 // white and its colour. On the right step the device celebrates, then the
 // ring stays green; one step off the own step shows in its colour and the
 // ring pulses once; further off the own step shows in kWrongRgb.
-inline void renderRainbow(const Participant& p, uint32_t now, Rgb* px) {
+inline void renderRainbow(const Participant& p, uint32_t now, RgbF* px) {
     const Participant::Round& r = p.round();
     Lage l = p.inputLage();
     bool rev = columnReversed(l);
@@ -185,15 +185,15 @@ inline void renderRainbow(const Participant& p, uint32_t now, Rgb* px) {
         uint32_t t = now - r.resultMs;
         if (off == 0 && t < kCelebrateMs) return renderCelebration(t, rev, px);
         px[kZones.columnLed((uint8_t)right, rev)] =
-            blendRgb(colorRgb(Color::White), kRainbow[right], softPulse(t, kPulsePeriodMs, 0, 255));
+            blendF(colorRgb(Color::White), kRainbow[right], softMix(t, kPulsePeriodMs));
         if (own >= 0 && off > 0)
             px[kZones.columnLed((uint8_t)own, rev)] = off == 1 ? kRainbow[own] : kWrongRgb;
         if (off == 0)
             fillRing(kZones, px, colorRgb(Color::Green));
         else if (off == 1 && t < kCelebrateRunMs)
             fillRing(kZones, px,
-                     blendRgb(colorRgb(Color::Green), colorRgb(Color::White),
-                              softPulse(t, kCelebrateRunMs, 0, 255)));
+                     blendF(colorRgb(Color::Green), colorRgb(Color::White),
+                            softMix(t, kCelebrateRunMs)));
         return;
     }
     if (r.phase == Phase::Open && !p.answerLocked()) {
@@ -211,7 +211,7 @@ inline void renderRainbow(const Participant& p, uint32_t now, Rgb* px) {
 // kLevelFree; the chosen one pulses like a chosen answer, Up toward green,
 // Down toward dimmed white, and the ring glows green (named) or white at
 // kLevelFree (anonymous). Without a choice the device plays anonymously.
-inline void renderNaming(const Participant& p, uint32_t now, Rgb* px) {
+inline void renderNaming(const Participant& p, uint32_t now, RgbF* px) {
     using N = Participant::Naming;
     Lage l = p.inputLage();
     px[logicalLed(l, Key::Up)] = freeKeyRgb();
@@ -220,13 +220,13 @@ inline void renderNaming(const Participant& p, uint32_t now, Rgb* px) {
     bool named = p.naming() == N::Named;
     Rgb c = named ? colorRgb(Color::Green) : scaleRgb(colorRgb(Color::White), kLevelDimmed);
     px[logicalLed(l, named ? Key::Up : Key::Down)] =
-        blendRgb(colorRgb(Color::White), c, softPulse(now - p.namingMs(), kPulsePeriodMs, 0, 255));
+        blendF(colorRgb(Color::White), c, softMix(now - p.namingMs(), kPulsePeriodMs));
     fillRing(kZones, px, named ? colorRgb(Color::Green) : freeKeyRgb());
 }
 
 // Move round (provisional display): the direction keys glow dimmed in the
 // round's colour while open; each unacknowledged press pulses its key.
-inline void renderMove(const Participant& p, uint32_t now, Rgb* px) {
+inline void renderMove(const Participant& p, uint32_t now, RgbF* px) {
     const Participant::Round& r = p.round();
     if (r.phase != Phase::Open) return;
     Lage l = p.inputLage();
@@ -240,12 +240,12 @@ inline void renderMove(const Participant& p, uint32_t now, Rgb* px) {
         uint8_t led = kZones.keyLed(pr.physical);
         if (led == kNoLed) continue;
         Color c = (Color)getKeyColor(r.keyColor, (uint8_t)pr.key);
-        px[led] = scaleRgb(colorRgb(c), pulseLevel(now));
+        px[led] = scaleF(colorRgb(c), pulseLevel(now));
     }
 }
 
 // Full frame while the device is in a session. px has kLedCount entries.
-inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
+inline void renderParticipant(const Participant& p, uint32_t now, RgbF* px) {
     allOff(kZones, px);
     using S = Participant::State;
     if (p.state() == S::Joining) {
@@ -259,8 +259,8 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
     if (p.gatewayAgeMs(now) >= kNoGatewayWarnMs) {
         if (blinkOn(now)) px[kZones.dot] = scaleRgb(colorRgb(Color::Orange), kLevelDimmed);
     } else if (locked) {
-        px[kZones.dot] = scaleRgb(colorRgb(Color::White),
-                                  softPulse(now, kLockPulseMs, kLevelFaint, kLevelBright));
+        px[kZones.dot] =
+            scaleF(colorRgb(Color::White), softPulse(now, kLockPulseMs, kLevelFaint, kLevelBright));
     } else {
         px[kZones.dot] = scaleRgb(colorRgb(Color::White), kLevelFaint);
     }
@@ -270,9 +270,9 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
     Lage l = p.inputLage();
     bool rev = columnReversed(l);
     uint8_t val = p.value();
-    uint8_t inputLevel = (kPulseUntilConfirmed && val != kNoValue && !p.confirmed())
-                             ? pulseLevel(now)
-                             : kLevelBright;
+    float inputLevel = (kPulseUntilConfirmed && val != kNoValue && !p.confirmed())
+                           ? pulseLevel(now)
+                           : (float)kLevelBright;
     auto inMask = [&](Key k) { return (r.keyMask & (1u << (uint8_t)k)) != 0; };
 
     if (anim.on) {
@@ -303,7 +303,7 @@ inline void renderParticipant(const Participant& p, uint32_t now, Rgb* px) {
                                  : val >= r.greenMin ? Color::Green
                                                      : Color::Yellow;
                     fillColumn(kZones, px, (uint8_t)(per * (val - r.min + 1)),
-                               scaleRgb(colorRgb(zone), inputLevel), rev);
+                               scaleF(colorRgb(zone), inputLevel), rev);
                     if (p.confirmed()) fillRing(kZones, px, colorRgb(zone));
                 }
                 break;

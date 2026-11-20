@@ -83,12 +83,54 @@ static BatteryMonitor::State _lastBatteryState = BatteryMonitor::State::OnBatter
 static constexpr uint32_t PATTERN_TICK_INTERVAL_MS = 1000 / 60;
 static uint32_t _lastPatternTickMs = 0;
 #if FEATURE_GAME
-// A detected Buzzerboard outside a game session ticks its pattern and the
-// fleet displays at 100 Hz instead, so their dithered fades (led/Dither.h)
-// glide (Timo, 2026-11-10). A frame of its 34 LEDs takes about 1 ms on the
-// wire, and the RMT transfer waits without spinning. A session, participant
-// or bridge, and standby (LEDs off) stay at PATTERN_TICK_INTERVAL_MS.
+// A detected Buzzerboard ticks its pattern, the fleet displays and, since
+// 2026-11-20, its game session at 100 Hz instead, so their dithered fades
+// (led/Dither.h) glide (Timo, 2026-11-10 and 2026-11-20). A frame of its 34
+// LEDs takes about 1 ms on the wire, and the RMT transfer waits without
+// spinning. The bridge (it holds the radio) and standby (LEDs off) stay at
+// PATTERN_TICK_INTERVAL_MS.
 static constexpr uint32_t FLEET_TICK_INTERVAL_MS = 10;
+
+// Frame timing of the session display, logged every FRAME_STAT_PERIOD_MS
+// while the session owns the LEDs: frames, the largest gap between two
+// frames, how many gaps were over twice the tick, and the longest render
+// (frame + show) in us. A gap above FRAME_STAT_RESET_MS (session paused)
+// starts the count anew.
+static constexpr uint32_t FRAME_STAT_PERIOD_MS = 30000;
+static constexpr uint32_t FRAME_STAT_RESET_MS = 1000;
+static uint32_t _frameStatStartMs = 0;
+static uint32_t _frameStatLastMs = 0;
+static uint32_t _frameStatCount = 0;
+static uint32_t _frameStatMaxGapMs = 0;
+static uint32_t _frameStatLate = 0;
+static uint32_t _frameStatMaxRenderUs = 0;
+
+static void noteSessionFrame(uint32_t now, uint32_t tickMs, uint32_t renderUs) {
+    uint32_t gap = now - _frameStatLastMs;
+    _frameStatLastMs = now;
+    if (_frameStatCount == 0 || gap > FRAME_STAT_RESET_MS) {
+        _frameStatStartMs = now;
+        _frameStatCount = 1;
+        _frameStatMaxGapMs = 0;
+        _frameStatLate = 0;
+        _frameStatMaxRenderUs = renderUs;
+        return;
+    }
+    _frameStatCount++;
+    if (gap > _frameStatMaxGapMs) _frameStatMaxGapMs = gap;
+    if (gap > 2 * tickMs) _frameStatLate++;
+    if (renderUs > _frameStatMaxRenderUs) _frameStatMaxRenderUs = renderUs;
+    uint32_t span = now - _frameStatStartMs;
+    if (span < FRAME_STAT_PERIOD_MS) return;
+    Logger::i(
+        "[led] session frames: %lu in %lu ms (%lu Hz), gap max %lu ms, %lu over %lu ms, "
+        "render max %lu us",
+        (unsigned long)_frameStatCount, (unsigned long)span,
+        (unsigned long)((_frameStatCount - 1) * 1000UL / span), (unsigned long)_frameStatMaxGapMs,
+        (unsigned long)_frameStatLate, (unsigned long)(2 * tickMs),
+        (unsigned long)_frameStatMaxRenderUs);
+    _frameStatCount = 0;
+}
 #endif
 
 // Caps how often the background subsystems below (OTA polling, web server
@@ -1319,9 +1361,10 @@ void loop() {
     }
 
 #if FEATURE_GAME
-    const uint32_t patternTickMs = boardDetected() && !gameQuiet && !fleetManager.standby()
-                                       ? FLEET_TICK_INTERVAL_MS
-                                       : PATTERN_TICK_INTERVAL_MS;
+    const uint32_t patternTickMs =
+        boardDetected() && !gameSession.bridgeQuiet() && !fleetManager.standby()
+            ? FLEET_TICK_INTERVAL_MS
+            : PATTERN_TICK_INTERVAL_MS;
 #else
     const uint32_t patternTickMs = PATTERN_TICK_INTERVAL_MS;
 #endif
@@ -1329,7 +1372,9 @@ void loop() {
         _lastPatternTickMs = now;
 #if FEATURE_GAME
         if (gameSession.ownsLeds()) {
+            uint32_t t0 = micros();
             gameSession.render(now);
+            noteSessionFrame(now, patternTickMs, micros() - t0);
         } else if (fleetManager.ownsLeds()) {
             fleetManager.render(now);
         } else {
