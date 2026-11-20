@@ -36,6 +36,12 @@ class LedDriver {
             writePixel(i, dither::channel(r, i), dither::channel(g, i), dither::channel(b, i));
         show();
     }
+    // One pixel with 8 fractional bits per channel (0-65280 for 0-255),
+    // dithered by its position in the chain (Dither.h); no show().
+    void setPixelFine(uint16_t idx, uint16_t r, uint16_t g, uint16_t b) {
+        writePixel(idx, dither::channel(_clampFine(r), idx), dither::channel(_clampFine(g), idx),
+                   dither::channel(_clampFine(b), idx));
+    }
     virtual uint16_t pixelCount() const { return 1; }
     virtual void show() {}
     virtual void off() { writeColor(0, 0, 0); }
