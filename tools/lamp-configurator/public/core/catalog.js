@@ -6,7 +6,7 @@ import { bands, cap, body, flat, add, sub, mul, norm, cross, dot, orient, roundV
 // Editor colours follow the catalog cards. Prices: USD per board at the 2027 panel plan (estimates).
 export const TYPE_UI = {
   kerze:   { short: 'K',  color: '#e8a04a', price: 0.64, sub: '1 WWA + 12 Amber' },
-  glimmen: { short: 'G',  color: '#c8662e', price: 0.67, sub: '15 Amber' },
+  glimmen: { short: 'G',  color: '#c8662e', price: 0.67, sub: '15 Amber', draft: 'Vorläufig: Wie die 15 Amber-LEDs auf die ICs verteilt werden, ist noch offen. Pixel und Lumen können sich ändern.' },
   weiss:   { short: 'W',  color: '#e9eef2', price: 0.34, sub: '3 WWA' },
   rgb:     { short: 'R',  color: '#7fa8e8', price: 0.41, sub: '1 WWA + 3 RGB' },
   rgbmatrix:   { short: 'M3', color: '#b48ae0', price: 0.28, sub: '3 RGB' },

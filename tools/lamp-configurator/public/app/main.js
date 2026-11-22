@@ -386,8 +386,8 @@ function panel() {
         <h3>Auswahl</h3>${sel}`;
     },
     paint: () => `<h2>Bestückung</h2>
-      <div class="swatches">${TYPE_ORDER.map(k => `<button class="swatch ${S.paintType === k ? 'on' : ''}" data-type="${k}"><i style="background:${TYPE_UI[k].color}"></i>${esc(modules.types[k].name)}</button>`).join('')}</div>
-      <p class="quiet">${esc(TYPE_UI[S.paintType].sub)}, ${modules.types[S.paintType].pixels.length} Pixel, ${fmt(typeLm(S.paintType), 1)} lm bei 100 %.</p>
+      <div class="swatches">${TYPE_ORDER.map(k => `<button class="swatch ${S.paintType === k ? 'on' : ''}" data-type="${k}"><i style="background:${TYPE_UI[k].color}"></i>${esc(modules.types[k].name)}${TYPE_UI[k].draft ? ' (vorläufig)' : ''}</button>`).join('')}</div>
+      <p class="quiet">${esc(TYPE_UI[S.paintType].sub)}, ${modules.types[S.paintType].pixels.length} Pixel, ${fmt(typeLm(S.paintType), 1)} lm bei 100 %.</p>${TYPE_UI[S.paintType].draft ? `<p class="warn">${esc(TYPE_UI[S.paintType].draft)}</p>` : ''}
       <h3>Ganze Lampe</h3><div class="row"><button id="allType">Alle Dreiecke auf ${esc(modules.types[S.paintType].name)}</button></div>`,
     wire: () => {
       const ctl = CONTROLLERS[p.controller], w = D.wiring;
