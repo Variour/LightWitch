@@ -85,9 +85,9 @@ holes behind its IN edge.
 lumen at 100 %) and `outputs` with the modules in chain order. Each module has `p` (grid
 centroid), `n` (LED side normal) and `u` (from the IN edge towards the apex); module-local
 `(x, y)` maps to `p + x*r + y*u` with `r = u × n`. World frame: mm, z up, origin at the centre
-of the lamp's foot. The format and the module library are defined with the LightWitch
-brightness work (`docs/lamp-format.md`, `docs/lamp-modules.json`); `public/data/lamp-modules.json`
-is a copy with the same fields until that lands. Lumen and current values are estimates.
+of the lamp's foot. The format and the module library are defined in `docs/lamp/README.md` and
+`docs/lamp/modules.json` (PR #510); `public/data/lamp-modules.json` is a copy of that library plus
+the catalog-only type `glimmen`, until the library is on `main`. Lumen and current values are estimates.
 
 **Project file** (`lightwitch-lamp-project` v1): name, control board, pack and per triangle
 `id`, `v` (three corners in mm, counter-clockwise seen from the LED side), `type`, `out` and,

@@ -9,10 +9,10 @@ export const TYPE_UI = {
   glimmen: { short: 'G',  color: '#c8662e', price: 0.67, sub: '15 Amber' },
   weiss:   { short: 'W',  color: '#e9eef2', price: 0.34, sub: '3 WWA' },
   rgb:     { short: 'R',  color: '#7fa8e8', price: 0.41, sub: '1 WWA + 3 RGB' },
-  rgbm3:   { short: 'M3', color: '#b48ae0', price: 0.28, sub: '3 RGB' },
-  rgbm1:   { short: 'M1', color: '#8ad0c8', price: 0.14, sub: '1 RGB' },
+  rgbmatrix:   { short: 'M3', color: '#b48ae0', price: 0.28, sub: '3 RGB' },
+  rgbmatrix1:   { short: 'M1', color: '#8ad0c8', price: 0.14, sub: '1 RGB' },
 };
-export const TYPE_ORDER = ['kerze', 'glimmen', 'weiss', 'rgb', 'rgbm3', 'rgbm1'];
+export const TYPE_ORDER = ['kerze', 'glimmen', 'weiss', 'rgb', 'rgbmatrix', 'rgbmatrix1'];
 
 // Control boards. maxMA = total LED current at 5 V the board supplies; outMA = per output switch.
 export const CONTROLLERS = {
@@ -115,7 +115,7 @@ export const PRESETS = {
   matrix: {
     name: 'RGB-Matrix', sub: '252 RGB Matrix, ca. 600 × 200, Steuerboard L, Netzteil', controller: 'L', pack: 'psu',
     make() {
-      const tris = flat(36, 7, { type: 'rgbm3' });
+      const tris = flat(36, 7, { type: 'rgbmatrix' });
       // column bands 10/8/10/8: a band of 9 columns has no single chain through it
       tris.forEach((t, i) => { const c = i % 36; t.out = c < 10 ? 'A' : c < 18 ? 'B' : c < 28 ? 'C' : 'D'; });
       return tris;

@@ -150,7 +150,7 @@ export function cap(ringV, dir = 1, type = 'weiss', extra = {}) {
   });
 }
 // Flat area: `rows` rows of `cols` triangles, alternating up/down, in the x-z plane, LEDs to -y.
-export function flat(cols, rows, { type = 'rgbm1', z0 = 0 } = {}) {
+export function flat(cols, rows, { type = 'rgbmatrix1', z0 = 0 } = {}) {
   const tris = [], w = (cols + 1) / 2 * GRID;
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
     const x0 = -w / 2 + c * GRID / 2, z = z0 + r * TRI_H, up = (c + r) % 2 === 0;
