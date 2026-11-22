@@ -41,6 +41,8 @@ class LedDriver {
     virtual void service() {}
 
    protected:
+    // The clamp, for subclasses that write pixels without setPixel.
+    uint8_t clampValue(uint8_t v) const { return _clamp(v); }
     // Hardware-specific output — receives already-clamped values.
     virtual void writeColor(uint8_t r, uint8_t g, uint8_t b) = 0;
     virtual void writePixel(uint16_t idx, uint8_t r, uint8_t g, uint8_t b) {}

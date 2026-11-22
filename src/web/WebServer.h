@@ -9,6 +9,7 @@
 #include "../buttons/ButtonRoles.h"
 #include "../config/Config.h"
 #include "../events/EventLog.h"
+#include "../lamp/Lamp.h"
 #include "../logging/Logger.h"
 #include "../mesh/ChannelManager.h"
 #include "../mesh/PeerRegistry.h"
@@ -266,6 +267,30 @@ class BatteryWebServer {
             "/api/peers/setvolume", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
             [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
                 _setRemoteVolume(r, d, l);
+            });
+
+        // Lamp (docs/lamp/README.md). Specific routes before /api/lamp, which
+        // would otherwise prefix-match them.
+        _server.on("/api/lamp/file", HTTP_GET, [](AsyncWebServerRequest* r) {
+            if (!LittleFS.exists(lamp::FILE_PATH)) {
+                r->send(404, "application/json", "{\"error\":\"no lamp\"}");
+                return;
+            }
+            r->send(LittleFS, lamp::FILE_PATH, "application/json");
+        });
+        _server.on(
+            "/api/lamp/mode", HTTP_POST, [](AsyncWebServerRequest*) {}, nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t, size_t) {
+                _setLampMode(r, d, l);
+            });
+        _server.on("/api/lamp/delete", HTTP_POST,
+                   [this](AsyncWebServerRequest* r) { _deleteLamp(r); });
+        _server.on("/api/lamp", HTTP_GET, [this](AsyncWebServerRequest* r) { _getLamp(r); });
+        _server.on(
+            "/api/lamp", HTTP_POST, [this](AsyncWebServerRequest* r) { _finishLampUpload(r); },
+            nullptr,
+            [this](AsyncWebServerRequest* r, uint8_t* d, size_t l, size_t index, size_t total) {
+                _lampUploadChunk(r, d, l, index, total);
             });
 
         _server.on("/api/lights", HTTP_GET, [this](AsyncWebServerRequest* r) { _getLights(r); });
@@ -751,6 +776,7 @@ class BatteryWebServer {
     void setOnColorOrderChange(ColorOrderChangeCb cb) { _onColorOrderChange = cb; }
     void setOnLightBrightnessChange(LightBrightnessChangeCb cb) { _onLightBrightnessChange = cb; }
     void setOnLightClampChange(LightClampChangeCb cb) { _onLightClampChange = cb; }
+    void setOnLampModeChange(std::function<void()> cb) { _onLampModeChange = cb; }
     void setOnButtonsChanged(ButtonsChangedCb cb) { _onButtonsChanged = cb; }
     void setOnGroupsChanged(GroupsChangedCb cb) { _onGroupsChanged = cb; }
     void setOnSceneListChanged(SceneListChangedCb cb) { _onSceneListChanged = cb; }
@@ -815,6 +841,7 @@ class BatteryWebServer {
     ColorOrderChangeCb _onColorOrderChange;
     LightBrightnessChangeCb _onLightBrightnessChange;
     LightClampChangeCb _onLightClampChange;
+    std::function<void()> _onLampModeChange;
     ButtonsChangedCb _onButtonsChanged;
     GroupsChangedCb _onGroupsChanged;
     SceneListChangedCb _onSceneListChanged;
@@ -2089,6 +2116,166 @@ class BatteryWebServer {
         if (usesClock && Config::isPinInUse(l.clockPin, -1, -1, excludeLightIndex))
             return "pin already in use";
         return nullptr;
+    }
+
+    // ── Lamp ─────────────────────────────────────────────────────────────────
+    struct LampUploadState {
+        File file;
+        bool failed = false;
+        const char* error = nullptr;
+    };
+
+    static void _sendAndRestart(AsyncWebServerRequest* r, JsonDocument& doc) {
+        String s;
+        serializeJson(doc, s);
+        AsyncWebServerResponse* resp = r->beginResponse(200, "application/json", s.c_str());
+        resp->addHeader("Connection", "close");
+        r->onDisconnect([]() { ESP.restart(); });
+        r->send(resp);
+    }
+
+    // GET /api/lamp: summary of the loaded lamp (see docs/lamp/README.md).
+    void _getLamp(AsyncWebServerRequest* r) {
+        using namespace lamp;
+        JsonDocument doc;
+        doc["mode"] = Config::get().lampMode;
+        doc["loaded"] = Lamp::loaded();
+        doc["stored"] = LittleFS.exists(FILE_PATH);
+        doc["scaleMin"] = SCALE_MIN;
+        doc["scaleMax"] = SCALE_MAX;
+        if (Lamp::loaded()) {
+            doc["name"] = Lamp::name();
+            uint32_t pixels = 0;
+            JsonArray outs = doc["outputs"].to<JsonArray>();
+            for (uint8_t i = 0; i < Lamp::outputCount(); i++) {
+                const Output& o = Lamp::output(i);
+                JsonObject jo = outs.add<JsonObject>();
+                jo["id"] = o.id;
+                if (o.light == 0xFF)
+                    jo["light"] = nullptr;
+                else
+                    jo["light"] = o.light;
+                jo["modules"] = o.modules;
+                jo["pixels"] = o.pixels;
+                pixels += o.pixels;
+            }
+            doc["pixels"] = pixels;
+            static const char* kFam[] = {"rgb", "white", "amber"};
+            JsonObject fams = doc["families"].to<JsonObject>();
+            for (uint8_t f = 0; f < F_COUNT; f++) {
+                if (Lamp::familyArea(f) <= 0) continue;
+                JsonObject jf = fams[kFam[f]].to<JsonObject>();
+                float c = Lamp::ceiling(f);
+                jf["ceiling"] = c;
+                jf["area"] = Lamp::familyArea(f);
+                jf["maxLm"] = c * Lamp::familyArea(f);
+            }
+        }
+        _sendJson(r, 200, doc);
+    }
+
+    void _setLampMode(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
+        JsonDocument doc;
+        if (!_parseJson(r, doc, data, len)) return;
+        int m = doc["mode"] | -1;
+        if (m < 0 || m > 2) {
+            auto e = _makeErr("mode must be 0, 1 or 2");
+            _sendJson(r, 400, e);
+            return;
+        }
+        Config::get().lampMode = (uint8_t)m;
+        Config::save();
+        if (_onLampModeChange) _onLampModeChange();
+        auto ok = _makeOk();
+        _sendJson(r, 200, ok);
+    }
+
+    void _deleteLamp(AsyncWebServerRequest* r) {
+        LittleFS.remove(lamp::FILE_PATH);
+        auto ok = _makeOk();
+        ok["rebooting"] = true;
+        _sendAndRestart(r, ok);
+    }
+
+    void _lampUploadChunk(AsyncWebServerRequest* r, uint8_t* data, size_t len, size_t index,
+                          size_t total) {
+        auto* st = static_cast<LampUploadState*>(r->_tempObject);
+        if (!st) {
+            st = new LampUploadState();
+            r->_tempObject = st;
+            if (total > lamp::MAX_FILE_BYTES) {
+                st->failed = true;
+                st->error = "lamp file too large";
+                return;
+            }
+            st->file = LittleFS.open(lamp::TMP_PATH, "w");
+            if (!st->file) {
+                st->failed = true;
+                st->error = "open failed";
+                return;
+            }
+        }
+        if (st->failed || !len) return;
+        if (index + len > lamp::MAX_FILE_BYTES || st->file.write(data, len) != len) {
+            st->failed = true;
+            st->error = index + len > lamp::MAX_FILE_BYTES ? "lamp file too large" : "write failed";
+            st->file.close();
+            st->file = File();
+        }
+    }
+
+    // POST /api/lamp: validates the uploaded lamp file, maps each output with
+    // a "light" onto that light (WS2812 string, wire order RGB, length =
+    // pixels), stores it as /lamp.json and restarts.
+    void _finishLampUpload(AsyncWebServerRequest* r) {
+        auto* st = static_cast<LampUploadState*>(r->_tempObject);
+        r->_tempObject = nullptr;
+        const char* err = st ? st->error : "no body";
+        bool failed = !st || st->failed;
+        if (st && st->file) st->file.close();
+        delete st;
+        lamp::Output* outs = nullptr;
+        uint8_t count = 0;
+        if (!failed) {
+            JsonDocument doc;
+            File f = LittleFS.open(lamp::TMP_PATH, "r");
+            DeserializationError de =
+                f ? deserializeJson(doc, f) : DeserializationError::InvalidInput;
+            if (f) f.close();
+            if (de) {
+                failed = true;
+                err = "bad json";
+            } else {
+                outs = new lamp::Output[MAX_LIGHTS];
+                if (!lamp::Lamp::parse(doc, outs, count, nullptr, 0, err)) failed = true;
+            }
+        }
+        if (failed) {
+            delete[] outs;
+            LittleFS.remove(lamp::TMP_PATH);
+            Logger::w("[lamp] upload rejected: %s", err ? err : "?");
+            auto e = _makeErr(err ? err : "upload failed");
+            _sendJson(r, 400, e);
+            return;
+        }
+        for (uint8_t i = 0; i < count; i++) {
+            if (outs[i].light == 0xFF) continue;
+            auto& l = Config::get().lights[outs[i].light];
+            l.ledType = LedType::WS2812B;
+            l.colorOrder = ColorOrder::RGB;
+            l.width = outs[i].pixels ? outs[i].pixels : 1;
+            l.height = 1;
+            l.wrapWidth = false;
+            l.wrapHeight = false;
+        }
+        delete[] outs;
+        LittleFS.remove(lamp::FILE_PATH);
+        LittleFS.rename(lamp::TMP_PATH, lamp::FILE_PATH);
+        Config::save();
+        Logger::i("[lamp] lamp file stored, restarting");
+        auto ok = _makeOk();
+        ok["rebooting"] = true;
+        _sendAndRestart(r, ok);
     }
 
     // ── POST /api/lights/add ──────────────────────────────────────────────────

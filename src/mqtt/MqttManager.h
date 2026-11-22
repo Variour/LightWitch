@@ -263,8 +263,8 @@ class MqttManager {
    private:
     inline static MqttManager* _instance = nullptr;
 
-    static constexpr const char* kPatternNames[5] = {"Static", "Breathing", "Color Cycle", "Strobe",
-                                                     "Candle"};
+    static constexpr const char* kPatternNames[6] = {"Static", "Breathing", "Color Cycle",
+                                                     "Strobe", "Candle",    "Fire"};
 
     WiFiClient _wifi;
     PubSubClient _client{_wifi};
@@ -675,7 +675,8 @@ class MqttManager {
     // Resolves the current mode/pattern/sceneId to the matching effect_list
     // display string, so HA's effect dropdown shows the right selection.
     String _effectDisplayName(const LightConfig& l) {
-        if (l.mode == GroupMode::Pattern) return kPatternNames[(uint8_t)l.pattern];
+        if (l.mode == GroupMode::Pattern)
+            return (uint8_t)l.pattern < 6 ? kPatternNames[(uint8_t)l.pattern] : "Static";
         if (l.mode == GroupMode::Proximity) return "Proximity";
         if (l.mode == GroupMode::Text) return "Text";
         if (l.mode == GroupMode::Time) return "Time";
@@ -808,7 +809,7 @@ class MqttManager {
     // Maps an effect_list display string back to mode/pattern/sceneId.
     // Returns true if it matched something recognizable.
     bool _applyEffectName(const char* effect, LightConfig& cfg) {
-        for (uint8_t i = 0; i < 5; i++) {
+        for (uint8_t i = 0; i < 6; i++) {
             if (strcmp(effect, kPatternNames[i]) == 0) {
                 cfg.mode = GroupMode::Pattern;
                 cfg.pattern = (PatternId)i;

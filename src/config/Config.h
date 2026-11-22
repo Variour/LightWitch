@@ -91,6 +91,7 @@ enum class PatternId : uint8_t {
     ColorCycle = 2,
     Strobe = 3,
     Candle = 4,
+    Fire = 5,  // rises upward along the lamp layout, see docs/lamp/README.md
 };
 
 enum class GroupMode : uint8_t {
@@ -245,7 +246,8 @@ static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
 // Still v5: buttons gained role, lights gained currentLimitMa, the device
 // gained chargerEnabled (BQ25628 support), all additive with `| default`
 // fallbacks in applyDoc(). Keeping v5 lets firmware before them load the
-// config after a downgrade; it ignores the new fields.
+// config after a downgrade; it ignores the new fields. The same holds for
+// the device's lampMode.
 static constexpr uint8_t CONFIG_SCHEMA_VERSION = 5;
 
 // Parameters for a ButtonAction. Which member is meaningful depends on the
@@ -592,6 +594,9 @@ struct DeviceConfig {
     // and the low-battery cut-off can switch the device off (ship mode).
     // Requires the I2C bus; applied at boot only.
     bool chargerEnabled = false;
+    // Lamp brightness model (lamp::Mode, docs/lamp/README.md): 0 raw,
+    // 1 uniform, 2 uniform with peaks. Only used when /lamp.json is loaded.
+    uint8_t lampMode = 1;
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];

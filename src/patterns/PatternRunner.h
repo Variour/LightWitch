@@ -10,6 +10,7 @@
 #include "Breathing.h"
 #include "Candle.h"
 #include "ColorCycle.h"
+#include "Fire.h"
 #include "GradientMatrix.h"
 #include "GradientString.h"
 #include "Pattern.h"
@@ -49,6 +50,14 @@ class PatternRunner {
 
     bool wrapWidth() const { return _wrapWidth; }
     bool wrapHeight() const { return _wrapHeight; }
+
+    // Lamp lights (docs/lamp/README.md): in the physical lamp modes the group
+    // brightness goes to the lamp driver as area brightness and patterns
+    // render at full scale.
+    void setLamp(LampDriver* lamp) {
+        _lamp = lamp;
+        _fire.setLamp(lamp);
+    }
 
     void setPeerRegistry(PeerRegistry* peers) { _proximity.setPeers(peers); }
     void setGroupId(uint8_t groupId) { _proximity.setGroupId(groupId); }
@@ -172,9 +181,14 @@ class PatternRunner {
     }
 
    private:
-    void _applyConfig(const LightConfig& cfg) {
-        _savedConfig = cfg;
+    void _applyConfig(const LightConfig& in) {
+        _savedConfig = in;
         if (_testActive) return;
+        LightConfig cfg = in;
+        if (_lamp && _lamp->physical()) {
+            _lamp->setLevel(cfg.brightness);
+            cfg.brightness = 255;
+        }
         if (cfg.mode == GroupMode::Proximity) {
             _sceneMode = SceneMode::None;
             if (_current != &_proximity) {
@@ -293,9 +307,9 @@ class PatternRunner {
         // rendering — falls through to the Pattern-mode switch below and
         // just shows whatever cfg.pattern last held (defaults to Static).
         if (_current == nullptr || cfg.pattern != _currentId) {
-            static const char* const _names[] = {"Static", "Breathing", "ColorCycle", "Strobe",
-                                                 "Candle"};
-            const char* name = (uint8_t)cfg.pattern < 5 ? _names[(uint8_t)cfg.pattern] : "?";
+            static const char* const _names[] = {"Static", "Breathing", "ColorCycle",
+                                                 "Strobe", "Candle",    "Fire"};
+            const char* name = (uint8_t)cfg.pattern < 6 ? _names[(uint8_t)cfg.pattern] : "?";
             Logger::i("[pattern] → %s  rgb(%u,%u,%u) br=%u spd=%.1f", name, cfg.color.r,
                       cfg.color.g, cfg.color.b, cfg.brightness, cfg.speed);
             _currentId = cfg.pattern;
@@ -312,6 +326,10 @@ class PatternRunner {
                 case PatternId::Candle:
                     _current = &_candle;
                     break;
+                case PatternId::Fire:
+                    _fire.setNumLeds(_width * _height);
+                    _current = &_fire;
+                    break;
                 default:
                     _current = &_static;
                     break;
@@ -326,6 +344,7 @@ class PatternRunner {
 
     // ── state ────────────────────────────────────────────────────────────────
     LedDriver* _led = nullptr;
+    LampDriver* _lamp = nullptr;
     Pattern* _current = nullptr;
     PatternId _currentId = PatternId::Static;
     SceneMode _sceneMode = SceneMode::None;
@@ -362,6 +381,7 @@ class PatternRunner {
     ColorCycle _colorCycle;
     Strobe _strobe;
     CandlePattern _candle;
+    FirePattern _fire;
     SceneMatrix _sceneMatrix;
     SceneString _sceneString;
     GradientMatrix _gradientMatrix;

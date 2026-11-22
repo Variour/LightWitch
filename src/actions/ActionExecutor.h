@@ -97,13 +97,13 @@ class ActionExecutor {
                 cfg.mode = (GroupMode)constrain((int)p.numberValue, 0, 5);
                 break;
             case ActionId::PatternNext:
-                cfg.pattern = (PatternId)(((uint8_t)cfg.pattern + 1) % 5);
+                cfg.pattern = (PatternId)(((uint8_t)cfg.pattern + 1) % 6);
                 break;
             case ActionId::PatternPrev:
-                cfg.pattern = (PatternId)(((uint8_t)cfg.pattern + 4) % 5);
+                cfg.pattern = (PatternId)(((uint8_t)cfg.pattern + 5) % 6);
                 break;
             case ActionId::PatternSet:
-                cfg.pattern = (PatternId)constrain((int)p.numberValue, 0, 4);
+                cfg.pattern = (PatternId)constrain((int)p.numberValue, 0, 5);
                 break;
             case ActionId::SceneNext:
             case ActionId::ScenePrev:
