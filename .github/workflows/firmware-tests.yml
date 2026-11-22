@@ -1,0 +1,42 @@
+name: "Firmware: host tests"
+
+on:
+  pull_request:
+    paths:
+      - 'platformio.ini'
+      - 'requirements.txt'
+      - 'src/**'
+      - 'test/**'
+      - '.github/workflows/firmware-tests.yml'
+
+concurrency:
+  group: firmware-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.platformio
+            .pio/libdeps
+          key: pio-native-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-native-
+
+      - name: Install PlatformIO
+        run: pip install -r requirements.txt
+
+      - name: Run host tests
+        run: pio test -e native

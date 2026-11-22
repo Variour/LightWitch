@@ -37,6 +37,13 @@ npm run lint
 npm test
 ```
 
+Firmware logic that needs no hardware (quiz session, mesh frames, brightness)
+has host tests under `test/`:
+
+```bash
+pio test -e native
+```
+
 C++ sources are formatted with `clang-format`; check with:
 
 ```bash
