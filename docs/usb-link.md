@@ -171,6 +171,8 @@ Owner, 2026-11-18 (`gestaltung-buzzer/SYSTEM.md`, "Entscheidungen v7"). The pres
 - For `choice` and `scale` (`bad_field`, "only for scale and choice"), a boolean (`bad_field`, "anonymous must be a boolean"); absent false. Fixed for a running round like `firstOnly` (`round_fixed`).
 - Devices show the round as usual while it is open. After the resolution they show no result colours: the given key yellow dimmed, the ring warm white faint, Enter breathes white; pressing Enter shows the result for 3 s.
 - On the radio bit 3 of the `QuizState` header `flags`.
+- Owner, 2026-11-22: an anonymous question holds for every player, and nothing may tie an answer to a device. The link sends no `value` line for this round. In its place one `tally` line per value whose count changed: `{"ns":"game","ev":"tally","round":23425,"v":2,"count":4,"answered":9}`. `v` is the slot of the key (`choice`, 1-5) or the scale value, `count` the devices holding it now, `answered` the devices with a value in total. Late values and releases do not count. After a new round and after `link hello` every value of the round's range comes once, also with `count` 0.
+- The bridge keeps each device's value in RAM for the echo until the next round, as in every round. The reports on the radio still carry the device number.
 
 ### Teacher device (`game` event `teacher`)
 

@@ -233,6 +233,12 @@ class Link : public Bridge::Listener {
     uint8_t _qHead = 0;
     uint8_t _qCount = 0;
     uint16_t _cursor = 1;
+    // Anonymous round: the counts the console has (kTallyUnsent: not yet sent).
+    static constexpr uint8_t kTallyValues = 100;  // scale values 0-99, choice slots 1-5
+    static constexpr uint16_t kTallyUnsent = 0xFFFF;
+    uint16_t _tallySent[kTallyValues] = {};
+    uint16_t _tallyRound = 0;
+    bool _tallyPending = false;
 
     bool _deferred = false;
     uint32_t _deferredSince = 0;
@@ -324,9 +330,61 @@ class Link : public Bridge::Listener {
         return true;
     }
 
+    // An anonymous choice or scale: the link reports how many devices hold
+    // each value (`tally`), never a value per number (owner, 2026-11-22).
+    bool _anonymousRound() const {
+        const Bridge::RoundModel& r = _bridge->roundModel();
+        return r.anonymous && (r.type == RoundType::Choice || r.type == RoundType::Scale);
+    }
+
+    // One `tally` line per value whose count changed since the last one;
+    // false while the writer is full. Then no value line of this round is due.
+    bool _flushTally() {
+        const Bridge::RoundModel& r = _bridge->roundModel();
+        if (r.id != _tallyRound) {
+            _tallyRound = r.id;
+            _tallyPending = true;
+        }
+        if (_tallyPending) {
+            for (uint8_t v = 0; v < kTallyValues; v++) _tallySent[v] = kTallyUnsent;
+            _tallyPending = false;
+        }
+        uint8_t lo = r.type == RoundType::Choice ? 1 : r.min;
+        uint8_t hi = r.type == RoundType::Choice ? 5 : r.max;
+        if (hi >= kTallyValues) hi = kTallyValues - 1;
+        uint16_t counts[kTallyValues] = {};
+        uint16_t answered = 0;
+        uint16_t maxN = _bridge->maxNumber();
+        for (uint16_t n = 1; n <= maxN; n++) {
+            const Bridge::Device* dv = _bridge->device(n);
+            if (!dv->hasValue || dv->late || dv->value == kNoValue || dv->value < lo ||
+                dv->value > hi)
+                continue;
+            counts[dv->value]++;
+            answered++;
+        }
+        char line[kEventLineMax];
+        for (uint8_t v = lo; v <= hi; v++) {
+            if (counts[v] == _tallySent[v]) continue;
+            int len = snprintf(line, sizeof(line),
+                               "{\"ns\":\"game\",\"ev\":\"tally\",\"round\":%u,\"v\":%u,"
+                               "\"count\":%u,\"answered\":%u}\n",
+                               r.id, v, counts[v], answered);
+            if (!_write(line, len)) return false;
+            _tallySent[v] = counts[v];
+        }
+        for (uint16_t n = 1; n <= maxN && _bridge->dirtyValueCount() > 0; n++)
+            _bridge->clearDirtyValue(n);
+        return true;
+    }
+
     // The bridge's per-device lines; false while the writer is full.
     bool _flushBridgeTable() {
         uint16_t maxN = _bridge->maxNumber();
+        if (_anonymousRound() && (_tallyPending || _bridge->dirtyValueCount() > 0 ||
+                                  _bridge->roundModel().id != _tallyRound)) {
+            if (!_flushTally()) return false;
+        }
         if (_bridge->dirtyCount() == 0 || maxN == 0) return true;
         char line[kEventLineMax];
         for (uint16_t scanned = 0; scanned < maxN && _bridge->dirtyCount() > 0; scanned++) {
@@ -551,6 +609,7 @@ class Link : public Bridge::Listener {
             _sendSession(ReqId{}, false);
             if (_bridge->active()) _sendState(ReqId{}, false, now);
             _bridge->markAllDirty();
+            _tallyPending = true;
             if (_ext) _ext->onHello();
             return;
         }
