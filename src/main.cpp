@@ -4,6 +4,7 @@
 #include <LittleFS.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <esp_heap_caps.h>
 #include <esp_wifi.h>
 #include <soc/soc_caps.h>
 
@@ -1046,6 +1047,11 @@ void setup() {
 
     // ── Web server callbacks ──────────────────────────────────────────────────
 
+#if CONFIG_SPIRAM
+    // The route table is some 15 KB of small blocks: put it in PSRAM, so the
+    // web server's 16 KB task stack still fits in internal RAM.
+    if (psramFound()) heap_caps_malloc_extmem_enable(16);
+#endif
     webServer.begin(
         // onGroupChange: re-apply all lights when group assignment changed via web
         []() { applyAllLights(); },
@@ -1106,6 +1112,9 @@ void setup() {
         },
 
         &channelMgr, &_sdCard);
+#if CONFIG_SPIRAM
+    if (psramFound()) heap_caps_malloc_extmem_enable(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);
+#endif
 
     auto notifySceneUpdated = [](const char* id) {
         for (uint8_t i = 0; i < MAX_LIGHTS; i++)
