@@ -8,10 +8,13 @@
 
 #include <functional>
 
+#include "../config/BoardProfile.h"
+#include "../fleet/Imu.h"
 #include "../led/LedDriver.h"
 #include "../logging/Logger.h"
 #include "Bridge.h"
 #include "GameRender.h"
+#include "Lage.h"
 #include "Link.h"
 #include "Participant.h"
 #include "RxRing.h"
@@ -24,6 +27,10 @@
 // an invite is visible, then runs as a quiet participant until it is released
 // and restarts. Bridge: any device becomes the bridge with the first
 // `link hello` on its serial port and stays it until the next restart.
+//
+// Orientation: on a detected Buzzerboard the LSM6DS3TR-C's 6D detection runs
+// while the device is in a session as participant; each 6D event on INT1
+// gives the participant the sensor's position (src/game/Lage.h).
 class GameManager {
    public:
     using SendFn = std::function<void(const uint8_t*, size_t)>;
@@ -115,6 +122,11 @@ class GameManager {
         };
         lio.rxOverflow = [this]() { return _rx.overflow(); };
         _link.begin(&_bridge, &_writer, lio, _mac);
+        _imuIntPin = boardImuIntPin();
+        if (_imuIntPin >= 0) {
+            pinMode(_imuIntPin, INPUT);
+            if (!quietBoot()) fleet::Imu::orientationOff();  // only on in a session
+        }
         if (quietBoot())
             Logger::i("[game] session %u entry found, listening on ch %u", _storedSession,
                       _storedChannel);
@@ -147,7 +159,12 @@ class GameManager {
             _participant.onFrame(f.data, f.len, f.rssi, now);
             _bridge.onFrame(f.data, f.len, f.rssi, now);
         }
+        _tickOrientation(now);
         _participant.tick(now);
+        if (_participant.lage() != _lageLogged) {
+            _lageLogged = _participant.lage();
+            Logger::i("[game] orientation %s", game::lageName((uint8_t)_lageLogged));
+        }
         _bridge.tick(now);
         _link.tick(now);
     }
@@ -226,11 +243,39 @@ class GameManager {
     bool _hasBuzzKey = false;
     bool _isBridge = false;
     bool _overlayOn = false;
+    int8_t _imuIntPin = -1;  // -1: no orientation sensor
+    bool _imuOn = false;
+    bool _imuFailed = false;
+    game::Lage _lageLogged = game::Lage::Unknown;
     uint16_t _number = 0;
     uint16_t _storedSession = 0;
     uint8_t _storedChannel = 0;
     bool _fwKnown = false;
     uint32_t _fw = 0;
+
+    // Sensor on while in a session as participant (until leaving). INT1 is
+    // latched: high until D6D_SRC is read.
+    void _tickOrientation(uint32_t now) {
+        if (_imuIntPin < 0 || _imuFailed) return;
+        bool want =
+            _participant.inSession() && _participant.state() != game::Participant::State::Leaving;
+        if (want && !_imuOn) {
+            _imuOn = fleet::Imu::orientationOn();
+            if (!_imuOn) {
+                _imuFailed = true;
+                Logger::w("[game] orientation sensor does not answer, keys stay as hochkant");
+                return;
+            }
+        } else if (!want && _imuOn) {
+            fleet::Imu::orientationOff();
+            _imuOn = false;
+        }
+        if (!_imuOn || digitalRead(_imuIntPin) != HIGH) return;
+        uint8_t src;
+        if (!fleet::Imu::readD6d(src)) return;
+        Logger::d("[game] 6D position %02x", src);
+        _participant.onRawLage(game::lageFromD6d(src), now);
+    }
 
     void _allocRx(uint8_t capacity) {
         if (!_rx.allocate(capacity)) Logger::e("[game] out of memory for the receive queue");

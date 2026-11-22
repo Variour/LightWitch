@@ -88,14 +88,15 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `GenericEvent` | `GenericEventMsg` fixed-size | `len >= sizeof(GenericEventMsg)` | Raw fixed struct. `eventType` is opaque to the mesh layer; no versioning. |
 | `Hello` | `HelloMsg` fixed-size | exact `sizeof(HelloMsg)` | **The one deliberate cross-firmware exception** — see below. |
 | `QuizInvite` | `QuizInviteMsg` fixed-size, 16 bytes | exact `sizeof(QuizInviteMsg)` | Game session, see below. Bridge to all, also on foreign channels while login is open. |
-| `QuizState` | `QuizStateMsg` variable-length (41-byte head + `echoCount` echo bytes) | head must be present, `echoCount <= 200`, and `len` must equal head + `echoCount` | Game session. Bridge to all; the echo is paged by `echoFirst`/`echoCount`. |
-| `QuizReport` | `QuizReportMsg` fixed-size, 24 bytes | exact `sizeof(QuizReportMsg)` | Game session. Device to bridge. |
-| `QuizStatus` | `QuizStatusMsg` fixed-size, 31 bytes | exact `sizeof(QuizStatusMsg)` | Game session. Device to bridge; with flag bit 1 it is a join request. |
+| `QuizState` | `QuizStateMsg` variable-length (42-byte head + `echoCount` echo bytes) | head must be present, `echoCount <= 200`, and `len` must equal head + `echoCount` | Game session. Bridge to all; carries the round's `hold`; the echo is paged by `echoFirst`/`echoCount`. |
+| `QuizReport` | `QuizReportMsg` fixed-size, 25 bytes | exact `sizeof(QuizReportMsg)` | Game session. Device to bridge; carries the input's `lage`. |
+| `QuizStatus` | `QuizStatusMsg` fixed-size, 32 bytes | exact `sizeof(QuizStatusMsg)` | Game session. Device to bridge; with flag bit 1 it is a join request; carries the device's `lage`. |
 | `QuizAdmit` | `QuizAdmitMsg` fixed-size, 22 bytes | exact `sizeof(QuizAdmitMsg)` | Game session. Bridge to one device, target filtering after parse. |
 | `QuizRelease` | `QuizReleaseMsg` fixed-size, 20 bytes | exact `sizeof(QuizReleaseMsg)` | Game session. Bridge to one device or all (`ff:ff:ff:ff:ff:ff`). |
 | `QuizChannel` | `QuizChannelMsg` fixed-size, 17 bytes | exact `sizeof(QuizChannelMsg)` | Game session. Bridge to all, announces a channel change. |
 | `FleetStatus` | `FleetStatusMsg` fixed-size, 20 bytes | exact `sizeof(FleetStatusMsg)` | Fleet package, see below. Every device to all, about every 30 s and on a change. |
 | `FleetCommand` | `FleetCommandMsg` variable-length (11-byte head + `targetCount` MACs) | head must be present, `targetCount <= 32`, and `len` must equal head + 6 × `targetCount` | Fleet package. Bridge to all or to the listed MACs, three times with one nonce. |
+| `QuizKeys` | `QuizKeysMsg` variable-length (17-byte head + 3 bytes per press) | head must be present, `count` 1-8, and `len` must equal head + 3 × `count` | Game session, move rounds. Device to bridge: every unacknowledged key press. |
 
 ## The `Hello` exception
 
@@ -116,6 +117,8 @@ The `Quiz*` types belong to the game session module (`src/game/`). Their layouts
 - Packed, little-endian, every frame at most 250 bytes (ESP-NOW v1). Each frame starts with a 12-byte header (`type`, `proto`, `fleet`, `origin`, `msgId`, `ttl`, `hops`, `dist`, `flags`) and the session id.
 - `proto` (1 in v0) is checked by the game module, not by the mesh layer. The mesh layer only checks framing, sends every framed quiz frame to `MeshManager::setOnQuizFrame` with its RSSI, and `MeshManager::broadcastQuizFrame` applies the same check before sending.
 - Devices outside a session handle only `QuizInvite`, and only when they have a buzz key.
+- Orientation (firmware spec "Lage v0", USB side in [usb-link.md](usb-link.md)): `QuizStatus` and `QuizReport` end with `lage` (0 unknown, 1 `hochkant`, 2 `quer`, 3 `quer-links`, 4 `liegend`): the device's accepted orientation, and the orientation an input was read in. `QuizState` carries `hold` after `correct` (0 `frei`, 1 `hochkant`, 2 `quer`, 3 `liegend`, 4 `fest`).
+- Move rounds (`roundType` 4): `QuizKeys` (type 46, after the fleet frames) carries a device's unacknowledged presses, oldest first, each as `kseq` (press counter, per device and round: 1-255, after 255 comes 1; 0 never occurs), `key` (the `Key` index of up, down, left or right: logical with a `lage`, the physical key without) and `lage`. In a move round the `QuizState` echo holds per number the last `kseq` the bridge passed on (0 = none). The bridge passes each press on once: only a `kseq` newer than the last one (mod 256, 1-127 ahead); a join status from a device that holds no round (`lastRoundId` other than the bridge's round) starts that count again.
 
 ### Quiet mode and the Hello rule
 

@@ -39,8 +39,8 @@ enum class Color : uint8_t {
 };
 static constexpr uint8_t kColorCount = 9;
 
-enum class RoundType : uint8_t { Idle = 0, Race = 1, Scale = 2, Choice = 3 };
-static constexpr uint8_t kRoundTypeCount = 4;
+enum class RoundType : uint8_t { Idle = 0, Race = 1, Scale = 2, Choice = 3, Move = 4 };
+static constexpr uint8_t kRoundTypeCount = 5;
 enum class Phase : uint8_t { Announced = 0, Open = 1, Closed = 2 };
 static constexpr uint8_t kPhaseCount = 3;
 
@@ -51,6 +51,7 @@ static constexpr uint8_t kStatusPressed = 1 << 2;
 static constexpr uint8_t kStatusRejoin = 1 << 3;
 
 static constexpr uint8_t kNoValue = 0xFF;    // echo / report: no value
+static constexpr uint8_t kNoKeySeq = 0;      // echo in a move round: no press passed on
 static constexpr uint8_t kNoBattery = 0xFF;  // battery percent unknown
 
 struct Rgb {
@@ -91,7 +92,7 @@ static constexpr const char* kKeyNames[] = {"buzz", "up", "down", "left", "right
                                             "l1",   "l2", "r1",   "r2",   "power"};
 static constexpr const char* kColorNames[] = {"off",  "white",   "red",  "green", "yellow",
                                               "blue", "magenta", "cyan", "orange"};
-static constexpr const char* kRoundTypeNames[] = {"idle", "race", "scale", "choice"};
+static constexpr const char* kRoundTypeNames[] = {"idle", "race", "scale", "choice", "move"};
 static constexpr const char* kPhaseNames[] = {"announced", "open", "closed"};
 
 // Maps a key role name ("buzz", "up", ..., "power") to a Key; Key::None if unknown.

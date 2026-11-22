@@ -10,14 +10,16 @@
 #include "Bridge.h"
 #include "GameConfig.h"
 #include "GameTypes.h"
+#include "Lage.h"
 
 namespace game {
 
 // USB link of the bridge (gateway protocol v0): NDJSON lines with the
 // namespaces `link` and `game`. Parses commands, drives Bridge, and writes
 // events without ever blocking: queued events (at most kEventQueueLines)
-// first, then per-device `device`/`value` lines straight from the bridge's
-// table, each only once a whole line fits the writer's free space.
+// first, then the bridge's `key` lines (move rounds, one per press), then
+// per-device `device`/`value` lines straight from the bridge's table, each
+// only once a whole line fits the writer's free space.
 //
 // More namespaces come from an Extension (src/fleet/: `config`, `fleet`,
 // `test`, see docs/usb-link.md). A device-scope namespace opens the link
@@ -156,18 +158,19 @@ class Link : public Bridge::Listener {
     // ── Bridge::Listener ─────────────────────────────────────────────────────
     void onJoin(const Bridge::JoinInfo& j) override {
         if (!_helloDone) return;
-        char mac[18], n[8], bat[8];
+        char mac[18], n[8], bat[8], lage[24];
         formatMac(j.mac, mac);
         _numOrNull(n, j.n != 0, j.n);
         _numOrNull(bat, j.battery != kNoBattery, j.battery);
+        _lagePart(lage, j.lage);
         char line[kEventLineMax];
         int len =
             snprintf(line, sizeof(line),
                      "{\"ns\":\"game\",\"ev\":\"join\",\"mac\":\"%s\",\"n\":%s,\"fw\":\"%08lx\","
                      "\"proto\":%u,\"fleet\":%u,\"bat\":%s,\"chg\":%s,\"rssi\":%d,"
-                     "\"pressed\":%s,\"rejoin\":%s}\n",
+                     "\"pressed\":%s,\"rejoin\":%s%s}\n",
                      mac, n, (unsigned long)j.fw, j.proto, j.fleet, bat, _b(j.charging), j.rssi,
-                     _b(j.pressed), _b(j.rejoin));
+                     _b(j.pressed), _b(j.rejoin), lage);
         _enqueueRaw(line, len);
     }
 
@@ -231,6 +234,15 @@ class Link : public Bridge::Listener {
             strcpy(out, "null");
     }
 
+    // `,"lage":"quer-links"` when the orientation is known, else empty. out: 24 bytes.
+    static void _lagePart(char* out, uint8_t lage) {
+        const char* name = lageName(lage);
+        if (name)
+            snprintf(out, 24, ",\"lage\":\"%s\"", name);
+        else
+            out[0] = 0;
+    }
+
     // ── Output ───────────────────────────────────────────────────────────────
     void _close() {
         _active = false;
@@ -277,8 +289,25 @@ class Link : public Bridge::Listener {
             _qCount--;
         }
         if (_closing || !_helloDone) return;
+        if (!_flushKeys()) return;
         if (!_flushBridgeTable()) return;
         if (_ext) _ext->flushTable(*this, _now);
+    }
+
+    // One `key` line per press the bridge passed on; false while the writer is full.
+    bool _flushKeys() {
+        char line[kEventLineMax], lage[24];
+        while (_bridge->keyCount() > 0) {
+            const Bridge::KeyEvent& e = _bridge->keyFront();
+            _lagePart(lage, e.lage);
+            int len = snprintf(line, sizeof(line),
+                               "{\"ns\":\"game\",\"ev\":\"key\",\"n\":%u,\"round\":%u,"
+                               "\"key\":\"%s\",\"kseq\":%u%s}\n",
+                               e.n, e.round, kKeyNames[e.key], e.kseq, lage);
+            if (!_write(line, len)) return false;
+            _bridge->popKey();
+        }
+        return true;
     }
 
     // The bridge's per-device lines; false while the writer is full.
@@ -291,27 +320,29 @@ class Link : public Bridge::Listener {
             uint16_t n = _cursor;
             const Bridge::Device* dv = _bridge->device(n);
             if (dv->dirtyDevice) {
-                char mac[18], bat[8];
+                char mac[18], bat[8], lage[24];
                 formatMac(dv->mac, mac);
                 _numOrNull(bat, dv->battery != kNoBattery, dv->battery);
+                _lagePart(lage, dv->lage);
                 int len = snprintf(line, sizeof(line),
                                    "{\"ns\":\"game\",\"ev\":\"device\",\"n\":%u,\"mac\":\"%s\","
                                    "\"fw\":\"%08lx\",\"proto\":%u,\"bat\":%s,\"chg\":%s,"
-                                   "\"rssi\":%d,\"round\":%u,\"seq\":%u}\n",
+                                   "\"rssi\":%d,\"round\":%u,\"seq\":%u%s}\n",
                                    n, mac, (unsigned long)dv->fw, dv->proto, bat, _b(dv->charging),
-                                   dv->rssi, dv->lastRound, dv->lastSeq);
+                                   dv->rssi, dv->lastRound, dv->lastSeq, lage);
                 if (!_write(line, len)) return false;
                 _bridge->clearDirtyDevice(n);
             }
             if (dv->dirtyValue) {
-                char bat[8];
+                char bat[8], lage[24];
                 _numOrNull(bat, dv->valueBattery != kNoBattery, dv->valueBattery);
+                _lagePart(lage, dv->valueLage);
                 int len = snprintf(line, sizeof(line),
                                    "{\"ns\":\"game\",\"ev\":\"value\",\"n\":%u,\"round\":%u,"
                                    "\"v\":%u,\"vseq\":%u,\"t\":%ld,\"arr\":%u,\"late\":%s,"
-                                   "\"rssi\":%d,\"bat\":%s}\n",
+                                   "\"rssi\":%d,\"bat\":%s%s}\n",
                                    n, _bridge->stateInfo(0).round, dv->value, dv->vseq, (long)dv->t,
-                                   dv->arr, _b(dv->late), dv->valueRssi, bat);
+                                   dv->arr, _b(dv->late), dv->valueRssi, bat, lage);
                 if (!_write(line, len)) return false;
                 _bridge->clearDirtyValue(n);
             }
@@ -635,7 +666,7 @@ class Link : public Bridge::Listener {
         int type = indexOfName(o["type"].is<const char*>() ? o["type"].as<const char*>() : nullptr,
                                kRoundTypeNames, kRoundTypeCount);
         if (type < 0) {
-            _badField(id, cmd, "type", "type must be idle, race, scale or choice");
+            _badField(id, cmd, "type", "type must be idle, race, scale, choice or move");
             return false;
         }
         c.type = (RoundType)type;
@@ -701,6 +732,10 @@ class Link : public Bridge::Listener {
             } else if (c.type == RoundType::Scale) {
                 ok = c.keyMask == (keyBit(Key::Up) | keyBit(Key::Down));
                 rule = "scale takes exactly up and down";
+            } else if (c.type == RoundType::Move) {
+                ok = c.keyMask ==
+                     (keyBit(Key::Up) | keyBit(Key::Right) | keyBit(Key::Down) | keyBit(Key::Left));
+                rule = "move takes exactly up, right, down and left";
             } else {
                 uint16_t two = keyBit(Key::Up) | keyBit(Key::Right);
                 uint16_t three = two | keyBit(Key::Down);
@@ -748,6 +783,22 @@ class Link : public Bridge::Listener {
             c.max = (uint8_t)mx;
             c.redMax = (uint8_t)rm;
             c.greenMin = (uint8_t)gm;
+        }
+
+        // hold (absent = frei)
+        JsonVariantConst hold = o["hold"];
+        if (!hold.isUnbound()) {
+            if (idle) {
+                _badField(id, cmd, "hold", "omit hold for idle");
+                return false;
+            }
+            int h = indexOfName(hold.is<const char*>() ? hold.as<const char*>() : nullptr,
+                                kHoldNames, kHoldCount);
+            if (h < 0) {
+                _badField(id, cmd, "hold", "hold must be frei, hochkant, quer, liegend or fest");
+                return false;
+            }
+            c.hold = (Hold)h;
         }
 
         // openInMs
@@ -821,7 +872,7 @@ class Link : public Bridge::Listener {
                 return _sendState(id, changed, now);
             case Bridge::Err::RoundFixed:
                 return _error(id, "round_fixed", "game", "round", nullptr,
-                              "type, keys and scale of a running round are fixed");
+                              "type, keys, hold and scale of a running round are fixed");
             case Bridge::Err::BadPhase:
                 return _error(id, "bad_phase", "game", "round", nullptr,
                               "phases only move forward");
