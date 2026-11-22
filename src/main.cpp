@@ -1462,12 +1462,12 @@ void loop() {
 #if FEATURE_GAME
         if (meshTestLed && meshRouter.testActive() && !fleetManager.standby()) {
             // Mesh test: the device's place in the tree over everything else.
-            game::Rgb px[game::kLedCount];
+            game::RgbF px[game::kLedCount];
             meshnet::renderMeshTest(meshRouter, game::kBuzzerboardA0Zones, now, px);
             uint8_t lvl = GameManager::_showLevel();
+            auto ch = [lvl](float v) { return scaleToLevel((uint8_t)(v + 0.5f), lvl); };
             for (uint16_t i = 0; i < game::kLedCount; i++)
-                meshTestLed->setPixel(i, scaleToLevel(px[i].r, lvl), scaleToLevel(px[i].g, lvl),
-                                      scaleToLevel(px[i].b, lvl));
+                meshTestLed->setPixel(i, ch(px[i].r), ch(px[i].g), ch(px[i].b));
             meshTestLed->show();
             meshTestShown = true;
         } else if (meshTestShown) {

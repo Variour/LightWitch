@@ -56,20 +56,20 @@ inline uint32_t _ageOf(const Router& r, Router::Act k, uint32_t now) {
 }
 
 // One comet over the column: head at t/durMs of the way, 3 LEDs of tail.
-inline void _comet(const game::LedZones& z, game::Rgb* px, uint32_t t, uint32_t durMs, bool up) {
+inline void _comet(const game::LedZones& z, game::RgbF* px, uint32_t t, uint32_t durMs, bool up) {
     if (t >= durMs) return;
     int span = z.columnCount + 3;
     int pos = (int)(t * span / durMs);
     for (int k = 0; k < 4; k++) {
         int n = pos - k;
         if (n < 0 || n >= z.columnCount) continue;
-        uint8_t lvl = (uint8_t)(255 - k * 70);
+        float w = (255.0f - k * 70.0f) / 255.0f;
         uint8_t led = z.columnLed((uint8_t)n, /*reversed=*/!up);
-        px[led] = game::blendRgb(px[led], {255, 255, 255}, lvl);
+        px[led] = game::blendF(px[led], game::Rgb{255, 255, 255}, w);
     }
 }
 
-inline void renderMeshTest(const Router& r, const game::LedZones& z, uint32_t now, game::Rgb* px) {
+inline void renderMeshTest(const Router& r, const game::LedZones& z, uint32_t now, game::RgbF* px) {
     using game::Rgb;
     game::allOff(z, px);
     const bool slow = r.testSlow();
@@ -138,7 +138,8 @@ inline void renderMeshTest(const Router& r, const game::LedZones& z, uint32_t no
         Rgb c = game::scaleRgb(hc, lvl);
         game::fillRing(z, px, c);
         for (uint8_t i = 0; i < game::kKeySlots; i++)
-            if (z.key[i] != game::kNoLed) px[z.key[i]] = game::blendRgb(px[z.key[i]], c, lvl);
+            if (z.key[i] != game::kNoLed)
+                px[z.key[i]] = game::blendF(px[z.key[i]], c, lvl / 255.0f);
     }
 }
 

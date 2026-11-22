@@ -247,7 +247,7 @@ inline void renderMove(const Participant& p, uint32_t now, RgbF* px) {
 // The round's clock on the ring (SYSTEM.md v7): while the console's countdown
 // runs, ceil(4 * left / duration) corners clockwise from the upper right,
 // else all four, in c.
-inline void renderRingClock(const Participant& p, uint32_t now, Rgb c, Rgb* px) {
+inline void renderRingClock(const Participant& p, uint32_t now, RgbF c, RgbF* px) {
     const Participant::Round& r = p.round();
     uint8_t lit = 4;
     if (r.answering == 0 && r.answerMs != 0 && r.deadlineKnown) {
@@ -261,14 +261,14 @@ inline void renderRingClock(const Participant& p, uint32_t now, Rgb c, Rgb* px) 
 }
 
 // One ring corner after the other, clockwise, once per kWrongWaveMs.
-inline void renderRingWave(uint32_t t, Rgb c, Rgb* px) {
+inline void renderRingWave(uint32_t t, RgbF c, RgbF* px) {
     static constexpr uint8_t kClockwise[4] = {2, 3, 0, 1};
     px[kZones.ring[kClockwise[(t * 4 / kWrongWaveMs) % 4]]] = c;
 }
 
 // Choice round (owner, 2026-11-18, SYSTEM.md "Entscheidungen v7", levels in
 // GameConfig.h): one press gives the answer, Enter releases it.
-inline void renderChoice(const Participant& p, uint32_t now, Rgb* px) {
+inline void renderChoice(const Participant& p, uint32_t now, RgbF* px) {
     const Participant::Round& r = p.round();
     Lage l = p.inputLage();
     bool rev = columnReversed(l);
@@ -277,13 +277,13 @@ inline void renderChoice(const Participant& p, uint32_t now, Rgb* px) {
     uint8_t val = p.value();
     bool given = val >= 1 && val <= 4;
     Rgb yellow = colorRgb(Color::Yellow);
-    Rgb enterLed{};
+    RgbF enterLed{};
     if (r.phase == Phase::Closed && r.correct >= 1 && r.correct <= 4) {
         bool peek = p.peeking(now);
         if (r.anonymous && !peek) {
             if (given) px[logicalLed(l, answers[val - 1])] = scaleRgb(yellow, kLevelDimmed);
             fillRing(kZones, px, scaleRgb(kWarmWhiteRgb, kLevelFaint));
-            px[logicalLed(l, Key::Enter)] = scaleRgb(
+            px[logicalLed(l, Key::Enter)] = scaleF(
                 colorRgb(Color::White), softPulse(now, kBreathMs, kLevelShowMin, kLevelRelease));
             return;
         }
@@ -298,17 +298,17 @@ inline void renderChoice(const Participant& p, uint32_t now, Rgb* px) {
         px[logicalLed(l, answers[r.correct - 1])] = scaleRgb(colorRgb(Color::Green), kLevelRight);
         if (given)
             px[logicalLed(l, answers[val - 1])] =
-                scaleRgb(right ? colorRgb(Color::Green) : kWrongRgb,
-                         softPulse(t, kPulsePeriodMs, kLevelDimmed, kLevelBright));
+                scaleF(right ? colorRgb(Color::Green) : kWrongRgb,
+                       softPulse(t, kPulsePeriodMs, kLevelDimmed, kLevelBright));
         return;
     }
     if (r.phase == Phase::Closed) {
         if (given) px[logicalLed(l, answers[val - 1])] = scaleRgb(yellow, kLevelDimmed);
         uint32_t t = now - r.closedMs;
         if (t < kClosedShowMs)
-            fillRing(kZones, px,
-                     scaleRgb(kWarmWhiteRgb,
-                              softPulse(t, kClosedShowMs / 2, kLevelDimmed, kLevelBright)));
+            fillRing(
+                kZones, px,
+                scaleF(kWarmWhiteRgb, softPulse(t, kClosedShowMs / 2, kLevelDimmed, kLevelBright)));
         return;
     }
     if (!given) {
@@ -318,8 +318,8 @@ inline void renderChoice(const Participant& p, uint32_t now, Rgb* px) {
         return;
     }
     // Given: yellow, pulsing until the bridge confirms it.
-    uint8_t lvl = p.confirmed() ? kLevelGiven : pulseLevel(now);
-    px[logicalLed(l, answers[val - 1])] = scaleRgb(yellow, lvl);
+    float lvl = p.confirmed() ? (float)kLevelGiven : pulseLevel(now);
+    px[logicalLed(l, answers[val - 1])] = scaleF(yellow, lvl);
     if (p.rule().release) enterLed = scaleRgb(colorRgb(Color::White), kLevelRelease);
     px[logicalLed(l, Key::Enter)] = enterLed;
     renderRingClock(p, now, scaleRgb(yellow, kLevelGiven), px);
@@ -330,7 +330,7 @@ inline void renderChoice(const Participant& p, uint32_t now, Rgb* px) {
 // choice without its resolution the answer keys too (held: this answer is
 // right). The held key lights brighter. The column shows how many devices
 // gave a value, one LED each; the ring is the round's clock while it runs.
-inline void renderTeacher(const Participant& p, uint32_t now, Rgb* px) {
+inline void renderTeacher(const Participant& p, uint32_t now, RgbF* px) {
     const Participant::Round& r = p.round();
     auto key = [&](Key k) {
         uint8_t led = kZones.keyLed(k);
