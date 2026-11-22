@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lampen-Konfigurator</title>
+<link rel="stylesheet" href="app/style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">LightWitch <span>Lampen-Konfigurator</span></div>
+  <nav id="steps" aria-label="Schritte">
+    <button data-step="start">1 Start</button>
+    <button data-step="form">2 Form</button>
+    <button data-step="paint">3 Bestückung</button>
+    <button data-step="wire">4 Verkabelung</button>
+    <button data-step="parts">5 Teile</button>
+    <button data-step="upload">6 LightWitch</button>
+  </nav>
+  <div class="tools">
+    <button id="undo" title="Rückgängig (Strg+Z)">↶</button>
+    <button id="redo" title="Wiederholen (Strg+Y)">↷</button>
+  </div>
+</header>
+<main>
+  <section id="view">
+    <canvas id="c"></canvas>
+    <div id="hint" class="hint"></div>
+    <div id="legend" class="legend"></div>
+  </section>
+  <aside id="side">
+    <div id="panel"></div>
+    <div id="stats" class="stats"></div>
+  </aside>
+</main>
+<script type="module" src="app/main.js"></script>
+</body>
+</html>
