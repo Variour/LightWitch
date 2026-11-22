@@ -43,7 +43,8 @@ struct HubView {
     uint32_t countdownMs = 0;  // round or answer time, 0 = no limit
     uint32_t remainingMs = 0;
     uint16_t keyMask = 0;
-    uint16_t answered = 0;  // present members with a value
+    bool anonymous = false;  // anonymous round: the middle field offers "Ergebnis"
+    uint16_t answered = 0;   // present members with a value
     uint16_t answering = 0;
     uint16_t winner = 0;
     bool winnerWrong = false;
@@ -88,6 +89,7 @@ struct HubView {
         sinceOpenMs = s.sinceOpenValid && s.sinceOpenMs > 0 ? (uint32_t)s.sinceOpenMs : 0;
         answering = r.answering;
         keyMask = r.keyMask;
+        anonymous = r.anonymous;
         if (r.phase == game::Phase::Open && r.answerMs) {
             countdownMs = r.answerMs;
             uint32_t gone = now - r.answerAt;
@@ -105,7 +107,7 @@ struct HubView {
 
         for (uint16_t n = 1; n <= b.maxNumber(); n++) {
             const game::Bridge::Device* d = b.device(n);
-            if (!d || !d->macKnown || !d->hasStatus) continue;
+            if (!d || !d->macKnown || !d->hasStatus || d->teacher) continue;
             members++;
             bool here = now - d->seenAt < kPresentMs;
             bool value = d->hasValue && d->value != game::kNoValue;

@@ -2,6 +2,7 @@
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 
 #include <functional>
 
@@ -183,7 +184,10 @@ class BatteryWebServer {
         _channelMgr = channelMgr;
         _sdCard = sdCard;
 
-        Logger::i("[web] starting on port 80");
+        Logger::i(
+            "[web] starting on port 80 (internal heap %u free, %u in one block)",
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
         _server.addHandler(&_reqLogger);
 
         _ws = new AsyncWebSocket("/ws");
