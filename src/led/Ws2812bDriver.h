@@ -61,6 +61,15 @@ class Ws2812bDriver : public LedDriver {
         if (!powered) _shownCounts = 0;
     }
 
+    bool lit() const override {
+        if (!_neo) return false;
+        const uint8_t* p = _limitMa ? _frame.data() : _neo->getPixels();
+        size_t n = _limitMa ? _frame.size() : (size_t)_numLeds * 3;
+        for (size_t i = 0; i < n; i++)
+            if (p[i]) return true;
+        return false;
+    }
+
     // Continues a slew-limited ramp for frames that are not redrawn (static
     // patterns), one step per render tick.
     void service() override {

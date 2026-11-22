@@ -29,6 +29,7 @@ class LampDriver : public LedDriver {
     void off() override { _inner->off(); }
     void setCurrentLimitMa(uint16_t mA) override { _inner->setCurrentLimitMa(mA); }
     void setRailPowered(bool powered) override { _inner->setRailPowered(powered); }
+    bool lit() const override { return _inner->lit(); }
     void service() override { _inner->service(); }
 
     // Renders a colour field over the emitters' positions; the caller shows.
@@ -44,6 +45,11 @@ class LampDriver : public LedDriver {
                 uint8_t n = 1;
                 while (i + n < 3 && !c[i + n].firstOfEmitter) n++;
                 for (uint8_t k = 0; k < 3; k++) pos[k] = c[i].pos[k] / 10.0f;
+                if (lamp::Lamp::tilted()) {
+                    float q[3];
+                    lamp::Lamp::toUpFrame(pos, q);
+                    memcpy(pos, q, sizeof(pos));
+                }
                 fn(ctx, pos, rgb);
                 rgb[0] = _clampValue(rgb[0]);
                 rgb[1] = _clampValue(rgb[1]);

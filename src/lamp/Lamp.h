@@ -79,8 +79,18 @@ class Lamp {
     static uint8_t renderFamily(uint8_t mask, float r, float g, float b);
     // Grid area of all emitters of a family, dm².
     static float familyArea(uint8_t family) { return _famArea[family]; }
+    // Height range of the emitters along the current up direction, mm.
     static float zMin() { return _zMin; }
     static float zMax() { return _zMax; }
+
+    // Up direction in lamp coordinates (a position sensor's gravity reading,
+    // need not be normalised); the lamp file's +z until called. Patterns that
+    // work in lamp coordinates (Fire) then see the lamp turned so that this
+    // direction is +z.
+    static void setUp(const float* up);
+    static bool tilted() { return _tilted; }
+    // A lamp position (mm) in the turned frame.
+    static void toUpFrame(const float* in, float* out);
 
     // Duties (0-255) for the channels [ch, ch + n) of one emitter showing
     // colour (r, g, b) at area brightness M.
@@ -106,6 +116,9 @@ class Lamp {
     static uint8_t _masks[8];
     static uint8_t _maskCount;
     static float _zMin, _zMax;
+    static float _rot[9];  // row-major, lamp -> up frame
+    static bool _tilted;
+    static void _computeHeight();
 };
 
 // Family weights for a normalised colour (max component 1).

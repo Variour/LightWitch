@@ -36,6 +36,9 @@ class LedDriver {
     // see PowerManager); true unless told otherwise. After false, the LEDs
     // count as dark.
     virtual void setRailPowered(bool powered) {}
+    // Whether the frame in the buffer lights any LED (also while the rail
+    // is down); true where a driver cannot tell.
+    virtual bool lit() const { return true; }
     // Called on every render tick (PatternRunner::tick()), so a driver can
     // finish work spread over several frames.
     virtual void service() {}

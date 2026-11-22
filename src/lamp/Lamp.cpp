@@ -17,6 +17,8 @@ uint8_t Lamp::_masks[8] = {};
 uint8_t Lamp::_maskCount = 0;
 float Lamp::_zMin = 0;
 float Lamp::_zMax = 0;
+float Lamp::_rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+bool Lamp::_tilted = false;
 
 float levelToDensity(uint8_t b) {
     if (b == 0) return 0.0f;
@@ -295,7 +297,6 @@ void Lamp::_computeCeilings() {
         for (uint8_t k = 0; k < K_COUNT; k++) _dens[f][k] = 0;
     }
     _maskCount = 0;
-    bool first = true;
     for (uint8_t o = 0; o < _outputCount; o++) {
         if (_outputs[o].light == 0xFF) continue;  // not driven by this device
         for (const Channel& c : _outputs[o].ch) {
@@ -303,14 +304,57 @@ void Lamp::_computeCeilings() {
             bool known = false;
             for (uint8_t i = 0; i < _maskCount; i++) known |= _masks[i] == c.modMask;
             if (!known && _maskCount < 8) _masks[_maskCount++] = c.modMask;
-            float z = c.pos[2] / 10.0f;
-            if (first || z < _zMin) _zMin = z;
-            if (first || z > _zMax) _zMax = z;
-            first = false;
             if (c.firstOfEmitter) _famArea[c.family] += c.area;
             float d = c.lm / c.area;
             float& cur = _dens[c.family][c.kind];
             if (cur == 0 || d < cur) cur = d;
+        }
+    }
+    _computeHeight();
+}
+
+void Lamp::toUpFrame(const float* in, float* out) {
+    for (uint8_t r = 0; r < 3; r++)
+        out[r] = _rot[3 * r] * in[0] + _rot[3 * r + 1] * in[1] + _rot[3 * r + 2] * in[2];
+}
+
+// Rotation taking the unit vector u onto +z (Rodrigues, axis u x z).
+void Lamp::setUp(const float* up) {
+    float n = sqrtf(up[0] * up[0] + up[1] * up[1] + up[2] * up[2]);
+    if (n < 1e-3f) return;
+    float ux = up[0] / n, uy = up[1] / n, uz = up[2] / n;
+    if (uz < -0.9999f) {
+        const float flip[9] = {1, 0, 0, 0, -1, 0, 0, 0, -1};
+        memcpy(_rot, flip, sizeof(_rot));
+    } else {
+        // v = u x z = (uy, -ux, 0); R = I + [v]x + [v]x^2 / (1 + uz)
+        float vx = uy, vy = -ux, k = 1.0f / (1.0f + uz);
+        float r[9] = {1 - vy * vy * k,
+                      vx * vy * k,
+                      vy,
+                      vx * vy * k,
+                      1 - vx * vx * k,
+                      -vx,
+                      -vy,
+                      vx,
+                      1 - (vx * vx + vy * vy) * k};
+        memcpy(_rot, r, sizeof(_rot));
+    }
+    _tilted = uz < 0.9999f;
+    _computeHeight();
+}
+
+void Lamp::_computeHeight() {
+    bool first = true;
+    for (uint8_t o = 0; o < _outputCount; o++) {
+        if (_outputs[o].light == 0xFF) continue;
+        for (const Channel& c : _outputs[o].ch) {
+            if (c.kind == K_NONE || c.area <= 0) continue;
+            float p[3] = {c.pos[0] / 10.0f, c.pos[1] / 10.0f, c.pos[2] / 10.0f}, q[3];
+            toUpFrame(p, q);
+            if (first || q[2] < _zMin) _zMin = q[2];
+            if (first || q[2] > _zMax) _zMax = q[2];
+            first = false;
         }
     }
 }

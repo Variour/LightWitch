@@ -57,6 +57,8 @@ const MOCK_CONFIG = {
   expanderChip: 1,
   expanderAddress: 0x20,
   chargerEnabled: true,
+  board: 0, // BoardId, read-only: 1 = Steuerboard S
+  motionOffS: 0,
   mqttHost: 'mqtt.local',
   mqttPort: 1883,
   mqttUser: 'lights',
@@ -357,6 +359,8 @@ app.post('/api/config', (req, res) => {
   delete rest.mqttPassword;
   delete rest.githubToken;
   delete rest.prTrack;
+  delete rest.board;
+  if ('motionOffS' in rest) rest.motionOffS = Math.max(0, Math.min(3600, Math.trunc(Number(rest.motionOffS) || 0)));
 
   // Mirrors _postConfig's I2C bus guard: reject disabling it while a sound
   // output, button, or the configured expander still needs it. The expander

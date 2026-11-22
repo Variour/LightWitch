@@ -147,6 +147,83 @@ uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) {
     return configuredMa;
 }
 
+#elif defined(BOARD_STEUERBOARD_S)
+
+#include <Arduino.h>
+
+#include "../board/SteuerboardS.h"
+#include "../logging/Logger.h"
+
+// Steuerboard S (esp32c3 image). Pins: src/board/SteuerboardS.h.
+namespace {
+
+// Teelicht: 3 Kerze triangles of 3 pixels (1 WWA + 2 WS2811F) on output A,
+// docs/lamp/examples/teelicht.json.
+constexpr uint16_t kDefaultPixels = 9;
+// Group brightness 100 = 12.7 lm/dm² on the lamp scale: dim candle light,
+// about 1.7 lm on the Teelicht (docs/lamp/README.md).
+constexpr uint8_t kDefaultBrightness = 100;
+
+bool sFound = false;
+
+bool hasPullUp(uint8_t pin) {
+    pinMode(pin, INPUT_PULLDOWN);
+    delayMicroseconds(100);
+    bool high = digitalRead(pin) == HIGH;
+    pinMode(pin, INPUT);
+    return high;
+}
+
+}  // namespace
+
+// Only on first boot (no saved config) the answer matters: an S has I2C
+// pull-ups on GPIO2/GPIO7 and a cell on the VBAT divider. Afterwards the
+// saved DeviceConfig::board says which board this is.
+void detectBoard() {
+    sFound =
+        hasPullUp(sboard::PIN_SDA) && hasPullUp(sboard::PIN_SCL) && SteuerboardS::reading().valid;
+}
+
+bool applyBoardProfile(DeviceConfig& cfg) {
+    if (!sFound) return false;
+    Logger::i("[cfg] Steuerboard S detected");
+    cfg.board = BoardId::SteuerboardS;
+    cfg.i2cSdaPin = sboard::PIN_SDA;
+    cfg.i2cSclPin = sboard::PIN_SCL;
+    cfg.batteryMonitoringEnabled = true;
+
+    // Lamp outputs carry channels in wire order (lamp file), so RGB = no
+    // reordering.
+    LightHardwareConfig& l = cfg.lights[0];
+    l = LightHardwareConfig{};
+    strlcpy(l.name, "A", sizeof(l.name));
+    l.ledType = LedType::WS2812B;
+    l.colorOrder = ColorOrder::RGB;
+    l.dataPin = sboard::PIN_DATA[0];
+    l.width = kDefaultPixels;
+    l.height = 1;
+    l.groupId = 0;
+    l.exists = true;
+
+    ButtonHardwareConfig& b = cfg.buttons[0];
+    b = ButtonHardwareConfig{};
+    strlcpy(b.name, "SW1", sizeof(b.name));
+    strlcpy(b.role, ButtonRole::POWER, sizeof(b.role));
+    b.pin = sboard::PIN_SW1;
+    b.activeLow = true;
+    b.exists = true;
+
+    LightConfig& lc = cfg.groups[0].light;
+    lc.mode = GroupMode::Pattern;
+    lc.pattern = PatternId::Candle;
+    lc.brightness = kDefaultBrightness;
+    return true;
+}
+
+bool boardDetected() { return Config::get().board == BoardId::SteuerboardS; }
+bool boardHasFallbackAp() { return true; }
+uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) { return configuredMa; }
+
 #else
 
 void detectBoard() {}
