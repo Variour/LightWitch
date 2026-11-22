@@ -12,6 +12,21 @@ npm test         # core tests in Node, no browser needed
 No build step and no dependencies: HTML, ES modules and three.js 0.160 from jsDelivr.
 Any static server works; `bin/serve.js` is a small one.
 
+## Address and deep links
+
+`.github/workflows/pages-konfigurator.yml` publishes `public/` to GitHub Pages under
+`/konfigurator/` on every push to `main` that touches it (one-time setup: Settings → Pages →
+Source: GitHub Actions). Address: `https://variour.github.io/LightWitch/konfigurator/`.
+When a custom domain is set for the repository's Pages later, GitHub redirects the
+`github.io` address to it and keeps path and `#`, so printed QR codes keep working.
+
+A plain `#name` opens a catalog lamp with its light on: `#teelicht`, `#oellampe-glas`,
+`#oellampe-griff`, `#oellampe-sturm` (same LED body as `#oellampe`), `#allrounder`,
+`#magische-kugel`, `#wurfball`, `#led-matrix`. `#p=<packed project>` opens a shared project.
+
+The "Licht" button shows the lamp lit (black boards, glowing LEDs). `window.__cfg.snapshot()`
+renders a transparent PNG for the catalog.
+
 ## Steps in the page
 
 1. **Start**: a catalog lamp (Teelicht, Öllampe, Allrounder, Magische Kugel, Wurfball,

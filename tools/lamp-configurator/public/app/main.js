@@ -20,7 +20,7 @@ const store = {
 const OUT_COLORS = { A: '#e8a04a', B: '#5b8def', C: '#4cb87a', D: '#c86ad0' };
 const SEAM_COLORS = { kette: '#ffffff', strom: '#e05a4f', masse: '#7a7f88' };
 const S = {
-  project: null, step: 'start', sel: -1, paintType: 'weiss', paintOut: 'A',
+  project: null, step: 'start', sel: -1, lit: false, paintType: 'weiss', paintOut: 'A',
   ang: store.get('ang', 30), hover: null, hist: [], fut: [],
   stock: store.get('stock', {}), device: store.get('device', ''),
 };
@@ -45,7 +45,7 @@ function derive() {
 
 // ---------- 3D ----------
 const canvas = $('#c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x20232a);
@@ -67,7 +67,24 @@ const OUTLINE = [[-10.024, 0], [10.024, 0], [13.012, 5.175], [2.988, 22.538], [-
 const CY = 9.2376; // centroid height in the datasheet frame
 const LED_COL = { wwa: '#fff0c8', rgb: '#bfe0ff', amb: '#ffae40' };
 
+// Light view: black boards (real solder mask), LEDs glowing. RGB pixels show a colour wheel by position.
+const LIT = { wwa: '#ffd6a0', amb: '#ff9428' };
+function litColor(kind, p) {
+  if (kind !== 'rgb') return new THREE.Color(LIT[kind]);
+  const h = ((Math.atan2(p[1], p[0]) / (2 * Math.PI) + 1) + p[2] / 400 + p[0] / 700) % 1;
+  return new THREE.Color().setHSL(h, 0.95, 0.6);
+}
+let glowTex = null;
+function glowTexture() {
+  if (glowTex) return glowTex;
+  const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+  const g = cv.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,255,255,0.75)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+  return (glowTex = new THREE.CanvasTexture(cv));
+}
 function triColor(t) {
+  if (S.lit) return '#1b1c1f';
   if (S.step === 'wire') return OUT_COLORS[t.out] || '#555';
   return TYPE_UI[t.type]?.color || '#888';
 }
@@ -113,9 +130,20 @@ function rebuild() {
       basis.makeBasis(new THREE.Vector3(...L.ex), new THREE.Vector3(...L.ey), new THREE.Vector3(...L.n)); q.setFromRotationMatrix(basis);
       const s = size[L.kind];
       m.compose(new THREE.Vector3(...L.p.map((x, j) => x + L.n[j] * 0.6)), q, new THREE.Vector3(s, s, 1));
-      im.setMatrixAt(k, m); im.setColorAt(k, new THREE.Color(LED_COL[L.kind]));
+      im.setMatrixAt(k, m); im.setColorAt(k, S.lit ? litColor(L.kind, L.p) : new THREE.Color(LED_COL[L.kind]));
     });
     root.add(im);
+    if (S.lit) { // halo per LED, sized by LED class
+      const halo = { wwa: 34, rgb: 20, amb: 11 };
+      for (const kind of Object.keys(halo)) {
+        const L = ledBoxes.filter(b => b.kind === kind); if (!L.length) continue;
+        const gp = [], gc = [];
+        L.forEach(b => { gp.push(...b.p.map((x, j) => x + b.n[j] * 1.5)); const cc = litColor(kind, b.p); gc.push(cc.r, cc.g, cc.b); });
+        const gg = new THREE.BufferGeometry();
+        gg.setAttribute('position', new THREE.Float32BufferAttribute(gp, 3)); gg.setAttribute('color', new THREE.Float32BufferAttribute(gc, 3));
+        root.add(new THREE.Points(gg, new THREE.PointsMaterial({ size: halo[kind], map: glowTexture(), vertexColors: true, transparent: true, depthWrite: false, sizeAttenuation: true })));
+      }
+    }
   }
 
   // edges: free edges in the form step, seams by kind in the wiring step
@@ -168,6 +196,15 @@ function legend() {
     L.innerHTML = TYPE_ORDER.filter(k => used.has(k)).map(k => `<span><i style="background:${TYPE_UI[k].color}"></i>${esc(modules.types[k].name)}</span>`).join('')
       + (S.step === 'form' ? '<span><i style="background:#ffd27a"></i>freie Kante</span>' : '');
   }
+}
+// Fit the whole lamp into the view from direction dir (camera looks at the bounding sphere centre).
+function fitView(dir = [0.45, -0.85, 0.3], margin = 1.08) {
+  const P = S.project.tris.flatMap(t => t.v); if (!P.length) return;
+  const lo = [0, 1, 2].map(k => Math.min(...P.map(v => v[k]))), hi = [0, 1, 2].map(k => Math.max(...P.map(v => v[k])));
+  const c = lo.map((x, k) => (x + hi[k]) / 2), R = Math.max(...P.map(v => Math.hypot(v[0] - c[0], v[1] - c[1], v[2] - c[2]))) + 6;
+  const fov = camera.fov * Math.PI / 180, fovX = 2 * Math.atan(Math.tan(fov / 2) * camera.aspect);
+  const d = R * margin / Math.sin(Math.min(fov, fovX) / 2), l = Math.hypot(...dir);
+  controls.target.set(...c); camera.position.set(...c.map((x, k) => x + dir[k] / l * d)); controls.update();
 }
 function frame() {
   const m = measure(S.project.tris), P = S.project.tris.flatMap(t => t.v);
@@ -295,6 +332,20 @@ function setStep(s) {
 }
 document.querySelectorAll('#steps button').forEach(b => b.addEventListener('click', () => setStep(b.dataset.step)));
 $('#undo').onclick = undo; $('#redo').onclick = redo;
+function setLit(on) { S.lit = !!on; $('#lit').classList.toggle('on', S.lit); $('#lit').setAttribute('aria-pressed', String(S.lit)); rebuild(); }
+$('#lit').onclick = () => setLit(!S.lit);
+// Picture for the catalog: transparent background, no grid or overlays.
+function snapshot({ w = 2000, h = 1500, step = 'paint', dir = null } = {}) {
+  const prev = { step: S.step, bg: scene.background, sel: S.sel }, size = renderer.getSize(new THREE.Vector2()), pr = renderer.getPixelRatio();
+  S.step = step; S.sel = -1; scene.background = null; grid.visible = false; ghost.visible = ghostEdge.visible = false; rebuild();
+  renderer.setPixelRatio(1); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  if (dir) fitView(dir);
+  renderer.render(scene, camera);
+  const url = canvas.toDataURL('image/png');
+  S.step = prev.step; S.sel = prev.sel; scene.background = prev.bg; grid.visible = true; rebuild();
+  renderer.setPixelRatio(pr); renderer.setSize(size.x, size.y, false); camera.aspect = size.x / size.y; camera.updateProjectionMatrix();
+  return url;
+}
 
 const GEN = store.get('gen', { n: 6, rows: 2, type: 'weiss', capTop: false, capBot: false, cols: 12, frows: 3, body: 'ico', gap: 0 });
 function panel() {
@@ -451,7 +502,13 @@ function download(name, text, type = 'application/json') {
 }
 
 // ---------- start ----------
+// Deep links: #teelicht, #oellampe(-glas|-griff|-sturm), #allrounder, #magische-kugel, #wurfball, #led-matrix open that catalog lamp, lit.
+// Catalog names map to the same LED body (the Öllampe looks differ only in glass and base).
+const ALIAS = { 'oellampe-glas': 'oellampe', 'oellampe-griff': 'oellampe', 'oellampe-sturm': 'oellampe', 'magische-kugel': 'kugel', 'led-matrix': 'matrix' };
+const presetFromHash = () => { const h = decodeURIComponent(location.hash.slice(1)), k = ALIAS[h] || h; return Object.hasOwn(PRESETS, k) ? k : null; };
+window.addEventListener('hashchange', () => { const k = presetFromHash(); if (k) { setProject(makePreset(k)); setLit(true); } });
 async function initial() {
+  const k = presetFromHash(); if (k) { S.lit = true; return makePreset(k); }
   const m = location.hash.match(/#p=([\w-]+)/);
   if (m) { try { return readProject(await unpack(m[1])); } catch { /* fall back */ } }
   try { const s = store.get('project', null); if (s) return readProject(s); } catch { /* fall back */ }
@@ -459,4 +516,5 @@ async function initial() {
 }
 setProject(await initial());
 setStep('start');
-window.__cfg = { screenOf: p => { const v = new THREE.Vector3(...p).project(camera), r = canvas.getBoundingClientRect(); return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height]; }, S, get D() { return D; }, setStep, setProject, makePreset, edit, camera, controls }; // for tests
+setLit(S.lit);
+window.__cfg = { snapshot, setLit, frame, screenOf: p => { const v = new THREE.Vector3(...p).project(camera), r = canvas.getBoundingClientRect(); return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height]; }, S, get D() { return D; }, setStep, setProject, makePreset, edit, camera, controls }; // for tests
