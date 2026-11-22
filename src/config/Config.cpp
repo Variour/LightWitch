@@ -346,6 +346,7 @@ static void applyDoc(JsonDocument& doc) {
         (IoExpanderChip)(uint8_t)(doc["expanderChip"] | (uint8_t)IoExpanderChip::None);
     Config::get().expanderAddress = doc["expanderAddress"] | (uint8_t)0x20;
     Config::get().chargerEnabled = doc["chargerEnabled"] | false;
+    Config::get().lampMode = (uint8_t)constrain((int)(doc["lampMode"] | 1), 0, 2);
     Config::get().wifiPolicyRevision = doc["wifiPolicyRevision"] | (uint32_t)0;
     for (uint8_t i = 0; i < 6; i++)
         Config::get().wifiPolicyOriginMac[i] = doc["wifiPolicyOriginMac"][i] | (uint8_t)0;
@@ -515,6 +516,7 @@ bool Config::save() {
     doc["expanderChip"] = (uint8_t)_cfg.expanderChip;
     doc["expanderAddress"] = _cfg.expanderAddress;
     doc["chargerEnabled"] = _cfg.chargerEnabled;
+    doc["lampMode"] = _cfg.lampMode;
     doc["wifiPolicyRevision"] = _cfg.wifiPolicyRevision;
     {
         JsonArray origin = doc["wifiPolicyOriginMac"].to<JsonArray>();

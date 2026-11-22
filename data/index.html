@@ -460,6 +460,9 @@ input[type=radio]:active { background-color: #1a5; }
 }
 .cp-hex-input:focus { border-color: #4af; }
 .cp-brightness { width: 100%; accent-color: #2a6; }
+.lamp-phys { color: #888; font-weight: normal; font-size: .8rem; }
+.lamp-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.lamp-table td, .lamp-table th { padding: .2rem .4rem; border-bottom: 1px solid #2a2a2a; text-align: left; }
 .cp-label { font-size: .7rem; color: #777; margin-bottom: .15rem; display: block; }
 
 /* Inline HSV picker */
@@ -1036,6 +1039,27 @@ input[type=radio]:active { background-color: #1a5; }
     <button class="btn-ghost" style="width:100%" id="add-light-btn">Add light</button>
 
     <hr class="section-divider">
+    <h3 style="display:flex;align-items:center;gap:.4rem">Lamp
+      <button type="button" class="legend-toggle" aria-expanded="false" aria-controls="lamp-legend" aria-label="What is a lamp?">i</button>
+    </h3>
+    <p class="legend" id="lamp-legend"><span style="grid-column:1/-1">A lamp file describes which LED modules hang on which output, where they sit and how bright every channel is. With it, brightness is physical (lm/dm² of module area) and even across mixed modules, and spatial patterns like <b>Fire</b> know what is up. Lamp files come from the lamp configurator.</span></p>
+    <div id="lamp-info" style="font-size:.85rem;margin-bottom:.5rem;color:#888">Loading…</div>
+    <div id="lamp-mode-row" style="display:none;margin-bottom:.5rem">
+      <label for="lamp-mode">Brightness model</label>
+      <select id="lamp-mode">
+        <option value="1">Uniform: every module equally bright, capped at the weakest</option>
+        <option value="2">Uniform with peaks: stronger modules keep rising above the cap</option>
+        <option value="0">Raw: colours go to the LEDs unchanged</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <button class="btn-ghost" style="flex:1" id="lamp-upload-btn">Load lamp file</button>
+      <button class="btn-ghost" style="flex:1;display:none" id="lamp-delete-btn">Remove lamp</button>
+      <button class="btn-ghost" style="flex:1" id="lamp-scale-btn">Brightness scale</button>
+    </div>
+    <input type="file" id="lamp-file" accept=".json,application/json" style="display:none">
+
+    <hr class="section-divider">
     <h3>I2C bus <small>(shared by Sound &amp; any expander-backed button)</small></h3>
     <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
       <input type="checkbox" id="hasI2cBus">
@@ -1328,6 +1352,7 @@ const PATTERNS = [
   { name:'Color Cycle',   desc:'Rotates through the full hue wheel. Speed controls speed.',  hasColor: false, syncable: true  },
   { name:'Strobe',        desc:'Rapid flashes. Speed controls flash rate.',                  hasColor: true,  syncable: true  },
   { name:'Candle',        desc:'Warm flickering candle light. Speed controls flicker rate.', hasColor: false, syncable: false },
+  { name:'Fire',          desc:'Flames rising upward along the lamp layout (LED index as height on plain strips). Speed controls rise rate.', hasColor: false, syncable: false },
 ];
 
 // LightConfig::SceneStringMode ordinals (src/config/Config.h) — short
@@ -1538,7 +1563,7 @@ function renderGroups(groups) {
                    data-action="onGroupControl" data-id="${g.id}">
           </div>
           <div>
-            <label>Brightness</label>
+            <label>Brightness <span class="lamp-phys" id="gbr-phys-${g.id}">${lampBrightnessText(g.brightness||255)}</span></label>
             <input type="range" id="gbr-${g.id}" min="0" max="255" value="${g.brightness||255}"
                    data-action="onGroupControl" data-id="${g.id}">
           </div>
@@ -1811,6 +1836,8 @@ function onGroupControl(id) {
 
   const desc = $(`gdesc-${id}`);
   if (desc) desc.textContent = PATTERNS[pat]?.desc || '';
+  const phys = $(`gbr-phys-${id}`);
+  if (phys) phys.textContent = lampBrightnessText($(`gbr-${id}`)?.value);
 
   const colorHidden = PATTERNS[pat]?.hasColor === false;
   const colorRow = $(`gcr-${id}`);
@@ -3320,6 +3347,7 @@ async function loadConfig() {
   _eventsLimit = d.eventLogLimit || 10;
   $('eventLogLimit').value = _eventsLimit;
   if (d.lights) renderLightsHw(d.lights);
+  loadLamp().catch(() => {});
   loadButtons().catch(() => {});
   loadAutomations().catch(() => {});
   loadEvents().catch(() => {});
@@ -5431,6 +5459,193 @@ window.addEventListener('popstate', () => {
   _routeFromPath(nextPath);
 });
 
+// ── Lamp (docs/lamp/README.md) ────────────────────────────────────────────────
+// Fixed brightness scale of lamps: group brightness b (1-255) -> lm/dm².
+const LAMP_SCALE_MIN = 0.5, LAMP_SCALE_MAX = 2000, LAMP_TRI_DM2 = 0.04434;
+let _lamp = null;  // GET /api/lamp
+function lampDensity(b) {
+  b = Number(b) || 0;
+  return b <= 0 ? 0 : LAMP_SCALE_MIN * Math.pow(LAMP_SCALE_MAX / LAMP_SCALE_MIN, (b - 1) / 254);
+}
+function _fmtLm(v) {
+  if (v >= 100) return Math.round(v).toLocaleString('en');
+  if (v >= 10) return v.toFixed(0);
+  if (v >= 1) return v.toFixed(1);
+  return v.toFixed(2);
+}
+// Text for a group brightness value on a lamp device, '' without a lamp.
+function lampBrightnessText(b) {
+  if (!_lamp || !_lamp.loaded || _lamp.mode === 0) return '';
+  const M = lampDensity(b);
+  return `≈ ${_fmtLm(M)} lm/dm² · ${_fmtLm(M * LAMP_TRI_DM2)} lm per triangle`;
+}
+const FAMILY_NAMES = { rgb: 'RGB', white: 'White (WWA)', amber: 'Amber' };
+
+async function loadLamp() {
+  const info = $('lamp-info');
+  try {
+    const res = await fetch('/api/lamp');
+    _lamp = await res.json();
+  } catch { _lamp = null; if (info) info.textContent = 'Lamp status unavailable.'; return; }
+  $('lamp-delete-btn').style.display = _lamp.stored ? '' : 'none';
+  $('lamp-mode-row').style.display = _lamp.loaded ? '' : 'none';
+  $('lamp-mode').value = String(_lamp.mode ?? 1);
+  if (!_lamp.loaded) {
+    info.innerHTML = _lamp.stored ? 'A lamp file is stored but was rejected at boot, see the log.' : 'No lamp file loaded. Lights behave as plain strips and matrices.';
+  } else {
+    const outs = (_lamp.outputs || []).map(o =>
+      `<li>Output <b>${esc(o.id)}</b> → ${o.light === null ? 'not used' : 'light ' + o.light}: ${o.modules} modules, ${o.pixels} pixels</li>`).join('');
+    const fams = Object.entries(_lamp.families || {}).map(([k, f]) =>
+      `<tr><td>${FAMILY_NAMES[k] || k}</td><td>${_fmtLm(f.ceiling)} lm/dm²</td><td>${_fmtLm(f.maxLm)} lm</td></tr>`).join('');
+    info.innerHTML = `<div style="color:#ccc"><b>${esc(_lamp.name || 'Lamp')}</b>, ${_lamp.pixels} pixels</div>
+      <ul style="margin:.25rem 0 .5rem 1rem;padding:0">${outs}</ul>
+      <table class="lamp-table"><tr><th>Channels</th><th>Uniform cap</th><th>Lamp at cap</th></tr>${fams}</table>`;
+  }
+  if (_groups.length) renderGroups(_groups);
+}
+
+function showLampScale() {
+  const rows = [1, 32, 64, 100, 128, 160, 192, 224, 255].map(b => {
+    const M = lampDensity(b);
+    return `<tr><td>${b}</td><td>${_fmtLm(M)}</td><td>${_fmtLm(M * LAMP_TRI_DM2)}</td><td>${_fmtLm(M * LAMP_TRI_DM2 * 3)}</td><td>${_fmtLm(M * LAMP_TRI_DM2 * 72)}</td></tr>`;
+  }).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'push-overlay';
+  overlay.innerHTML = `<div class="push-modal"><div class="card" style="margin:0">
+    <div class="flex-between" style="margin-bottom:.5rem"><h2 style="margin:0">Brightness scale</h2>
+      <button class="btn-ghost btn-sm" data-close>✕</button></div>
+    <p style="font-size:.85rem;color:#888">On a lamp, group brightness is a fixed physical value: every step is about 3.3 % brighter, and the same value means the same brightness on every lamp. Lumen describe a light source, lux the light arriving at a place.</p>
+    <table class="lamp-table"><tr><th>Brightness</th><th>lm/dm²</th><th>lm per triangle</th><th>Tealight (3)</th><th>72 triangles</th></tr>${rows}</table>
+    <h3>Light sources</h3>
+    <table class="lamp-table">
+      <tr><td>bought LED tealight</td><td>0.5-2 lm</td></tr>
+      <tr><td>real candle or tealight flame</td><td>about 12 lm</td></tr>
+      <tr><td>incandescent bulb 25 W / 40 W / 60 W</td><td>about 250 / 470 / 800 lm</td></tr>
+    </table>
+    <h3>Illuminance</h3>
+    <table class="lamp-table">
+      <tr><td>full moon</td><td>0.2 lx</td></tr>
+      <tr><td>finding your way on a path</td><td>1-5 lx</td></tr>
+      <tr><td>dinner for two</td><td>about 40 lx</td></tr>
+      <tr><td>cosy living room table</td><td>50-100 lx</td></tr>
+      <tr><td>board game, reading</td><td>about 300 lx</td></tr>
+    </table>
+    <p style="font-size:.8rem;color:#888">A lamp radiating evenly gives about E = Φ / (4π d²): 100 lm make about 32 lx at 0.5 m and 8 lx at 1 m. Values are estimates.</p>
+  </div></div>`;
+  overlay.addEventListener('click', e => { if (e === null || e.target === overlay || e.target.hasAttribute('data-close')) overlay.remove(); });
+  overlay.style.display = 'block';
+  document.body.appendChild(overlay);
+}
+
+// Preview of a lamp file: modules as triangles seen from the front (x/z),
+// coloured by output.
+function _lampPreviewSvg(file) {
+  const tris = [];
+  const outColors = ['#e8a33d', '#4aa3df', '#7bc96f', '#d46ad4'];
+  (file.outputs || []).forEach((o, oi) => (o.modules || []).forEach(m => {
+    const t = file.types?.[m.t]; if (!t || !m.p || !m.u || !m.n) return;
+    const [u, n] = [m.u, m.n];
+    const r = [u[1]*n[2]-u[2]*n[1], u[2]*n[0]-u[0]*n[2], u[0]*n[1]-u[1]*n[0]];
+    const outline = t.outline || [[-16,-9.24],[16,-9.24],[0,18.48]];
+    const pts = outline.map(([x, y]) => [m.p[0]+x*r[0]+y*u[0], m.p[1]+x*r[1]+y*u[1], m.p[2]+x*r[2]+y*u[2]]);
+    tris.push({ pts, back: n[1] > 0.2, color: outColors[oi % 4] });
+  }));
+  if (!tris.length) return '';
+  const all = tris.flatMap(t => t.pts);
+  const xs = all.map(p => p[0]), zs = all.map(p => p[2]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
+  const w = Math.max(maxX - minX, 1), h = Math.max(maxZ - minZ, 1);
+  const poly = tris.sort((a, b) => b.back - a.back).map(t =>
+    `<polygon points="${t.pts.map(p => `${(p[0]-minX).toFixed(1)},${(maxZ-p[2]).toFixed(1)}`).join(' ')}" fill="${t.color}" fill-opacity="${t.back ? 0.15 : 0.55}" stroke="${t.color}" stroke-width="${Math.max(w, h) / 300}"/>`).join('');
+  return `<svg viewBox="0 0 ${w.toFixed(1)} ${h.toFixed(1)}" style="width:100%;max-height:240px;background:#111;border-radius:6px">${poly}</svg>`;
+}
+
+// Import dialog: shows the lamp, lets the user map outputs to lights, posts it.
+function openLampImport(file) {
+  if (!file || file.format !== 'lightwitch-lamp' || file.version !== 1) {
+    showToast('Not a lightwitch-lamp v1 file');
+    return;
+  }
+  const lights = _lights || [];
+  const counts = {};
+  (file.outputs || []).forEach(o => (o.modules || []).forEach(m => { counts[m.t] = (counts[m.t] || 0) + 1; }));
+  const parts = Object.entries(counts).map(([t, c]) => `${c} × ${esc(file.types?.[t]?.name || t)}`).join(', ');
+  const pixelsOf = o => (o.modules || []).reduce((s, m) => s + (file.types?.[m.t]?.pixels?.length || 0), 0);
+  const rows = (file.outputs || []).map((o, i) => {
+    const def = o.light ?? (lights[i] ? lights[i].index : null);
+    const opts = ['<option value="">not used</option>'].concat(lights.map(l =>
+      `<option value="${l.index}"${def === l.index ? ' selected' : ''}>Light ${l.index}${l.name ? ' (' + esc(l.name) + ')' : ''}, GPIO${l.dataPin}</option>`)).join('');
+    return `<tr><td>Output <b>${esc(o.id || String(i))}</b></td><td>${(o.modules || []).length} modules, ${pixelsOf(o)} pixels</td>
+      <td><select data-out="${i}">${opts}</select></td></tr>`;
+  }).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'push-overlay';
+  overlay.innerHTML = `<div class="push-modal"><div class="card" style="margin:0">
+    <div class="flex-between" style="margin-bottom:.5rem"><h2 style="margin:0">Import lamp</h2>
+      <button class="btn-ghost btn-sm" data-close>✕</button></div>
+    <p style="font-size:.9rem"><b>${esc(file.name || 'Lamp')}</b>: ${parts}</p>
+    ${_lampPreviewSvg(file)}
+    <table class="lamp-table" style="margin-top:.5rem">${rows}</table>
+    ${lights.length ? '' : '<p style="color:#e66;font-size:.85rem">This device has no lights yet. Add one light per output first.</p>'}
+    <p style="font-size:.8rem;color:#888">Each mapped light becomes a WS2812 string with one LED per pixel. The device restarts.</p>
+    <button class="btn-primary" style="width:100%" id="lamp-import-go"${lights.length ? '' : ' disabled'}>Import and restart</button>
+  </div></div>`;
+  overlay.addEventListener('click', e => { if (e.target === overlay || e.target.hasAttribute('data-close')) overlay.remove(); });
+  overlay.querySelector('#lamp-import-go').addEventListener('click', async () => {
+    const out = JSON.parse(JSON.stringify(file));
+    const used = new Set();
+    for (const sel of overlay.querySelectorAll('select[data-out]')) {
+      const o = out.outputs[+sel.dataset.out];
+      if (sel.value === '') { delete o.light; continue; }
+      if (used.has(sel.value)) { showToast('Two outputs on one light'); return; }
+      used.add(sel.value);
+      o.light = parseInt(sel.value, 10);
+    }
+    const res = await _fetchOrToast('/api/lamp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(out) }, 'Lamp import failed');
+    if (!res) return;
+    overlay.remove();
+    showToast('Lamp imported, device restarts…', false);
+    setTimeout(() => { loadConfig().catch(() => {}); loadLamp(); }, 6000);
+  });
+  overlay.style.display = 'block';
+  document.body.appendChild(overlay);
+}
+
+// #lamp=<base64url(deflate-raw(json))>, as the lamp configurator opens it.
+// Read at startup: the initial routing replaces the URL and drops the fragment.
+const _initialHash = location.hash;
+async function _lampFromHash() {
+  const m = _initialHash.match(/^#lamp=([A-Za-z0-9_-]+)/);
+  if (!m) return;
+  _replacePath('/settings');
+  try {
+    const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
+    const bin = Uint8Array.from(atob(b64 + '==='.slice((b64.length + 3) % 4)), c => c.charCodeAt(0));
+    const stream = new Blob([bin]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    const text = await new Response(stream).text();
+    _routeFromPath('/settings');
+    openLampImport(JSON.parse(text));
+  } catch (e) {
+    showToast('Lamp link could not be read: ' + e.message);
+  }
+}
+
+$('lamp-upload-btn').addEventListener('click', () => $('lamp-file').click());
+$('lamp-file').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try { openLampImport(JSON.parse(await f.text())); } catch { showToast('Lamp file is not valid JSON'); }
+});
+$('lamp-delete-btn').addEventListener('click', () => _confirmAction('Remove the lamp file? The device restarts and the lights become plain strips again.', async () => {
+  const res = await _fetchOrToast('/api/lamp/delete', { method: 'POST' }, 'Failed to remove lamp');
+  if (res) { showToast('Lamp removed, device restarts…', false); setTimeout(loadLamp, 6000); }
+}));
+$('lamp-mode').addEventListener('change', async e => {
+  const res = await _fetchOrToast('/api/lamp/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: parseInt(e.target.value, 10) }) }, 'Failed to set brightness model');
+  if (res) loadLamp();
+});
+$('lamp-scale-btn').addEventListener('click', showLampScale);
+
 // ── Lights hardware management ────────────────────────────────────────────────
 const LED_TYPE_NAMES = ['WS2812B — single wire', 'WS2801 — two wire'];
 const COLOR_ORDER_NAMES = ['RGB', 'RBG', 'GRB', 'GBR', 'BRG', 'BGR'];
@@ -6337,7 +6552,7 @@ const ACTION_CATALOG = [
   {id:6,  label:'Pattern next',               cat:'Pattern',   param:'none'},
   {id:7,  label:'Pattern previous',           cat:'Pattern',   param:'none'},
   {id:8,  label:'Pattern set',                cat:'Pattern',   param:'enum', hint:'Pattern',
-    options:[[0,'Static'],[1,'Breathing'],[2,'ColorCycle'],[3,'Strobe'],[4,'Candle']]},
+    options:[[0,'Static'],[1,'Breathing'],[2,'ColorCycle'],[3,'Strobe'],[4,'Candle'],[5,'Fire']]},
   {id:9,  label:'Scene next',                 cat:'Scene',     param:'none'},
   {id:10, label:'Scene previous',             cat:'Scene',     param:'none'},
   {id:11, label:'Scene random',               cat:'Scene',     param:'none'},
@@ -7022,7 +7237,7 @@ $('push-submit-btn').addEventListener('click', submitPushConfig);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 _initPasswordToggles();
-loadConfig();
+loadConfig().then(() => _lampFromHash()).catch(() => {});
 const isLocalDev = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
 if (!isLocalDev) connectWs();
 _routeFromPath(location.pathname);

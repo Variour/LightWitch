@@ -16,6 +16,8 @@
 #include "config/BoardProfile.h"
 #include "config/Config.h"
 #include "events/EventLog.h"
+#include "lamp/Lamp.h"
+#include "led/LampDriver.h"
 #include "led/Ws2801Driver.h"
 #include "led/Ws2812bDriver.h"
 #include "logging/Logger.h"
@@ -46,6 +48,7 @@
 
 static Ws2812bDriver _ws2812bPool[MAX_LIGHTS];
 static Ws2801Driver _ws2801Pool[MAX_LIGHTS];
+static LampDriver _lampPool[MAX_LIGHTS];
 static LedDriver* _leds[MAX_LIGHTS] = {};
 static PatternRunner _runners[MAX_LIGHTS];
 static Es8311Driver _sound;
@@ -532,6 +535,7 @@ void setup() {
         }
     }
     Config::load();
+    lamp::Lamp::load();
     Logger::setLevel((LogLevel)Config::get().logLevel);
     Logger::i("[sys] firmware %s  device: %s", FW_VERSION, Config::get().deviceName);
 
@@ -627,6 +631,17 @@ void setup() {
             Logger::i("[led] light %u: WS2812B data=GPIO%d leds=%u group=%u", i, l.dataPin, numLeds,
                       l.groupId);
         }
+        // Lamp output on this light (docs/lamp/README.md): the lamp driver
+        // goes in front of the real one.
+        LampDriver* lampDrv = nullptr;
+        if (const lamp::Output* out = lamp::Lamp::outputForLight(i)) {
+            if (out->pixels != numLeds)
+                Logger::w("[lamp] light %u has %u leds, lamp output %s has %u pixels", i, numLeds,
+                          out->id, out->pixels);
+            _lampPool[i].setup(drv, out);
+            lampDrv = &_lampPool[i];
+            drv = lampDrv;
+        }
         drv->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
         drv->setCurrentLimitMa(boardLedCurrentLimitMa(l.currentLimitMa));
         _leds[i] = drv;
@@ -635,6 +650,7 @@ void setup() {
         fleetManager.setLight(drv, numLeds);
 #endif
         _runners[i].begin(*drv);
+        _runners[i].setLamp(lampDrv);
         _runners[i].setDimensions(l.width, l.height);
         _runners[i].setMatrixLayout(l.matrixStart, l.matrixDir, l.matrixSerpentine);
         _runners[i].setWrap(l.wrapWidth, l.wrapHeight);
@@ -1095,6 +1111,7 @@ void setup() {
         }
     });
     webServer.setOnLightBrightnessChange([](uint8_t idx) { applyLightBrightnessOverride(idx); });
+    webServer.setOnLampModeChange([]() { applyAllLights(); });
     webServer.setOnLightClampChange([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx]) {
             auto& l = Config::get().lights[idx];

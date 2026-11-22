@@ -337,7 +337,7 @@ setTimeout(() => {
 
 const app = express();
 app.set('trust proxy', true);
-app.use(express.json());
+app.use(express.json({ limit: '200kb' }));
 app.use('/auth', authRouter);
 app.use(requireAuth);
 app.use(express.static(DATA_DIR));
@@ -668,6 +668,101 @@ function lightPinConflict(l, excludeIndex) {
   if (mockSounds.some(s => soundPins(s).some(p => pins.includes(p)))) return 'pin already in use';
   return null;
 }
+
+// ── Lamp (docs/lamp/README.md), mirrors WebServer.h::_getLamp/_finishLampUpload
+// and lamp::Lamp::parse. No restart: the summary is available at once.
+let mockLampFile = null;
+let mockLampMode = 1;
+const LAMP_KINDS = { r: 'rgb', g: 'rgb', b: 'rgb', ww: 'white', cw: 'white', a: 'amber', '': null };
+function lampParse(file) {
+  if (!file || file.format !== 'lightwitch-lamp' || file.version !== 1) return { error: 'not a lightwitch-lamp v1 file' };
+  if (!file.types || !Array.isArray(file.outputs) || !file.outputs.length) return { error: 'types or outputs missing' };
+  if (file.outputs.length > 4) return { error: 'too many outputs' };
+  const used = new Set();
+  const dens = {}, famArea = {};
+  const outputs = [];
+  let total = 0;
+  for (const o of file.outputs) {
+    const light = o.light ?? null;
+    if (light !== null) {
+      if (!mockLights.find(l => l.index === light)) return { error: 'light does not exist' };
+      if (used.has(light)) return { error: 'two outputs on one light' };
+      used.add(light);
+    }
+    if (!Array.isArray(o.modules)) return { error: 'output without modules' };
+    let pixels = 0;
+    for (const m of o.modules) {
+      const t = file.types[m.t];
+      if (!t) return { error: 'unknown module type' };
+      if (!(t.area > 0) || !Array.isArray(t.pixels) || ![m.p, m.n, m.u].every(v => Array.isArray(v) && v.length === 3)) return { error: 'bad module or type' };
+      const fams = t.pixels.map(px => {
+        if (!Array.isArray(px.ch) || px.ch.length !== 3) return 'bad';
+        let f = null;
+        for (const c of px.ch) {
+          if (!((c.k ?? '') in LAMP_KINDS)) return 'kind';
+          const cf = LAMP_KINDS[c.k ?? ''];
+          if (cf && (f === null || ['rgb', 'white', 'amber'].indexOf(cf) < ['rgb', 'white', 'amber'].indexOf(f))) f = cf;
+        }
+        return f;
+      });
+      if (fams.includes('bad')) return { error: 'pixel needs 3 channels' };
+      if (fams.includes('kind')) return { error: 'unknown channel kind' };
+      const famPixels = {};
+      fams.forEach(f => { if (f) famPixels[f] = (famPixels[f] || 0) + 1; });
+      t.pixels.forEach((px, i) => {
+        const f = fams[i]; if (!f) return;
+        const key = c => JSON.stringify(c.at);
+        const emitters = new Set(px.ch.filter(c => c.k).map(key)).size;
+        const a = t.area / 10000 / famPixels[f] / emitters;
+        const seen = new Set();
+        for (const c of px.ch) {
+          if (!c.k) continue;
+          if (!seen.has(key(c))) { famArea[f] = (light !== null ? (famArea[f] || 0) + a : famArea[f]); seen.add(key(c)); }
+          if (light === null) continue;
+          dens[f] = dens[f] || {};
+          const d = (c.lm || 0) / a;
+          if (dens[f][c.k] === undefined || d < dens[f][c.k]) dens[f][c.k] = d;
+        }
+      });
+      pixels += t.pixels.length;
+    }
+    total += pixels;
+    if (total > 1024) return { error: 'too many pixels' };
+    outputs.push({ id: String(o.id || '').slice(0, 7), light, modules: o.modules.length, pixels });
+  }
+  const families = {};
+  for (const [f, ks] of Object.entries(dens)) {
+    const sum = Object.values(ks).reduce((a, b) => a + b, 0);
+    const ceiling = sum;  // all channels of the family at full, as lamp::Lamp::ceiling
+    families[f] = { ceiling, area: famArea[f] || 0, maxLm: ceiling * (famArea[f] || 0) };
+  }
+  return { name: String(file.name || '').slice(0, 31), outputs, pixels: total, families };
+}
+app.get('/api/lamp/file', (_req, res) => mockLampFile ? res.json(mockLampFile) : res.status(404).json({ error: 'no lamp' }));
+app.post('/api/lamp/mode', (req, res) => {
+  const m = req.body?.mode;
+  if (![0, 1, 2].includes(m)) return res.status(400).json({ error: 'mode must be 0, 1 or 2' });
+  mockLampMode = m;
+  res.json({ ok: true });
+});
+app.post('/api/lamp/delete', (_req, res) => { mockLampFile = null; res.json({ ok: true, rebooting: true }); });
+app.get('/api/lamp', (_req, res) => {
+  const base = { mode: mockLampMode, loaded: false, stored: !!mockLampFile, scaleMin: 0.5, scaleMax: 2000 };
+  if (!mockLampFile) return res.json(base);
+  const p = lampParse(mockLampFile);
+  if (p.error) return res.json(base);
+  res.json({ ...base, loaded: true, ...p });
+});
+app.post('/api/lamp', (req, res) => {
+  const p = lampParse(req.body);
+  if (p.error) return res.status(400).json({ error: p.error });
+  for (const o of p.outputs) {
+    if (o.light === null) continue;
+    Object.assign(mockLights.find(l => l.index === o.light), { ledType: 0, colorOrder: 0, width: o.pixels || 1, height: 1, wrapWidth: false, wrapHeight: false });
+  }
+  mockLampFile = req.body;
+  res.json({ ok: true, rebooting: true });
+});
 
 app.get('/api/lights', (_req, res) => res.json({ lights: mockLights, maxLights: 4 }));
 app.post('/api/lights/add', (req, res) => {
