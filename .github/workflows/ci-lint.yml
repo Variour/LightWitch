@@ -11,6 +11,7 @@ on:
       - 'src/**'
       - '.clang-format'
       - 'tools/game-console/**'
+      - 'tools/lamp-configurator/**'
       - '.github/workflows/ci-lint.yml'
 
 concurrency:
@@ -85,5 +86,20 @@ jobs:
 
       # The screen test renders every view in Chromium.
       - run: npx playwright install --with-deps chromium
+
+      - run: npm test
+
+  lamp-configurator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: tools/lamp-configurator
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
 
       - run: npm test

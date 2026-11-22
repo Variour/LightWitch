@@ -33,6 +33,19 @@ export default [
     },
   },
   {
+    files: ['tools/lamp-configurator/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: { ...globals.browser, ...globals.node },
+    },
+    rules: {
+      eqeqeq: ['error', 'smart'],
+      'prefer-const': 'error',
+      'no-var': 'error',
+    },
+  },
+  {
     files: ['tools/game-console/public/**/*.js'],
     languageOptions: {
       ecmaVersion: 2022,

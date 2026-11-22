@@ -1,0 +1,15 @@
+{
+  "name": "lightwitch-lamp-configurator",
+  "private": true,
+  "version": "0.1.0",
+  "description": "3D configurator for lamps built from LightWitch LED triangles: shape, wiring, parts list and lamp file",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node bin/serve.js",
+    "test": "node --test"
+  }
+}

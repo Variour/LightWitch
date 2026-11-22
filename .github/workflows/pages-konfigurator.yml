@@ -1,0 +1,46 @@
+name: "Pages: lamp configurator"
+
+# Publishes tools/lamp-configurator/public to GitHub Pages at <pages-url>/konfigurator/.
+# One-time setup: Settings -> Pages -> Source: GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/lamp-configurator/public/**'
+      - '.github/workflows/pages-konfigurator.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}konfigurator/
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site/konfigurator
+          cp -r tools/lamp-configurator/public/. _site/konfigurator/
+          printf '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=konfigurator/"><a href="konfigurator/">Lampen-Konfigurator</a>\n' > _site/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
