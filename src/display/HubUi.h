@@ -79,20 +79,22 @@ class HubUi {
     static constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) { return rgb565(r, g, b); }
     static uint16_t rgb(game::Rgb c) { return rgb565(c.r, c.g, c.b); }
 
-    // farben-standard: green for right and logged in, orange red (dimmed)
-    // for wrong, orange for no connection, blue for login / invite.
+    // Colours of the shared design system (gestaltung-buzzer/SYSTEM.md, v6/v7):
+    // background 075033, green only for "right", FF9C5C "daneben", A774D8
+    // "nicht abgegeben", grey for closed. No blue.
     static constexpr uint16_t kBg = rgb565(0x07, 0x50, 0x33);     // dark green 075033
     static constexpr uint16_t kPanel = rgb565(0x05, 0x3C, 0x26);  // header, tabs, boxes
     static constexpr uint16_t kLine = rgb565(0x2E, 0x7A, 0x58);
     static constexpr uint16_t kText = rgb565(255, 255, 255);
     static constexpr uint16_t kDim = rgb565(0xA8, 0xC2, 0xB8);
     static constexpr uint16_t kGrey = rgb565(0xC3, 0xC3, 0xC3);  // closed, other answers
-    static constexpr uint16_t kRingOff =
-        rgb565(0x0B, 0x33, 0x23);  // expired segment, like an LED off
+    static constexpr uint16_t kRingOff = 0x0000;  // expired segment: black, like an LED off
     static constexpr uint16_t kGreen = rgb565(0x2F, 0xFB, 0x95);  // right, and only that
     static constexpr uint16_t kNeben = rgb565(0xFF, 0x9C, 0x5C);  // daneben
     static constexpr uint16_t kNone = rgb565(0xA7, 0x74, 0xD8);   // nicht abgegeben
-    static constexpr uint16_t kWarn = rgb565(0xFF, 0xD5, 0x4A);   // technical: battery, signal
+    // Technical warnings (battery, signal, console) are white with a warning
+    // sign: every colour above already has a meaning.
+    static constexpr uint16_t kWarn = kText;
 
     HubBoard _board;
     meshnet::Router* _mesh = nullptr;
@@ -162,6 +164,14 @@ class HubUi {
     }
 
     // ── Text helpers ─────────────────────────────────────────────────────────
+    // Warning sign, 12 px wide, standing on baseline y; returns its width.
+    int16_t _warnIcon(int16_t x, int16_t y) {
+        _frame->fillTriangle(x + 6, y - 11, x, y, x + 12, y, kText);
+        _frame->drawFastVLine(x + 6, y - 7, 4, kBg);
+        _frame->drawPixel(x + 6, y - 2, kBg);
+        return 16;
+    }
+
     void _font(const uint8_t* f, uint16_t color) {
         _text.setFont(f);
         _text.setFontMode(1);  // setFont() switches back to a solid background
@@ -228,7 +238,10 @@ class HubUi {
         _font(u8g2_font_helvR10_tf, v.console ? kText : kWarn);
         const char* con = v.console ? "Konsole" : "ohne Konsole";
         int16_t conX = W - kPad - _width(con);
-        _frame->fillCircle(conX - 9, 16, 4, v.console ? kText : kWarn);
+        if (v.console)
+            _frame->fillCircle(conX - 9, 16, 4, kText);
+        else
+            _warnIcon(conX - 17, 21);
         _at(conX, 21, con);
         // Row 2: members, login, low battery, channel.
         if (!v.session) return;
@@ -245,6 +258,7 @@ class HubUi {
             x += _width(buf) + 12;
         }
         if (v.lowBattery) {
+            x += _warnIcon(x, 45);
             _font(u8g2_font_helvR10_tf, kWarn);
             snprintf(buf, sizeof(buf), "%u Akku schwach", v.lowBattery);
             _at(x, 45, buf);
@@ -319,7 +333,7 @@ class HubUi {
         y += 64;
         _drawGrid(v, y, kTabY - 30 - y, false);
         _font(u8g2_font_helvR10_tf, kDim);
-        _at(kPad, kTabY - 10, "grau = offline,  gelber Rahmen = Akku schwach");
+        _at(kPad, kTabY - 10, "grau = offline,  weißer Rahmen = Akku schwach");
     }
 
     // Member numbers as tiles. Offline grey, low battery orange frame,
@@ -348,6 +362,7 @@ class HubUi {
             bool low =
                 m.present && m.battery != game::kNoBattery && m.battery < HubView::kLowBattery;
             _frame->drawRoundRect(x0, y0, tw, th, 4, low ? kWarn : kLine);
+            if (low) _frame->drawRoundRect(x0 + 1, y0 + 1, tw - 2, th - 2, 3, kWarn);
             char num[6];
             snprintf(num, sizeof(num), "%u", m.n);
             _font(u8g2_font_helvB10_tf, m.present ? kText : kDim);
@@ -497,8 +512,8 @@ class HubUi {
     // The middle field: no answer, a small word for the centre key's function.
     void _middle(const char* word, int32_t number) {
         int16_t x0 = kCrossX - kKey / 2, y0 = kCrossY - kKey / 2;
-        _frame->drawRoundRect(x0, y0, kKey, kKey, 6, kRingOff);
-        _frame->drawRoundRect(x0 + 1, y0 + 1, kKey - 2, kKey - 2, 5, kRingOff);
+        _frame->drawRoundRect(x0, y0, kKey, kKey, 6, kLine);
+        _frame->drawRoundRect(x0 + 1, y0 + 1, kKey - 2, kKey - 2, 5, kLine);
         if (number >= 0) {
             char buf[12];
             snprintf(buf, sizeof(buf), "%ld", (long)number);
@@ -529,7 +544,10 @@ class HubUi {
                  closed ? (int32_t)v.counts[value] : -1);
         }
         bool enterAnswer = (v.keyMask & (1u << (uint8_t)game::Key::Enter)) != 0;
-        _middle(closed ? "" : "lösen", closed && enterAnswer ? (int32_t)v.counts[5] : -1);
+        _middle(!closed                   ? "ändern"
+                : resolved && v.anonymous ? "Ergebnis"
+                                          : "",
+                closed && enterAnswer ? (int32_t)v.counts[5] : -1);
     }
 
     // Category line in place of the old status pill: round type and number.
@@ -736,12 +754,15 @@ class HubUi {
             else
                 snprintf(buf, sizeof(buf), "%u%%%s", m.battery, m.charging ? "+" : "");
             _at(cx + 40, cy + 16, buf);
-            _font(u8g2_font_helvR10_tf, m.present && m.rssi < HubView::kWeakRssi ? kWarn : kDim);
+            if (m.present && low) _warnIcon(cx + 24, cy + 16);
+            bool weak = m.present && m.rssi < HubView::kWeakRssi;
+            _font(u8g2_font_helvR10_tf, weak ? kWarn : kDim);
             if (m.present)
                 snprintf(buf, sizeof(buf), "%d dBm", m.rssi);
             else
                 snprintf(buf, sizeof(buf), "offline");
             _right(cx + colW - 10, cy + 16, buf);
+            if (weak) _warnIcon(cx + colW - 10 - _width(buf) - 15, cy + 16);
         }
     }
 
@@ -795,8 +816,9 @@ class HubUi {
         _at(kPad, y, buf);
         y += 18;
         if (!_mesh->isRoot()) {
+            int16_t wx = kPad + _warnIcon(kPad, y + 6);
             _font(u8g2_font_helvR12_tf, kWarn);
-            _at(kPad, y + 6, "Kein Baum: Konsole fehlt, Test aus");
+            _at(wx, y + 6, "Kein Baum: Konsole fehlt, Test aus");
             _font(u8g2_font_helvR10_tf, kDim);
             _at(kPad, y + 28, "Mesh-Test oben rechts baut ihn für 5 min.");
             y += 44;
@@ -893,9 +915,11 @@ class HubUi {
                 snprintf(buf, sizeof(buf), "Stufe %u", r.hops);
             _at(kPad + 84, ry + 18, buf);
             if (!r.lost) {
-                _font(u8g2_font_helvR10_tf, r.rssi < HubView::kWeakRssi ? kWarn : kDim);
+                bool weak = r.rssi < HubView::kWeakRssi;
+                _font(u8g2_font_helvR10_tf, weak ? kWarn : kDim);
                 snprintf(buf, sizeof(buf), "%d dBm  %+d", r.rssi, r.tx);
                 _right(W - kPad - 8, ry + 18, buf);
+                if (weak) _warnIcon(W - kPad - 8 - _width(buf) - 15, ry + 18);
             }
         }
         if (pages > 1) {
