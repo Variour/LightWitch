@@ -1,8 +1,10 @@
 #pragma once
 #include <ArduinoJson.h>
+#include <ctype.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <functional>
@@ -77,12 +79,21 @@ class FleetLink : public game::Link::Extension {
         std::function<bool(Target)> setTarget;
         std::function<Target()> target;
         std::function<ApResult(uint8_t minutes)> openAp;
+        // Stores the device's own colours (NVS) and shows them; false if they
+        // could not be stored.
+        std::function<bool(const Look&)> setLook;
+        std::function<uint8_t()> lookLeds;
+        // Stores the device name (config file); it applies from the next
+        // restart. False if it could not be stored.
+        std::function<bool(const char*)> setName;
+        std::function<const char*()> name;
         std::function<uint16_t()> number;
         std::function<uint32_t()> fwBuild;
         // fleet
         std::function<bool()> radioBusy;  // the bridge's radio belongs to a game session
         std::function<uint32_t()> nonce;
-        // A command was queued for sending (the bridge applies `update` to itself).
+        // A command was queued for sending (the bridge applies `charge`,
+        // `brightness` and `update` to itself).
         std::function<void(const FleetCommandMsg&)> sent;
         // test
         std::function<void(TestInfo&)> testInfo;
@@ -229,6 +240,8 @@ class FleetLink : public game::Link::Extension {
     // ── config ───────────────────────────────────────────────────────────────
     void _config(Link& link, const char* cmd, JsonObjectConst o, const ReqId& id) {
         if (strcmp(cmd, "wifi") == 0) return _configWifi(link, o, id);
+        if (strcmp(cmd, "look") == 0) return _configLook(link, o, id);
+        if (strcmp(cmd, "name") == 0) return _configName(link, o, id);
         if (strcmp(cmd, "token") == 0) {
             // Never echoed or logged.
             const char* token = _str(o, "token");
@@ -283,6 +296,8 @@ class FleetLink : public game::Link::Extension {
             d["token"] = _io.hasToken ? _io.hasToken() : false;
             Target t = _io.target ? _io.target() : Target::Store;
             d["target"] = kTargetNames[(uint8_t)t];
+            d["look"] = _io.lookLeds ? _io.lookLeds() != 0 : false;
+            d["name"] = _io.name ? _io.name() : "";
             uint16_t n = _io.number ? _io.number() : 0;
             if (n)
                 d["number"] = n;
@@ -295,10 +310,70 @@ class FleetLink : public game::Link::Extension {
             return;
         }
         link.error(id, "unknown_cmd", "config", cmd, nullptr,
-                   "config commands: wifi, token, charge, ap, get");
+                   "config commands: wifi, token, charge, ap, look, name, get");
     }
 
     // Replaces the whole list. Passwords are never echoed or logged.
+    static bool _hexColor(const char* s, uint8_t rgb[3]) {
+        if (!s || strlen(s) != 7 || s[0] != '#') return false;
+        for (uint8_t i = 1; i < 7; i++)
+            if (!isxdigit((unsigned char)s[i])) return false;
+        unsigned long v = strtoul(s + 1, nullptr, 16);
+        rgb[0] = (uint8_t)(v >> 16);
+        rgb[1] = (uint8_t)(v >> 8);
+        rgb[2] = (uint8_t)v;
+        return true;
+    }
+
+    void _configLook(Link& link, JsonObjectConst o, const ReqId& id) {
+        JsonVariantConst v = o["leds"];
+        if (!v.is<JsonArrayConst>())
+            return _badField(link, id, "config", "look", "leds", "leds must be an array");
+        JsonArrayConst arr = v.as<JsonArrayConst>();
+        if (arr.size() != 0 && arr.size() != kLookLeds)
+            return _badField(link, id, "config", "look", "leds", "0 or 24 colours");
+        Look look;
+        for (JsonVariantConst c : arr) {
+            if (!c.is<const char*>() || !_hexColor(c.as<const char*>(), look.rgb[look.count]))
+                return _badField(link, id, "config", "look", "leds", "colour must be #rrggbb");
+            look.count++;
+        }
+        if (!_io.setLook || !_io.setLook(look))
+            return link.error(id, "store_failed", "config", "look", nullptr,
+                              "the colours could not be saved");
+        JsonDocument d;
+        Link::head(d, "config", "look", id);
+        _ok(d);
+        d["leds"] = look.count;
+        link.emit(d);
+    }
+
+    // One DNS label of 1-kNameMax characters: a-z, 0-9 and '-', not at either end.
+    static bool _validName(const char* s) {
+        if (!s) return false;
+        size_t n = strlen(s);
+        if (n == 0 || n > kNameMax || s[0] == '-' || s[n - 1] == '-') return false;
+        for (size_t i = 0; i < n; i++)
+            if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9') || s[i] == '-'))
+                return false;
+        return true;
+    }
+
+    void _configName(Link& link, JsonObjectConst o, const ReqId& id) {
+        const char* name = _str(o, "name");
+        if (!_validName(name))
+            return _badField(link, id, "config", "name", "name",
+                             "name must be 1-31 of a-z, 0-9 and -, not starting or ending with -");
+        if (!_io.setName || !_io.setName(name))
+            return link.error(id, "store_failed", "config", "name", nullptr,
+                              "the name could not be saved");
+        JsonDocument d;
+        Link::head(d, "config", "name", id);
+        _ok(d);
+        d["name"] = name;
+        link.emit(d);
+    }
+
     void _configWifi(Link& link, JsonObjectConst o, const ReqId& id) {
         JsonVariantConst v = o["networks"];
         if (!v.is<JsonArrayConst>())
@@ -368,11 +443,18 @@ class FleetLink : public game::Link::Extension {
             m.op = (uint8_t)Op::Ap;
             m.arg = kApMinutesDefault;
             m.targetCount = 1;
+        } else if (strcmp(cmd, "brightness") == 0) {
+            long long level;
+            if (Link::intField(o, "level", 0, 255, level) != Link::Field::Ok)
+                return _badField(link, id, "fleet", cmd, "level", "level must be 0-255");
+            m.op = (uint8_t)Op::Brightness;
+            m.arg = (uint8_t)level;
         } else {
             return link.error(id, "unknown_cmd", "fleet", cmd, nullptr,
-                              "fleet commands: update, charge, off, ap");
+                              "fleet commands: update, charge, off, ap, brightness");
         }
-        if (_io.radioBusy && _io.radioBusy())
+        // `brightness` also reaches the devices of a running session.
+        if ((Op)m.op != Op::Brightness && _io.radioBusy && _io.radioBusy())
             return link.error(id, "session_active", "fleet", cmd, nullptr,
                               "the radio belongs to the game session");
         m.nonce = _io.nonce ? _io.nonce() : now;

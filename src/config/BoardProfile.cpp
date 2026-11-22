@@ -46,6 +46,8 @@ static_assert(sizeof(kKeys) / sizeof(kKeys[0]) <= MAX_BUTTONS,
 // I2C bus: BQ25628 (0x6A) and LSM6DS3TR-C (0x6B), 4.7k pull-ups.
 constexpr uint8_t kI2cSdaPin = 26;
 constexpr uint8_t kI2cSclPin = 27;
+// LSM6DS3TR-C INT1 (net IMU_INT, module pin 26); not an LP GPIO.
+constexpr uint8_t kImuIntPin = 25;
 
 // 34 x SK6812MINI-E in one chain behind the SN74LV1T34 5 V buffer, on the
 // WS2812B driver. GRB: the 24-bit word goes out G7..G0, R7..R0, B7..B0
@@ -67,6 +69,9 @@ constexpr uint16_t kLedCount = 34;
 // UNVERIFIED: the ~75 mA system figure is an estimate; measure IBUS with
 // the LEDs dark and at the cap on a 500 mA USB port.
 constexpr uint16_t kLedCurrentLimitMa = 300;
+
+// Up / Down brightness step, about 3 % of 255.
+constexpr int kBrightnessStep = 8;
 
 bool sDetected = false;
 
@@ -123,6 +128,17 @@ bool applyBoardProfile(DeviceConfig& cfg) {
     l.currentLimitMa = kLedCurrentLimitMa;
     l.exists = true;
 
+    // Idle look of the default group: violet breathing at about 3 %
+    // brightness instead of full white (Timo, 2026-11-09). Violet is not one
+    // of the game colours (blue invites, green joined, yellow race, red
+    // wrong).
+    LightConfig& idle = cfg.groups[0].light;
+    idle.mode = GroupMode::Pattern;
+    idle.pattern = PatternId::Breathing;
+    idle.color = Color{140, 0, 255};
+    idle.brightness = 8;
+    idle.speed = 1.0f;  // 4 s per breath, fleet::kIdlePulseMs
+
     uint8_t i = 0;
     for (const KeyPin& k : kKeys) {
         ButtonHardwareConfig& b = cfg.buttons[i++];
@@ -133,26 +149,104 @@ bool applyBoardProfile(DeviceConfig& cfg) {
         b.activeLow = true;
         b.viaExpander = false;
         b.exists = true;
+        // Timo, 2026-11-09, outside a game session: Up / Down step the
+        // brightness by about 3 %, down to 0 switches the LEDs off. The fleet
+        // runs this step on the press, in every device state (2026-11-10,
+        // src/fleet/FleetConfig.h). R2 shows the battery level
+        // (FleetManager); its long press brings back the configured
+        // brightness.
+        if (strcmp(k.role, ButtonRole::R2) == 0) {
+            b.onLongPress.action = ActionId::LightBrightnessOverrideClear;
+            b.onLongPress.lightIndex = 0;
+        } else if (strcmp(k.role, ButtonRole::UP) == 0 || strcmp(k.role, ButtonRole::DOWN) == 0) {
+            b.onShortPress.action = ActionId::LightBrightnessOverrideStep;
+            b.onShortPress.lightIndex = 0;
+            b.onShortPress.params.numberValue =
+                strcmp(k.role, ButtonRole::UP) == 0 ? kBrightnessStep : -kBrightnessStep;
+        }
     }
     return true;
 }
 
 bool boardDetected() { return sDetected; }
 bool boardHasFallbackAp() { return !sDetected; }
+int8_t boardImuIntPin() { return sDetected ? (int8_t)kImuIntPin : -1; }
 
 // Every light: the Buzzerboard's LEDs all hang on the PMID rail.
+// On boost the LED rail (PMID behind PMID_GD) can drop for a moment while
+// the charger stays in OTG, and the LEDs come back dark: first board on
+// battery, 2026-11-09 (PMID 3.1 V in one ADC reading, VBUS_STAT OTG
+// throughout, LEDs dark afterwards). Sending the frame again brings them
+// back.
+constexpr uint16_t kLedRefreshMs = 250;
+
+uint16_t boardLedRefreshMs() { return sDetected ? kLedRefreshMs : 0; }
+
 uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) {
     if (!sDetected) return configuredMa;
     if (configuredMa == 0 || configuredMa > kLedCurrentLimitMa) return kLedCurrentLimitMa;
     return configuredMa;
 }
 
+#elif defined(BOARD_HUB_C5_LCD35)
+
+// Hub board: Waveshare ESP32-C5-Touch-LCD-3.5. Pins from Waveshare's board
+// support package (waveshareteam/ESP32-C5-Touch-LCD-3.5 @ ef03a84,
+// examples/esp-idf/*/components/waveshare__esp32_c5_touch_lcd_3_5/include/
+// bsp/esp32_c5_touch_lcd_3_5.h). SDA and SCL sit the other way round than on
+// the Buzzerboard. Display (ST7796 on SPI2: SCLK 6, MOSI 7, DC 5, CS 8; reset
+// and backlight on the CH32V003 IO expander), touch interrupt (GPIO3), BOOT
+// key (GPIO28) and audio follow with the display module.
+
+#include <Arduino.h>
+#include <Wire.h>
+
+#include "../logging/Logger.h"
+
+namespace {
+
+constexpr uint8_t kI2cSdaPin = 27;
+constexpr uint8_t kI2cSclPin = 26;
+constexpr uint8_t kTouchAddress = 0x38;  // FT6336
+
+bool sDetected = false;
+
+}  // namespace
+
+void detectBoard() {
+    sDetected = false;
+    if (!Wire.begin(kI2cSdaPin, kI2cSclPin)) {
+        Logger::w("[cfg] hub check: I2C on GPIO%u/%u did not start", kI2cSdaPin, kI2cSclPin);
+        return;
+    }
+    Wire.beginTransmission(kTouchAddress);
+    sDetected = Wire.endTransmission() == 0;
+    Wire.end();
+    Logger::i("[cfg] %s", sDetected ? "hub board detected (FT6336 at 0x38)"
+                                    : "no hub board: no FT6336 at 0x38");
+}
+
+bool applyBoardProfile(DeviceConfig& cfg) {
+    if (!sDetected) return false;
+    cfg.i2cSdaPin = kI2cSdaPin;
+    cfg.i2cSclPin = kI2cSclPin;
+    return true;
+}
+
+uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) { return configuredMa; }
+uint16_t boardLedRefreshMs() { return 0; }
+bool boardDetected() { return sDetected; }
+bool boardHasFallbackAp() { return true; }
+int8_t boardImuIntPin() { return -1; }
+
 #else
 
 void detectBoard() {}
 bool applyBoardProfile(DeviceConfig&) { return false; }
 uint16_t boardLedCurrentLimitMa(uint16_t configuredMa) { return configuredMa; }
+uint16_t boardLedRefreshMs() { return 0; }
 bool boardDetected() { return false; }
 bool boardHasFallbackAp() { return true; }
+int8_t boardImuIntPin() { return -1; }
 
 #endif
