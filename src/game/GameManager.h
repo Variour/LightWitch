@@ -63,6 +63,7 @@ class GameManager {
             _storedSession = p.getUShort(KEY_SESSION, 0);
             _storedChannel = p.getUChar(KEY_CHANNEL, 0);
             _storedNaming = (game::Participant::Naming)p.getUChar(KEY_NAMING, 0);
+            _teacher = p.getBool(KEY_TEACHER, false);
             p.end();
         }
         if (_number > game::kMaxNumber) _number = 0;
@@ -101,6 +102,7 @@ class GameManager {
         pio.fwBuild = [this]() { return _fwBuild(); };
         _participant.begin(pio, _mac, _number, _storedSession, _storedChannel, _storedNaming, now);
         _participant.setCanJoin(_hasBuzzKey);
+        _participant.setTeacher(_teacher);
 
         game::Bridge::Io bio;
         bio.send = [this](const uint8_t* d, size_t n) { _sendFrame(d, n); };
@@ -183,6 +185,21 @@ class GameManager {
     // is open with `link hello`.
     bool gatewayActive() const { return _isBridge && _link.helloDone(); }
     uint16_t number() const { return _number; }
+    // Hub display: the bridge side and whether this device is the bridge.
+    bool isBridge() const { return _isBridge; }
+    const game::Bridge& bridge() const { return _bridge; }
+    // Teacher device (USB `config role`); applies at once outside a session.
+    bool teacher() const { return _teacher; }
+    bool storeTeacher(bool t) {
+        Preferences p;
+        if (!p.begin(NVS_NS, false)) return false;
+        bool ok = p.putBool(KEY_TEACHER, t) > 0;
+        p.end();
+        if (!ok) return false;
+        _teacher = t;
+        if (!_participant.inSession()) _participant.setTeacher(t);
+        return true;
+    }
     // An invite ring shows (normal operation, device with a buzz key).
     bool inviteVisible(uint32_t now) const {
         return _participant.state() == game::Participant::State::Normal &&
@@ -192,6 +209,8 @@ class GameManager {
     // The radio belongs to the game: no softAP, WiFi, channel search, or
     // LightWitch mesh traffic.
     bool radioQuiet() const { return _participant.inSession() || _bridge.quiet(); }
+    // The bridge holds the radio (hops channels, repeats state).
+    bool bridgeQuiet() const { return _bridge.quiet(); }
     // The session renders the light exclusively; patterns and button actions pause.
     bool ownsLeds() const { return _participant.inSession(); }
     // Log lines stay off the serial port while the bridge link is open.
@@ -200,12 +219,10 @@ class GameManager {
     // Full frame while ownsLeds().
     void render(uint32_t now) {
         if (!_led) return;
-        game::Rgb px[game::kLedCount];
+        game::RgbF px[game::kLedCount];
         game::renderParticipant(_participant, now, px);
         uint8_t lvl = _showLevel();
-        for (uint16_t i = 0; i < game::kLedCount; i++)
-            _led->setPixel(i, scaleToLevel(px[i].r, lvl), scaleToLevel(px[i].g, lvl),
-                           scaleToLevel(px[i].b, lvl));
+        for (uint16_t i = 0; i < game::kLedCount; i++) _setPixelAtLevel(i, px[i], lvl);
         _led->show();
     }
 
@@ -221,12 +238,10 @@ class GameManager {
     // light's config so the pattern repaints the ring.
     Overlay renderOverlay(uint32_t now) {
         if (!_led) return Overlay::None;
-        game::Rgb ring[4];
+        game::RgbF ring[4];
         if (game::renderInviteOverlay(_participant, now, ring)) {
             uint8_t lvl = _showLevel();
-            for (uint8_t i = 0; i < 4; i++)
-                _led->setPixel(game::kRingLeds[i], scaleToLevel(ring[i].r, lvl),
-                               scaleToLevel(ring[i].g, lvl), scaleToLevel(ring[i].b, lvl));
+            for (uint8_t i = 0; i < 4; i++) _setPixelAtLevel(game::kRingLeds[i], ring[i], lvl);
             _led->show();
             _overlayOn = true;
             return Overlay::Drawn;
@@ -238,10 +253,27 @@ class GameManager {
 
    private:
     static constexpr const char* NVS_NS = "game";
+
+    // A channel (0-255, fractional) scaled to the show level as a fine value
+    // (8 fractional bits), like scaleToLevel(): a channel of at least 1 stays
+    // at least one LED step.
+    static uint16_t _fineAtLevel(float v, uint8_t lvl) {
+        if (v <= 0.0f) return 0;
+        float f = v * (float)lvl * (256.0f / 255.0f);
+        if (v >= 1.0f && f < 256.0f) f = 256.0f;
+        return f >= 65280.0f ? 65280 : (uint16_t)(f + 0.5f);
+    }
+
+    // Pixel i of a session frame, dithered by the driver (led/Dither.h).
+    void _setPixelAtLevel(uint16_t i, const game::RgbF& c, uint8_t lvl) {
+        _led->setPixelFine(i, _fineAtLevel(c.r, lvl), _fineAtLevel(c.g, lvl),
+                           _fineAtLevel(c.b, lvl));
+    }
     static constexpr const char* KEY_NUMBER = "num";
     static constexpr const char* KEY_SESSION = "sess";
     static constexpr const char* KEY_CHANNEL = "sch";
     static constexpr const char* KEY_NAMING = "named";
+    static constexpr const char* KEY_TEACHER = "teacher";
 
     struct SerialWriter : game::Link::Writer {
         int availableForWrite() override { return Serial.availableForWrite(); }
@@ -261,6 +293,7 @@ class GameManager {
     uint8_t _mac[6] = {};
     bool _hasBuzzKey = false;
     bool _isBridge = false;
+    bool _teacher = false;
     bool _overlayOn = false;
     int8_t _imuIntPin = -1;  // -1: no orientation sensor
     bool _imuOn = false;

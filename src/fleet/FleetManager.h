@@ -299,6 +299,8 @@ class FleetManager {
     // Charging or standby: the main loop leaves WiFi, web, OTA, MQTT, time
     // and scene/playlist sync alone, as during a game session.
     bool radioInactive() const { return _radioInactive; }
+    // The fleet's USB namespaces, to chain more extensions behind them.
+    game::Link::Extension* linkExtension() { return &_link; }
     // A fleet update runs: WifiElection keeps ticking for its connection,
     // also in charging mode.
     bool updateRunning() const { return _upd.running; }
@@ -1000,6 +1002,8 @@ class FleetManager {
                                                               : FleetLink::ApResult::Unsupported;
         };
         io.number = [this]() { return _game->number(); };
+        io.setTeacher = [this](bool t) { return _game->storeTeacher(t); };
+        io.teacher = [this]() { return _game->teacher(); };
         io.fwBuild = [this]() { return _game->fwBuild(); };
         io.radioBusy = [this]() { return _game->radioQuiet(); };
         io.nonce = []() { return (uint32_t)esp_random(); };
