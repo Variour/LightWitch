@@ -9,9 +9,9 @@ import { authRouter, requireAuth } from './auth.js';
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 const mockLights = [
-  { index: 0, name: 'Living room', ledType: 0, colorOrder: 2, dataPin: 13, clockPin: 14, width: 1,  height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 0, brightnessOverrideEnabled: false, brightnessOverride: 255, brightnessLimit: 255, brightnessScale: 255, currentLimitMa: 300 },
-  { index: 1, name: 'Bedroom',     ledType: 1, colorOrder: 0, dataPin: 25, clockPin: 26, width: 8,  height: 8, matrixStart: 2, matrixDir: 1, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 1, brightnessOverrideEnabled: true,  brightnessOverride: 120, brightnessLimit: 255, brightnessScale: 255, currentLimitMa: 0 },
-  { index: 2, name: 'Patio',       ledType: 0, colorOrder: 2, dataPin: 27, clockPin: 32, width: 12, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: true,  wrapHeight: false, groupId: 2, brightnessOverrideEnabled: false, brightnessOverride: 255, brightnessLimit: 128, brightnessScale: 180, currentLimitMa: 0 },
+  { index: 0, name: 'Living room', ledType: 0, colorOrder: 2, dataPin: 13, clockPin: 14, width: 1,  height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 0, brightnessOverrideEnabled: false, brightnessOverride: 255, brightnessLimit: 255, brightnessScale: 255, currentLimitMa: 300, torch: false },
+  { index: 1, name: 'Bedroom',     ledType: 1, colorOrder: 0, dataPin: 25, clockPin: 26, width: 8,  height: 8, matrixStart: 2, matrixDir: 1, matrixSerpentine: false, wrapWidth: false, wrapHeight: false, groupId: 1, brightnessOverrideEnabled: true,  brightnessOverride: 120, brightnessLimit: 255, brightnessScale: 255, currentLimitMa: 0, torch: false },
+  { index: 2, name: 'Patio',       ledType: 0, colorOrder: 2, dataPin: 27, clockPin: 32, width: 12, height: 1, matrixStart: 0, matrixDir: 0, matrixSerpentine: false, wrapWidth: true,  wrapHeight: false, groupId: 2, brightnessOverrideEnabled: false, brightnessOverride: 255, brightnessLimit: 128, brightnessScale: 180, currentLimitMa: 0, torch: true },
 ];
 
 // The real device derives self.lights in /api/peers straight from the live
@@ -124,8 +124,8 @@ const mockButtons = [
   },
   { index: 2, name: 'KEY1 (expander)', pin: 9, activeLow: true, viaExpander: true, role: 'power', exists: true,
     onShortPress:  { action: 9, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 }, // SceneNext
-    onLongPress:   { action: 0, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 },
-    onDoubleClick: { action: 0, groupId: 0, lightIndex: 0, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 },
+    onLongPress:   { action: 30, groupId: 0, lightIndex: 2, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 }, // TorchIgnite on Patio
+    onDoubleClick: { action: 31, groupId: 0, lightIndex: 2, numberValue: 0, stringValue: '', r: 255, g: 255, b: 255 }, // TorchExtinguish on Patio
   },
 ];
 
@@ -768,10 +768,10 @@ app.get('/api/lights', (_req, res) => res.json({ lights: mockLights, maxLights: 
 app.post('/api/lights/add', (req, res) => {
   const free = [0,1,2,3].find(i => !mockLights.find(l => l.index === i));
   if (free === undefined) return res.status(400).json({ error: 'light limit reached' });
-  const { name = '', ledType = 0, colorOrder, dataPin = 13, clockPin = 14, width = 1, height = 1, matrixStart = 0, matrixDir = 0, matrixSerpentine = false, wrapWidth = false, wrapHeight = false, groupId = 0, brightnessLimit = 255, brightnessScale = 255, currentLimitMa = 0 } = req.body || {};
+  const { name = '', ledType = 0, colorOrder, dataPin = 13, clockPin = 14, width = 1, height = 1, matrixStart = 0, matrixDir = 0, matrixSerpentine = false, wrapWidth = false, wrapHeight = false, groupId = 0, brightnessLimit = 255, brightnessScale = 255, currentLimitMa = 0, torch = false } = req.body || {};
   // Mirrors Config.h::defaultColorOrder: WS2812B (0) is conventionally wired GRB (2), WS2801 (1) RGB (0).
   const resolvedColorOrder = colorOrder !== undefined ? colorOrder : (ledType === 0 ? 2 : 0);
-  const light = { index: free, name, ledType, colorOrder: resolvedColorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir, matrixSerpentine, wrapWidth, wrapHeight, groupId, brightnessLimit, brightnessScale, currentLimitMa };
+  const light = { index: free, name, ledType, colorOrder: resolvedColorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir, matrixSerpentine, wrapWidth, wrapHeight, groupId, brightnessLimit, brightnessScale, currentLimitMa, torch };
   const conflict = lightPinConflict(light, free);
   if (conflict) return res.status(400).json({ error: conflict });
   mockLights.push(light);

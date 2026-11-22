@@ -127,6 +127,9 @@ enum class SceneStringMode : uint8_t {
 // own sound output only (see ActionExecutor). SendEvent is a fourth: it also
 // targets neither, broadcasting ActionParams.stringValue/numberValue as a
 // mesh GenericEvent's eventType/payload instead (see ActionExecutor).
+// TorchIgnite/TorchExtinguish target a light (ButtonAction::lightIndex) like the
+// LightBrightnessOverride* actions and switch its torch state (see
+// src/torch/TorchManager.h).
 enum class ActionId : uint8_t {
     None = 0,
     BrightnessStep,
@@ -158,6 +161,8 @@ enum class ActionId : uint8_t {
     LightBrightnessOverrideClear,
     PlaySound,
     SendEvent,
+    TorchIgnite,
+    TorchExtinguish,
 };
 
 // What kind of event an AutomationBinding matches against (see AutomationBinding
@@ -247,7 +252,7 @@ static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
 // gained chargerEnabled (BQ25628 support), all additive with `| default`
 // fallbacks in applyDoc(). Keeping v5 lets firmware before them load the
 // config after a downgrade; it ignores the new fields. The same holds for
-// the device's lampMode.
+// the device's lampMode and the lights' torch flag.
 static constexpr uint8_t CONFIG_SCHEMA_VERSION = 5;
 
 // Parameters for a ButtonAction. Which member is meaningful depends on the
@@ -435,6 +440,10 @@ struct LightHardwareConfig {
     // frame's current from its pixel values and scales the whole frame down
     // when the estimate exceeds the cap. Local to this device.
     uint16_t currentLimitMa = 0;
+    // LARP torch (docs/torch.md): the light is lit or out, starts out at
+    // boot and catches fire from a nearby lit torch of its group. Local to
+    // this device.
+    bool torch = false;
     bool exists = false;
 };
 

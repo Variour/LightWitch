@@ -27,6 +27,7 @@ codebase for the first time. For build/flash/update instructions see
 | `scenes` | `SceneManager` reads/writes scene JSON files; `SceneSyncManager` syncs them between mesh peers. |
 | `sound` | `SoundDriver` interface for the onboard audio codec (`Es8311Driver`). See `src/sound/README.md`. |
 | `storage` | `SdCardManager` wraps the onboard microSD reader for uploaded sound files. See `src/storage/README.md`. |
+| `torch` | `TorchManager` keeps the lit/out state of every torch light (`LightHardwareConfig::torch`), broadcasts lit torches as `TorchFlame` frames and lights an out torch once a lit one of its group stays close (`TorchSpread.h`). See [torch.md](torch.md). |
 | `timesync` | `TimeSync` gets wall-clock time from NTP or a mesh peer, for patterns like `TimeMatrix`. |
 | `update` | `Updater`, GitHub-releases-based OTA firmware/filesystem updater, including PR-build tracking. |
 | `web` | `BatteryWebServer` serves the dashboard and REST/WebSocket API, driving the rest of the system through injected callbacks. |

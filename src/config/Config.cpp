@@ -387,6 +387,7 @@ static void applyDoc(JsonDocument& doc) {
             l.brightnessLimit = v["brightnessLimit"] | (uint8_t)255;
             l.brightnessScale = v["brightnessScale"] | (uint8_t)255;
             l.currentLimitMa = v["currentLimitMa"] | (uint16_t)0;
+            l.torch = v["torch"] | false;
             if (!v["name"].isNull()) strlcpy(l.name, v["name"] | "", sizeof(l.name));
         }
     }
@@ -556,6 +557,7 @@ bool Config::save() {
         o["brightnessLimit"] = l.brightnessLimit;
         o["brightnessScale"] = l.brightnessScale;
         o["currentLimitMa"] = l.currentLimitMa;
+        o["torch"] = l.torch;
     }
 
     JsonArray arr = doc["groups"].to<JsonArray>();

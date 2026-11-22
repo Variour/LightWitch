@@ -90,6 +90,8 @@ class MeshManager {
     // layer; consumers match on it themselves.
     using GenericEventCb =
         std::function<void(const uint8_t* mac, const char* eventType, uint16_t payload)>;
+    // Called from the receive task with every TorchFlameMsg and its RSSI.
+    using TorchFlameCb = std::function<void(const uint8_t* mac, uint8_t groupMask, int8_t rssi)>;
     // Called when a device is (re-)discovered via HelloMsg — see MeshTypes.h's
     // "Onboarding discovery" section. Purely a UI-refresh hook; the entry
     // itself already lives in peers (PeerInfo::helloOnly).
@@ -145,6 +147,7 @@ class MeshManager {
     void setBatteryStatusProvider(BatteryStatusCb cb) { _batteryStatusProvider = cb; }
     void setOnGenericEvent(GenericEventCb cb) { _onGenericEvent = cb; }
     void setOnHelloPeer(HelloCb cb) { _onHelloPeer = cb; }
+    void setOnTorchFlame(TorchFlameCb cb) { _onTorchFlame = cb; }
 #if FEATURE_GAME
     void setOnQuizFrame(QuizFrameCb cb) { _onQuizFrame = cb; }
     void setOnFleetFrame(FleetFrameCb cb) { _onFleetFrame = cb; }
@@ -542,6 +545,14 @@ class MeshManager {
         _send(&msg, sizeof(msg));
     }
 
+    // Broadcasts this device's lit torch groups (see TorchFlameMsg).
+    void broadcastTorchFlame(uint8_t groupMask) {
+        if (!_ready) return;
+        TorchFlameMsg msg;
+        msg.groupMask = groupMask;
+        _send(&msg, sizeof(msg));
+    }
+
 #if FEATURE_GAME
     // Sends one quiz frame (game session) after the same framing check the
     // receive path applies.
@@ -618,6 +629,7 @@ class MeshManager {
     WifiRetryCb _onWifiRetry;
     MeshSearchCb _onMeshSearch;
     HelloCb _onHelloPeer;
+    TorchFlameCb _onTorchFlame;
 #if FEATURE_GAME
     QuizFrameCb _onQuizFrame;
     FleetFrameCb _onFleetFrame;
@@ -1302,6 +1314,13 @@ class MeshManager {
                 auto* m = (GenericEventMsg*)data;
                 if (_instance->_onGenericEvent)
                     _instance->_onGenericEvent(mac, m->eventType, m->payload);
+                break;
+            }
+            case MsgType::TorchFlame: {
+                if (!_hasExactLen<TorchFlameMsg>(len)) return;
+                auto* m = (TorchFlameMsg*)data;
+                int8_t rssi = info->rx_ctrl ? (int8_t)info->rx_ctrl->rssi : -127;
+                if (_instance->_onTorchFlame) _instance->_onTorchFlame(mac, m->groupMask, rssi);
                 break;
             }
 #if FEATURE_GAME

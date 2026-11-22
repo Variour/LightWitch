@@ -21,6 +21,7 @@ class ActionExecutor {
     using ApplyLightBrightnessFn = std::function<void(uint8_t lightIndex)>;
     using PlaySoundFn = std::function<void(const char* filename)>;
     using SendEventFn = std::function<void(const char* eventType, uint16_t payload)>;
+    using SetTorchFn = std::function<void(uint8_t lightIndex, bool lit)>;
 
     // Applies + propagates a LightConfig change for a group (e.g. main.cpp's
     // applyAndPropagateLightConfig — save, runners, mesh broadcast, mqtt publish).
@@ -40,6 +41,9 @@ class ActionExecutor {
     // wiring, same as the rest of this class; main.cpp wires it to
     // MeshManager::broadcastGenericEvent.
     void setSendEventFn(SendEventFn fn) { _sendEvent = fn; }
+    // Lights or puts out a torch light — used only by TorchIgnite and
+    // TorchExtinguish; main.cpp wires it to TorchManager::set.
+    void setSetTorchFn(SetTorchFn fn) { _setTorch = fn; }
 
     void execute(const ButtonAction& action) {
         if (action.action == ActionId::None) return;
@@ -59,6 +63,11 @@ class ActionExecutor {
         if (action.action == ActionId::SendEvent) {
             if (_sendEvent)
                 _sendEvent(action.params.stringValue, (uint16_t)action.params.numberValue);
+            return;
+        }
+
+        if (action.action == ActionId::TorchIgnite || action.action == ActionId::TorchExtinguish) {
+            if (_setTorch) _setTorch(action.lightIndex, action.action == ActionId::TorchIgnite);
             return;
         }
 
@@ -152,6 +161,7 @@ class ActionExecutor {
     ApplyLightBrightnessFn _applyLightBrightness;
     PlaySoundFn _playSound;
     SendEventFn _sendEvent;
+    SetTorchFn _setTorch;
 
     // Mutates a light's own brightness override (not its group's LightConfig)
     // per ActionId::LightBrightnessOverride{Step,Set,Clear}. Step/Set enable

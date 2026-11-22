@@ -96,6 +96,7 @@ All current `MsgType` payloads were audited against `MeshManager::_onRecv`.
 | `QuizChannel` | `QuizChannelMsg` fixed-size, 17 bytes | exact `sizeof(QuizChannelMsg)` | Game session. Bridge to all, announces a channel change. |
 | `FleetStatus` | `FleetStatusMsg` fixed-size, 20 bytes | exact `sizeof(FleetStatusMsg)` | Fleet package, see below. Every device to all, about every 30 s and on a change. |
 | `FleetCommand` | `FleetCommandMsg` variable-length (11-byte head + `targetCount` MACs) | head must be present, `targetCount <= 32`, and `len` must equal head + 6 × `targetCount` | Fleet package. Bridge to all or to the listed MACs, three times with one nonce. |
+| `TorchFlame` | `TorchFlameMsg` fixed-size, 2 bytes | exact `sizeof(TorchFlameMsg)` | Raw fixed struct. A device with a lit torch light to all, every 200 ms; receivers use the frame's RSSI, see [torch.md](torch.md). |
 
 ## The `Hello` exception
 
