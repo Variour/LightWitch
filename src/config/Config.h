@@ -247,7 +247,7 @@ static constexpr uint8_t MAX_WIFI_NETWORKS = 5;
 // gained chargerEnabled (BQ25628 support), all additive with `| default`
 // fallbacks in applyDoc(). Keeping v5 lets firmware before them load the
 // config after a downgrade; it ignores the new fields. The same holds for
-// the device's lampMode.
+// the device's lampMode, board and motionOffS.
 static constexpr uint8_t CONFIG_SCHEMA_VERSION = 5;
 
 // Parameters for a ButtonAction. Which member is meaningful depends on the
@@ -321,6 +321,13 @@ static constexpr uint8_t PIN_UNUSED = 0xFF;
 // plus three buttons on one TCA9555). Sound/ButtonHardwareConfig each just
 // carry a bool for "is this particular pin on that expander," not a second
 // copy of which chip/address — see paViaExpander/viaExpander below.
+// The LightWitch board a device was seeded for (src/config/BoardProfile.h).
+// None = any other hardware; set once on first boot, cleared by a factory reset.
+enum class BoardId : uint8_t {
+    None = 0,
+    SteuerboardS = 1,  // 1S control board with ESP32-C3, src/board/SteuerboardS.h
+};
+
 enum class IoExpanderChip : uint8_t {
     None = 0,
     TCA9555 = 1,
@@ -597,6 +604,10 @@ struct DeviceConfig {
     // Lamp brightness model (lamp::Mode, docs/lamp/README.md): 0 raw,
     // 1 uniform, 2 uniform with peaks. Only used when /lamp.json is loaded.
     uint8_t lampMode = 1;
+    BoardId board = BoardId::None;
+    // Steuerboard S with a position sensor: seconds without motion until the
+    // device switches itself off (sleep, wakes on motion); 0 = never.
+    uint16_t motionOffS = 0;
     LightHardwareConfig lights[MAX_LIGHTS];
     GroupConfig groups[MAX_GROUPS];
     ButtonHardwareConfig buttons[MAX_BUTTONS];

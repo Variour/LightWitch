@@ -310,5 +310,10 @@ WWA chips the bright flame. Amber pairs on one IC sit at different places and
 each samples its own position. On lights
 without a lamp, Fire treats the LED index as height.
 
+"Up" is the lamp file's +z. A device with a position sensor (Steuerboard S
+with LIS2DH12, see `docs/boards/steuerboard-s.md`) replaces it with the
+measured gravity direction, so a ball's flame keeps burning upward however it
+lies.
+
 Other patterns render as before. On a lamp, `setColor`/`setPixel` go through
 the brightness model above.

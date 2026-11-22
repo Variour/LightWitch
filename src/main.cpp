@@ -45,6 +45,9 @@
 #include "fleet/FleetManager.h"
 #include "game/GameManager.h"
 #endif
+#ifdef BOARD_STEUERBOARD_S
+#include "board/SteuerboardS.h"
+#endif
 
 static Ws2812bDriver _ws2812bPool[MAX_LIGHTS];
 static Ws2801Driver _ws2801Pool[MAX_LIGHTS];
@@ -71,6 +74,9 @@ static PowerManager power;
 #if FEATURE_GAME
 static GameManager gameSession;
 static FleetManager fleetManager;
+#endif
+#ifdef BOARD_STEUERBOARD_S
+static SteuerboardS sBoard;
 #endif
 static bool _otaActive = false;
 
@@ -538,6 +544,10 @@ void setup() {
     lamp::Lamp::load();
     Logger::setLevel((LogLevel)Config::get().logLevel);
     Logger::i("[sys] firmware %s  device: %s", FW_VERSION, Config::get().deviceName);
+#ifdef BOARD_STEUERBOARD_S
+    // An empty cell sleeps on before Wi-Fi starts.
+    SteuerboardS::checkBatteryAtBoot();
+#endif
 
     // Bring up the device-wide I2C bus, if configured — shared by the sound
     // codec's control interface and any TCA9555-backed button (see
@@ -592,7 +602,13 @@ void setup() {
 
     if (Config::get().chargerEnabled)
         battery.setChargerSource([]() { return power.batteryReading(); });
+#ifdef BOARD_STEUERBOARD_S
+    if (SteuerboardS::active()) battery.setChargerSource([]() { return SteuerboardS::reading(); });
+#endif
     battery.begin(Config::get().batteryMonitoringEnabled);
+#ifdef BOARD_STEUERBOARD_S
+    sBoard.begin(&battery);
+#endif
 
 #if FEATURE_GAME
     gameSession.loadStored();
@@ -645,6 +661,9 @@ void setup() {
         drv->setBrightnessClamp(l.brightnessLimit, l.brightnessScale);
         drv->setCurrentLimitMa(boardLedCurrentLimitMa(l.currentLimitMa));
         _leds[i] = drv;
+#ifdef BOARD_STEUERBOARD_S
+        sBoard.attach(i, drv);
+#endif
 #if FEATURE_GAME
         gameSession.setLight(drv, numLeds);
         fleetManager.setLight(drv, numLeds);
@@ -708,6 +727,9 @@ void setup() {
     // that needs press/release edges.
     buttonManager.setRawCallback([](uint8_t index, bool pressed, uint32_t ms) {
         power.onButtonRaw(index, pressed, ms);
+#ifdef BOARD_STEUERBOARD_S
+        sBoard.onButtonRaw(index, pressed, ms);
+#endif
 #if FEATURE_GAME
         if (index >= MAX_BUTTONS) return;
         const char* role = Config::get().buttons[index].role;
@@ -1211,6 +1233,9 @@ void loop() {
     // Ahead of the update early-return below: the charger watchdog reset and
     // the LED rail keep running during an HTTP update download.
     power.tick();
+#ifdef BOARD_STEUERBOARD_S
+    sBoard.tick(now, _otaActive || Updater::status().state == Updater::State::Downloading);
+#endif
 
 #if FEATURE_GAME
     // Every pass: the bridge repeats state at 50 ms and hops channels for 30 ms.

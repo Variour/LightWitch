@@ -932,6 +932,8 @@ class BatteryWebServer {
         // The charger (if enabled) reads the battery too, see BatteryMonitor.
         doc["batteryHwSupported"] = BatteryMonitor::kHwSupported || c.chargerEnabled;
         doc["batteryMonitoringEnabled"] = c.batteryMonitoringEnabled;
+        doc["board"] = (uint8_t)c.board;
+        doc["motionOffS"] = c.motionOffS;
         doc["prOtaBoardSupported"] = Updater::supportsPrOta();
         doc["prOtaEnabled"] = c.prOtaEnabled;
         doc["prTrack"] = c.prTrack;
@@ -1038,6 +1040,8 @@ class BatteryWebServer {
             c.batteryMonitoringEnabled = newVal;
         }
         if (!doc["prOtaEnabled"].isNull()) c.prOtaEnabled = (bool)doc["prOtaEnabled"];
+        if (!doc["motionOffS"].isNull())
+            c.motionOffS = (uint16_t)constrain((int)doc["motionOffS"], 0, 3600);
 
         // A charger disable goes first, so one save can drop both the charger
         // and the I2C bus it sits on (the bus check below counts it).
