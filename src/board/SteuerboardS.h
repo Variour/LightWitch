@@ -2,7 +2,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <Wire.h>
-#include <driver/gpio.h>
 #include <esp_sleep.h>
 
 #include "../battery/BatteryMonitor.h"
@@ -17,22 +16,25 @@
 // charger, 5 V boost for the LEDs, two switched LED outputs and an optional
 // LIS2DH12 position sensor (Teelicht, Öllampe, Wurfball, Magische Kugel).
 //
-// PROVISIONAL pin map: the S schematic is not drawn yet. All pins live here
-// and in BoardProfile.cpp; change them together with the schematic.
+// Pin map: S schematic draft 1 (2026-11-22). All pins live here; change
+// them together with the schematic.
 namespace sboard {
 
-constexpr uint8_t PIN_IMU_INT =
-    0;                            // LIS2DH12 INT1, active low; GPIO0-5 wake the C3 from deep sleep
-constexpr uint8_t PIN_VBAT = 1;   // VBAT / 2 (1M / 1M, 100 nF), ADC1
-constexpr uint8_t PIN_SDA = 2;    // strap pin, held high by the I2C pull-up
-constexpr uint8_t PIN_CHRG = 3;   // TP4056 CHRG (low while charging), open drain, pull-up;
-                                  // the Qi board's BQ51050B CHG can share it (open drain)
-constexpr uint8_t PIN_STDBY = 4;  // TP4056 STDBY (low when full), open drain, pull-up
-constexpr uint8_t PIN_SCL = 7;
-constexpr uint8_t PIN_SW1 = 9;  // SW1 = BOOT, active low
+// Deep-sleep wake works on GPIO0-5 only.
+constexpr uint8_t PIN_IMU_INT = 0;    // LIS2DH12 INT1, active low (sensor at 0x18)
+constexpr uint8_t PIN_VBAT = 1;       // VBAT / 2 (1M / 1M, 100 nF), ADC1
+constexpr uint8_t PIN_SDA = 2;        // strap pin, held high by the I2C pull-up
+constexpr uint8_t PIN_SW1 = 3;        // SW1 to GND, 10k pull-up
+constexpr uint8_t PIN_CHRG = 4;       // TP4056 CHRG (low while charging), open drain, 100k pull-up;
+                                      // the Qi board's BQ51050B CHG can share it (open drain)
+constexpr uint8_t PIN_STDBY = 5;      // TP4056 STDBY (low when full), open drain, 100k pull-up
+constexpr uint8_t PIN_SCL = 8;        // strap pin, held high by the I2C pull-up
+constexpr uint8_t PIN_BYPASS = 9;     // high = cell straight onto the LED rail; works only
+                                      // while BOOST_EN is low (hardware interlock); BOOT pad
+constexpr uint8_t PIN_BOOST_EN = 20;  // SY7088 EN, high = boost on (4.84 V), 1M pulldown
 constexpr uint8_t OUTPUTS = 2;
-constexpr uint8_t PIN_EN[OUTPUTS] = {5, 6};      // 5 V switch of LED output A / B, high = on
-constexpr uint8_t PIN_DATA[OUTPUTS] = {10, 20};  // LED data A / B
+constexpr uint8_t PIN_EN[OUTPUTS] = {6, 7};      // 5 V switch of LED output A / B, high = on
+constexpr uint8_t PIN_DATA[OUTPUTS] = {10, 21};  // LED data A / B, 10k pulldown each
 constexpr uint8_t VBAT_DIVIDER = 2;
 
 // Battery thresholds under load. WARN: the light blinks dark three times,
@@ -51,7 +53,12 @@ constexpr uint32_t BLINK_STEP_MS = 250;  // dark, light, dark, light, dark, ligh
 constexpr uint32_t RAIL_SETTLE_MS = 10;
 constexpr uint32_t RAIL_OFF_DELAY_MS = 2000;
 
-// SW1 held this long switches the device off (light sleep until SW1,
+// LED rail source: bypass (cell straight on the rail) above BYPASS_ON_MV,
+// back to the boost below BYPASS_OFF_MV.
+constexpr uint16_t BYPASS_ON_MV = 3750;
+constexpr uint16_t BYPASS_OFF_MV = 3650;
+
+// SW1 held this long switches the device off (deep sleep until SW1,
 // motion or the charger).
 constexpr uint32_t OFF_HOLD_MS = 2000;
 constexpr uint32_t BOOT_GRACE_MS = 300;
@@ -85,9 +92,10 @@ class SteuerboardS {
         if (!active()) return;
         pinMode(sboard::PIN_CHRG, INPUT_PULLUP);
         pinMode(sboard::PIN_STDBY, INPUT_PULLUP);
-        for (uint8_t k = 0; k < sboard::OUTPUTS; k++) {
-            pinMode(sboard::PIN_EN[k], OUTPUT);
-            digitalWrite(sboard::PIN_EN[k], LOW);
+        for (uint8_t pin :
+             {sboard::PIN_EN[0], sboard::PIN_EN[1], sboard::PIN_BOOST_EN, sboard::PIN_BYPASS}) {
+            pinMode(pin, OUTPUT);
+            digitalWrite(pin, LOW);
         }
         BatteryMonitor::ChargerReading r = reading();
         Logger::i("[s] boot: VBAT %u mV, %s", r.vbatMv,
@@ -141,6 +149,7 @@ class SteuerboardS {
         _tickImu(now);
         _tickBattery(now, onBattery && !hold, mv);
         _tickRails(now);
+        _tickSupply(mv);
         if (hold) return;
 
         if (_powerDownSince && now - _powerDownSince >= sboard::OFF_HOLD_MS) {
@@ -170,6 +179,25 @@ class SteuerboardS {
     uint32_t _powerDownSince = 0, _loopMs = 0;  // _loopMs: first tick()
     uint32_t _lowSince = 0, _lastWarn = 0, _blinkStart = 0;
     bool _blinking = false;
+    uint8_t _supply = 0;  // LED rail source: 0 off, 1 boost, 2 bypass
+
+    // Rail source for the outputs that are on. Boost and bypass never
+    // overlap: BOOST_EN goes low before BYPASS goes high, and back.
+    void _tickSupply(uint16_t mv) {
+        bool need = false;
+        for (const Out& o : _out) need |= o.state != 0;
+        uint8_t want = 0;
+        if (need) {
+            bool high = _supply == 2 ? mv >= sboard::BYPASS_OFF_MV : mv >= sboard::BYPASS_ON_MV;
+            want = mv && high ? 2 : 1;
+        }
+        if (want == _supply) return;
+        digitalWrite(sboard::PIN_BYPASS, LOW);
+        digitalWrite(sboard::PIN_BOOST_EN, LOW);
+        if (want == 1) digitalWrite(sboard::PIN_BOOST_EN, HIGH);
+        if (want == 2) digitalWrite(sboard::PIN_BYPASS, HIGH);
+        _supply = want;
+    }
 
     void _tickImu(uint32_t now) {
         if (!_imuOk) return;
@@ -238,6 +266,7 @@ class SteuerboardS {
                 case 0:
                     if (!lit) break;
                     digitalWrite(sboard::PIN_EN[k], HIGH);
+                    _tickSupply(_battery ? _battery->millivolts() : 0);
                     o.state = 1;
                     o.since = now;
                     break;
@@ -269,38 +298,32 @@ class SteuerboardS {
         o.state = 0;
     }
 
-    // Off: LEDs and radio off, light sleep until SW1, motion (motion
-    // timeout set and sensor present) or a charger; then a fresh boot. Light
-    // sleep because SW1 sits on GPIO9, which cannot wake the C3 from deep
-    // sleep.
+    // Off: LEDs off, deep sleep until SW1, motion (motion timeout set and
+    // sensor present) or a charger; then a fresh boot.
     void _sleepOff() {
         for (uint8_t k = 0; k < sboard::OUTPUTS; k++) _railOff(k);
-        WiFi.disconnect(true);
-        WiFi.mode(WIFI_OFF);
+        _tickSupply(0);
         // The key that switched off must be released first, or it wakes the
         // device at once.
         uint32_t t0 = millis();
         while (digitalRead(sboard::PIN_SW1) == LOW && millis() - t0 < 10000) delay(10);
         delay(50);
-        bool motion = _imuOk && Config::get().motionOffS > 0;
-        if (motion) {
+        uint64_t mask = 1ULL << sboard::PIN_SW1;
+        if (_imuOk && Config::get().motionOffS > 0) {
             _imu.readMotion();
-            gpio_wakeup_enable((gpio_num_t)sboard::PIN_IMU_INT, GPIO_INTR_LOW_LEVEL);
+            mask |= 1ULL << sboard::PIN_IMU_INT;
         } else {
             _imu.powerDown();
         }
-        gpio_wakeup_enable((gpio_num_t)sboard::PIN_SW1, GPIO_INTR_LOW_LEVEL);
         // A charger already connected would wake it at once.
-        if (!charging()) gpio_wakeup_enable((gpio_num_t)sboard::PIN_CHRG, GPIO_INTR_LOW_LEVEL);
-        esp_sleep_enable_gpio_wakeup();
+        if (!charging()) mask |= 1ULL << sboard::PIN_CHRG;
         Serial.flush();
-        esp_light_sleep_start();
-        esp_restart();
+        esp_deep_sleep_enable_gpio_wakeup(mask, ESP_GPIO_WAKEUP_GPIO_LOW);
+        esp_deep_sleep_start();
     }
 
-    // Deep sleep until the charger pulls CHRG low (GPIO3 is a deep-sleep
-    // wake pin). The LED switches' gate pulldowns keep the outputs off.
-    // Wire must be begun.
+    // Deep sleep until the charger pulls CHRG low. The LED switches' gate pulldowns keep the
+    // outputs off. Wire must be begun.
     static void _deepSleepUntilCharger() {
         Lis2dh12 imu;
         if (imu.probe(Wire)) imu.powerDown();

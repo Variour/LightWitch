@@ -177,7 +177,7 @@ bool hasPullUp(uint8_t pin) {
 }  // namespace
 
 // Only on first boot (no saved config) the answer matters: an S has I2C
-// pull-ups on GPIO2/GPIO7 and a cell on the VBAT divider. Afterwards the
+// pull-ups on GPIO2/GPIO8 and a cell on the VBAT divider. Afterwards the
 // saved DeviceConfig::board says which board this is.
 void detectBoard() {
     sFound =
