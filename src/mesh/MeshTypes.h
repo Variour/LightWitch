@@ -59,6 +59,7 @@ enum class MsgType : uint8_t {
     // Fleet frames: layouts in src/fleet/FleetFrames.h (fleet protocol v0).
     FleetStatus = 44,
     FleetCommand = 45,
+    TorchFlame = 46,
 };
 static_assert((uint8_t)MsgType::QuizInvite == game::kMsgQuizInvite &&
                   (uint8_t)MsgType::QuizState == game::kMsgQuizState &&
@@ -462,6 +463,14 @@ struct GenericEventMsg {
     MsgType type = MsgType::GenericEvent;
     char eventType[EVENT_TYPE_LEN];  // e.g. "buzz.press", "buzz.reset" — opaque to the mesh layer
     uint16_t payload;
+};
+
+// ── Torch flame (docs/torch.md) ───────────────────────────────────────────────
+// Broadcast every torch::BEACON_INTERVAL_MS by a device with a lit torch
+// light. Receivers measure the frame's RSSI to tell how close the flame is.
+struct TorchFlameMsg {
+    MsgType type = MsgType::TorchFlame;
+    uint8_t groupMask;  // groups with a lit torch on the sender, bit per group id
 };
 
 // ── Onboarding discovery (frozen, cross-firmware) ─────────────────────────────

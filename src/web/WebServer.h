@@ -57,6 +57,8 @@ using LightBrightnessChangeCb = std::function<void(uint8_t)>;
 // Called when a light's brightnessLimit/brightnessScale/currentLimitMa changes
 // without reboot, so the new clamp/cap can be applied to its LED driver live
 using LightClampChangeCb = std::function<void(uint8_t)>;
+// Called when a light's torch flag changes without reboot
+using TorchChangeCb = std::function<void(uint8_t)>;
 // Called after a button is added/updated/deleted, so GPIO pin modes can be re-applied live
 using ButtonsChangedCb = std::function<void()>;
 // Called whenever the group list changes (create/rename/delete, local or mesh-synced) —
@@ -776,6 +778,7 @@ class BatteryWebServer {
     void setOnColorOrderChange(ColorOrderChangeCb cb) { _onColorOrderChange = cb; }
     void setOnLightBrightnessChange(LightBrightnessChangeCb cb) { _onLightBrightnessChange = cb; }
     void setOnLightClampChange(LightClampChangeCb cb) { _onLightClampChange = cb; }
+    void setOnTorchChange(TorchChangeCb cb) { _onTorchChange = cb; }
     void setOnLampModeChange(std::function<void()> cb) { _onLampModeChange = cb; }
     void setOnButtonsChanged(ButtonsChangedCb cb) { _onButtonsChanged = cb; }
     void setOnGroupsChanged(GroupsChangedCb cb) { _onGroupsChanged = cb; }
@@ -841,6 +844,7 @@ class BatteryWebServer {
     ColorOrderChangeCb _onColorOrderChange;
     LightBrightnessChangeCb _onLightBrightnessChange;
     LightClampChangeCb _onLightClampChange;
+    TorchChangeCb _onTorchChange;
     std::function<void()> _onLampModeChange;
     ButtonsChangedCb _onButtonsChanged;
     GroupsChangedCb _onGroupsChanged;
@@ -972,6 +976,7 @@ class BatteryWebServer {
             lo["brightnessLimit"] = l.brightnessLimit;
             lo["brightnessScale"] = l.brightnessScale;
             lo["currentLimitMa"] = l.currentLimitMa;
+            lo["torch"] = l.torch;
         }
 
         JsonArray arr = doc["groups"].to<JsonArray>();
@@ -2098,6 +2103,7 @@ class BatteryWebServer {
             o["brightnessLimit"] = l.brightnessLimit;
             o["brightnessScale"] = l.brightnessScale;
             o["currentLimitMa"] = l.currentLimitMa;
+            o["torch"] = l.torch;
         }
         _sendJson(r, 200, doc);
     }
@@ -2281,7 +2287,7 @@ class BatteryWebServer {
     // ── POST /api/lights/add ──────────────────────────────────────────────────
     // Body: {ledType, colorOrder, dataPin, clockPin, width, height, matrixStart, matrixDir,
     // matrixSerpentine, wrapWidth, wrapHeight, groupId, brightnessLimit, brightnessScale,
-    // currentLimitMa}
+    // currentLimitMa, torch}
     void _addLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2316,6 +2322,7 @@ class BatteryWebServer {
         l.brightnessLimit = (uint8_t)constrain((int)(doc["brightnessLimit"] | 255), 0, 255);
         l.brightnessScale = (uint8_t)constrain((int)(doc["brightnessScale"] | 255), 0, 255);
         l.currentLimitMa = (uint16_t)constrain((long)(doc["currentLimitMa"] | 0), 0L, 65535L);
+        l.torch = doc["torch"] | false;
         if (l.width == 0) l.width = 1;
         if (l.height == 0) l.height = 1;
         if (const char* conflict = _lightPinConflict(l, /*excludeLightIndex=*/idx)) {
@@ -2338,7 +2345,7 @@ class BatteryWebServer {
     // ── POST /api/lights/update ───────────────────────────────────────────────
     // Body: {index, ledType?, colorOrder?, dataPin?, clockPin?, width?, height?, matrixStart?,
     // matrixDir?, matrixSerpentine?, wrapWidth?, wrapHeight?, groupId?, brightnessLimit?,
-    // brightnessScale?, currentLimitMa?}
+    // brightnessScale?, currentLimitMa?, torch?}
     void _updateLight(AsyncWebServerRequest* r, uint8_t* data, size_t len) {
         JsonDocument doc;
         if (!_parseJson(r, doc, data, len)) return;
@@ -2449,6 +2456,12 @@ class BatteryWebServer {
             l.currentLimitMa = (uint16_t)constrain((long)doc["currentLimitMa"], 0L, 65535L);
             clampChanged = true;
         }
+        // torch flag: soft config, no restart needed
+        bool torchChanged = false;
+        if (!doc["torch"].isNull() && (bool)doc["torch"] != l.torch) {
+            l.torch = (bool)doc["torch"];
+            torchChanged = true;
+        }
         Config::save();
         auto ok = _makeOk();
         _sendJson(r, 200, ok);
@@ -2461,6 +2474,7 @@ class BatteryWebServer {
         if (brightnessOverrideChanged && _onLightBrightnessChange) _onLightBrightnessChange(idx);
         if (clampChanged && _onLightClampChange) _onLightClampChange(idx);
         if (colorOrderChanged && _onColorOrderChange) _onColorOrderChange(idx);
+        if (torchChanged && _onTorchChange) _onTorchChange(idx);
     }
 
     // ── POST /api/lights/test ─────────────────────────────────────────────────

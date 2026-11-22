@@ -34,6 +34,7 @@
 #include "sound/PlaylistSyncManager.h"
 #include "storage/SdCardManager.h"
 #include "timesync/TimeSync.h"
+#include "torch/TorchManager.h"
 #include "version.h"
 #include "web/WebServer.h"
 
@@ -65,6 +66,7 @@ static PlaylistSyncManager playlistSync;
 static ActionExecutor actionExecutor;
 static ButtonManager buttonManager;
 static AutomationManager automationManager;
+static TorchManager torchManager;
 static EventLog eventLog;
 static BatteryMonitor battery;
 static PowerManager power;
@@ -131,14 +133,17 @@ static void serialSink(LogLevel level, const char* msg) {
 
 // ── Light / group helpers ─────────────────────────────────────────────────────
 
-// Substitutes a light's own brightness override (local to this device, not
-// mesh-synced) for its group's brightness, when enabled. Every path that
-// applies a group's LightConfig to a light's runner must go through this so
-// the override survives group brightness changes, mesh syncs, and reboots.
-static LightConfig withBrightnessOverride(const LightConfig& cfg, const LightHardwareConfig& l) {
-    if (!l.brightnessOverrideEnabled) return cfg;
+// A light's effective config: its group's LightConfig with the light's own
+// brightness override (local to this device, not mesh-synced) substituted
+// for the group's brightness when enabled, and brightness 0 while the light
+// is a torch that is out (see TorchManager). Every path that applies a
+// group's LightConfig to a light's runner must go through this so both
+// survive group brightness changes, mesh syncs, and reboots.
+static LightConfig effectiveLightConfig(const LightConfig& cfg, uint8_t lightIndex) {
+    const auto& l = Config::get().lights[lightIndex];
     LightConfig c = cfg;
-    c.brightness = l.brightnessOverride;
+    if (l.brightnessOverrideEnabled) c.brightness = l.brightnessOverride;
+    if (torchManager.isOut(lightIndex)) c.brightness = 0;
     return c;
 }
 
@@ -147,7 +152,7 @@ static void applyAllLights() {
     Config::forEachLight([](uint8_t i, LightHardwareConfig& l) {
         if (!_leds[i]) return;
         auto* g = Config::group(l.groupId);
-        if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
+        if (g) _runners[i].applyConfig(effectiveLightConfig(g->light, i));
     });
 }
 
@@ -270,8 +275,18 @@ static void applyLightBrightnessOverride(uint8_t lightIndex) {
     auto& l = Config::get().lights[lightIndex];
     GroupConfig* g = Config::group(l.groupId);
     if (!g) return;
-    _runners[lightIndex].applyConfig(withBrightnessOverride(g->light, l));
+    _runners[lightIndex].applyConfig(effectiveLightConfig(g->light, lightIndex));
     mqtt.publishLightOverride(lightIndex);
+    publishTelemetry();
+}
+
+// Re-applies a light's effective config after its torch state changed and
+// pushes the change to the dashboard.
+static void applyTorchState(uint8_t lightIndex) {
+    if (lightIndex >= MAX_LIGHTS || !_leds[lightIndex]) return;
+    GroupConfig* g = Config::group(Config::get().lights[lightIndex].groupId);
+    if (!g) return;
+    _runners[lightIndex].applyConfig(effectiveLightConfig(g->light, lightIndex));
     publishTelemetry();
 }
 
@@ -302,8 +317,7 @@ static void applyAndPropagateLightConfig(uint8_t groupId, const LightConfig& cfg
     Config::save();
 
     Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
-        if (l.groupId == groupId && _leds[i])
-            _runners[i].applyConfig(withBrightnessOverride(cfg, l));
+        if (l.groupId == groupId && _leds[i]) _runners[i].applyConfig(effectiveLightConfig(cfg, i));
     });
 
     mesh.broadcastLightConfig(groupId, cfg);
@@ -657,7 +671,7 @@ void setup() {
         _runners[i].setPeerRegistry(&mesh.peers);
         _runners[i].setGroupId(l.groupId);
         auto* g = Config::group(l.groupId);
-        if (g) _runners[i].applyConfig(withBrightnessOverride(g->light, l));
+        if (g) _runners[i].applyConfig(effectiveLightConfig(g->light, i));
     });
 
     // Initialise the sound output, if configured.
@@ -703,6 +717,10 @@ void setup() {
     actionExecutor.setSendEventFn([](const char* eventType, uint16_t payload) {
         mesh.broadcastGenericEvent(eventType, payload);
     });
+    actionExecutor.setSetTorchFn(
+        [](uint8_t lightIndex, bool lit) { torchManager.set(lightIndex, lit); });
+    torchManager.setChangeFn([](uint8_t lightIndex) { applyTorchState(lightIndex); });
+    torchManager.setBeaconFn([](uint8_t groupMask) { mesh.broadcastTorchFlame(groupMask); });
     buttonManager.setExecutor(gameQuietBoot || fleetChargingBoot ? nullptr : &actionExecutor);
     // The one raw key-edge consumer slot: fan out from here to every module
     // that needs press/release edges.
@@ -751,6 +769,9 @@ void setup() {
         // applyPlayAudioLocally above), so mac here always identifies a peer.
         const char* name = mesh.peers.nameFor(mac);
         eventLog.record(name ? name : "unknown", eventType, payload);
+    });
+    mesh.setOnTorchFlame([](const uint8_t* mac, uint8_t groupMask, int8_t rssi) {
+        torchManager.onFlame(mac, groupMask, rssi);
     });
     mesh.setBatteryStatusProvider([]() { return battery.status(); });
 
@@ -935,7 +956,7 @@ void setup() {
                     auto* g = Config::group(groupId);
                     if (g)
                         _runners[lightIndex].applyConfig(
-                            withBrightnessOverride(g->light, Config::get().lights[lightIndex]));
+                            effectiveLightConfig(g->light, lightIndex));
                 }
                 Logger::i("[mesh] light %u moved to group %u", lightIndex, groupId);
             }
@@ -1002,7 +1023,7 @@ void setup() {
             // now, so there's no cheaper way to tell them apart here.
             Config::forEachLight([&](uint8_t i, LightHardwareConfig& l) {
                 if (l.groupId == g.id && _leds[i])
-                    _runners[i].applyConfig(withBrightnessOverride(applied->light, l));
+                    _runners[i].applyConfig(effectiveLightConfig(applied->light, i));
             });
         }
         if (applied) mqtt.publishGroupState(applied->id);
@@ -1111,6 +1132,7 @@ void setup() {
         }
     });
     webServer.setOnLightBrightnessChange([](uint8_t idx) { applyLightBrightnessOverride(idx); });
+    webServer.setOnTorchChange([](uint8_t idx) { torchManager.onTorchFlagChanged(idx); });
     webServer.setOnLampModeChange([]() { applyAllLights(); });
     webServer.setOnLightClampChange([](uint8_t idx) {
         if (idx < MAX_LIGHTS && _leds[idx]) {
@@ -1290,6 +1312,7 @@ void loop() {
             }
             TimeSync::tick();
             mqtt.loop();
+            torchManager.tick();
         }
 
         battery.tick();
