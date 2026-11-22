@@ -100,6 +100,13 @@ class MeshManager {
     // session, see src/game/GameFrames.h) and its RSSI. The receiver copies
     // it out and processes it in loop().
     using QuizFrameCb = std::function<void(const uint8_t* data, int len, int8_t rssi)>;
+    // Quiz frames and mesh routing frames (src/mesh/MeshRoute.h) with the
+    // sender and whether the frame was addressed to this device. When set,
+    // quiz frames go here instead of to the QuizFrameCb.
+    using RouteFrameCb = std::function<void(const uint8_t* mac, bool toMe, const uint8_t* data,
+                                            int len, int8_t rssi)>;
+    // Result of each unicast (radio task), in send order.
+    using SendResultCb = std::function<void(const uint8_t* mac, bool ok)>;
     // The same for fleet frames (src/fleet/FleetFrames.h), with the sender.
     using FleetFrameCb =
         std::function<void(const uint8_t* mac, const uint8_t* data, int len, int8_t rssi)>;
@@ -148,6 +155,8 @@ class MeshManager {
 #if FEATURE_GAME
     void setOnQuizFrame(QuizFrameCb cb) { _onQuizFrame = cb; }
     void setOnFleetFrame(FleetFrameCb cb) { _onFleetFrame = cb; }
+    void setOnRouteFrame(RouteFrameCb cb) { _onRouteFrame = cb; }
+    void setOnSendResult(SendResultCb cb) { _onSendResult = cb; }
 
     // Quiet: a game session owns the radio. Only quiz frames and fleet
     // commands (fleet `brightness` reaches a session) are sent and handled;
@@ -551,6 +560,37 @@ class MeshManager {
         _send(data, len);
     }
 
+    // Sends one mesh routing frame (src/mesh/MeshRoute.h) or a relayed quiz
+    // frame as a broadcast, after the framing check of the receive path.
+    void broadcastRouteFrame(const uint8_t* data, size_t len) {
+        if (!_ready || !_routeFrameOk(data, len)) return;
+        _send(data, len);
+    }
+
+    // Sends one routing or quiz frame to one peer (added with addUnicastPeer).
+    // False if ESP-NOW did not take it; then no send result follows.
+    bool unicastRouteFrame(const uint8_t* mac, const uint8_t* data, size_t len) {
+        if (!_ready || !_routeFrameOk(data, len)) return false;
+        if (_quiet && !_quietType(data[0])) return false;
+        if (!_quiet && _fleetOnly) return false;
+        return esp_now_send(mac, data, len) == ESP_OK;
+    }
+
+    // The routing parent: an ESP-NOW peer on the current channel, unencrypted.
+    void addUnicastPeer(const uint8_t* mac) {
+        if (!_ready || esp_now_is_peer_exist(mac)) return;
+        esp_now_peer_info_t peer{};
+        memcpy(peer.peer_addr, mac, 6);
+        peer.channel = 0;
+        peer.encrypt = false;
+        if (esp_now_add_peer(&peer) != ESP_OK) Logger::w("[mesh] add peer failed");
+    }
+
+    void removeUnicastPeer(const uint8_t* mac) {
+        if (!_ready || !esp_now_is_peer_exist(mac)) return;
+        esp_now_del_peer(mac);
+    }
+
     // Sends one fleet frame after the same framing check the receive path applies.
     void broadcastFleetFrame(const uint8_t* data, size_t len) {
         if (!_ready || !fleet::fleetFrameLenOk(data, len)) return;
@@ -622,6 +662,8 @@ class MeshManager {
 #if FEATURE_GAME
     QuizFrameCb _onQuizFrame;
     FleetFrameCb _onFleetFrame;
+    RouteFrameCb _onRouteFrame;
+    SendResultCb _onSendResult;
 #endif
 
     // ── Config push encryption (issue #252) ───────────────────────────────────
@@ -670,7 +712,14 @@ class MeshManager {
 #if FEATURE_GAME
     // What a device in a game session sends and handles.
     static bool _quietType(uint8_t type) {
-        return game::isQuizType(type) || type == fleet::kMsgFleetCommand;
+        return game::isQuizType(type) || type == fleet::kMsgFleetCommand ||
+               meshnet::isMeshType(type);
+    }
+
+    static bool _routeFrameOk(const uint8_t* data, size_t len) {
+        if (len < 1) return false;
+        if (meshnet::isMeshType(data[0])) return meshnet::meshFrameLenOk(data, len);
+        return game::quizFrameLenOk(data, len);
     }
 
     // What a device in a game session or in fleet-only mode handles.
@@ -1322,7 +1371,19 @@ class MeshManager {
             case MsgType::QuizRules: {
                 if (!game::quizFrameLenOk(data, (size_t)len)) return;
                 int8_t rssi = info->rx_ctrl ? (int8_t)info->rx_ctrl->rssi : 0;
-                if (_instance->_onQuizFrame) _instance->_onQuizFrame(data, len, rssi);
+                if (_instance->_onRouteFrame)
+                    _instance->_onRouteFrame(mac, _toMe(info), data, len, rssi);
+                else if (_instance->_onQuizFrame)
+                    _instance->_onQuizFrame(data, len, rssi);
+                break;
+            }
+            case MsgType::MeshBeacon:
+            case MsgType::MeshTopo:
+            case MsgType::MeshTrace: {
+                if (!meshnet::meshFrameLenOk(data, (size_t)len)) return;
+                int8_t rssi = info->rx_ctrl ? (int8_t)info->rx_ctrl->rssi : 0;
+                if (_instance->_onRouteFrame)
+                    _instance->_onRouteFrame(mac, _toMe(info), data, len, rssi);
                 break;
             }
             case MsgType::FleetStatus:
@@ -1344,9 +1405,19 @@ class MeshManager {
         }
     }
 
-    static void _onSent(const esp_now_send_info_t*, esp_now_send_status_t status) {
+    static void _onSent(const esp_now_send_info_t* info, esp_now_send_status_t status) {
+#if FEATURE_GAME
+        if (_instance && _instance->_onSendResult && info && info->des_addr)
+            _instance->_onSendResult(info->des_addr, status == ESP_NOW_SEND_SUCCESS);
+#endif
         if (status != ESP_NOW_SEND_SUCCESS) Logger::d("[mesh] send failed");
     }
+
+#if FEATURE_GAME
+    static bool _toMe(const esp_now_recv_info_t* info) {
+        return info->des_addr && (info->des_addr[0] & 1) == 0;
+    }
+#endif
 };
 
 inline MeshManager* MeshManager::_instance = nullptr;

@@ -41,6 +41,7 @@ class Bridge {
         bool pressed;
         bool rejoin;
         bool named;    // plays with the animal name (kStatusNamed)
+        bool teacher;  // the teacher device (kStatusTeacher)
         uint8_t lage;  // Lage, 0 = unknown
     };
 
@@ -50,6 +51,8 @@ class Bridge {
         virtual void onAdmitted(const ReqId& id, const uint8_t* mac, uint16_t n) = 0;
         virtual void onAdmitTimeout(const ReqId& id, const uint8_t* mac, uint16_t n) = 0;
         virtual void onSessionEnded(const ReqId& id) = 0;
+        // A key of a teacher device (QuizTeacher), each command once.
+        virtual void onTeacher(uint16_t n, const uint8_t* mac, uint8_t key, bool hold) = 0;
     };
 
     // Per device number, the latest value of the running round and the last status.
@@ -73,13 +76,16 @@ class Bridge {
         uint32_t fw;
         uint16_t lastRound;
         uint16_t lastSeq;
-        uint8_t lage;       // from the last status, 0 = unknown
-        bool named;         // from the last status (kStatusNamed)
-        uint8_t valueLage;  // the value's input orientation, 0 = unknown
-        uint8_t keySeq;     // move round: last kseq passed on, kNoKeySeq = none
-        bool answerTaken;   // race: the value is the answering device's answer
+        uint8_t lage;        // from the last status, 0 = unknown
+        bool named;          // from the last status (kStatusNamed)
+        bool teacher;        // from the last status (kStatusTeacher)
+        uint8_t teacherSeq;  // last QuizTeacher seq passed on, 0 = none
+        uint8_t valueLage;   // the value's input orientation, 0 = unknown
+        uint8_t keySeq;      // move round: last kseq passed on, kNoKeySeq = none
+        bool answerTaken;    // race: the value is the answering device's answer
         bool dirtyValue;
         bool dirtyDevice;
+        uint32_t seenAt;  // bridge time of its last frame (hub display)
     };
 
     // A key press of a move round waiting for its USB line.
@@ -106,6 +112,7 @@ class Bridge {
         bool firstOnly = false;    // only each device's first answer counts
         bool winnerWrong = false;  // the quizmaster rated the winner's answer wrong
         bool rainbow = false;      // scale of 24 steps shown as the rainbow
+        bool anonymous = false;    // no result colours on the devices
         bool hasInput = false;     // link field `input`: sent as QuizRules
         InputRule input;
     };
@@ -266,6 +273,7 @@ class Bridge {
             r.firstOnly = c.firstOnly;
             r.winnerWrong = c.winnerWrong;
             r.rainbow = c.rainbow;
+            r.anonymous = c.anonymous;
             r.hasInput = c.hasInput;
             if (c.hasInput) ruleToFrame(c.input, r.rules);
             if (r.type != RoundType::Idle) _enterPhase(r.phase, c, now);
@@ -279,7 +287,7 @@ class Bridge {
             memcmp(c.keyColor, r.keyColor, sizeof(r.keyColor)) != 0 || c.min != r.min ||
             c.max != r.max || c.redMax != r.redMax || c.greenMin != r.greenMin ||
             c.hold != r.hold || c.firstOnly != r.firstOnly || c.rainbow != r.rainbow ||
-            !_sameInput(c, r))
+            c.anonymous != r.anonymous || !_sameInput(c, r))
             return Err::RoundFixed;
         Phase phase = r.type == RoundType::Idle ? Phase::Closed : c.phase;
         if ((uint8_t)phase < (uint8_t)r.phase) return Err::BadPhase;
@@ -334,6 +342,7 @@ class Bridge {
         if (!quizFrameLenOk(d, len)) return;
         _rxFrames++;
         if (!_active || _ending) return;
+        _rxNow = now;
         QuizHeader h;
         memcpy(&h, d, sizeof(h));
         if (h.origin == 0) return;  // another bridge
@@ -352,8 +361,11 @@ class Bridge {
             QuizKeysMsg m;
             decodeFrame(d, len, kMsgQuizKeys, m);
             _onKeys(m);
+        } else if (h.type == kMsgQuizTeacher && h.proto == kProto) {
+            QuizTeacherMsg m;
+            decodeFrame(d, len, kMsgQuizTeacher, m);
+            _onTeacher(m);
         }
-        (void)now;
     }
 
     void tick(uint32_t now) {
@@ -433,6 +445,34 @@ class Bridge {
         return (_devs && n >= 1 && n <= kMaxNumber) ? &_devs[n] : nullptr;
     }
 
+    // The running round as the bridge repeats it (hub display).
+    struct RoundModel {
+        uint16_t id = 0;
+        uint16_t seq = 1;
+        RoundType type = RoundType::Idle;
+        Phase phase = Phase::Closed;
+        uint16_t keyMask = 0;
+        uint8_t keyColor[5] = {};
+        uint8_t min = 0, max = 0, redMax = 0, greenMin = 0;
+        uint16_t winner = 0;
+        uint8_t correct = 0;
+        Hold hold = Hold::Frei;
+        bool firstOnly = false;
+        bool winnerWrong = false;
+        bool rainbow = false;
+        bool anonymous = false;
+        bool hasInput = false;
+        QuizRulesMsg rules{};    // its frame, header filled at send
+        uint16_t answering = 0;  // race: the number answering now
+        uint16_t answerMs = 0;
+        uint32_t answerAt = 0;  // bridge time its answer time began
+        bool opened = false;
+        uint32_t openAt = 0;  // bridge time of the round start (open + openInMs)
+        bool closedValid = false;
+        int32_t closedAtMs = 0;
+    };
+    const RoundModel& roundModel() const { return _round; }
+
     StateInfo stateInfo(uint32_t now) const {
         StateInfo s{};
         s.round = _round.id;
@@ -478,30 +518,6 @@ class Bridge {
     }
 
    private:
-    struct RoundModel {
-        uint16_t id = 0;
-        uint16_t seq = 1;
-        RoundType type = RoundType::Idle;
-        Phase phase = Phase::Closed;
-        uint16_t keyMask = 0;
-        uint8_t keyColor[5] = {};
-        uint8_t min = 0, max = 0, redMax = 0, greenMin = 0;
-        uint16_t winner = 0;
-        uint8_t correct = 0;
-        Hold hold = Hold::Frei;
-        bool firstOnly = false;
-        bool winnerWrong = false;
-        bool rainbow = false;
-        bool hasInput = false;
-        QuizRulesMsg rules{};    // its frame, header filled at send
-        uint16_t answering = 0;  // race: the number answering now
-        uint16_t answerMs = 0;
-        uint32_t answerAt = 0;  // bridge time its answer time began
-        bool opened = false;
-        uint32_t openAt = 0;  // bridge time of the round start (open + openInMs)
-        bool closedValid = false;
-        int32_t closedAtMs = 0;
-    };
     struct PendingAdmit {
         uint8_t mac[6];
         uint16_t n;
@@ -516,6 +532,7 @@ class Bridge {
     };
 
     Io _io;
+    uint32_t _rxNow = 0;  // time of the frame in onFrame
     Listener* _listener = nullptr;
     Device* _devs = nullptr;  // index = number, 1..kMaxNumber
     bool _quiet = false;
@@ -605,7 +622,8 @@ class Bridge {
         _fillHeader(m.h, kMsgQuizState);
         m.h.flags = (uint8_t)((_round.firstOnly ? kStateFirstOnly : 0) |
                               (_round.winnerWrong ? kStateWinnerWrong : 0) |
-                              (_round.rainbow ? kStateRainbow : 0));
+                              (_round.rainbow ? kStateRainbow : 0) |
+                              (_round.anonymous ? kStateAnonymous : 0));
         m.session = _session;
         m.roundId = _round.id;
         m.stateSeq = _round.seq;
@@ -793,6 +811,16 @@ class Bridge {
         }
     }
 
+    // Only an admitted teacher device; each seq once.
+    void _onTeacher(const QuizTeacherMsg& m) {
+        uint16_t n = m.h.origin;
+        if (n < 1 || n > _maxNumber || m.seq == 0 || m.key >= kKeySlots) return;
+        Device& dv = _devs[n];
+        if (!dv.macKnown || !dv.teacher || m.seq == dv.teacherSeq) return;
+        dv.teacherSeq = m.seq;
+        if (_listener) _listener->onTeacher(n, dv.mac, m.key, m.hold != 0);
+    }
+
     static bool _isDirection(Key k) {
         return k == Key::Up || k == Key::Right || k == Key::Down || k == Key::Left;
     }
@@ -823,6 +851,7 @@ class Bridge {
             j.pressed = (m.flags & kStatusPressed) != 0;
             j.rejoin = (m.flags & kStatusRejoin) != 0;
             j.named = (m.flags & kStatusNamed) != 0;
+            j.teacher = (m.flags & kStatusTeacher) != 0;
             j.lage = lage;
             _listener->onJoin(j);
             return;
@@ -837,6 +866,7 @@ class Bridge {
         memcpy(dv.mac, m.mac, 6);
         dv.macKnown = true;
         dv.hasStatus = true;
+        dv.seenAt = _rxNow;
         dv.fw = m.fwBuild;
         dv.proto = m.h.proto;
         dv.battery = m.battery;
@@ -846,6 +876,7 @@ class Bridge {
         dv.lastSeq = m.lastStateSeq;
         dv.lage = lage;
         dv.named = (m.flags & kStatusNamed) != 0;
+        dv.teacher = (m.flags & kStatusTeacher) != 0;
         _setDirtyDevice(n);
         for (uint16_t i = 0; i < _admitCount; i++) {
             PendingAdmit& a = _admits[i];
@@ -858,10 +889,12 @@ class Bridge {
     }
 
     void _noteNumber(uint16_t n) {
-        if (n <= _maxNumber) return;
-        for (uint16_t k = (uint16_t)(_maxNumber + 1); k <= n; k++) _devs[k] = Device{};
-        _devs[n].value = kNoValue;
-        _maxNumber = n;
+        if (n > _maxNumber) {
+            for (uint16_t k = (uint16_t)(_maxNumber + 1); k <= n; k++) _devs[k] = Device{};
+            _devs[n].value = kNoValue;
+            _maxNumber = n;
+        }
+        _devs[n].seenAt = _rxNow;
     }
 
     void _setDirtyValue(uint16_t n) {

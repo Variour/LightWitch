@@ -74,12 +74,14 @@ class Participant {
         bool firstOnly = false;    // only the first answer counts (kStateFirstOnly)
         bool winnerWrong = false;  // the race winner's answer rated wrong (kStateWinnerWrong)
         bool rainbow = false;      // a scale of 24 steps in the rainbow colours (kStateRainbow)
+        bool anonymous = false;    // no result colours after the resolution (kStateAnonymous)
         uint16_t answering = 0;    // race: the number answering now, 0 = none
         uint16_t answerMs = 0;     // its answer time
         bool deadlineKnown = false;
         uint32_t deadline = 0;    // local end of the answer time
         uint32_t turnSeenMs = 0;  // when this turn came
         uint32_t resultMs = 0;    // when correct, winner or the rating last changed
+        uint32_t closedMs = 0;    // when the round was seen closing
         bool fixedKnown = false;  // hold fest: the orientation at the open
         Lage fixed = Lage::Unknown;
         bool startKnown = false;
@@ -126,6 +128,15 @@ class Participant {
     // Whether this device may join on a buzz press: it has a buzz key and is
     // not the bridge.
     void setCanJoin(bool can) { _canJoin = can; }
+
+    // Teacher device (owner, 2026-11-18, lehrer-geraet-hub-und-sitzung.md):
+    // joins every session it is invited to without a press, plays in no
+    // round and sends its keys to the bridge as QuizTeacher frames.
+    void setTeacher(bool t) { _teacher = t; }
+    bool teacher() const { return _teacher; }
+    bool keyDown(Key k) const { return (uint8_t)k < kKeySlots && _down[(uint8_t)k]; }
+    // Teacher: devices other than itself with a value in the round (echo).
+    uint16_t givenCount() const { return _given; }
 
     void onFrame(const uint8_t* d, size_t len, int8_t rssi, uint32_t now) {
         if (!quizFrameLenOk(d, len)) return;
@@ -204,9 +215,19 @@ class Participant {
         if ((uint8_t)k >= (uint8_t)Key::Power) return;
         _down[(uint8_t)k] = pressed;
         if (pressed) _downAt[(uint8_t)k] = ms;
-        if (!pressed) return;
+        if (!pressed) {
+            if (_teacher && k == _teacherDown) {
+                if (!_teacherHeld && _state == State::Member) _teacherSend(k, false, now);
+                _teacherDown = Key::None;
+            }
+            return;
+        }
         if (_state == State::Normal) {
             if (k == Key::Buzz && inviteVisible(now)) _joinFromInvite(now);
+        } else if (_state == State::Member && _teacher) {
+            _teacherDown = k;
+            _teacherDownAt = ms;
+            _teacherHeld = false;
         } else if (_state == State::Member) {
             _onMemberPress(k, ms, now);
             // Held, Up and Down step on in a scale round (kScaleRepeatDelayMs).
@@ -249,6 +270,7 @@ class Participant {
         }
         _serviceChannelSwitch(now);
         _serviceSearch(now);
+        _serviceTeacher(now);
         _serviceSend(now);
         _serviceKeys(now);
         _serviceRepeat(now);
@@ -274,10 +296,27 @@ class Participant {
     bool confirmed() const { return _confirmed; }
     // When the bridge's echo last confirmed the value (millis()).
     uint32_t confirmedMs() const { return _confirmedMs; }
-    // A round with firstOnly whose answer has gone out: the keys take no
-    // other answer.
+    // A round with firstOnly or release whose answer has gone out: the keys
+    // take no other answer (with release, until Enter releases it).
     bool answerLocked() const {
-        return (_round.firstOnly || confirmEnter()) && _val != kNoValue && _reported;
+        return (_round.firstOnly || confirmEnter() || _rule.release) && _val != kNoValue &&
+               _reported;
+    }
+    // An anonymous round with its resolution (kStateAnonymous).
+    bool anonymousResolved() const {
+        return _round.known && _round.anonymous && _round.phase == Phase::Closed &&
+               _round.correct != 0;
+    }
+    // The anonymous result shown on Enter: since when, or false.
+    bool peeking(uint32_t now) const { return _peeked && now - _peekMs < kPeekMs; }
+    uint32_t peekMs() const { return _peekMs; }
+    // Enter releases the answer given now (InputRule::release).
+    bool releasable(uint32_t ms) const {
+        // A counter's value set but not logged in yet goes in with Enter.
+        if (_rule.mode == InputMode::Counter && !answerLocked()) return false;
+        return _rule.release && _val != kNoValue && !_answerGiven && _round.known &&
+               _round.phase == Phase::Open && _round.startKnown &&
+               (int32_t)(ms - _round.startMs) >= 0;
     }
     // A scale that Enter logs in (link `confirm`): Up and Down set the value,
     // Enter sends it, then it stays.
@@ -318,7 +357,7 @@ class Participant {
     }
 
     bool namingOpen(uint32_t now) const {
-        return _state == State::Member && loginOpen(now) &&
+        return !_teacher && _state == State::Member && loginOpen(now) &&
                !(_round.known && _round.type != RoundType::Idle);
     }
 
@@ -422,6 +461,16 @@ class Participant {
     uint32_t _confirmedMs = 0;
     bool _reported = false;     // the value went out at least once
     bool _answerGiven = false;  // race: this device answered with an answer key
+    bool _teacher = false;
+    Key _teacherDown = Key::None;  // the key held now
+    uint32_t _teacherDownAt = 0;
+    bool _teacherHeld = false;  // its hold went out
+    uint8_t _teacherSeq = 0;
+    uint8_t _teacherKey = 0, _teacherHold = 0, _teacherLeft = 0;
+    uint32_t _teacherNextAt = 0;
+    uint16_t _given = 0;
+    bool _peeked = false;  // anonymous result shown on Enter (kPeekMs)
+    uint32_t _peekMs = 0;
     bool _sendArmed = false;
     uint32_t _nextSendAt = 0;
     uint32_t _retryMs = 0;
@@ -469,6 +518,7 @@ class Participant {
         _inviteMs = now;
         _inviteSession = m.session;
         _inviteChannel = m.channel;
+        if (_teacher && _canJoin) _joinFromInvite(now);
     }
 
     void _joinFromInvite(uint32_t now) {
@@ -564,6 +614,8 @@ class Participant {
             _round.id = m.roundId;
             _round.seq = m.stateSeq;
             _round.type = (RoundType)m.roundType;
+            if ((Phase)m.phase == Phase::Closed && _round.phase != Phase::Closed)
+                _round.closedMs = now;
             _round.phase = (Phase)m.phase;
             _round.keyMask = m.keyMask;
             memcpy(_round.keyColor, m.keyColor, sizeof(_round.keyColor));
@@ -581,6 +633,7 @@ class Participant {
             _round.hold = (Hold)m.hold;
             _round.firstOnly = (m.h.flags & kStateFirstOnly) != 0;
             _round.rainbow = (m.h.flags & kStateRainbow) != 0;
+            _round.anonymous = (m.h.flags & kStateAnonymous) != 0;
             _applyRule();
             if (m.turn != _round.answering || m.turnMs != _round.answerMs) {
                 _round.answering = m.turn;
@@ -613,6 +666,17 @@ class Participant {
                 _round.deadline = end;
                 _round.deadlineKnown = true;
             }
+        }
+        if (_teacher) {
+            // The first page holds numbers 1-200, the first fleet's size.
+            if (m.echoFirst == 1) {
+                uint16_t given = 0;
+                bool log = _round.type == RoundType::Move;
+                for (uint8_t i = 0; i < m.echoCount; i++)
+                    if (i + 1 != _number && m.echo[i] != (log ? kNoKeySeq : kNoValue)) given++;
+                _given = given;
+            }
+            return;
         }
         if (_number == 0 || _number < m.echoFirst || _number >= m.echoFirst + m.echoCount) return;
         uint8_t echo = m.echo[_number - m.echoFirst];
@@ -647,9 +711,13 @@ class Participant {
             _sendArmed = false;
             return;
         }
+        // A released answer: confirmed once the bridge holds no value.
+        if (_val == kNoValue) {
+            if (_sendArmed && echo == kNoValue) _sendArmed = false;
+            return;
+        }
         // Echo: confirm, or resend if the bridge holds something else. A
         // race answer counts only as its marked echo, not as the buzz.
-        if (_val == kNoValue) return;
         uint8_t want = _answerGiven ? (uint8_t)(kEchoAnswer | _val) : _val;
         if (echo == want) {
             if (!_confirmed) _confirmedMs = now;
@@ -693,7 +761,8 @@ class Participant {
                m.winner == r.winner && m.correct == r.correct && m.hold == (uint8_t)r.hold &&
                ((m.h.flags & kStateFirstOnly) != 0) == r.firstOnly &&
                ((m.h.flags & kStateWinnerWrong) != 0) == r.winnerWrong &&
-               ((m.h.flags & kStateRainbow) != 0) == r.rainbow && m.turn == r.answering &&
+               ((m.h.flags & kStateRainbow) != 0) == r.rainbow &&
+               ((m.h.flags & kStateAnonymous) != 0) == r.anonymous && m.turn == r.answering &&
                m.turnMs == r.answerMs;
     }
 
@@ -706,6 +775,7 @@ class Participant {
         _confirmedMs = 0;
         _reported = false;
         _answerGiven = false;
+        _peeked = false;
         _sendArmed = false;
         _retryMs = 0;
         // Move: the press counter restarts per round and with every join.
@@ -732,6 +802,16 @@ class Participant {
                 return;
             }
         }
+        // Anonymous round resolved: Enter shows the result for kPeekMs.
+        if (k == Key::Enter && anonymousResolved()) {
+            _peeked = true;
+            _peekMs = now;
+            return;
+        }
+        if (k == Key::Enter && releasable(ms)) {
+            _setValue(kNoValue, ms, now, 0);  // the bridge holds no value again
+            return;
+        }
         if (!keyFree(k, ms)) {
             // Round format v0, "Nummern": a member pressing the buzzer while
             // login is open reports itself again, marked as pressed.
@@ -745,7 +825,7 @@ class Participant {
                 break;
             case InputMode::Pick: {
                 uint8_t a = _rule.valueOf(k);
-                if (_val == kNoValue || (!_rule.firstOnly && a != _val))
+                if (_val == kNoValue || (!_rule.firstOnly && !_rule.release && a != _val))
                     _setValue(a, ms, now, _rule.sendDelayMs);
                 break;
             }
@@ -781,6 +861,7 @@ class Participant {
         if (r.confirmed()) {
             // Held until the confirm key logs it in.
             _val = v;
+            _reported = false;
             _inputMs = ms;
             _valLage = (uint8_t)_shown;
             _confirmed = false;
@@ -952,6 +1033,34 @@ class Participant {
         h.flags = 0;
     }
 
+    // Teacher: a held key sends its hold once after kTeacherHoldMs.
+    void _serviceTeacher(uint32_t now) {
+        if (!_teacher) return;
+        if (_teacherDown != Key::None && !_teacherHeld && now - _teacherDownAt >= kTeacherHoldMs) {
+            _teacherHeld = true;
+            _teacherSend(_teacherDown, true, now);
+        }
+        if (_teacherLeft == 0 || (int32_t)(now - _teacherNextAt) < 0) return;
+        QuizTeacherMsg m{};
+        _fillHeader(m.h, kMsgQuizTeacher);
+        m.session = _session;
+        m.key = _teacherKey;
+        m.hold = _teacherHold;
+        m.seq = _teacherSeq;
+        _send(&m, sizeof(m));
+        _teacherLeft--;
+        _teacherNextAt = now + kTeacherRepeatMs;
+    }
+
+    void _teacherSend(Key k, bool hold, uint32_t now) {
+        _teacherSeq = (uint8_t)(_teacherSeq % 255 + 1);
+        _teacherKey = (uint8_t)k;
+        _teacherHold = hold ? 1 : 0;
+        _teacherLeft = kTeacherRepeats;
+        _teacherNextAt = now;
+        _serviceTeacher(now);
+    }
+
     void _sendStatus(uint8_t flags) {
         QuizStatusMsg m{};
         _fillHeader(m.h, kMsgQuizStatus);
@@ -960,8 +1069,8 @@ class Participant {
         m.fwBuild = _io.fwBuild ? _io.fwBuild() : 0;
         Health hl = _health();
         m.battery = hl.battery;
-        m.flags =
-            (uint8_t)(flags | (hl.charging ? kStatusCharging : 0) | (named() ? kStatusNamed : 0));
+        m.flags = (uint8_t)(flags | (hl.charging ? kStatusCharging : 0) |
+                            (named() ? kStatusNamed : 0) | (_teacher ? kStatusTeacher : 0));
         m.rssi = _lastRssi;
         m.lastRoundId = _round.known ? _round.id : 0;
         m.lastStateSeq = _round.known ? _round.seq : 0;

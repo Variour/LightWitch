@@ -52,6 +52,9 @@ static constexpr uint8_t kStatusRejoin = 1 << 3;
 // The player chose to play with the device's animal name (owner,
 // 2026-11-10); without it the device plays anonymously.
 static constexpr uint8_t kStatusNamed = 1 << 4;
+// Owner (2026-11-18): the teacher device, a remote for the console; it
+// plays in no round and counts in no result.
+static constexpr uint8_t kStatusTeacher = 1 << 5;
 
 static constexpr uint8_t kNoValue = 0xFF;  // echo / report: no value
 // Echo bit 7: the value is the answer of the race device with the turn (its
@@ -92,6 +95,10 @@ inline Rgb colorRgb(Color c) {
 // shows it in an orange red at half the brightness of the green of a right
 // one (the console's screen takes the same colour).
 static constexpr Rgb kWrongRgb = {128, 40, 0};
+// Owner (2026-11-18, SYSTEM.md v7): the ring after closing, and of a round
+// without an answer at the resolution.
+static constexpr Rgb kWarmWhiteRgb = {255, 170, 90};
+static constexpr Rgb kNotGivenRgb = {120, 0, 255};
 
 // owner (2026-11-10): the 24 colours of a rainbow scale (link `game round`
 // display "rainbow"), step 1 (index 0, red) to step 24 (violet): hue 0-280

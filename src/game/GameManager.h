@@ -63,6 +63,7 @@ class GameManager {
             _storedSession = p.getUShort(KEY_SESSION, 0);
             _storedChannel = p.getUChar(KEY_CHANNEL, 0);
             _storedNaming = (game::Participant::Naming)p.getUChar(KEY_NAMING, 0);
+            _teacher = p.getBool(KEY_TEACHER, false);
             p.end();
         }
         if (_number > game::kMaxNumber) _number = 0;
@@ -101,6 +102,7 @@ class GameManager {
         pio.fwBuild = [this]() { return _fwBuild(); };
         _participant.begin(pio, _mac, _number, _storedSession, _storedChannel, _storedNaming, now);
         _participant.setCanJoin(_hasBuzzKey);
+        _participant.setTeacher(_teacher);
 
         game::Bridge::Io bio;
         bio.send = [this](const uint8_t* d, size_t n) { _sendFrame(d, n); };
@@ -183,6 +185,21 @@ class GameManager {
     // is open with `link hello`.
     bool gatewayActive() const { return _isBridge && _link.helloDone(); }
     uint16_t number() const { return _number; }
+    // Hub display: the bridge side and whether this device is the bridge.
+    bool isBridge() const { return _isBridge; }
+    const game::Bridge& bridge() const { return _bridge; }
+    // Teacher device (USB `config role`); applies at once outside a session.
+    bool teacher() const { return _teacher; }
+    bool storeTeacher(bool t) {
+        Preferences p;
+        if (!p.begin(NVS_NS, false)) return false;
+        bool ok = p.putBool(KEY_TEACHER, t) > 0;
+        p.end();
+        if (!ok) return false;
+        _teacher = t;
+        if (!_participant.inSession()) _participant.setTeacher(t);
+        return true;
+    }
     // An invite ring shows (normal operation, device with a buzz key).
     bool inviteVisible(uint32_t now) const {
         return _participant.state() == game::Participant::State::Normal &&
@@ -242,6 +259,7 @@ class GameManager {
     static constexpr const char* KEY_SESSION = "sess";
     static constexpr const char* KEY_CHANNEL = "sch";
     static constexpr const char* KEY_NAMING = "named";
+    static constexpr const char* KEY_TEACHER = "teacher";
 
     struct SerialWriter : game::Link::Writer {
         int availableForWrite() override { return Serial.availableForWrite(); }
@@ -261,6 +279,7 @@ class GameManager {
     uint8_t _mac[6] = {};
     bool _hasBuzzKey = false;
     bool _isBridge = false;
+    bool _teacher = false;
     bool _overlayOn = false;
     int8_t _imuIntPin = -1;  // -1: no orientation sensor
     bool _imuOn = false;

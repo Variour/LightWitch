@@ -42,6 +42,23 @@
 #include "fleet/DeepSleep.h"
 #include "fleet/FleetManager.h"
 #include "game/GameManager.h"
+#include "mesh/MeshLink.h"
+#include "mesh/MeshRoute.h"
+#include "mesh/MeshTestRender.h"
+#endif
+#ifndef FEATURE_DISPLAY
+#define FEATURE_DISPLAY 0
+#endif
+#if FEATURE_DISPLAY
+#if !FEATURE_GAME
+#error "FEATURE_DISPLAY needs FEATURE_GAME=1"
+#endif
+#include "display/HubUi.h"
+#include "display/HubView.h"
+static display::HubUi hubUi;
+static display::HubView hubView;
+static uint32_t hubSessionAt = 0;
+static uint16_t hubSessionId = 0;
 #endif
 
 static Ws2812bDriver _ws2812bPool[MAX_LIGHTS];
@@ -68,6 +85,12 @@ static PowerManager power;
 #if FEATURE_GAME
 static GameManager gameSession;
 static FleetManager fleetManager;
+// Multi-hop forwarding, transmit power and the mesh test (src/mesh/MeshRoute.h).
+static meshnet::Router meshRouter;
+static meshnet::MeshLink meshLink;
+static meshnet::LinkChain linkChain;
+static LedDriver* meshTestLed = nullptr;  // the Buzzerboard's 34 LEDs
+static bool meshTestShown = false;
 #endif
 static bool _otaActive = false;
 
@@ -643,6 +666,7 @@ void setup() {
 #if FEATURE_GAME
         gameSession.setLight(drv, numLeds);
         fleetManager.setLight(drv, numLeds);
+        if (!meshTestLed && numLeds == game::kLedCount) meshTestLed = drv;
 #endif
         _runners[i].begin(*drv);
         _runners[i].setDimensions(l.width, l.height);
@@ -782,12 +806,40 @@ void setup() {
     fleetManager.begin(fio, &power, &battery, &gameSession, &mesh, &wifiElection, fleetChargingBoot,
                        millis());
 
-    // Wire the game session (src/game/): participant, bridge and their radio frames.
-    mesh.setOnQuizFrame([](const uint8_t* data, int len, int8_t rssi) {
-        gameSession.onRadioFrame(data, len, rssi);
-    });
+    // Wire the game session (src/game/): participant, bridge and their radio
+    // frames, all through the mesh router (src/mesh/MeshRoute.h).
+    {
+        meshnet::Router::Io rio;
+        rio.broadcast = [](const uint8_t* d, size_t n) { mesh.broadcastRouteFrame(d, n); };
+        rio.unicast = [](const uint8_t* mac, const uint8_t* d, size_t n) {
+            return mesh.unicastRouteFrame(mac, d, n);
+        };
+        rio.deliverQuiz = [](const uint8_t* d, size_t n, int8_t rssi) {
+            gameSession.onRadioFrame(d, (int)n, rssi);
+        };
+        rio.setTxPower = [](int8_t dbm) {
+            if (esp_err_t err = esp_wifi_set_max_tx_power((int8_t)(dbm * 4)); err != ESP_OK)
+                Logger::d("[route] tx power %d dBm: %s", dbm, esp_err_to_name(err));
+        };
+        rio.randomRange = [](uint32_t lo, uint32_t hi) {
+            return lo + esp_random() % (hi - lo + 1);
+        };
+        rio.parentChanged = [](const uint8_t* oldMac, const uint8_t* newMac) {
+            static const uint8_t zero[6] = {};
+            if (memcmp(oldMac, zero, 6) != 0) mesh.removeUnicastPeer(oldMac);
+            if (newMac) mesh.addUnicastPeer(newMac);
+        };
+        uint8_t mac[6];
+        WiFi.macAddress(mac);
+        meshRouter.begin(rio, mac, (int8_t)((int)WIFI_TX_POWER / 4), millis());
+    }
+    mesh.setOnRouteFrame(
+        [](const uint8_t* mac, bool toMe, const uint8_t* data, int len, int8_t rssi) {
+            meshRouter.push(mac, toMe, data, (size_t)len, rssi, millis());
+        });
+    mesh.setOnSendResult([](const uint8_t* mac, bool ok) { meshRouter.pushSent(mac, ok); });
     gameSession.setSendFn(
-        [](const uint8_t* data, size_t len) { mesh.broadcastQuizFrame(data, len); });
+        [](const uint8_t* data, size_t len) { meshRouter.sendQuiz(data, len, millis()); });
     gameSession.setEnterQuietFn([](bool participant) { enterGameQuiet(participant); });
     gameSession.setHealthFn([]() {
         const auto& bs = battery.status();
@@ -799,6 +851,13 @@ void setup() {
     // Only a device with a buzz key takes invites; the bridge role needs no keys.
     gameSession.setHasBuzzKey(Config::buttonIndexForRole(ButtonRole::BUZZ) >= 0);
     gameSession.begin(millis());
+    meshLink.begin(&meshRouter);
+    linkChain.begin(fleetManager.linkExtension(), &meshLink);
+    gameSession.setLinkExtension(&linkChain);
+#endif
+#if FEATURE_DISPLAY
+    hubUi.begin();
+    hubUi.setMesh(&meshRouter);
 #endif
 
     // Wire SceneSyncManager → MeshManager
@@ -1220,9 +1279,39 @@ void loop() {
     actionExecutor.tick(now);
 
 #if FEATURE_GAME
+    // Every pass, ahead of the game: frames to relay and to hand to the game.
+    {
+        meshnet::Router::Self self;
+        self.number = gameSession.number();
+        const auto& bs = battery.status();
+        if (bs.present) self.battery = bs.percent;
+        self.mobile = gameSession.teacher();
+        self.usb = power.online() && power.status().powerGood();
+        meshRouter.setSelf(self);
+        meshRouter.setRoot(gameSession.gatewayActive());
+        // Below full power only while the session holds the radio or the mesh
+        // test runs, and never with a WiFi connection.
+        meshRouter.setAdaptiveAllowed((gameSession.radioQuiet() || meshRouter.testActive()) &&
+                                      WiFi.status() != WL_CONNECTED);
+        meshRouter.tick(now);
+    }
     // Every pass: the bridge repeats state at 50 ms and hops channels for 30 ms.
     gameSession.tick(now);
     const bool gameQuiet = gameSession.radioQuiet();
+#if FEATURE_DISPLAY
+    {
+        const game::Bridge& b = gameSession.bridge();
+        bool on = gameSession.isBridge() && b.active();
+        if (on && b.sessionId() != hubSessionId) {
+            hubSessionId = b.sessionId();
+            hubSessionAt = now;
+        }
+        if (!on) hubSessionId = 0;
+        hubView.fill(b, gameSession.isBridge(), gameSession.gatewayActive(), now - hubSessionAt,
+                     now);
+        hubUi.tick(hubView, now);
+    }
+#endif
     // Device states, fleet frames, update all, factory test (src/fleet/).
     fleetManager.tick(now);
     // Charging mode and standby: no WiFi, AP, web, OTA, MQTT, time or
@@ -1328,7 +1417,20 @@ void loop() {
     if (!_otaActive && now - _lastPatternTickMs >= patternTickMs) {
         _lastPatternTickMs = now;
 #if FEATURE_GAME
-        if (gameSession.ownsLeds()) {
+        if (meshTestLed && meshRouter.testActive() && !fleetManager.standby()) {
+            // Mesh test: the device's place in the tree over everything else.
+            game::Rgb px[game::kLedCount];
+            meshnet::renderMeshTest(meshRouter, game::kBuzzerboardA0Zones, now, px);
+            uint8_t lvl = GameManager::_showLevel();
+            for (uint16_t i = 0; i < game::kLedCount; i++)
+                meshTestLed->setPixel(i, scaleToLevel(px[i].r, lvl), scaleToLevel(px[i].g, lvl),
+                                      scaleToLevel(px[i].b, lvl));
+            meshTestLed->show();
+            meshTestShown = true;
+        } else if (meshTestShown) {
+            meshTestShown = false;
+            applyAllLights();
+        } else if (gameSession.ownsLeds()) {
             gameSession.render(now);
         } else if (fleetManager.ownsLeds()) {
             fleetManager.render(now);
